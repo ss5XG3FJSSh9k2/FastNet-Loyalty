@@ -1,0 +1,2438 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { 
+  ShoppingBag, 
+  Smartphone, 
+  Settings, 
+  Database, 
+  Sparkles, 
+  ShieldAlert, 
+  ArrowRightLeft, 
+  UserCheck, 
+  Wifi, 
+  WifiOff, 
+  CheckCircle2, 
+  TrendingUp, 
+  Calculator, 
+  Plus, 
+  Minus, 
+  RotateCcw,
+  Download,
+  AlertCircle
+} from 'lucide-react';
+
+const API_BASE = 'http://localhost:3001/api';
+
+export default function App() {
+  const [activeRole, setActiveRole] = useState('marketing');
+  const [regions, setRegions] = useState([]);
+  const [selectedRegionId, setSelectedRegionId] = useState('r1');
+  const [currentUser, setCurrentUser] = useState(null);
+  
+  // Guided Walkthrough Tour State
+  const [tourStep, setTourStep] = useState(1);
+  const [tourCompleted, setTourCompleted] = useState(false);
+  const [showDevSettings, setShowDevSettings] = useState(false);
+  const [discountApplied, setDiscountApplied] = useState(0);
+  const [calculatorCollapsed, setCalculatorCollapsed] = useState(true);
+
+  // Customer App State
+  const [customerStockists, setCustomerStockists] = useState([]);
+  const [selectedStockist, setSelectedStockist] = useState(null);
+  const [customerProducts, setCustomerProducts] = useState([]);
+  const [customerCart, setCustomerCart] = useState([]);
+  const [customerLedger, setCustomerLedger] = useState([]);
+  const [customerBalance, setCustomerBalance] = useState(0);
+  const [customerOrders, setCustomerOrders] = useState([]);
+  const [customerAppTab, setCustomerAppTab] = useState('store'); // store, ledger, orders
+  const [redeemAmount, setRedeemAmount] = useState('');
+  const [checkoutResult, setCheckoutResult] = useState(null);
+
+  // Stockist App State
+  const [stockistProfile, setStockistProfile] = useState(null);
+  const [stockistOrders, setStockistOrders] = useState([]);
+  const [stockistProducts, setStockistProducts] = useState([]);
+  const [offlineMode, setOfflineMode] = useState(() => {
+    return localStorage.getItem('fastnet_offline_mode') === 'true';
+  });
+  const [offlineQueue, setOfflineQueue] = useState(() => {
+    try {
+      const saved = localStorage.getItem('fastnet_offline_queue');
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    localStorage.setItem('fastnet_offline_mode', offlineMode.toString());
+  }, [offlineMode]);
+
+  useEffect(() => {
+    localStorage.setItem('fastnet_offline_queue', JSON.stringify(offlineQueue));
+  }, [offlineQueue]);
+
+  const [vendors, setVendors] = useState([]);
+  const [selectedVendorId, setSelectedVendorId] = useState('');
+
+  // Admin Dashboard State
+  const [adminTab, setAdminTab] = useState('kyc'); // kyc, rates, anomalies, redemptions, vendors
+  const [pendingKyc, setPendingKyc] = useState([]);
+  const [commissionRates, setCommissionRates] = useState([]);
+  const [anomalies, setAnomalies] = useState([]);
+  const [pendingRedemptions, setPendingRedemptions] = useState([]);
+  const [adminNewVendor, setAdminNewVendor] = useState('');
+  
+  // Rate config form
+  const [configCategory, setConfigCategory] = useState('groceries');
+  const [configRate, setConfigRate] = useState(10);
+  const [configRegion, setConfigRegion] = useState('r1');
+
+  // Simulator Shell State
+  const [dbState, setDbState] = useState(null);
+  const [dbTab, setDbTab] = useState('points_ledger');
+  const [apiLogs, setApiLogs] = useState([]);
+  const [toast, setToast] = useState(null);
+
+  // Auth fields
+  const [loginPhone, setLoginPhone] = useState('');
+  const [loginOtp, setLoginOtp] = useState('');
+  const [otpSent, setOtpSent] = useState(false);
+  const [regName, setRegName] = useState('');
+  const [regRegion, setRegRegion] = useState('r1');
+  const [regKycType, setRegKycType] = useState('Aadhaar');
+  const [regKycNumber, setRegKycNumber] = useState('');
+  const [regAddress, setRegAddress] = useState('');
+  const [regIsStockist, setRegIsStockist] = useState(false);
+
+  // Marketing Calculator State
+  const [calcCustomers, setCalcCustomers] = useState(25000);
+  const [calcBill, setCalcBill] = useState(700);
+  const [calcMarketplace, setCalcMarketplace] = useState(1500);
+
+  // Sync log helper
+  const logApi = (method, url, payload, status, response) => {
+    setApiLogs(prev => [
+      {
+        id: Date.now(),
+        timestamp: new Date().toLocaleTimeString(),
+        method,
+        url,
+        payload: payload ? JSON.stringify(payload) : null,
+        status,
+        response: JSON.stringify(response)
+      },
+      ...prev
+    ].slice(0, 50));
+  };
+
+  const showToast = (message, type = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 4000);
+  };
+
+  // ----------------------------------------------------
+  // GUIDED WALKTHROUGH DEMO AUTOMATION
+  // ----------------------------------------------------
+  const handleAutoTourStep = async () => {
+    try {
+      if (tourStep === 1) {
+        // Step 1: Log in customer and fill cart
+        const res = await fetch(`${API_BASE}/auth/verify-otp`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone: '9876543210', otp: '123456' })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          setCurrentUser(data.user);
+          setSelectedRegionId(data.user.region_id);
+          setCustomerAppTab('store');
+          setActiveRole('customer');
+          
+          const sRes = await fetch(`${API_BASE}/stockists?regionId=${data.user.region_id}`);
+          const sData = await sRes.json();
+          setCustomerStockists(sData);
+          if (sData.length > 0) {
+            setSelectedStockist(sData[0]);
+            const pRes = await fetch(`${API_BASE}/products?regionId=${data.user.region_id}&stockistId=${sData[0].id}`);
+            const pData = await pRes.json();
+            setCustomerProducts(pData);
+            
+            // Auto add Potato x3 (₹90) + Onion x2 (₹90) + Dal x2 (₹120) = ₹300 (exceeds ₹200 min order)
+            const pPotato = pData.find(p => p.id === 'p1') || pData[0];
+            const pOnion = pData.find(p => p.id === 'p2') || pData[1] || pData[0];
+            const pDal = pData.find(p => p.id === 'p3') || pData[2] || pData[0];
+            
+            setCustomerCart([
+              { product: pPotato, quantity: 3 },
+              { product: pOnion, quantity: 2 },
+              { product: pDal, quantity: 2 }
+            ]);
+            showToast("Demo basket filled! Press 'Place Order (অর্ডার করুন)' on the phone.", "info");
+          }
+        }
+      } else if (tourStep === 2) {
+        // Step 2: Log in stockist, find the Amit Sen order, and deliver it
+        const res = await fetch(`${API_BASE}/auth/verify-otp`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone: '7654321098', otp: '123456' })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          setCurrentUser(data.user);
+          setSelectedRegionId(data.user.region_id);
+          setActiveRole('stockist');
+          
+          const pRes = await fetch(`${API_BASE}/stockists/by-user/${data.user.id}`);
+          if (pRes.ok) {
+            const pData = await pRes.json();
+            setStockistProfile(pData);
+            const oRes = await fetch(`${API_BASE}/orders?stockistId=${pData.id}`);
+            const oData = await oRes.json();
+            setStockistOrders(oData);
+            
+            // Cycle latest order straight to DELIVERED
+            const pendingOrder = oData.find(o => o.status === 'PENDING' || o.status === 'ACCEPTED' || o.status === 'PREPARING' || o.status === 'SHIPPED');
+            if (pendingOrder) {
+              await fetch(`${API_BASE}/orders/${pendingOrder.id}/status`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status: 'DELIVERED' })
+              });
+              showToast("Accepted & delivered! Payment has been split.", "success");
+              // Reload
+              const oRes2 = await fetch(`${API_BASE}/orders?stockistId=${pData.id}`);
+              const oData2 = await oRes2.json();
+              setStockistOrders(oData2);
+            }
+          }
+          setTourStep(3);
+        }
+      } else if (tourStep === 3) {
+        // Step 3: Switch to Customer Points tab, fill redemption
+        const res = await fetch(`${API_BASE}/auth/verify-otp`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone: '9876543210', otp: '123456' })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          setCurrentUser(data.user);
+          setSelectedRegionId(data.user.region_id);
+          setCustomerAppTab('ledger');
+          setActiveRole('customer');
+          
+          const bRes = await fetch(`${API_BASE}/ledger/balance/${data.user.id}`);
+          const bData = await bRes.json();
+          setCustomerBalance(bData.balance);
+          
+          const redeemValue = bData.balance > 0 ? bData.balance : 45.00;
+          setRedeemAmount(redeemValue.toString());
+          showToast(`Points ready: ₹${redeemValue}. Click 'Redeem Bill Discount (রিডিম করুন)' to drop the bill!`, "info");
+        }
+      } else if (tourStep === 4) {
+        // Step 4: Log in Admin, find redemption discount log, mark synced
+        const res = await fetch(`${API_BASE}/auth/verify-otp`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone: '9999999999', otp: '123456' })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          setCurrentUser(data.user);
+          setSelectedRegionId(data.user.region_id);
+          setActiveRole('admin');
+          setAdminTab('redemptions');
+          
+          const redRes = await fetch(`${API_BASE}/admin/redemptions`);
+          const red = await redRes.json();
+          setPendingRedemptions(red);
+          
+          const pendingRed = red.find(r => r.billing_sync_status !== 'SYNCED');
+          if (pendingRed) {
+            await fetch(`${API_BASE}/admin/complete-redemption`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ ledgerId: pendingRed.id })
+            });
+            showToast("Bill discount synchronized with CRM Billing System!", "success");
+            const redRes2 = await fetch(`${API_BASE}/admin/redemptions`);
+            const red2 = await redRes2.json();
+            setPendingRedemptions(red2);
+          }
+          setTourCompleted(true);
+        }
+      }
+    } catch (e) {
+      console.error(e);
+      showToast("Verification sync issue. Is the backend running?", "error");
+    }
+  };
+
+  const performReset = async (askConfirm = false) => {
+    if (askConfirm && !window.confirm('Are you sure you want to reset all demo data and start fresh? All custom orders and KYC logs will be deleted.')) return;
+    try {
+      const res = await fetch(`${API_BASE}/admin/reset-db`, { method: 'POST' });
+      if (res.ok) {
+        setCurrentUser(null);
+        setCustomerCart([]);
+        setRedeemAmount('');
+        setDiscountApplied(0);
+        setTourStep(1);
+        setTourCompleted(false);
+        setOfflineQueue([]);
+        setOfflineMode(false);
+        localStorage.removeItem('fastnet_offline_queue');
+        localStorage.removeItem('fastnet_offline_mode');
+        setActiveRole('marketing');
+        fetchDbState();
+        showToast('Demo data and database reset to clean defaults!', 'success');
+      } else {
+        showToast('Reset failed', 'error');
+      }
+    } catch (err) {
+      showToast('Reset failed. Check server status.', 'error');
+    }
+  };
+
+  const handleResetTour = () => performReset(false);
+
+  const renderTourBanner = () => {
+    const stepsInfo = {
+      1: {
+        title: "Step 1: Place Grocery Order (ক্রেতা বাজার করুন)",
+        desc: "Role: Customer App. Put localized daily items (Potato, Onion, Dal) in the cart and checkout. Watch loyalty points credit immediately on item profit margins.",
+        actionBtn: "Auto-Fill basket",
+        role: "customer"
+      },
+      2: {
+        title: "Step 2: Shopkeeper Delivery (দোকানদার ডেলিভারি)",
+        desc: "Role: Stockist App. Accept the order and mark it delivered. Check how the payment instantly splits: shopkeeper gets paid, platform keeps commission.",
+        actionBtn: "Auto-Deliver Order",
+        role: "stockist"
+      },
+      3: {
+        title: "Step 3: Redeem Broadband Discount (পয়েন্টস রিডিম করুন)",
+        desc: "Role: Customer App. Go to 'Points' tab, enter your points, and redeem them. Watch the monthly ₹499 broadband bill dynamically drop!",
+        actionBtn: "Auto-Load points",
+        role: "customer"
+      },
+      4: {
+        title: "Step 4: Finalize Discount Sync (অ্যাডমিন সিঙ্ক)",
+        desc: "Role: ISP Super Admin Portal. Under 'Broadband Discounts', approve and sync the discount log with the FastNet CRM billing software to close the loop.",
+        actionBtn: "Auto-Sync with CRM",
+        role: "admin"
+      }
+    };
+
+    const step = stepsInfo[tourStep];
+    if (tourCompleted) {
+      return (
+        <div className="walkthrough-banner" style={{ background: 'linear-gradient(90deg, rgba(16, 185, 129, 0.15) 0%, rgba(99, 102, 241, 0.15) 100%)', borderColor: 'var(--accent)' }}>
+          <div className="walkthrough-steps">
+            <div className="walkthrough-title" style={{ color: 'var(--accent)' }}>
+              <span className="pulsing-dot" style={{ backgroundColor: 'var(--accent)' }}></span>
+              <span>Closed-Loop Tour Completed! (সফলভাবে সম্পন্ন হয়েছে)</span>
+            </div>
+            <div className="walkthrough-desc">
+              You've proven the loop: Retail margins successfully subsidized the FastNet broadband bill. ISP churn falls, and stockist gets direct sales!
+            </div>
+          </div>
+          <div className="walkthrough-actions">
+            <button className="btn btn-accent" onClick={handleResetTour}>Restart Guided Tour</button>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="walkthrough-banner">
+        <div className="walkthrough-steps">
+          <div className="walkthrough-title">
+            <span className="pulsing-dot"></span>
+            <span>{step.title}</span>
+          </div>
+          <div className="walkthrough-desc">{step.desc}</div>
+        </div>
+        <div className="walkthrough-actions">
+          <button 
+            className="btn btn-secondary" 
+            style={{ fontSize: '0.75rem', padding: '0.45rem 0.8rem', height: '32px' }}
+            onClick={() => {
+              if (step.role === 'customer' && (!currentUser || currentUser.role !== 'CUSTOMER')) {
+                // Trigger auto login
+                handleAutoTourStep();
+              } else if (step.role === 'stockist' && (!currentUser || currentUser.role !== 'STOCKIST')) {
+                // Trigger auto login
+                handleAutoTourStep();
+              } else if (step.role === 'admin' && (!currentUser || currentUser.role !== 'ADMIN')) {
+                // Trigger auto login
+                handleAutoTourStep();
+              } else {
+                setActiveRole(step.role);
+              }
+            }}
+          >
+            Switch View
+          </button>
+          <button className="btn" style={{ fontSize: '0.75rem', padding: '0.45rem 0.8rem', height: '32px' }} onClick={handleAutoTourStep}>
+            {step.actionBtn}
+          </button>
+          <button 
+            className="btn btn-secondary" 
+            style={{ fontSize: '0.75rem', padding: '0.45rem 0.8rem', height: '32px', border: '1px solid var(--danger)', color: 'var(--danger)' }} 
+            onClick={() => performReset(true)}
+          >
+            Reset Demo Data
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  // ----------------------------------------------------
+  // DATA FETCHING & SYNCHRONIZATION
+  // ----------------------------------------------------
+
+  const fetchDbState = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/kyc-queue`); // Just testing backend online
+      if (res.ok) {
+        // Since we created a simple backend, we can write a reset-db / status fetcher
+        // For simplicity, we can fetch all tables using standard endpoints or a generic status
+        // Let's create a custom route or read locally. Wait, the backend has /api/products, /api/orders, etc.
+        // We will fetch the tables we need to build the db inspector view.
+        const ordersRes = await fetch(`${API_BASE}/orders`);
+        const kycRes = await fetch(`${API_BASE}/admin/kyc-queue`);
+        const ratesRes = await fetch(`${API_BASE}/admin/commission-rates`);
+        const anomaliesRes = await fetch(`${API_BASE}/admin/anomalies`);
+        const redRes = await fetch(`${API_BASE}/admin/redemptions`);
+        const vendorsRes = await fetch(`${API_BASE}/admin/vendors`);
+        const prodRes = await fetch(`${API_BASE}/products`);
+        
+        const orders = await ordersRes.json();
+        const pendingKyc = await kycRes.json();
+        const rates = await ratesRes.json();
+        const anomalies = await anomaliesRes.json();
+        const redemptions = await redRes.json();
+        const vendorsList = await vendorsRes.json();
+        const productsList = await prodRes.json();
+
+        setPendingKyc(pendingKyc);
+        setCommissionRates(rates);
+        setAnomalies(anomalies);
+        setPendingRedemptions(redemptions);
+        setVendors(vendorsList);
+
+        // Fetch regions if empty
+        if (regions.length === 0) {
+          // Hardcode for display
+          const regionsList = [
+            { id: 'r1', name: 'Kolkata South (Garia)', code: 'kolkata-garia' },
+            { id: 'r2', name: 'Rural West Bengal (Bishnupur)', code: 'rural-bishnupur' }
+          ];
+          setRegions(regionsList);
+        }
+
+        // Mock state representation of tables for the inspector
+        setDbState({
+          users: [], // we will fetch user list or mock it
+          orders,
+          commission_rates: rates,
+          anomaly_logs: anomalies,
+          points_ledger: redemptions, // we will enrich this
+          products: productsList,
+          vendors: vendorsList
+        });
+      }
+    } catch (e) {
+      console.error('Failed to sync DB state:', e);
+    }
+  };
+
+  // Sync DB Inspector tables directly
+  const syncInspectorTable = async () => {
+    try {
+      const ordersRes = await fetch(`${API_BASE}/orders`);
+      const list = await ordersRes.json();
+      
+      const ratesRes = await fetch(`${API_BASE}/admin/commission-rates`);
+      const rates = await ratesRes.json();
+
+      const anomaliesRes = await fetch(`${API_BASE}/admin/anomalies`);
+      const anomalies = await anomaliesRes.json();
+
+      const redRes = await fetch(`${API_BASE}/admin/redemptions`);
+      const red = await redRes.json();
+
+      const prodRes = await fetch(`${API_BASE}/products?regionId=${selectedRegionId}`);
+      const prods = await prodRes.json();
+
+      const venRes = await fetch(`${API_BASE}/admin/vendors`);
+      const vens = await venRes.json();
+
+      setDbState({
+        orders: list,
+        commission_rates: rates,
+        anomaly_logs: anomalies,
+        points_ledger: red,
+        products: prods,
+        vendors: vens
+      });
+    } catch (err) {
+      console.log('Error syncing inspector:', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchDbState();
+    const interval = setInterval(fetchDbState, 8000);
+    return () => clearInterval(interval);
+  }, [selectedRegionId]);
+
+  // Handle active role triggers
+  useEffect(() => {
+    if (currentUser && currentUser.role === 'CUSTOMER') {
+      loadCustomerData();
+    } else if (currentUser && currentUser.role === 'STOCKIST') {
+      loadStockistData();
+    }
+    syncInspectorTable();
+  }, [currentUser, activeRole]);
+
+  // ----------------------------------------------------
+  // AUTH LOGIC
+  // ----------------------------------------------------
+
+  const handleSendOtp = async () => {
+    if (!loginPhone) {
+      showToast('Please enter a phone number', 'error');
+      return;
+    }
+    try {
+      const res = await fetch(`${API_BASE}/auth/send-otp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: loginPhone })
+      });
+      const data = await res.json();
+      logApi('POST', '/auth/send-otp', { phone: loginPhone }, res.status, data);
+      if (res.ok) {
+        setOtpSent(true);
+        showToast('OTP sent successfully! Enter 123456');
+      } else {
+        showToast(data.error || 'Failed to send OTP', 'error');
+      }
+    } catch (err) {
+      showToast('Backend connection error', 'error');
+    }
+  };
+
+  const handleVerifyOtp = async () => {
+    if (!loginOtp) {
+      showToast('Please enter the OTP', 'error');
+      return;
+    }
+    try {
+      const payload = { phone: loginPhone, otp: loginOtp };
+      const res = await fetch(`${API_BASE}/auth/verify-otp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      logApi('POST', '/auth/verify-otp', payload, res.status, data);
+
+      if (res.ok) {
+        if (data.requires_registration) {
+          showToast('Verification successful. Please register.');
+        } else {
+          setCurrentUser(data.user);
+          setSelectedRegionId(data.user.region_id);
+          showToast(`Welcome back, ${data.user.name}!`);
+          setOtpSent(false);
+          setLoginPhone('');
+          setLoginOtp('');
+        }
+      } else {
+        showToast(data.error || 'Invalid OTP', 'error');
+      }
+    } catch (err) {
+      showToast('Authentication service error', 'error');
+    }
+  };
+
+  const handleRegister = async () => {
+    if (!regName) {
+      showToast('Name is required', 'error');
+      return;
+    }
+    try {
+      let res, data;
+      if (regIsStockist) {
+        if (!regKycNumber || !regAddress) {
+          showToast('KYC details and Address are required', 'error');
+          return;
+        }
+        const payload = {
+          phone: loginPhone,
+          name: regName,
+          regionId: regRegion,
+          idType: regKycType,
+          idNumber: regKycNumber,
+          address: regAddress
+        };
+        res = await fetch(`${API_BASE}/auth/register-stockist`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        data = await res.json();
+        logApi('POST', '/auth/register-stockist', payload, res.status, data);
+      } else {
+        const payload = {
+          phone: loginPhone,
+          otp: '123456',
+          name: regName,
+          regionId: regRegion
+        };
+        res = await fetch(`${API_BASE}/auth/verify-otp`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        data = await res.json();
+        logApi('POST', '/auth/verify-otp (Register)', payload, res.status, data);
+      }
+
+      if (res.ok) {
+        if (regIsStockist) {
+          showToast('KYC submitted! Awaiting Admin Approval.', 'warning');
+          // Clear states
+          setOtpSent(false);
+          setRegName('');
+          setRegKycNumber('');
+          setRegAddress('');
+        } else {
+          setCurrentUser(data.user);
+          setSelectedRegionId(data.user.region_id);
+          showToast(`Account created for ${data.user.name}!`);
+          setOtpSent(false);
+          setRegName('');
+        }
+      } else {
+        showToast(data.error || 'Registration failed', 'error');
+      }
+    } catch (err) {
+      showToast('Registration error', 'error');
+    }
+  };
+
+  const handleLogout = () => {
+    setCurrentUser(null);
+    setCustomerStockists([]);
+    setSelectedStockist(null);
+    setCustomerProducts([]);
+    setCustomerCart([]);
+    setStockistProfile(null);
+    setStockistOrders([]);
+    showToast('Logged out successfully.');
+  };
+
+  // ----------------------------------------------------
+  // CUSTOMER APP LOGIC
+  // ----------------------------------------------------
+
+  const loadCustomerData = async () => {
+    if (!currentUser) return;
+    try {
+      // 1. Load stockists in customer region
+      const sRes = await fetch(`${API_BASE}/stockists?regionId=${currentUser.region_id}`);
+      const sData = await sRes.json();
+      setCustomerStockists(sData);
+      
+      // Auto-select first stockist if none selected
+      if (sData.length > 0 && !selectedStockist) {
+        setSelectedStockist(sData[0]);
+      }
+
+      // 2. Load points balance
+      const bRes = await fetch(`${API_BASE}/ledger/balance/${currentUser.id}`);
+      const bData = await bRes.json();
+      setCustomerBalance(bData.balance);
+
+      // 3. Load ledger history
+      const lRes = await fetch(`${API_BASE}/ledger/history/${currentUser.id}`);
+      const lData = await lRes.json();
+      setCustomerLedger(lData);
+
+      // 4. Load order history
+      const oRes = await fetch(`${API_BASE}/orders?customerId=${currentUser.id}`);
+      const oData = await oRes.json();
+      setCustomerOrders(oData);
+    } catch (err) {
+      console.error('Error loading customer data:', err);
+    }
+  };
+
+  useEffect(() => {
+    if (selectedStockist) {
+      loadStockistProducts();
+    }
+  }, [selectedStockist]);
+
+  const loadStockistProducts = async () => {
+    if (!selectedStockist) return;
+    try {
+      const res = await fetch(`${API_BASE}/products?regionId=${currentUser.region_id}&stockistId=${selectedStockist.id}`);
+      const data = await res.json();
+      setCustomerProducts(data);
+    } catch (err) {
+      console.error('Error loading products:', err);
+    }
+  };
+
+  const addToCart = (product) => {
+    setCustomerCart(prev => {
+      const existing = prev.find(item => item.product.id === product.id);
+      if (existing) {
+        return prev.map(item => 
+          item.product.id === product.id 
+            ? { ...item, quantity: item.quantity + 1 } 
+            : item
+        );
+      }
+      return [...prev, { product, quantity: 1 }];
+    });
+    showToast(`Added ${product.name} to cart`);
+  };
+
+  const updateCartQty = (productId, change) => {
+    setCustomerCart(prev => {
+      return prev.map(item => {
+        if (item.product.id === productId) {
+          const newQty = item.quantity + change;
+          return newQty > 0 ? { ...item, quantity: newQty } : null;
+        }
+        return item;
+      }).filter(Boolean);
+    });
+  };
+
+  // Calculated checkout metrics
+  const cartSubtotal = customerCart.reduce((sum, item) => sum + (item.product.price * item.quantity), 0);
+  const cartMargin = customerCart.reduce((sum, item) => sum + ((item.product.price - item.product.cost_price) * item.quantity), 0);
+  const deliveryFee = selectedStockist ? (selectedStockist.region_id === 'r2' ? 30.00 : 40.00) : 0.00;
+  const lowOrderFee = cartSubtotal > 0 && cartSubtotal < 150.00 ? 20.00 : 0.00;
+  const cartTotal = cartSubtotal + deliveryFee + lowOrderFee;
+  const estimatedEarnPoints = Math.round(cartMargin * 0.45 * 100) / 100;
+
+  const handleCheckout = async () => {
+    if (customerCart.length === 0) return;
+    if (cartSubtotal < selectedStockist.min_order_value) {
+      showToast(`Min order value is ₹${selectedStockist.min_order_value}`, 'error');
+      return;
+    }
+
+    try {
+      const payload = {
+        customerId: currentUser.id,
+        stockistId: selectedStockist.id,
+        items: customerCart.map(item => ({
+          productId: item.product.id,
+          quantity: item.quantity
+        }))
+      };
+      
+      const res = await fetch(`${API_BASE}/orders`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      logApi('POST', '/orders', payload, res.status, data);
+
+      if (res.ok) {
+        setCheckoutResult(data);
+        setCustomerCart([]);
+        loadCustomerData();
+        showToast(`Order placed! Credited ₹${data.pointsCredited} in loyalty points.`);
+        if (tourStep === 1) {
+          setTourStep(2);
+        }
+      } else {
+        showToast(data.error || 'Failed to place order', 'error');
+      }
+    } catch (err) {
+      showToast('Checkout service error', 'error');
+    }
+  };
+
+  const handleRedeemPoints = async () => {
+    if (!redeemAmount || parseFloat(redeemAmount) <= 0) {
+      showToast('Enter a valid points value', 'error');
+      return;
+    }
+    if (parseFloat(redeemAmount) > customerBalance) {
+      showToast('Insufficient points balance', 'error');
+      return;
+    }
+
+    try {
+      const payload = { customerId: currentUser.id, amount: parseFloat(redeemAmount) };
+      const res = await fetch(`${API_BASE}/ledger/redeem`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      logApi('POST', '/ledger/redeem', payload, res.status, data);
+
+      if (res.ok) {
+        showToast(`Redeemed ₹${redeemAmount} against ISP bill! (বিল ডিসকাউন্ট করা হয়েছে)`);
+        setDiscountApplied(prev => prev + parseFloat(redeemAmount));
+        setRedeemAmount('');
+        loadCustomerData();
+        if (tourStep === 3) {
+          setTourStep(4);
+        }
+      } else {
+        showToast(data.error || 'Redemption failed', 'error');
+      }
+    } catch (err) {
+      showToast('Redemption service error', 'error');
+    }
+  };
+
+  // ----------------------------------------------------
+  // STOCKIST APP LOGIC
+  // ----------------------------------------------------
+
+  const loadStockistData = async () => {
+    if (!currentUser) return;
+    try {
+      // 1. Fetch stockist profile details
+      const pRes = await fetch(`${API_BASE}/stockists/by-user/${currentUser.id}`);
+      if (!pRes.ok) {
+        setStockistProfile(null);
+        return;
+      }
+      const pData = await pRes.json();
+      setStockistProfile(pData);
+
+      // 2. Load stockist orders
+      const oRes = await fetch(`${API_BASE}/orders?stockistId=${pData.id}`);
+      const oData = await oRes.json();
+      setStockistOrders(oData);
+
+      // 3. Load stockist inventory products
+      const prRes = await fetch(`${API_BASE}/products?regionId=${currentUser.region_id}&stockistId=${pData.id}`);
+      const prData = await prRes.json();
+      setStockistProducts(prData);
+
+      // 4. Load approved vendor list
+      const vRes = await fetch(`${API_BASE}/admin/vendors`);
+      const vData = await vRes.json();
+      setVendors(vData);
+    } catch (err) {
+      console.error('Error loading stockist details:', err);
+    }
+  };
+
+  const handleUpdateOrderStatus = async (orderId, newStatus) => {
+    if (offlineMode) {
+      // Store in offline queue
+      const updatedQueue = [...offlineQueue, { orderId, status: newStatus, timestamp: new Date().toLocaleTimeString() }];
+      setOfflineQueue(updatedQueue);
+      
+      // Update local orders list instantly for visual feedback
+      setStockistOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
+      showToast(`Offline Mode: Action queued locally`, 'warning');
+      return;
+    }
+
+    try {
+      const payload = { status: newStatus };
+      const res = await fetch(`${API_BASE}/orders/${orderId}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      logApi('PATCH', `/orders/${orderId}/status`, payload, res.status, data);
+
+      if (res.ok) {
+        showToast(`Order status updated to ${newStatus}`);
+        loadStockistData();
+        if (newStatus === 'DELIVERED' && tourStep === 2) {
+          setTourStep(3);
+        }
+      } else {
+        showToast(data.error || 'Failed to update order status', 'error');
+      }
+    } catch (err) {
+      showToast('Server update error', 'error');
+    }
+  };
+
+  const handleSyncOfflineQueue = async () => {
+    if (offlineQueue.length === 0) return;
+    try {
+      const payload = { updates: offlineQueue };
+      const res = await fetch(`${API_BASE}/orders/sync`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      logApi('POST', '/orders/sync', payload, res.status, data);
+
+      if (res.ok) {
+        showToast(`Synced ${data.synced_count} offline actions successfully!`);
+        setOfflineQueue([]);
+        loadStockistData();
+        if (tourStep === 2) {
+          setTourStep(3);
+        }
+      } else {
+        showToast('Sync failed', 'error');
+      }
+    } catch (err) {
+      showToast('Connection to server failed during sync', 'error');
+    }
+  };
+
+  const handlePurchaseStock = async (productId, quantity) => {
+    if (!stockistProfile) return;
+    try {
+      const payload = {
+        stockistId: stockistProfile.id,
+        items: [{ productId, quantity: parseInt(quantity, 10) }]
+      };
+      const res = await fetch(`${API_BASE}/stockists/restock`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      logApi('POST', '/stockists/restock', payload, res.status, data);
+
+      if (res.ok) {
+        showToast('Stock purchased and added from Vendor!');
+        loadStockistData();
+      } else {
+        showToast(data.error || 'Restock failed', 'error');
+      }
+    } catch (err) {
+      showToast('Network error on restock', 'error');
+    }
+  };
+
+  // ----------------------------------------------------
+  // ADMIN DASHBOARD LOGIC
+  // ----------------------------------------------------
+
+  const handleApproveKyc = async (userId) => {
+    // Select vendor corresponding to the user's region
+    const userToApprove = pendingKyc.find(u => u.id === userId);
+    if (!userToApprove) return;
+
+    const matchingVendor = vendors.find(v => v.region_id === userToApprove.region_id);
+    if (!matchingVendor) {
+      showToast('Please create a Vendor for this region first!', 'error');
+      return;
+    }
+
+    try {
+      const payload = {
+        userId,
+        vendorId: matchingVendor.id,
+        deliveryRadius: userToApprove.region_id === 'r2' ? 6.0 : 3.0,
+        minOrderValue: userToApprove.region_id === 'r2' ? 100 : 200
+      };
+      
+      const res = await fetch(`${API_BASE}/admin/approve-kyc`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      logApi('POST', '/admin/approve-kyc', payload, res.status, data);
+
+      if (res.ok) {
+        showToast(`Approved stockist! Assigned vendor: ${matchingVendor.name}`);
+        fetchDbState();
+      } else {
+        showToast(data.error || 'Approval failed', 'error');
+      }
+    } catch (err) {
+      showToast('Admin server error', 'error');
+    }
+  };
+
+  const handleSaveCommissionRate = async () => {
+    try {
+      const payload = {
+        category: configCategory,
+        ratePercent: parseFloat(configRate),
+        regionId: configRegion
+      };
+      const res = await fetch(`${API_BASE}/admin/commission-rates`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      logApi('POST', '/admin/commission-rates', payload, res.status, data);
+
+      if (res.ok) {
+        showToast('Commission rate updated!');
+        fetchDbState();
+      } else {
+        showToast(data.error || 'Failed to update commission rate', 'error');
+      }
+    } catch (err) {
+      showToast('Network error', 'error');
+    }
+  };
+
+  const handleCompleteRedemption = async (ledgerId) => {
+    try {
+      const payload = { ledgerId };
+      const res = await fetch(`${API_BASE}/admin/complete-redemption`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      logApi('POST', '/admin/complete-redemption', payload, res.status, data);
+
+      if (res.ok) {
+        showToast('Redemption sync logged in billing system successfully!');
+        fetchDbState();
+        if (tourStep === 4) {
+          setTourCompleted(true);
+        }
+      } else {
+        showToast('Failed to complete', 'error');
+      }
+    } catch (err) {
+      showToast('Network error', 'error');
+    }
+  };
+
+  const handleCreateVendor = async () => {
+    if (!adminNewVendor) return;
+    try {
+      const payload = { name: adminNewVendor, regionId: selectedRegionId };
+      const res = await fetch(`${API_BASE}/admin/vendors`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      logApi('POST', '/admin/vendors', payload, res.status, data);
+
+      if (res.ok) {
+        showToast(`Vendor ${adminNewVendor} created!`);
+        setAdminNewVendor('');
+        fetchDbState();
+      } else {
+        showToast(data.error || 'Failed to create vendor', 'error');
+      }
+    } catch (err) {
+      showToast('Network error', 'error');
+    }
+  };
+
+  const handleResetDb = () => performReset(true);
+
+  // CSV Exporter for billing sync
+  const exportRedemptionsCsv = () => {
+    if (pendingRedemptions.length === 0) {
+      showToast('No redemptions to export', 'error');
+      return;
+    }
+    const headers = 'ID,Timestamp,Customer Name,Customer Phone,Amount,Status\n';
+    const rows = pendingRedemptions.map(r => 
+      `"${r.id}","${r.created_at}","${r.customer_name}","${r.customer_phone}",${Math.abs(r.amount)},"${r.billing_sync_status}"`
+    ).join('\n');
+    
+    const blob = new Blob([headers + rows], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.setAttribute('href', url);
+    a.setAttribute('download', `ISP_Redemptions_${new Date().toISOString().substring(0,10)}.csv`);
+    a.click();
+    showToast('CSV export downloaded!');
+  };
+
+  // Toggle offline simulator
+  const toggleOfflineMode = () => {
+    if (offlineMode) {
+      // Sync queue when coming back online
+      setOfflineMode(false);
+      showToast('Connected to network. Syncing queued tasks...', 'info');
+      setTimeout(() => {
+        handleSyncOfflineQueue();
+      }, 800);
+    } else {
+      setOfflineMode(true);
+      showToast('Disconnected from network. Actions will be queued.', 'warning');
+    }
+  };
+
+  // ----------------------------------------------------
+  // UI RENDERERS
+  // ----------------------------------------------------
+
+  const renderAuthForm = () => {
+    return (
+      <div style={{ padding: '2rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '1.5rem', justifyContent: 'center', height: '100%' }}>
+        <div style={{ textAlign: 'center', marginBottom: '1rem' }}>
+          <div style={{ display: 'inline-flex', padding: '0.75rem', borderRadius: '50%', background: 'var(--primary-glow)', color: 'var(--primary)', marginBottom: '0.75rem' }}>
+            <Smartphone size={32} />
+          </div>
+          <h2 style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>Phone OTP Login</h2>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>Hyperlocal ISP Commerce Login</p>
+        </div>
+
+        {!otpSent ? (
+          <>
+            <div className="input-group">
+              <label className="input-label">Phone Number</label>
+              <input 
+                type="tel" 
+                placeholder="Enter 10-digit mobile number" 
+                className="text-input" 
+                value={loginPhone}
+                onChange={e => setLoginPhone(e.target.value.replace(/\D/g,'').substring(0,10))}
+              />
+            </div>
+            <button className="btn" onClick={handleSendOtp}>Send One-Time Password</button>
+            
+            <div style={{ background: 'rgba(255,255,255,0.02)', padding: '0.75rem', borderRadius: '6px', fontSize: '0.7rem', border: '1px dashed var(--border-color)', color: 'var(--text-muted)' }}>
+              <strong>Demo Phone Options:</strong>
+              <div style={{ marginTop: '0.25rem' }}>• 9876543210 (Customer Garia)</div>
+              <div>• 8765432109 (Customer Bishnupur)</div>
+              <div>• 7654321098 (Stockist Garia)</div>
+              <div>• 6543210987 (Stockist Bishnupur)</div>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="input-group" style={{ background: 'rgba(99, 102, 241, 0.05)', padding: '0.75rem', borderRadius: '6px', border: '1px solid rgba(99, 102, 241, 0.2)', fontSize: '0.75rem', textAlign: 'center' }}>
+              We sent a mock OTP to <strong>{loginPhone}</strong>. Use code <strong>123456</strong> to verify.
+            </div>
+            <div className="input-group">
+              <label className="input-label">Enter 6-Digit OTP</label>
+              <input 
+                type="text" 
+                placeholder="Enter 123456" 
+                maxLength={6}
+                className="text-input" 
+                value={loginOtp}
+                onChange={e => setLoginOtp(e.target.value.replace(/\D/g,''))}
+                style={{ textAlign: 'center', letterSpacing: '0.5em', fontSize: '1.2rem', fontWeight: 'bold' }}
+              />
+            </div>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setOtpSent(false)}>Back</button>
+              <button className="btn" style={{ flex: 2 }} onClick={handleVerifyOtp}>Verify & Login</button>
+            </div>
+
+            {/* Registration fields if it fails or if new */}
+            <div style={{ borderTop: '1px solid var(--border-color)', paddingT: '1rem', marginTop: '1rem' }}>
+              <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textAlign: 'center', marginBottom: '0.75rem' }}>
+                Don't have an account? Sign up below:
+              </p>
+              
+              <div className="input-group">
+                <label className="input-label">Full Name</label>
+                <input 
+                  type="text" 
+                  placeholder="e.g. Joy Dev" 
+                  className="text-input"
+                  value={regName}
+                  onChange={e => setRegName(e.target.value)}
+                />
+              </div>
+
+              <div className="input-group">
+                <label className="input-label">Select Region</label>
+                <select className="text-input" value={regRegion} onChange={e => setRegRegion(e.target.value)}>
+                  <option value="r1">Kolkata South (Garia)</option>
+                  <option value="r2">Rural West Bengal (Bishnupur)</option>
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
+                <input 
+                  type="checkbox" 
+                  id="regStockist" 
+                  checked={regIsStockist} 
+                  onChange={e => setRegIsStockist(e.target.checked)} 
+                />
+                <label htmlFor="regStockist" style={{ fontSize: '0.8rem', color: 'var(--text-main)', cursor: 'pointer' }}>
+                  Register as Stockist (Requires KYC)
+                </label>
+              </div>
+
+              {regIsStockist && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', background: 'rgba(255,255,255,0.01)', padding: '0.75rem', borderRadius: '6px', border: '1px solid var(--border-color)', marginBottom: '1rem' }}>
+                  <div className="input-group">
+                    <label className="input-label">ID Document Type</label>
+                    <select className="text-input" value={regKycType} onChange={e => setRegKycType(e.target.value)}>
+                      <option value="Aadhaar">Aadhaar Card</option>
+                      <option value="Voter ID">Voter ID</option>
+                      <option value="Trade License">Trade License</option>
+                    </select>
+                  </div>
+                  <div className="input-group">
+                    <label className="input-label">Document ID Number</label>
+                    <input 
+                      type="text" 
+                      placeholder="e.g. 1234-5678-9012" 
+                      className="text-input" 
+                      value={regKycNumber}
+                      onChange={e => setRegKycNumber(e.target.value)}
+                    />
+                  </div>
+                  <div className="input-group">
+                    <label className="input-label">Shop Address</label>
+                    <input 
+                      type="text" 
+                      placeholder="Enter detailed shop address" 
+                      className="text-input" 
+                      value={regAddress}
+                      onChange={e => setRegAddress(e.target.value)}
+                    />
+                  </div>
+                </div>
+              )}
+
+              <button className="btn btn-accent" style={{ width: '100%' }} onClick={handleRegister}>
+                Register & Verify
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    );
+  };
+
+  // ----------------------------------------------------
+  // 1. MARKETING / ONBOARDING LANDING PAGE
+  // ----------------------------------------------------
+  const renderMarketingView = () => {
+    return (
+      <div className="marketing-container">
+        <div className="marketing-hero">
+          <div className="badge badge-primary" style={{ alignSelf: 'center', fontSize: '0.8rem', padding: '0.4rem 0.8rem' }}>
+            ISP-Commerce Retention Model
+          </div>
+          <h1>Convert E-Commerce Profit into <span className="gradient-text">ISP Customer Loyalty</span></h1>
+          <p>
+            An innovative, closed-loop hyperlocal marketplace. Operators open their subscriber base to local stockists, keeping commissions to subsidize broadband bills. Lower subscriber churn, higher local growth.
+          </p>
+          <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', marginTop: '1rem' }}>
+            <button className="btn" onClick={() => setActiveRole('customer')}>Test Customer Flow</button>
+            <button className="btn btn-secondary" onClick={() => setActiveRole('admin')}>Open Admin Console</button>
+          </div>
+        </div>
+
+        <div className="marketing-grid">
+          <div className="glass-card" style={{ padding: '1.5rem' }}>
+            <TrendingUp size={24} style={{ color: 'var(--primary)', marginBottom: '1rem' }} />
+            <h3 style={{ marginBottom: '0.5rem', fontSize: '1.2rem' }}>Closed-Loop Points</h3>
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+              Points cannot be cashed out, gifted, or transferred. Under RBI regulations, this acts strictly as a closed loyalty pool redeemable against the issuing ISP bill.
+            </p>
+          </div>
+          <div className="glass-card" style={{ padding: '1.5rem' }}>
+            <ShoppingBag size={24} style={{ color: 'var(--secondary)', marginBottom: '1rem' }} />
+            <h3 style={{ marginBottom: '0.5rem', fontSize: '1.2rem' }}>Zero Reconciliation</h3>
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+              Razorpay Route splits customer payments instantly. Stockists get paid next-day directly; platform retains its commissions automatically.
+            </p>
+          </div>
+          <div className="glass-card" style={{ padding: '1.5rem' }}>
+            <ShieldAlert size={24} style={{ color: 'var(--accent)', marginBottom: '1rem' }} />
+            <h3 style={{ marginBottom: '0.5rem', fontSize: '1.2rem' }}>Offline Tolerance</h3>
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+              Designed for rural areas with spotty network. Stockists manage inventory and order handshakes locally and sync automatically when back online.
+            </p>
+          </div>
+        </div>
+
+        {/* Collapsible B2B Retention Calculator (De-emphasized for the pilot stockist/wholesaler audience) */}
+        <div className="glass-card" style={{ background: 'var(--bg-surface)', padding: '1.5rem', border: '1px solid var(--border-color)', borderRadius: '1rem' }}>
+          <div 
+            onClick={() => setCalculatorCollapsed(!calculatorCollapsed)} 
+            style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <Calculator size={22} style={{ color: 'var(--primary)' }} />
+              <div style={{ textAlign: 'left' }}>
+                <h3 style={{ fontSize: '1.15rem', color: 'white', margin: 0 }}>Business Retention Calculator (অপারেটর হিসাব)</h3>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem', margin: 0 }}>Churn reduction & commission estimate tool for ISP Operators</p>
+              </div>
+            </div>
+            <button className="badge badge-primary" style={{ border: 'none', cursor: 'pointer', padding: '0.4rem 0.8rem', textTransform: 'none' }}>
+              {calculatorCollapsed ? "Expand Calculator +" : "Collapse Calculator -"}
+            </button>
+          </div>
+
+          {!calculatorCollapsed && (
+            <div className="calc-section" style={{ marginTop: '1.5rem', border: 'none', background: 'transparent', padding: 0 }}>
+              <div className="calc-inputs">
+                <h2 style={{ fontSize: '1.5rem', marginBottom: '0.5rem' }}>Calculate Retention Benefits</h2>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '1.5rem' }}>
+                  See how opening a hyperlocal daily-needs grocery channel increases operator profitability and loyalty.
+                </p>
+                
+                <div className="input-group">
+                  <div style={{ display: 'flex', justifyContent: 'between' }}>
+                    <span className="input-label">Active ISP Customers</span>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--primary)', fontWeight: 'bold', marginLeft: 'auto' }}>{calcCustomers.toLocaleString()}</span>
+                  </div>
+                  <input type="range" min={5000} max={100000} step={5000} value={calcCustomers} onChange={e => setCalcCustomers(parseInt(e.target.value))} />
+                </div>
+
+                <div className="input-group">
+                  <div style={{ display: 'flex', justifyContent: 'between' }}>
+                    <span className="input-label">Avg. Monthly Broadband Bill</span>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--primary)', fontWeight: 'bold', marginLeft: 'auto' }}>₹{calcBill}</span>
+                  </div>
+                  <input type="range" min={300} max={1500} step={50} value={calcBill} onChange={e => setCalcBill(parseInt(e.target.value))} />
+                </div>
+
+                <div className="input-group">
+                  <div style={{ display: 'flex', justifyContent: 'between' }}>
+                    <span className="input-label">Avg. Marketplace Spend / Customer</span>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--primary)', fontWeight: 'bold', marginLeft: 'auto' }}>₹{calcMarketplace}</span>
+                  </div>
+                  <input type="range" min={500} max={5000} step={100} value={calcMarketplace} onChange={e => setCalcMarketplace(parseInt(e.target.value))} />
+                </div>
+              </div>
+
+              <div className="calc-outputs">
+                <div>
+                  <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Platform Commisions Retained</p>
+                  <div className="calc-val">₹{((calcCustomers * calcMarketplace * 0.10)).toLocaleString(undefined, {maximumFractionDigits: 0})}</div>
+                  <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>Per Month (Assuming 10% average commission rate)</p>
+                </div>
+                <hr style={{ borderColor: 'var(--border-color)' }} />
+                <div>
+                  <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Loyalty Points Credited</p>
+                  <div className="calc-val" style={{ color: 'var(--primary)' }}>₹{((calcCustomers * (calcMarketplace * 0.18) * 0.45)).toLocaleString(undefined, {maximumFractionDigits: 0})}</div>
+                  <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>Directly subsidizing customer broadband bills monthly</p>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-color)', borderRadius: '1rem', padding: '2rem', textAlign: 'center' }}>
+          <h2 style={{ marginBottom: '1rem' }}>Onboard a Pilot Tenant</h2>
+          <p style={{ color: 'var(--text-muted)', maxWidth: '600px', margin: '0 auto 1.5rem', fontSize: '0.9rem' }}>
+            Deploy a new region or operator. Instantly creates separate data structures under `tenant_id` and `region_id`.
+          </p>
+          <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', maxWidth: '400px', margin: '0 auto' }}>
+            <input type="text" placeholder="Operator Name (e.g. Alliance Broadband)" className="text-input" style={{ flex: 1 }} />
+            <button className="btn" onClick={() => showToast('Tenant request queued for Admin approval.')}>Request Demo</button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // ----------------------------------------------------
+  // 2. CUSTOMER MOBILE APP SIMULATOR
+  // ----------------------------------------------------
+  const renderCustomerView = () => {
+    const isLoggedOut = !currentUser || currentUser.role !== 'CUSTOMER';
+    const activeRegionName = currentUser ? (regions.find(r => r.id === currentUser.region_id)?.name || 'Kolkata South (Garia)') : 'Kolkata South (Garia)';
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.75rem', width: '100%' }}>
+        <div className="perspective-banner">
+          <span>👤 CUSTOMER VIEW (ক্রেতা মোড): {isLoggedOut ? "Not logged in (লগইন করা নেই)" : `${currentUser.name} (${activeRegionName})`}</span>
+        </div>
+        
+        <div className="phone-mockup">
+          <div className="phone-notch"></div>
+          <div className="phone-screen">
+            {isLoggedOut ? (
+              <>
+                <div className="phone-header">
+                  <span>FastNet 5G</span>
+                  <span>📶 🔋 19:43</span>
+                </div>
+                {/* Localized Auth Form */}
+                <div style={{ padding: '2rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '1.5rem', justifyContent: 'center', height: '100%' }}>
+                  <div style={{ textAlign: 'center', marginBottom: '1rem' }}>
+                    <div style={{ display: 'inline-flex', padding: '0.75rem', borderRadius: '50%', background: 'var(--primary-glow)', color: 'var(--primary)', marginBottom: '0.75rem' }}>
+                      <Smartphone size={32} />
+                    </div>
+                    <h2 style={{ fontSize: '1.4rem', fontWeight: 'bold' }}>Phone OTP Login (লগইন করুন)</h2>
+                    <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>FastNet Hyperlocal Storefront Access</p>
+                  </div>
+
+                  {!otpSent ? (
+                    <>
+                      <div className="input-group">
+                        <label className="input-label">Phone Number (মোবাইল নম্বর)</label>
+                        <input 
+                          type="tel" 
+                          placeholder="Enter 10-digit mobile number" 
+                          className="text-input" 
+                          value={loginPhone}
+                          onChange={e => setLoginPhone(e.target.value.replace(/\D/g,'').substring(0,10))}
+                        />
+                      </div>
+                      <button className="btn" onClick={handleSendOtp}>Send Code (ওটিপি পাঠান / OTP Bhejo)</button>
+                      
+                      <div style={{ background: 'rgba(255,255,255,0.02)', padding: '0.75rem', borderRadius: '6px', fontSize: '0.7rem', border: '1px dashed var(--border-color)', color: 'var(--text-muted)' }}>
+                        <strong>Demo Accounts:</strong>
+                        <div style={{ marginTop: '0.25rem' }}>• 9876543210 (Amit - Customer Garia)</div>
+                        <div>• 8765432109 (Radha - Customer Bishnupur)</div>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="input-group" style={{ background: 'rgba(99, 102, 241, 0.05)', padding: '0.75rem', borderRadius: '6px', border: '1px solid rgba(99, 102, 241, 0.2)', fontSize: '0.75rem', textAlign: 'center' }}>
+                        OTP sent to <strong>{loginPhone}</strong>. Use demo code <strong>123456</strong>.
+                      </div>
+                      <div className="input-group">
+                        <label className="input-label">Enter 6-Digit OTP (কোড লিখুন)</label>
+                        <input 
+                          type="text" 
+                          placeholder="123456" 
+                          maxLength={6}
+                          className="text-input" 
+                          value={loginOtp}
+                          onChange={e => setLoginOtp(e.target.value.replace(/\D/g,''))}
+                          style={{ textAlign: 'center', letterSpacing: '0.5em', fontSize: '1.2rem', fontWeight: 'bold' }}
+                        />
+                      </div>
+                      <div style={{ display: 'flex', gap: '0.5rem' }}>
+                        <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setOtpSent(false)}>Back</button>
+                        <button className="btn" style={{ flex: 2 }} onClick={handleVerifyOtp}>Verify (যাচাই করুন / Login)</button>
+                      </div>
+
+                      {/* Registration section */}
+                      <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '1rem', marginTop: '1rem' }}>
+                        <p style={{ fontSize: '0.725rem', color: 'var(--text-muted)', textAlign: 'center', marginBottom: '0.75rem' }}>
+                          Create a new customer account:
+                        </p>
+                        
+                        <div className="input-group">
+                          <label className="input-label">Your Name (নাম)</label>
+                          <input 
+                            type="text" 
+                            placeholder="e.g. Joy Dev" 
+                            className="text-input"
+                            value={regName}
+                            onChange={e => setRegName(e.target.value)}
+                          />
+                        </div>
+
+                        <div className="input-group">
+                          <label className="input-label">Select Region (অঞ্চল)</label>
+                          <select className="text-input" value={regRegion} onChange={e => setRegRegion(e.target.value)}>
+                            <option value="r1">Kolkata South (Garia)</option>
+                            <option value="r2">Rural West Bengal (Bishnupur)</option>
+                          </select>
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1.25rem' }}>
+                          <input 
+                            type="checkbox" 
+                            id="regStockist" 
+                            checked={regIsStockist} 
+                            onChange={e => setRegIsStockist(e.target.checked)} 
+                          />
+                          <label htmlFor="regStockist" style={{ fontSize: '0.8rem', color: 'var(--text-main)', cursor: 'pointer' }}>
+                            Register as local Shopkeeper
+                          </label>
+                        </div>
+
+                        {regIsStockist && (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', background: 'rgba(255,255,255,0.01)', padding: '0.75rem', borderRadius: '6px', border: '1px solid var(--border-color)', marginBottom: '1rem' }}>
+                            <div className="input-group">
+                              <label className="input-label">ID Document Type</label>
+                              <select className="text-input" value={regKycType} onChange={e => setRegKycType(e.target.value)}>
+                                <option value="Aadhaar">Aadhaar Card</option>
+                                <option value="Voter ID">Voter ID</option>
+                                <option value="Trade License">Trade License</option>
+                              </select>
+                            </div>
+                            <div className="input-group">
+                              <label className="input-label">ID Number</label>
+                              <input 
+                                type="text" 
+                                placeholder="e.g. 1234-5678-9012" 
+                                className="text-input" 
+                                value={regKycNumber}
+                                onChange={e => setRegKycNumber(e.target.value)}
+                              />
+                            </div>
+                            <div className="input-group">
+                              <label className="input-label">Shop Address</label>
+                              <input 
+                                type="text" 
+                                placeholder="Enter detailed shop address" 
+                                className="text-input" 
+                                value={regAddress}
+                                onChange={e => setRegAddress(e.target.value)}
+                              />
+                            </div>
+                          </div>
+                        )}
+
+                        <button className="btn btn-accent" style={{ width: '100%' }} onClick={handleRegister}>
+                          Sign Up & Login
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="phone-header">
+                  <span>FastNet 5G</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                    <span className="badge badge-success" style={{ fontSize: '0.55rem', padding: '0.1rem 0.35rem' }}>₹{customerBalance} Pts</span>
+                  </div>
+                  <span>📶 🔋 19:43</span>
+                </div>
+
+                {/* Checkout Success Modal overlay */}
+                {checkoutResult && (
+                  <div style={{ position: 'absolute', inset: 0, background: 'rgba(11,14,20,0.96)', zIndex: 100, display: 'flex', flexDirection: 'column', padding: '1.5rem', justifyContent: 'center' }}>
+                    <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
+                      <div style={{ display: 'inline-flex', padding: '0.75rem', borderRadius: '50%', background: 'rgba(16, 185, 129, 0.1)', color: 'var(--accent)', marginBottom: '0.5rem' }}>
+                        <CheckCircle2 size={40} />
+                      </div>
+                      <h3 style={{ fontSize: '1.4rem', color: 'white' }}>Order Placed (অর্ডার সফল হয়েছে)</h3>
+                      <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>Discount points will activate on shop delivery.</p>
+                    </div>
+
+                    <div className="points-glow-box" style={{ padding: '1rem', borderRadius: '8px', textAlign: 'center', marginBottom: '1.5rem' }}>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Broadband discount points earned</span>
+                      <h2 style={{ fontSize: '2.2rem', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
+                        <Sparkles size={24} style={{ color: 'var(--warning)' }} />
+                        +₹{checkoutResult.pointsCredited}
+                      </h2>
+                      <p style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>Drawn directly from grocery store's profit margin.</p>
+                    </div>
+
+                    <div style={{ background: 'var(--bg-surface-elevated)', padding: '0.75rem', borderRadius: '6px', marginBottom: '1.5rem', fontSize: '0.725rem' }}>
+                      <strong style={{ color: 'var(--text-muted)', fontSize: '0.65rem', textTransform: 'uppercase' }}>Payout Split (পেমেন্ট বন্টন):</strong>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.5rem' }}>
+                        <span>Shopkeeper payout:</span>
+                        <span style={{ fontWeight: 'bold', color: 'white' }}>₹{checkoutResult.razorpay_split.stockist_share.toFixed(2)}</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span>ISP broadband share:</span>
+                        <span style={{ fontWeight: 'bold', color: 'white' }}>₹{checkoutResult.razorpay_split.platform_share.toFixed(2)}</span>
+                      </div>
+                      <div className="split-viz">
+                        <div className="split-stockist" style={{ width: `${(checkoutResult.razorpay_split.stockist_share / (checkoutResult.razorpay_split.stockist_share + checkoutResult.razorpay_split.platform_share)) * 100}%` }}>Shopkeeper</div>
+                        <div className="split-platform" style={{ width: `${(checkoutResult.razorpay_split.platform_share / (checkoutResult.razorpay_split.stockist_share + checkoutResult.razorpay_split.platform_share)) * 100}%` }}>ISP</div>
+                      </div>
+                    </div>
+
+                    <button className="btn" onClick={() => { setCheckoutResult(null); loadCustomerData(); }}>Continue Shopping (বাজার করুন)</button>
+                  </div>
+                )}
+
+                {/* Inner Content based on App Tab */}
+                <div style={{ flex: 1, padding: '1rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  
+                  {/* Top Customer info bar */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <p style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>DELIVERING TO (ডেলিভারি ঠিকানা)</p>
+                      <h4 style={{ fontSize: '0.85rem', color: 'white' }}>{currentUser.name} ({activeRegionName})</h4>
+                    </div>
+                    <button onClick={handleLogout} className="badge badge-danger" style={{ border: 'none', cursor: 'pointer' }}>Logout</button>
+                  </div>
+
+                  {customerAppTab === 'store' && (
+                    <>
+                      {/* Store selector dropdown */}
+                      <div className="input-group" style={{ margin: 0 }}>
+                        <label className="input-label">Select Hyperlocal Shop (দোকান সিলেক্ট করুন)</label>
+                        <select 
+                          className="text-input" 
+                          value={selectedStockist ? selectedStockist.id : ''} 
+                          onChange={e => setSelectedStockist(customerStockists.find(s => s.id === e.target.value))}
+                          style={{ background: 'var(--bg-surface)' }}
+                        >
+                          {customerStockists.map(s => (
+                            <option key={s.id} value={s.id}>{s.name} ({s.delivery_radius_km}km Range)</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {selectedStockist && (
+                        <div className="glass-card" style={{ fontSize: '0.7rem', background: 'var(--bg-surface)', padding: '0.6rem 0.75rem' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span>Min Order: <strong>₹{selectedStockist.min_order_value}</strong></span>
+                            <span>Delivery Radius: <strong>{selectedStockist.delivery_radius_km}km</strong></span>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Catalog List */}
+                      <h3 style={{ fontSize: '0.95rem', marginTop: '0.5rem' }}>Popular Staples (রোজকার বাজার)</h3>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                        {customerProducts.map(p => {
+                          const earnEst = Math.round((p.price - p.cost_price) * 0.45 * 100) / 100;
+                          return (
+                            <div key={p.id} className="netflix-card" style={{ display: 'flex', padding: '0.6rem', gap: '0.75rem', alignItems: 'center' }}>
+                              <img src={p.image_url} alt={p.name} style={{ width: '56px', height: '56px', borderRadius: '6px', objectFit: 'cover' }} />
+                              <div style={{ flex: 1 }}>
+                                <h4 style={{ fontSize: '0.75rem', color: 'white' }}>{p.name}</h4>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.2rem' }}>
+                                  <span style={{ fontWeight: 'bold', fontSize: '0.85rem' }}>₹{p.price}</span>
+                                  <span className="badge badge-success" style={{ fontSize: '0.5rem', padding: '0.1rem 0.25rem' }}>
+                                    Earn ₹{earnEst} Pts
+                                  </span>
+                                </div>
+                              </div>
+                              <button 
+                                className="btn btn-accent" 
+                                style={{ padding: '0.3rem 0.5rem', fontSize: '0.7rem', height: '28px' }}
+                                onClick={() => addToCart(p)}
+                              >
+                                <Plus size={12} /> Add (যোগ করুন)
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* Floating Cart Panel */}
+                      {customerCart.length > 0 && (
+                        <div style={{ position: 'sticky', bottom: '0', background: 'var(--bg-surface-elevated)', border: '1px solid var(--primary)', borderRadius: '8px', padding: '0.85rem', display: 'flex', flexDirection: 'column', gap: '0.65rem', marginTop: 'auto', boxShadow: '0 -5px 15px rgba(0,0,0,0.5)' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span style={{ fontSize: '0.75rem', fontWeight: 'bold' }}>{customerCart.length} Items Selected</span>
+                            <span style={{ fontSize: '0.9rem', fontWeight: 'bold', color: 'var(--accent)' }}>₹{cartTotal.toFixed(2)}</span>
+                          </div>
+
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem', color: 'var(--text-muted)' }}>
+                            <span>Subtotal: ₹{cartSubtotal}</span>
+                            <span>Est. Subsidy: <strong style={{ color: 'var(--accent)' }}>+₹{estimatedEarnPoints} Pts</strong></span>
+                          </div>
+
+                          {lowOrderFee > 0 && (
+                            <div style={{ fontSize: '0.6rem', color: 'var(--warning)', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                              <AlertCircle size={10} /> Charging low-order fee of ₹20 (Cart under ₹150)
+                            </div>
+                          )}
+
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', borderTop: '1px solid var(--border-color)', paddingTop: '0.4rem' }}>
+                            {customerCart.map(item => (
+                              <div key={item.product.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.7rem' }}>
+                                <span style={{ textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', width: '180px' }}>{item.product.name}</span>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                  <button onClick={() => updateCartQty(item.product.id, -1)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}><Minus size={10} /></button>
+                                  <span>{item.quantity}</span>
+                                  <button onClick={() => updateCartQty(item.product.id, 1)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}><Plus size={10} /></button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+
+                          {cartSubtotal < selectedStockist.min_order_value ? (
+                            <button className="btn btn-secondary" style={{ width: '100%', fontSize: '0.75rem', cursor: 'not-allowed' }} disabled>
+                              Min. Order ₹{selectedStockist.min_order_value} Required
+                            </button>
+                          ) : (
+                            <button className="btn" style={{ width: '100%', fontSize: '0.8rem' }} onClick={handleCheckout}>
+                              Place Order (অর্ডার করুন / Order Karo)
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  {customerAppTab === 'ledger' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                      {/* Broadband Bill status */}
+                      <div style={{ background: 'var(--bg-surface-elevated)', border: '1px solid var(--border-color)', padding: '1rem', borderRadius: '12px' }}>
+                        <h4 style={{ fontSize: '0.75rem', color: '#818CF8', marginBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>FastNet Broadband Bill (ইন্টারনেট বিল)</h4>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                          <span>Monthly Bill:</span>
+                          <span style={{ textDecoration: discountApplied > 0 ? 'line-through' : 'none' }}>₹499.00</span>
+                        </div>
+                        {discountApplied > 0 && (
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--accent)' }}>
+                            <span>Loyalty Subsidy Applied:</span>
+                            <span>-₹{discountApplied.toFixed(2)}</span>
+                          </div>
+                        )}
+                        <hr style={{ borderColor: 'rgba(255,255,255,0.05)', margin: '0.4rem 0' }} />
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', color: 'white', fontWeight: 'bold' }}>
+                          <span>Outstanding Bill Amount:</span>
+                          <span style={{ color: discountApplied >= 499 ? 'var(--accent)' : 'white' }}>
+                            ₹{Math.max(0, 499 - discountApplied).toFixed(2)}
+                          </span>
+                        </div>
+                        {discountApplied > 0 && (
+                          <div style={{ background: 'rgba(16, 185, 129, 0.08)', border: '1px solid var(--accent)', borderRadius: '6px', padding: '0.35rem', fontSize: '0.625rem', color: 'var(--accent)', marginTop: '0.5rem', textAlign: 'center' }}>
+                            🎉 Subsidy applied! Saved in broadband billing account.
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Points Balance Card */}
+                      <div className="points-glow-box" style={{ padding: '1rem', borderRadius: '12px', textAlign: 'center' }}>
+                        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>ACCUMULATED LOYALTY POINTS</span>
+                        <h1 style={{ fontSize: '2.2rem', margin: '0.15rem 0', color: 'white' }}>₹{customerBalance}</h1>
+                        <p style={{ fontSize: '0.6rem', color: 'var(--text-muted)' }}>Subsidizes broadband internet bill.</p>
+                      </div>
+
+                      {/* Redeem Input */}
+                      <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-color)', padding: '0.85rem', borderRadius: '8px' }}>
+                        <h4 style={{ fontSize: '0.75rem', marginBottom: '0.5rem' }}>Redeem Points (ডিসকাউন্ট হিসেবে ব্যবহার করুন)</h4>
+                        <div style={{ display: 'flex', gap: '0.5rem' }}>
+                          <input 
+                            type="number" 
+                            placeholder="Enter points value" 
+                            className="text-input" 
+                            value={redeemAmount}
+                            onChange={e => setRedeemAmount(e.target.value)}
+                            style={{ flex: 1, padding: '0.4rem 0.75rem', fontSize: '0.8rem' }}
+                          />
+                          <button className="btn btn-accent" onClick={handleRedeemPoints} style={{ padding: '0.4rem 0.85rem', fontSize: '0.75rem' }}>
+                            Redeem (রিডিম করুন)
+                          </button>
+                        </div>
+                      </div>
+
+                      <h3 style={{ fontSize: '0.85rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.4rem' }}>Discount History (ডিসকাউন্ট লগ)</h3>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                        {customerLedger.map(l => (
+                          <div key={l.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.4rem 0', borderBottom: '1px dashed rgba(255,255,255,0.05)', fontSize: '0.7rem' }}>
+                            <div>
+                              <div style={{ fontWeight: '600', color: 'white' }}>{l.description}</div>
+                              <div style={{ color: 'var(--text-muted)', fontSize: '0.6rem' }}>{new Date(l.created_at).toLocaleDateString()}</div>
+                            </div>
+                            <div style={{ fontWeight: 'bold', color: l.type === 'EARN' ? 'var(--accent)' : 'var(--danger)', fontSize: '0.8rem' }}>
+                              {l.amount > 0 ? `+₹${l.amount}` : `-₹${Math.abs(l.amount)}`}
+                            </div>
+                          </div>
+                        ))}
+                        {customerLedger.length === 0 && (
+                          <p style={{ color: 'var(--text-muted)', fontSize: '0.7rem', textAlign: 'center' }}>No transactions recorded.</p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {customerAppTab === 'orders' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                      <h3 style={{ fontSize: '0.85rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.4rem' }}>My Orders (আমার অর্ডার)</h3>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                        {customerOrders.map(o => (
+                          <div key={o.id} className="glass-card" style={{ padding: '0.65rem', fontSize: '0.7rem', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                              <span style={{ fontWeight: 'bold' }}>Order #{o.id.substring(2).toUpperCase()}</span>
+                              <span className={`badge ${o.status === 'DELIVERED' ? 'badge-success' : 'badge-warning'}`}>{o.status}</span>
+                            </div>
+                            <div style={{ color: 'var(--text-muted)' }}>Store: {o.stockist_name}</div>
+                            <div style={{ borderTop: '1px solid rgba(255,255,255,0.03)', paddingTop: '0.4rem', display: 'flex', justifyContent: 'space-between' }}>
+                              <span>Paid: ₹{o.total_price.toFixed(2)}</span>
+                              <span>{new Date(o.created_at).toLocaleDateString()}</span>
+                            </div>
+                          </div>
+                        ))}
+                        {customerOrders.length === 0 && (
+                          <p style={{ color: 'var(--text-muted)', fontSize: '0.7rem', textAlign: 'center' }}>No orders placed yet.</p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                </div>
+
+                <div className="phone-footer">
+                  <button className={`phone-nav-btn ${customerAppTab === 'store' ? 'active' : ''}`} onClick={() => setCustomerAppTab('store')}>
+                    <ShoppingBag size={18} />
+                    Shop (বাজার করুন)
+                  </button>
+                  <button className={`phone-nav-btn ${customerAppTab === 'ledger' ? 'active' : ''}`} onClick={() => setCustomerAppTab('ledger')}>
+                    <Sparkles size={18} />
+                    Points (পয়েন্ট)
+                  </button>
+                  <button className={`phone-nav-btn ${customerAppTab === 'orders' ? 'active' : ''}`} onClick={() => setCustomerAppTab('orders')}>
+                    <ArrowRightLeft size={18} />
+                    History (ইতিহাস)
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // ----------------------------------------------------
+  // 3. STOCKIST MOBILE APP SIMULATOR
+  // ----------------------------------------------------
+  const renderStockistView = () => {
+    const isLoggedOut = !currentUser || currentUser.role !== 'STOCKIST';
+    const activeRegionName = currentUser ? (regions.find(r => r.id === currentUser.region_id)?.name || 'Kolkata South (Garia)') : 'Kolkata South (Garia)';
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.75rem', width: '100%' }}>
+        <div className="perspective-banner">
+          <span>🏪 SHOPKEEPER VIEW (দোকানদার মোড): {isLoggedOut ? "Not logged in (লগইন করা নেই)" : `${stockistProfile?.name || currentUser.name} (${activeRegionName})`}</span>
+        </div>
+
+        <div className="phone-mockup">
+          <div className="phone-notch"></div>
+          <div className="phone-screen">
+            {isLoggedOut ? (
+              <>
+                <div className="phone-header">
+                  <span>FastNet 5G</span>
+                  <span>📶 🔋 19:43</span>
+                </div>
+                {renderAuthForm()}
+              </>
+            ) : !stockistProfile ? (
+              <>
+                <div className="phone-header">
+                  <span>FastNet 5G</span>
+                  <span>📶 🔋 19:43</span>
+                </div>
+                <div style={{ padding: '2rem 1.5rem', textAlign: 'center', display: 'flex', flexDirection: 'column', justify: 'center', height: '100%', gap: '1rem' }}>
+                  <ShieldAlert size={48} style={{ color: 'var(--warning)', alignSelf: 'center' }} />
+                  <h3>KYC Pending / Approved Profile Missing</h3>
+                  <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>
+                    Your KYC is either pending approval from the Super Admin, or your stockist profile has not been initialized.
+                  </p>
+                  <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem', background: 'var(--bg-surface)', padding: '0.5rem', borderRadius: '4px' }}>
+                    Go to the **Admin Dashboard** tab to approve pending KYC and assign a Vendor first.
+                  </p>
+                  <button className="btn btn-secondary" onClick={handleLogout}>Log Out</button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="phone-header" style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.05)' }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                    {offlineMode ? <WifiOff size={12} style={{ color: 'var(--danger)' }} /> : <Wifi size={12} style={{ color: 'var(--accent)' }} />}
+                    {stockistProfile.name}
+                  </span>
+                  <span className={`badge ${offlineMode ? 'badge-danger' : 'badge-success'}`} style={{ fontSize: '0.55rem' }}>
+                    {offlineMode ? 'Offline (অফলাইন)' : 'Online (অনলাইন)'}
+                  </span>
+                </div>
+
+                <div style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '1rem', flex: 1 }}>
+                  
+                  {/* Sync bar if offline queue has items */}
+                  {offlineQueue.length > 0 && (
+                    <div style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid var(--warning)', borderRadius: '6px', padding: '0.5rem 0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.75rem' }}>
+                      <span><strong>{offlineQueue.length}</strong> updates pending sync</span>
+                      {!offlineMode && (
+                        <button className="badge badge-warning" style={{ border: 'none', cursor: 'pointer' }} onClick={handleSyncOfflineQueue}>
+                          Sync Now
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Offline toggle control */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-surface)', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                    <div>
+                      <h4 style={{ fontSize: '0.8rem', color: 'white' }}>Signal Simulator (নেটওয়ার্ক সিগন্যাল)</h4>
+                      <p style={{ color: 'var(--text-muted)', fontSize: '0.65rem' }}>Test offline rural store state</p>
+                    </div>
+                    <button 
+                      onClick={toggleOfflineMode} 
+                      className={`badge ${offlineMode ? 'badge-danger' : 'badge-success'}`}
+                      style={{ border: 'none', cursor: 'pointer', padding: '0.4rem 0.6rem', textTransform: 'uppercase' }}
+                    >
+                      {offlineMode ? 'Connect' : 'Disconnect'}
+                    </button>
+                  </div>
+
+                  {/* Active Orders Queue */}
+                  <h3 style={{ fontSize: '0.95rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem' }}>New Orders (নতুন অর্ডার)</h3>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                    {stockistOrders.map(o => (
+                      <div key={o.id} className="glass-card" style={{ padding: '0.75rem', fontSize: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span style={{ fontWeight: 'bold' }}>Order #{o.id.substring(2).toUpperCase()}</span>
+                          <span className={`badge ${o.status === 'DELIVERED' ? 'badge-success' : 'badge-warning'}`}>{o.status}</span>
+                        </div>
+                        
+                        {/* Order items listing */}
+                        <div style={{ background: 'rgba(0,0,0,0.1)', padding: '0.4rem', borderRadius: '4px' }}>
+                          {o.items && o.items.map(item => (
+                            <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-muted)', fontSize: '0.7rem' }}>
+                              <span>{item.name} x {item.quantity}</span>
+                              <span>₹{item.price * item.quantity}</span>
+                            </div>
+                          ))}
+                        </div>
+
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                          <span>Subtotal: ₹{o.subtotal}</span>
+                          <span>Total Price: ₹{o.total_price}</span>
+                        </div>
+
+                        {/* Actions buttons */}
+                        <div style={{ display: 'flex', gap: '0.25rem', marginTop: '0.25rem' }}>
+                          {o.status === 'PENDING' && (
+                            <button className="btn" style={{ flex: 1, padding: '0.35rem 0', fontSize: '0.7rem' }} onClick={() => handleUpdateOrderStatus(o.id, 'ACCEPTED')}>
+                              Accept (স্বীকার করুন)
+                            </button>
+                          )}
+                          {o.status === 'ACCEPTED' && (
+                            <button className="btn btn-accent" style={{ flex: 1, padding: '0.35rem 0', fontSize: '0.7rem' }} onClick={() => handleUpdateOrderStatus(o.id, 'PREPARING')}>
+                              Prepare (প্যাক করুন)
+                            </button>
+                          )}
+                          {o.status === 'PREPARING' && (
+                            <button className="btn btn-accent" style={{ flex: 1, padding: '0.35rem 0', fontSize: '0.7rem' }} onClick={() => handleUpdateOrderStatus(o.id, 'SHIPPED')}>
+                              Deliver (ডেলিভারি করুন)
+                            </button>
+                          )}
+                          {o.status === 'SHIPPED' && (
+                            <button className="btn" style={{ flex: 1, padding: '0.35rem 0', fontSize: '0.7rem', background: 'var(--accent)' }} onClick={() => handleUpdateOrderStatus(o.id, 'DELIVERED')}>
+                              Complete & Pay (ডেলিভারি সম্পন্ন)
+                            </button>
+                          )}
+                          {o.status !== 'DELIVERED' && o.status !== 'CANCELLED' && (
+                            <button className="btn btn-danger" style={{ padding: '0.35rem 0.5rem', fontSize: '0.7rem' }} onClick={() => handleUpdateOrderStatus(o.id, 'CANCELLED')}>Cancel</button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                    {stockistOrders.length === 0 && (
+                      <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem', textAlign: 'center' }}>No orders in queue.</p>
+                    )}
+                  </div>
+
+                  {/* Inventory Restock Panel */}
+                  <h3 style={{ fontSize: '0.95rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem', marginTop: '0.5rem' }}>Store Inventory (পাইকারি স্টক কিনুন)</h3>
+                  <p style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>
+                    Assigned Wholesaler: <strong>{vendors.find(v => v.id === stockistProfile.vendor_id)?.name || 'None Assigned'}</strong>
+                  </p>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                    {stockistProducts.map(p => (
+                      <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-surface)', padding: '0.5rem 0.75rem', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '0.75rem' }}>
+                        <div>
+                          <div style={{ fontWeight: '600', color: 'white' }}>{p.name}</div>
+                          <div style={{ color: 'var(--text-muted)', fontSize: '0.65rem' }}>Stock qty: <strong style={{ color: p.stock_qty > 10 ? 'var(--accent)' : 'var(--danger)' }}>{p.stock_qty}</strong></div>
+                        </div>
+                        <button 
+                          className="btn btn-secondary" 
+                          style={{ padding: '0.25rem 0.5rem', fontSize: '0.7rem' }}
+                          onClick={() => handlePurchaseStock(p.id, 20)}
+                        >
+                          Restock +20 (স্টক আনুন)
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+
+                  <button className="btn btn-danger" style={{ width: '100%', marginTop: 'auto', fontSize: '0.8rem' }} onClick={handleLogout}>Log Out</button>
+
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // ----------------------------------------------------
+  // 4. ADMIN DESKTOP PORTAL
+  // ----------------------------------------------------
+  const renderAdminView = () => {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.75rem', width: '100%' }}>
+        <div className="perspective-banner">
+          <span>⚙️ OPERATOR PORTAL (অ্যাডমিন মোড): FastNet Broadband Operations Dashboard</span>
+        </div>
+
+        <div className="admin-container">
+          <div className="admin-header">
+            <div>
+              <h1>Operator Admin Dashboard</h1>
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>FastNet Broadband Pilot Tenant Operations</p>
+            </div>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button className="btn btn-danger" onClick={handleResetDb} style={{ fontSize: '0.8rem' }}>
+                <RotateCcw size={14} /> Reset Database (রিসেট করুন)
+              </button>
+            </div>
+          </div>
+
+          <div className="admin-grid">
+            <div className="admin-sidebar">
+              <button className={`admin-nav-item ${adminTab === 'kyc' ? 'active' : ''}`} onClick={() => setAdminTab('kyc')}>
+                <UserCheck size={16} /> Shop Approvals Queue ({pendingKyc.length})
+              </button>
+              <button className={`admin-nav-item ${adminTab === 'rates' ? 'active' : ''}`} onClick={() => setAdminTab('rates')}>
+                <Settings size={16} /> Commission Rules
+              </button>
+              <button className={`admin-nav-item ${adminTab === 'anomalies' ? 'active' : ''}`} onClick={() => setAdminTab('anomalies')}>
+                <ShieldAlert size={16} /> Flagged Store Orders ({anomalies.length})
+              </button>
+              <button className={`admin-nav-item ${adminTab === 'redemptions' ? 'active' : ''}`} onClick={() => setAdminTab('redemptions')}>
+                <ArrowRightLeft size={16} /> Broadband Discounts ({pendingRedemptions.filter(r=>r.billing_sync_status==='PENDING').length})
+              </button>
+              <button className={`admin-nav-item ${adminTab === 'vendors' ? 'active' : ''}`} onClick={() => setAdminTab('vendors')}>
+                <ShoppingBag size={16} /> Approved Wholesalers
+              </button>
+            </div>
+
+            <div className="admin-content">
+              
+              {adminTab === 'kyc' && (
+                <div>
+                  <h2 style={{ fontSize: '1.4rem', marginBottom: '1rem' }}>Shopkeeper Registration Queue</h2>
+                  <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
+                    Verify local grocery stores applying to open shops on the FastNet Hyperlocal Marketplace. Approve to assign local wholesale suppliers.
+                  </p>
+
+                  <table className="admin-table">
+                    <thead>
+                      <tr>
+                        <th>Name</th>
+                        <th>Phone</th>
+                        <th>Region</th>
+                        <th>ID Type</th>
+                        <th>ID Number</th>
+                        <th>Address</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pendingKyc.map(u => (
+                        <tr key={u.id}>
+                          <td>{u.name}</td>
+                          <td>{u.phone}</td>
+                          <td>{u.region_id === 'r1' ? 'Kolkata South' : 'Rural Bishnupur'}</td>
+                          <td>{u.kyc_details?.id_type}</td>
+                          <td>{u.kyc_details?.id_number}</td>
+                          <td>{u.kyc_details?.shop_address}</td>
+                          <td>
+                            <button className="btn btn-accent" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }} onClick={() => handleApproveKyc(u.id)}>
+                              Approve Shop (অনুমোদন করুন)
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                      {pendingKyc.length === 0 && (
+                        <tr>
+                          <td colSpan="7" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
+                            No pending registrations found.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {adminTab === 'rates' && (
+                <div>
+                  <h2 style={{ fontSize: '1.4rem', marginBottom: '1rem' }}>ISP Broadband Commission Rules (কমিশন নীতি)</h2>
+                  <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
+                    Set regional percentage charges on customer purchases. Points pool credits are derived from the store profit margin remaining after this commission.
+                  </p>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '2rem' }}>
+                    <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                      <h4>Configure Commission</h4>
+                      <div className="input-group">
+                        <label className="input-label">Region</label>
+                        <select className="text-input" value={configRegion} onChange={e => setConfigRegion(e.target.value)}>
+                          <option value="r1">Kolkata South (Garia)</option>
+                          <option value="r2">Rural West Bengal (Bishnupur)</option>
+                        </select>
+                      </div>
+                      <div className="input-group">
+                        <label className="input-label">Category</label>
+                        <input type="text" className="text-input" value={configCategory} onChange={e => setConfigCategory(e.target.value)} />
+                      </div>
+                      <div className="input-group">
+                        <label className="input-label">Commission Rate (%)</label>
+                        <input type="number" className="text-input" value={configRate} onChange={e => setConfigRate(parseFloat(e.target.value))} />
+                      </div>
+                      <button className="btn" onClick={handleSaveCommissionRate}>Save Config Rules</button>
+                    </div>
+
+                    <div>
+                      <table className="admin-table">
+                        <thead>
+                          <tr>
+                            <th>Region</th>
+                            <th>Category</th>
+                            <th>Commission Rate (%)</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {commissionRates.map(cr => (
+                            <tr key={cr.id}>
+                              <td>{cr.region_id === 'r1' ? 'Kolkata South' : 'Rural Bishnupur'}</td>
+                              <td>{cr.category}</td>
+                              <td>{cr.rate_percent}%</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {adminTab === 'anomalies' && (
+                <div>
+                  <h2 style={{ fontSize: '1.4rem', marginBottom: '1rem' }}>Suspicious Activity Flags (তদন্তের অর্ডার)</h2>
+                  <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
+                    Platform security engine automatically flags repeat order loops between unique customer-stockist pairs (helps prevent point farming collusion).
+                  </p>
+
+                  <table className="admin-table">
+                    <thead>
+                      <tr>
+                        <th>Timestamp</th>
+                        <th>Customer Name</th>
+                        <th>Stockist Store</th>
+                        <th>Frequency Metric</th>
+                        <th>Flagged Reason</th>
+                        <th>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {anomalies.map(an => (
+                        <tr key={an.id}>
+                          <td>{new Date(an.created_at).toLocaleTimeString()}</td>
+                          <td>{an.customer_name}</td>
+                          <td>{an.stockist_name}</td>
+                          <td><span className="badge badge-danger">{an.frequency_metric}</span></td>
+                          <td style={{ color: 'var(--warning)', fontSize: '0.8rem' }}>{an.reason}</td>
+                          <td>
+                            <button className="btn btn-secondary" style={{ padding: '0.25rem 0.5rem', fontSize: '0.7rem' }} onClick={() => showToast('Stockist account flagged for review.')}>
+                              Flag for Review (তদন্ত করুন)
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                      {anomalies.length === 0 && (
+                        <tr>
+                          <td colSpan="6" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
+                            No suspicious transaction patterns detected.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {adminTab === 'redemptions' && (
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                    <div>
+                      <h2 style={{ fontSize: '1.4rem' }}>Subscriber Broadband Discounts (ব্রডব্যান্ড ডিসকাউন্ট)</h2>
+                      <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                        Approve and synchronize redeemed bill discounts with FastNet CRM billing software.
+                      </p>
+                    </div>
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      <button className="btn btn-secondary" style={{ padding: '0.5rem 0.75rem', fontSize: '0.8rem' }} onClick={exportRedemptionsCsv}>
+                        <Download size={14} /> Export CSV
+                      </button>
+                    </div>
+                  </div>
+
+                  <table className="admin-table">
+                    <thead>
+                      <tr>
+                        <th>Discount Reference ID</th>
+                        <th>Date</th>
+                        <th>Subscriber Name</th>
+                        <th>Subscriber Phone</th>
+                        <th>Subscriber Discount</th>
+                        <th>Sync Status</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pendingRedemptions.map(r => (
+                        <tr key={r.id}>
+                          <td style={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>{r.id}</td>
+                          <td>{new Date(r.created_at).toLocaleDateString()}</td>
+                          <td>{r.customer_name}</td>
+                          <td>{r.customer_phone}</td>
+                          <td style={{ fontWeight: 'bold', color: 'var(--accent)' }}>₹{Math.abs(r.amount)}</td>
+                          <td>
+                            <span className={`badge ${r.billing_sync_status === 'SYNCED' ? 'badge-success' : 'badge-warning'}`}>
+                              {r.billing_sync_status || 'PENDING'}
+                            </span>
+                          </td>
+                          <td>
+                            {r.billing_sync_status !== 'SYNCED' ? (
+                              <button className="btn btn-accent" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }} onClick={() => handleCompleteRedemption(r.id)}>
+                                Approve & Sync Bill Discount (ডিসকাউন্ট অনুমোদন)
+                              </button>
+                            ) : (
+                              <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>Synced to Billing</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                      {pendingRedemptions.length === 0 && (
+                        <tr>
+                          <td colSpan="7" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
+                            No subscriber redemptions logged.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {adminTab === 'vendors' && (
+                <div>
+                  <h2 style={{ fontSize: '1.4rem', marginBottom: '1rem' }}>Approved Wholesalers List (পাইকারি বিক্রেতা)</h2>
+                  <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
+                    Configure distributors that stockists can purchase grocery inventory from.
+                  </p>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '2rem' }}>
+                    <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                      <h4>Register Wholesaler (পাইকারি বিক্রেতা রেজিস্টার)</h4>
+                      <div className="input-group">
+                        <label className="input-label">Wholesaler Name</label>
+                        <input 
+                          type="text" 
+                          placeholder="e.g. Bishnupur Wholesale Union" 
+                          className="text-input" 
+                          value={adminNewVendor}
+                          onChange={e => setAdminNewVendor(e.target.value)}
+                        />
+                      </div>
+                      <div className="input-group">
+                        <label className="input-label">Region Area</label>
+                        <select className="text-input" value={selectedRegionId} onChange={e => setSelectedRegionId(e.target.value)}>
+                          <option value="r1">Kolkata South (Garia)</option>
+                          <option value="r2">Rural West Bengal (Bishnupur)</option>
+                        </select>
+                      </div>
+                      <button className="btn" onClick={handleCreateVendor}>Register Wholesaler</button>
+                    </div>
+
+                    <div>
+                      <table className="admin-table">
+                        <thead>
+                          <tr>
+                            <th>Wholesaler ID</th>
+                            <th>Name</th>
+                            <th>Region Area</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {vendors.map(v => (
+                            <tr key={v.id}>
+                              <td style={{ fontFamily: 'monospace' }}>{v.id}</td>
+                              <td>{v.name}</td>
+                              <td>{v.region_id === 'r1' ? 'Kolkata South' : 'Rural West Bengal'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // ----------------------------------------------------
+  // 5. SYSTEM INSPECTOR (Live SQLite schema view)
+  // ----------------------------------------------------
+  const renderDbInspector = () => {
+    const tableData = dbState ? dbState[dbTab] : [];
+    
+    return (
+      <div style={{ width: '100%', maxWidth: '1200px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+        <div>
+          <h1>Real-time System Database Inspector</h1>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Visualizes row modifications written directly to the SQLite backend</p>
+        </div>
+
+        <div className="inspector-tabs" style={{ background: 'var(--bg-surface)', padding: '0.5rem', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+          <button className={`role-tab ${dbTab === 'points_ledger' ? 'active' : ''}`} onClick={() => setDbTab('points_ledger')} style={{ borderRadius: '4px' }}>points_ledger (Ledger Row)</button>
+          <button className={`role-tab ${dbTab === 'orders' ? 'active' : ''}`} onClick={() => setDbTab('orders')} style={{ borderRadius: '4px' }}>orders</button>
+          <button className={`role-tab ${dbTab === 'products' ? 'active' : ''}`} onClick={() => setDbTab('products')} style={{ borderRadius: '4px' }}>products</button>
+          <button className={`role-tab ${dbTab === 'commission_rates' ? 'active' : ''}`} onClick={() => setDbTab('commission_rates')} style={{ borderRadius: '4px' }}>commission_rates</button>
+          <button className={`role-tab ${dbTab === 'vendors' ? 'active' : ''}`} onClick={() => setDbTab('vendors')} style={{ borderRadius: '4px' }}>vendors</button>
+          <button className={`role-tab ${dbTab === 'anomaly_logs' ? 'active' : ''}`} onClick={() => setDbTab('anomaly_logs')} style={{ borderRadius: '4px' }}>anomaly_logs</button>
+        </div>
+
+        <div className="glass-card" style={{ background: '#080A0E', padding: '1.5rem', minHeight: '300px', overflowX: 'auto' }}>
+          {tableData && tableData.length > 0 ? (
+            <pre style={{ color: '#38BDF8', fontSize: '0.8rem', fontFamily: 'monospace' }}>
+              {JSON.stringify(tableData, null, 2)}
+            </pre>
+          ) : (
+            <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
+              No rows recorded in "{dbTab}" table yet.
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="simulator-shell">
+      
+      {/* Toast popup */}
+      {toast && (
+        <div className="toast-msg" style={{ borderLeft: `4px solid ${toast.type === 'error' ? 'var(--danger)' : 'var(--accent)'}`, position: 'fixed', bottom: '20px', right: '20px', zIndex: 1000, width: 'auto', background: '#131722', backdropFilter: 'blur(10px)' }}>
+          <CheckCircle2 size={16} style={{ color: toast.type === 'error' ? 'var(--danger)' : 'var(--accent)' }} />
+          <span>{toast.message}</span>
+        </div>
+      )}
+
+      {/* Guided Walkthrough Tour Banner */}
+      {renderTourBanner()}
+
+      {/* Simulator Workspace Header */}
+      <header className="simulator-header">
+        <div className="brand" onClick={() => setActiveRole('marketing')} style={{ cursor: 'pointer' }}>
+          <div className="brand-logo">F</div>
+          <div>
+            <span className="brand-name">FastNet Loyalty</span>
+            <span style={{ fontSize: '0.65rem', display: 'block', color: 'var(--primary)', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Pilot Platform Simulator</span>
+          </div>
+        </div>
+
+        {/* Global Surface Switcher */}
+        <div className="role-switcher">
+          <button className={`role-tab ${activeRole === 'marketing' ? 'active' : ''}`} onClick={() => setActiveRole('marketing')}>
+            B2B Site
+          </button>
+          <button className={`role-tab ${activeRole === 'customer' ? 'active' : ''}`} onClick={() => setActiveRole('customer')}>
+            Customer App
+          </button>
+          <button className={`role-tab ${activeRole === 'stockist' ? 'active' : ''}`} onClick={() => setActiveRole('stockist')}>
+            Stockist App
+          </button>
+          <button className={`role-tab ${activeRole === 'admin' ? 'active' : ''}`} onClick={() => setActiveRole('admin')}>
+            Admin Portal
+          </button>
+          {showDevSettings && (
+            <button className={`role-tab ${activeRole === 'db' ? 'active' : ''}`} onClick={() => setActiveRole('db')}>
+              DB Inspector
+            </button>
+          )}
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+          <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--accent)' }}></div>
+          <span>API Connected</span>
+        </div>
+      </header>
+
+      {/* Workspace Area */}
+      <div className="workspace-content">
+        <main className="main-viewport">
+          {activeRole === 'marketing' && renderMarketingView()}
+          {activeRole === 'customer' && renderCustomerView()}
+          {activeRole === 'stockist' && renderStockistView()}
+          {activeRole === 'admin' && renderAdminView()}
+          {activeRole === 'db' && renderDbInspector()}
+        </main>
+
+        {/* Left Side API Request Log stream */}
+        {showDevSettings && activeRole !== 'db' && (
+          <aside className="inspector-panel">
+            <div className="inspector-header">
+              <span style={{ fontWeight: 'bold', fontSize: '0.8rem', color: 'white', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <Database size={14} style={{ color: 'var(--primary)' }} /> Live Gateway Request Logs
+              </span>
+              <button 
+                onClick={() => setApiLogs([])} 
+                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '0.7rem', cursor: 'pointer' }}
+              >
+                Clear Logs
+              </button>
+            </div>
+            
+            <div className="inspector-body">
+              {apiLogs.map(log => (
+                <div key={log.id} className="log-line" style={{ borderBottom: '1px solid rgba(255,255,255,0.03)', paddingBottom: '0.5rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.15rem' }}>
+                    <span style={{ color: 'var(--text-muted)' }}>[{log.timestamp}]</span>
+                    <span style={{ 
+                      fontWeight: 'bold', 
+                      color: log.status >= 200 && log.status < 300 ? 'var(--accent)' : 'var(--danger)' 
+                    }}>
+                      {log.method} {log.status}
+                    </span>
+                  </div>
+                  <div style={{ color: '#E2E8F0', wordBreak: 'break-all' }}>{log.url}</div>
+                  {log.payload && (
+                    <div style={{ color: 'var(--text-muted)', fontSize: '0.65rem', marginTop: '0.1rem' }}>
+                      Payload: <span style={{ color: '#F472B6' }}>{log.payload}</span>
+                    </div>
+                  )}
+                  <div style={{ color: 'var(--text-muted)', fontSize: '0.65rem' }}>
+                    Resp: <span style={{ color: '#6EE7B7' }}>{log.response}</span>
+                  </div>
+                </div>
+              ))}
+              {apiLogs.length === 0 && (
+                <div style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '2rem' }}>
+                  No requests logged yet. Interact with the simulators to view system logs.
+                </div>
+              )}
+            </div>
+          </aside>
+        )}
+      </div>
+
+      {/* Developer Settings Toggle Switcher Footer */}
+      <footer className="dev-toggle-container">
+        <label className="dev-toggle-label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', userSelect: 'none' }}>
+          <input 
+            type="checkbox" 
+            checked={showDevSettings} 
+            onChange={e => setShowDevSettings(e.target.checked)} 
+            style={{ cursor: 'pointer' }}
+          />
+          <span style={{ fontSize: '0.75rem', fontWeight: '500', color: 'var(--text-muted)' }}>
+            Show Developer Options (Live Gateway Log Stream & DB Row Inspector)
+          </span>
+        </label>
+      </footer>
+    </div>
+  );
+}
