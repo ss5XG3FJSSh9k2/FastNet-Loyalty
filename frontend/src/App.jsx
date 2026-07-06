@@ -493,13 +493,17 @@ export default function App() {
 
   // Handle active role triggers
   useEffect(() => {
+    if (!showDevSettings && activeRole === 'db') {
+      setActiveRole('marketing');
+      return;
+    }
     if (currentUser && currentUser.role === 'CUSTOMER') {
       loadCustomerData();
     } else if (currentUser && currentUser.role === 'STOCKIST') {
       loadStockistData();
     }
     syncInspectorTable();
-  }, [currentUser, activeRole]);
+  }, [currentUser, activeRole, showDevSettings]);
 
   // ----------------------------------------------------
   // AUTH LOGIC
@@ -1792,6 +1796,43 @@ export default function App() {
     const isLoggedOut = !currentUser || currentUser.role !== 'STOCKIST';
     const activeRegionName = currentUser ? (regions.find(r => r.id === currentUser.region_id)?.name || 'Kolkata South (Garia)') : 'Kolkata South (Garia)';
 
+    // Compute today's earnings (sum of stockist_amount for DELIVERED orders)
+    const todaysEarnings = stockistOrders
+      .filter(o => o.status === 'DELIVERED')
+      .reduce((sum, o) => sum + (parseFloat(o.stockist_amount) || 0), 0);
+
+    const renderOrderProgressBar = (status) => {
+      const steps = [
+        { key: 'PENDING', label: 'Received' },
+        { key: 'ACCEPTED', label: 'Accepted' },
+        { key: 'PREPARING', label: 'Packing' },
+        { key: 'SHIPPED', label: 'On Way' },
+        { key: 'DELIVERED', label: 'Completed' }
+      ];
+
+      const currentIndex = steps.findIndex(s => s.key === status);
+      const fillPercent = currentIndex === -1 ? 0 : (currentIndex / (steps.length - 1)) * 100;
+
+      return (
+        <div className="order-progress-container" style={{ margin: '0.4rem 0 0.8rem 0' }}>
+          <div className="order-progress-line-bg"></div>
+          <div className="order-progress-line-fill" style={{ width: `${fillPercent}%` }}></div>
+          {steps.map((s, idx) => {
+            let stepClass = 'order-progress-step';
+            if (idx === currentIndex) stepClass += ' active';
+            else if (idx < currentIndex) stepClass += ' completed';
+
+            return (
+              <div key={s.key} className={stepClass}>
+                <div className="order-progress-dot"></div>
+                <span className="order-progress-label" style={{ fontSize: '0.5rem' }}>{s.label}</span>
+              </div>
+            );
+          })}
+        </div>
+      );
+    };
+
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.75rem', width: '100%' }}>
         <div className="perspective-banner">
@@ -1841,6 +1882,15 @@ export default function App() {
 
                 <div style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '1rem', flex: 1 }}>
                   
+                  {/* Today's Earnings Summary Widget */}
+                  <div style={{ background: 'linear-gradient(135deg, var(--primary) 0%, var(--primary-glow) 100%)', borderRadius: '12px', padding: '0.85rem 1rem', color: 'white', display: 'flex', flexDirection: 'column', gap: '0.15rem', boxShadow: '0 4px 12px rgba(99, 102, 241, 0.2)', border: '1px solid rgba(255,255,255,0.1)' }}>
+                    <span style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'rgba(255,255,255,0.7)', fontWeight: '600' }}>🏪 Today's Total Earnings (আজকের আয়)</span>
+                    <span style={{ fontSize: '1.7rem', fontWeight: 'bold', fontFamily: 'var(--font-display)' }}>
+                      ₹{todaysEarnings.toFixed(2)}
+                    </span>
+                    <span style={{ fontSize: '0.55rem', color: 'rgba(255,255,255,0.75)' }}>Instant wholesale settlement share credited to bank</span>
+                  </div>
+
                   {/* Sync bar if offline queue has items */}
                   {offlineQueue.length > 0 && (
                     <div style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid var(--warning)', borderRadius: '6px', padding: '0.5rem 0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.75rem' }}>
@@ -1871,56 +1921,111 @@ export default function App() {
                   {/* Active Orders Queue */}
                   <h3 style={{ fontSize: '0.95rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem' }}>New Orders (নতুন অর্ডার)</h3>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                    {stockistOrders.map(o => (
-                      <div key={o.id} className="glass-card" style={{ padding: '0.75rem', fontSize: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                          <span style={{ fontWeight: 'bold' }}>Order #{o.id.substring(2).toUpperCase()}</span>
-                          <span className={`badge ${o.status === 'DELIVERED' ? 'badge-success' : 'badge-warning'}`}>{o.status}</span>
-                        </div>
-                        
-                        {/* Order items listing */}
-                        <div style={{ background: 'rgba(0,0,0,0.1)', padding: '0.4rem', borderRadius: '4px' }}>
-                          {o.items && o.items.map(item => (
-                            <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-muted)', fontSize: '0.7rem' }}>
-                              <span>{item.name} x {item.quantity}</span>
-                              <span>₹{item.price * item.quantity}</span>
+                    {stockistOrders.map(o => {
+                      const isNew = o.status === 'PENDING';
+                      return (
+                        <div 
+                          key={o.id} 
+                          className={`glass-card ${isNew ? 'new-order-card' : ''}`} 
+                          style={{ 
+                            padding: '0.75rem', 
+                            fontSize: '0.75rem', 
+                            display: 'flex', 
+                            flexDirection: 'column', 
+                            gap: '0.5rem',
+                            border: isNew ? '1px solid var(--primary)' : '1px solid var(--border-color)',
+                            transition: 'all 0.3s ease'
+                          }}
+                        >
+                          {/* Order Header / New Badge */}
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span style={{ fontWeight: 'bold', fontSize: '0.75rem', color: 'white' }}>
+                              Order #{o.id.substring(2).toUpperCase()}
+                            </span>
+                            <div style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
+                              {isNew && (
+                                <span className="badge badge-primary" style={{ fontSize: '0.55rem', background: 'var(--primary)', color: 'white', padding: '0.15rem 0.35rem', animation: 'pulse 1s infinite', fontWeight: 'bold' }}>
+                                  NEW INCOMING (নতুন অর্ডার)
+                                </span>
+                              )}
+                              <span className={`badge ${o.status === 'DELIVERED' ? 'badge-success' : 'badge-warning'}`} style={{ fontSize: '0.6rem' }}>
+                                {o.status}
+                              </span>
                             </div>
-                          ))}
-                        </div>
+                          </div>
 
-                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                          <span>Subtotal: ₹{o.subtotal}</span>
-                          <span>Total Price: ₹{o.total_price}</span>
-                        </div>
+                          {/* Basic Customer Context */}
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.1rem', background: 'rgba(255, 255, 255, 0.02)', padding: '0.45rem', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <span style={{ fontWeight: 'bold', color: 'white', fontSize: '0.75rem' }}>👤 {o.customer_name}</span>
+                              <span style={{ fontSize: '0.65rem', color: 'var(--accent)' }}>📍 {o.region_id === 'r2' ? 'Bishnupur Rural' : 'Garia Urban'}</span>
+                            </div>
+                            <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>📞 Phone: {o.customer_phone || 'N/A'}</span>
+                          </div>
 
-                        {/* Actions buttons */}
-                        <div style={{ display: 'flex', gap: '0.25rem', marginTop: '0.25rem' }}>
-                          {o.status === 'PENDING' && (
-                            <button className="btn" style={{ flex: 1, padding: '0.35rem 0', fontSize: '0.7rem' }} onClick={() => handleUpdateOrderStatus(o.id, 'ACCEPTED')}>
-                              Accept (স্বীকার করুন)
-                            </button>
-                          )}
-                          {o.status === 'ACCEPTED' && (
-                            <button className="btn btn-accent" style={{ flex: 1, padding: '0.35rem 0', fontSize: '0.7rem' }} onClick={() => handleUpdateOrderStatus(o.id, 'PREPARING')}>
-                              Prepare (প্যাক করুন)
-                            </button>
-                          )}
-                          {o.status === 'PREPARING' && (
-                            <button className="btn btn-accent" style={{ flex: 1, padding: '0.35rem 0', fontSize: '0.7rem' }} onClick={() => handleUpdateOrderStatus(o.id, 'SHIPPED')}>
-                              Deliver (ডেলিভারি করুন)
-                            </button>
-                          )}
-                          {o.status === 'SHIPPED' && (
-                            <button className="btn" style={{ flex: 1, padding: '0.35rem 0', fontSize: '0.7rem', background: 'var(--accent)' }} onClick={() => handleUpdateOrderStatus(o.id, 'DELIVERED')}>
-                              Complete & Pay (ডেলিভারি সম্পন্ন)
-                            </button>
-                          )}
-                          {o.status !== 'DELIVERED' && o.status !== 'CANCELLED' && (
-                            <button className="btn btn-danger" style={{ padding: '0.35rem 0.5rem', fontSize: '0.7rem' }} onClick={() => handleUpdateOrderStatus(o.id, 'CANCELLED')}>Cancel</button>
-                          )}
+                          {/* Visual Step Progress Bar */}
+                          {renderOrderProgressBar(o.status)}
+
+                          {/* Order Items List */}
+                          <div style={{ background: 'rgba(0,0,0,0.15)', padding: '0.4rem 0.5rem', borderRadius: '4px' }}>
+                            <div style={{ fontWeight: '600', color: 'var(--text-muted)', fontSize: '0.65rem', marginBottom: '0.25rem', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '0.2rem' }}>ITEMS TO PACK:</div>
+                            {o.items && o.items.map(item => (
+                              <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-main)', fontSize: '0.7rem' }}>
+                                <span>• {item.name} x {item.quantity}</span>
+                                <span style={{ color: 'var(--text-muted)' }}>₹{item.price * item.quantity}</span>
+                              </div>
+                            ))}
+                          </div>
+
+                          {/* Split Payout Breakdown */}
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', padding: '0.5rem', background: 'rgba(99, 102, 241, 0.05)', borderRadius: '6px', border: '1px dashed rgba(99, 102, 241, 0.2)' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem', color: 'var(--text-muted)' }}>
+                              <span>Split Settlements (প্রাপ্য কমিশন ভাগ):</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', fontWeight: 'bold' }}>
+                              <span style={{ color: 'var(--accent)' }}>🏪 Payout to You:</span>
+                              <span style={{ color: 'var(--accent)' }}>₹{parseFloat(o.stockist_amount || 0).toFixed(2)}</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem', color: 'var(--text-muted)' }}>
+                              <span>⚙️ FastNet Commission:</span>
+                              <span>₹{parseFloat(o.platform_amount || 0).toFixed(2)}</span>
+                            </div>
+                          </div>
+
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem', color: 'var(--text-muted)', padding: '0 0.1rem' }}>
+                            <span>Basket Subtotal: ₹{o.subtotal}</span>
+                            <span>Total Price: ₹{o.total_price}</span>
+                          </div>
+
+                          {/* Action Buttons */}
+                          <div style={{ display: 'flex', gap: '0.25rem', marginTop: '0.25rem' }}>
+                            {o.status === 'PENDING' && (
+                              <button className="btn" style={{ flex: 1, padding: '0.35rem 0', fontSize: '0.7rem' }} onClick={() => handleUpdateOrderStatus(o.id, 'ACCEPTED')}>
+                                Accept (স্বীকার করুন)
+                              </button>
+                            )}
+                            {o.status === 'ACCEPTED' && (
+                              <button className="btn btn-accent" style={{ flex: 1, padding: '0.35rem 0', fontSize: '0.7rem' }} onClick={() => handleUpdateOrderStatus(o.id, 'PREPARING')}>
+                                Prepare (প্যাক করুন)
+                              </button>
+                            )}
+                            {o.status === 'PREPARING' && (
+                              <button className="btn btn-accent" style={{ flex: 1, padding: '0.35rem 0', fontSize: '0.7rem' }} onClick={() => handleUpdateOrderStatus(o.id, 'SHIPPED')}>
+                                Deliver (ডেলিভারি করুন)
+                              </button>
+                            )}
+                            {o.status === 'SHIPPED' && (
+                              <button className="btn" style={{ flex: 1, padding: '0.35rem 0', fontSize: '0.7rem', background: 'var(--accent)' }} onClick={() => handleUpdateOrderStatus(o.id, 'DELIVERED')}>
+                                Complete & Pay (ডেলিভারি সম্পন্ন)
+                              </button>
+                            )}
+                            {o.status !== 'DELIVERED' && o.status !== 'CANCELLED' && (
+                              <button className="btn btn-danger" style={{ padding: '0.35rem 0.5rem', fontSize: '0.7rem' }} onClick={() => handleUpdateOrderStatus(o.id, 'CANCELLED')}>Cancel</button>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                     {stockistOrders.length === 0 && (
                       <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem', textAlign: 'center' }}>No orders in queue.</p>
                     )}

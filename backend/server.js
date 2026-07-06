@@ -182,7 +182,7 @@ app.get('/api/stockists/by-user/:userId', (req, res) => {
   const stockists = db.getTable('stockists');
   const stockist = stockists.find(s => s.user_id === userId);
   if (!stockist) {
-    return res.status(444).json({ error: 'Stockist record not found or pending KYC' });
+    return res.status(404).json({ error: 'Stockist record not found or pending KYC' });
   }
   return res.json(stockist);
 });
@@ -392,9 +392,29 @@ app.get('/api/orders', (req, res) => {
 
   // Attach items to response
   const orderItems = db.getTable('order_items');
+  const users = db.getTable('users');
+  const splitPayouts = db.getTable('split_payouts');
   const enriched = filtered.map(o => {
     const items = orderItems.filter(oi => oi.order_id === o.id);
-    return { ...o, items };
+    const customer = users.find(u => u.id === o.customer_id);
+    const payout = splitPayouts.find(sp => sp.order_id === o.id);
+
+    // Commission fallback calculation if not found in split_payouts table
+    const commissionRates = db.getTable('commission_rates');
+    const rateRecord = commissionRates.find(c => c.region_id === o.region_id && c.category === 'groceries');
+    const commissionRate = rateRecord ? parseFloat(rateRecord.rate_percent) : 10.00;
+    const platformCommission = (o.subtotal * commissionRate) / 100;
+    const stockistPayout = o.subtotal - platformCommission + o.delivery_fee;
+    const platformPayout = platformCommission + o.low_order_fee;
+
+    return { 
+      ...o, 
+      items,
+      customer_name: customer ? customer.name : 'Unknown Subscriber',
+      customer_phone: customer ? customer.phone : '',
+      stockist_amount: payout ? parseFloat(payout.stockist_amount) : stockistPayout,
+      platform_amount: payout ? parseFloat(payout.platform_amount) : platformPayout
+    };
   }).reverse(); // Sort newest first
 
   return res.json(enriched);

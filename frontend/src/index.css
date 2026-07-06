@@ -850,3 +850,98 @@ h1, h2, h3, h4, h5, h6 {
   height: 14px;
 }
 
+/* Pulsing animation for new incoming orders */
+@keyframes pulse-new-order {
+  0% {
+    border-color: rgba(99, 102, 241, 0.3);
+    box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.4);
+  }
+  50% {
+    border-color: var(--primary);
+    box-shadow: 0 0 10px 2px rgba(99, 102, 241, 0.6);
+  }
+  100% {
+    border-color: rgba(99, 102, 241, 0.3);
+    box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.4);
+  }
+}
+
+.new-order-card {
+  animation: pulse-new-order 2s infinite !important;
+  border: 1px solid var(--primary) !important;
+  background: rgba(99, 102, 241, 0.05) !important;
+}
+
+/* Order step progress bar */
+.order-progress-container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0.5rem 0;
+  position: relative;
+  padding: 0 0.5rem;
+}
+
+.order-progress-line-bg {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--border-color);
+  z-index: 1;
+  transform: translateY(-50%);
+}
+
+.order-progress-line-fill {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  height: 2px;
+  background: var(--accent);
+  z-index: 2;
+  transform: translateY(-50%);
+  transition: width 0.4s ease;
+}
+
+.order-progress-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  z-index: 3;
+  position: relative;
+}
+
+.order-progress-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--bg-surface-elevated);
+  border: 2px solid var(--border-color);
+  transition: all 0.3s ease;
+}
+
+.order-progress-step.active .order-progress-dot {
+  background: var(--accent);
+  border-color: var(--accent);
+  box-shadow: 0 0 6px var(--accent);
+}
+
+.order-progress-step.completed .order-progress-dot {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.order-progress-label {
+  font-size: 0.55rem;
+  color: var(--text-muted);
+  margin-top: 0.2rem;
+  white-space: nowrap;
+}
+
+.order-progress-step.active .order-progress-label,
+.order-progress-step.completed .order-progress-label {
+  color: white;
+  font-weight: bold;
+}
+
