@@ -24,8 +24,8 @@ const DEFAULT_DB = {
     { id: 'v2', tenant_id: 't1', region_id: 'r2', name: 'Bishnupur Agro Suppliers', created_at: new Date().toISOString() }
   ],
   stockists: [
-    { id: 's1', tenant_id: 't1', region_id: 'r1', user_id: 'u-stk1', name: 'Madan Grocers', vendor_id: 'v1', delivery_radius_km: 3.0, min_order_value: 200, is_active: true, created_at: new Date().toISOString() },
-    { id: 's2', tenant_id: 't1', region_id: 'r2', user_id: 'u-stk2', name: 'Sarkar Daily Store', vendor_id: 'v2', delivery_radius_km: 6.0, min_order_value: 100, is_active: true, created_at: new Date().toISOString() }
+    { id: 's1', tenant_id: 't1', region_id: 'r1', user_id: 'u-stk1', name: 'Madan Grocers', vendor_id: 'v1', delivery_radius_km: 3.0, min_order_value: 0, is_active: true, created_at: new Date().toISOString() },
+    { id: 's2', tenant_id: 't1', region_id: 'r2', user_id: 'u-stk2', name: 'Sarkar Daily Store', vendor_id: 'v2', delivery_radius_km: 6.0, min_order_value: 0, is_active: true, created_at: new Date().toISOString() }
   ],
   products: [
     { id: 'p1', tenant_id: 't1', region_id: 'r1', name: 'Fresh Potatoes (Alu, 1kg)', category: 'groceries', price: 30.0, cost_price: 22.0, description: 'Staple local potatoes', image_url: 'https://images.unsplash.com/photo-1518977676601-b53f82aba655?auto=format&fit=crop&q=80&w=300', created_at: new Date().toISOString() },
@@ -69,14 +69,32 @@ const DEFAULT_DB = {
     { id: 'l-init1', tenant_id: 't1', region_id: 'r1', customer_id: 'u-cust1', amount: 50.0, type: 'EARN', order_id: null, description: 'Welcome signup bonus points', created_at: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString() },
     { id: 'l-init2', tenant_id: 't1', region_id: 'r2', customer_id: 'u-cust2', amount: 30.0, type: 'EARN', order_id: null, description: 'Welcome signup bonus points', created_at: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString() }
   ],
+  // Regional commission rates (deprioritized fallback — per-stockist rates take precedence)
   commission_rates: [
     { id: 'c1', tenant_id: 't1', region_id: 'r1', category: 'groceries', rate_percent: 10.0, created_at: new Date().toISOString() },
     { id: 'c2', tenant_id: 't1', region_id: 'r2', category: 'groceries', rate_percent: 8.0, created_at: new Date().toISOString() }
   ],
+  // Per-stockist commission rates (active model)
+  stockist_commission_rates: [
+    { id: 'scr1', stockist_id: 's1', rate_percent: 10.0, created_at: new Date().toISOString() },
+    { id: 'scr2', stockist_id: 's2', rate_percent: 8.0, created_at: new Date().toISOString() }
+  ],
+  // Points earn rate config (per-region default, optional per-stockist override)
+  points_earn_config: [
+    { id: 'pec1', region_id: 'r1', stockist_id: null, earn_rate_percent: 45.0, created_at: new Date().toISOString() },
+    { id: 'pec2', region_id: 'r2', stockist_id: null, earn_rate_percent: 45.0, created_at: new Date().toISOString() }
+  ],
+  // Feedback and reports
+  feedback_reports: [],
+  // Many-to-many stockist-vendor junction
+  stockist_vendors: [
+    { stockist_id: 's1', vendor_id: 'v1', approved_at: new Date().toISOString() },
+    { stockist_id: 's2', vendor_id: 'v2', approved_at: new Date().toISOString() }
+  ],
   anomaly_logs: []
 };
 
-// Ensure regional products are mapped to both regions (duplicate them for region r2 if missing)
+// Ensure regional products are mapped to both regions
 DEFAULT_DB.regions.forEach(region => {
   if (region.id === 'r2') {
     DEFAULT_DB.products.push(

@@ -47,6 +47,33 @@ export default function App() {
   const [redeemAmount, setRedeemAmount] = useState('');
   const [checkoutResult, setCheckoutResult] = useState(null);
 
+  // New expansion states
+  const [activeFulfillmentOrder, setActiveFulfillmentOrder] = useState(null);
+  const [selectedPickupSlot, setSelectedPickupSlot] = useState(null);
+  const [allStockistCommissionRates, setAllStockistCommissionRates] = useState([]);
+  const [allPointsEarnConfigs, setAllPointsEarnConfigs] = useState([]);
+  const [allFeedbackReports, setAllFeedbackReports] = useState([]);
+  const [submittingFeedbackOrder, setSubmittingFeedbackOrder] = useState(null);
+  const [feedbackRating, setFeedbackRating] = useState(5);
+  const [feedbackReason, setFeedbackReason] = useState('');
+  
+  // Rate config form (per-stockist overrides)
+  const [selectedStockistForCommission, setSelectedStockistForCommission] = useState('');
+  const [configStockistRate, setConfigStockistRate] = useState(10);
+  
+  // Points earn config form
+  const [earnRateRegion, setEarnRateRegion] = useState('r1');
+  const [earnRateStockist, setEarnRateStockist] = useState('');
+  const [earnRatePercent, setEarnRatePercent] = useState(45);
+
+  // Multi-vendor form
+  const [vendorAdminStockistId, setVendorAdminStockistId] = useState('');
+  const [vendorAdminVendorId, setVendorAdminVendorId] = useState('');
+
+  // Stockist App State additions
+  const [stockistApprovedVendors, setStockistApprovedVendors] = useState([]);
+  const [selectedRestockVendorId, setSelectedRestockVendorId] = useState('');
+
   // Stockist App State
   const [stockistProfile, setStockistProfile] = useState(null);
   const [stockistOrders, setStockistOrders] = useState([]);
@@ -302,19 +329,19 @@ export default function App() {
     const stepsInfo = {
       1: {
         title: "Step 1: Place Grocery Order (ক্রেতা বাজার করুন)",
-        desc: "Role: Customer App. Put localized daily items (Potato, Onion, Dal) in the cart and checkout. Watch loyalty points credit immediately on item profit margins.",
+        desc: "Role: Customer App. Put fresh groceries in the cart, pick your pickup slot or delivery preference, and checkout. Watch loyalty points credit immediately on item profit margins.",
         actionBtn: "Auto-Fill basket",
         role: "customer"
       },
       2: {
         title: "Step 2: Shopkeeper Delivery (দোকানদার ডেলিভারি)",
-        desc: "Role: Stockist App. Accept the order and mark it delivered. Check how the payment instantly splits: shopkeeper gets paid, platform keeps commission.",
+        desc: "Role: Stockist App. Accept the order, verify fulfillment details, and mark it delivered. Check how the payment instantly splits: shopkeeper gets paid, platform keeps commission.",
         actionBtn: "Auto-Deliver Order",
         role: "stockist"
       },
       3: {
         title: "Step 3: Redeem Broadband Discount (পয়েন্টস রিডিম করুন)",
-        desc: "Role: Customer App. Go to 'Points' tab, enter your points, and redeem them. Watch the monthly ₹499 broadband bill dynamically drop!",
+        desc: "Role: Customer App. Go to 'Points' tab, enter your points, and redeem them for WiFi booster packs or TV channel plans!",
         actionBtn: "Auto-Load points",
         role: "customer"
       },
@@ -399,10 +426,6 @@ export default function App() {
     try {
       const res = await fetch(`${API_BASE}/admin/kyc-queue`); // Just testing backend online
       if (res.ok) {
-        // Since we created a simple backend, we can write a reset-db / status fetcher
-        // For simplicity, we can fetch all tables using standard endpoints or a generic status
-        // Let's create a custom route or read locally. Wait, the backend has /api/products, /api/orders, etc.
-        // We will fetch the tables we need to build the db inspector view.
         const ordersRes = await fetch(`${API_BASE}/orders`);
         const kycRes = await fetch(`${API_BASE}/admin/kyc-queue`);
         const ratesRes = await fetch(`${API_BASE}/admin/commission-rates`);
@@ -411,6 +434,11 @@ export default function App() {
         const vendorsRes = await fetch(`${API_BASE}/admin/vendors`);
         const prodRes = await fetch(`${API_BASE}/products`);
         
+        // Fetch new configurations/feedback logs
+        const scrRes = await fetch(`${API_BASE}/admin/stockist-commission-rates`);
+        const pecRes = await fetch(`${API_BASE}/admin/points-earn-config`);
+        const fbRes = await fetch(`${API_BASE}/admin/feedback`);
+        
         const orders = await ordersRes.json();
         const pendingKyc = await kycRes.json();
         const rates = await ratesRes.json();
@@ -418,12 +446,20 @@ export default function App() {
         const redemptions = await redRes.json();
         const vendorsList = await vendorsRes.json();
         const productsList = await prodRes.json();
+        
+        const stockistCommissionRates = await scrRes.json();
+        const pointsEarnConfigs = await pecRes.json();
+        const feedbackReports = await fbRes.json();
 
         setPendingKyc(pendingKyc);
         setCommissionRates(rates);
         setAnomalies(anomalies);
         setPendingRedemptions(redemptions);
         setVendors(vendorsList);
+        
+        setAllStockistCommissionRates(stockistCommissionRates);
+        setAllPointsEarnConfigs(pointsEarnConfigs);
+        setAllFeedbackReports(feedbackReports);
 
         // Fetch regions if empty
         if (regions.length === 0) {
@@ -443,7 +479,10 @@ export default function App() {
           anomaly_logs: anomalies,
           points_ledger: redemptions, // we will enrich this
           products: productsList,
-          vendors: vendorsList
+          vendors: vendorsList,
+          stockist_commission_rates: stockistCommissionRates,
+          points_earn_config: pointsEarnConfigs,
+          feedback_reports: feedbackReports
         });
       }
     } catch (e) {
@@ -472,13 +511,25 @@ export default function App() {
       const venRes = await fetch(`${API_BASE}/admin/vendors`);
       const vens = await venRes.json();
 
+      const scrRes = await fetch(`${API_BASE}/admin/stockist-commission-rates`);
+      const scrs = await scrRes.json();
+
+      const pecRes = await fetch(`${API_BASE}/admin/points-earn-config`);
+      const pecs = await pecRes.json();
+
+      const fbRes = await fetch(`${API_BASE}/admin/feedback`);
+      const fbs = await fbRes.json();
+
       setDbState({
         orders: list,
         commission_rates: rates,
         anomaly_logs: anomalies,
         points_ledger: red,
         products: prods,
-        vendors: vens
+        vendors: vens,
+        stockist_commission_rates: scrs,
+        points_earn_config: pecs,
+        feedback_reports: fbs
       });
     } catch (err) {
       console.log('Error syncing inspector:', err);
@@ -835,10 +886,18 @@ export default function App() {
       const prData = await prRes.json();
       setStockistProducts(prData);
 
-      // 4. Load approved vendor list
-      const vRes = await fetch(`${API_BASE}/admin/vendors`);
+      // 4. Load approved vendor list for this stockist (§12 many-to-many)
+      const vRes = await fetch(`${API_BASE}/stockists/${pData.id}/vendors`);
       const vData = await vRes.json();
-      setVendors(vData);
+      setStockistApprovedVendors(vData);
+      if (vData.length > 0 && !selectedRestockVendorId) {
+        setSelectedRestockVendorId(vData[0].id);
+      }
+
+      // Save all vendors list too for selection
+      const allVRes = await fetch(`${API_BASE}/admin/vendors`);
+      const allVData = await allVRes.json();
+      setVendors(allVData);
     } catch (err) {
       console.error('Error loading stockist details:', err);
     }
@@ -907,12 +966,13 @@ export default function App() {
     }
   };
 
-  const handlePurchaseStock = async (productId, quantity) => {
+  const handlePurchaseStock = async (productId, quantity, vendorId = null) => {
     if (!stockistProfile) return;
     try {
       const payload = {
         stockistId: stockistProfile.id,
-        items: [{ productId, quantity: parseInt(quantity, 10) }]
+        items: [{ productId, quantity: parseInt(quantity, 10) }],
+        vendorId
       };
       const res = await fetch(`${API_BASE}/stockists/restock`, {
         method: 'POST',
@@ -923,7 +983,7 @@ export default function App() {
       logApi('POST', '/stockists/restock', payload, res.status, data);
 
       if (res.ok) {
-        showToast('Stock purchased and added from Vendor!');
+        showToast('Stock purchased and added from Wholesaler!');
         loadStockistData();
       } else {
         showToast(data.error || 'Restock failed', 'error');
@@ -1047,6 +1107,105 @@ export default function App() {
       }
     } catch (err) {
       showToast('Network error', 'error');
+    }
+  };
+
+  const handleSaveStockistCommission = async (stockistId, ratePercent) => {
+    try {
+      const payload = { stockistId, ratePercent: parseFloat(ratePercent) };
+      const res = await fetch(`${API_BASE}/admin/stockist-commission-rates`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      logApi('POST', '/admin/stockist-commission-rates', payload, res.status, data);
+      if (res.ok) {
+        showToast('Shop commission override updated successfully!');
+        fetchDbState();
+      } else {
+        showToast(data.error || 'Failed to update override', 'error');
+      }
+    } catch (err) {
+      showToast('Network error saving override', 'error');
+    }
+  };
+
+  const handleSavePointsEarnConfig = async (regionId, stockistId, earnRatePercent) => {
+    try {
+      const payload = { regionId, stockistId: stockistId || null, earnRatePercent: parseFloat(earnRatePercent) };
+      const res = await fetch(`${API_BASE}/admin/points-earn-config`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      logApi('POST', '/admin/points-earn-config', payload, res.status, data);
+      if (res.ok) {
+        showToast('Points earn config updated successfully!');
+        fetchDbState();
+      } else {
+        showToast(data.error || 'Failed to update earn rate', 'error');
+      }
+    } catch (err) {
+      showToast('Network error saving points config', 'error');
+    }
+  };
+
+  const handleAssignVendorToStockist = async (stockistId, vendorId) => {
+    try {
+      const payload = { stockistId, vendorId };
+      const res = await fetch(`${API_BASE}/admin/stockist-vendors`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      logApi('POST', '/admin/stockist-vendors', payload, res.status, data);
+      if (res.ok) {
+        showToast('Wholesaler approved and assigned to shop!');
+        fetchDbState();
+      } else {
+        showToast(data.error || 'Failed to assign wholesaler', 'error');
+      }
+    } catch (err) {
+      showToast('Network error assigning wholesaler', 'error');
+    }
+  };
+
+  const handleSaveFeedback = async () => {
+    if (!submittingFeedbackOrder) return;
+    try {
+      const payload = {
+        reporterRole: 'STOCKIST',
+        reporterId: stockistProfile.id,
+        reporterName: stockistProfile.name,
+        targetRole: 'CUSTOMER',
+        targetId: submittingFeedbackOrder.customer_name,
+        targetName: submittingFeedbackOrder.customer_name,
+        orderId: submittingFeedbackOrder.id,
+        rating: feedbackRating,
+        reason: feedbackReason
+      };
+      const res = await fetch(`${API_BASE}/feedback`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      logApi('POST', '/feedback', payload, res.status, data);
+      if (res.ok) {
+        showToast('Incident reported successfully!');
+        setSubmittingFeedbackOrder(null);
+        setFeedbackRating(5);
+        setFeedbackReason('');
+        loadStockistData();
+        fetchDbState();
+      } else {
+        showToast(data.error || 'Failed to submit report', 'error');
+      }
+    } catch (err) {
+      showToast('Network error submitting feedback', 'error');
     }
   };
 
@@ -1234,38 +1393,40 @@ export default function App() {
       <div className="marketing-container">
         <div className="marketing-hero">
           <div className="badge badge-primary" style={{ alignSelf: 'center', fontSize: '0.8rem', padding: '0.4rem 0.8rem' }}>
-            ISP-Commerce Retention Model
+            Hyperlocal Supermarket Network
           </div>
-          <h1>Convert E-Commerce Profit into <span className="gradient-text">ISP Customer Loyalty</span></h1>
+          <h1>Your Neighborhood Grocery Shop, <span className="gradient-text">Subsidized by FastNet</span></h1>
           <p>
-            An innovative, closed-loop hyperlocal marketplace. Operators open their subscriber base to local stockists, keeping commissions to subsidize broadband bills. Lower subscriber churn, higher local growth.
+            Welcome to the FastNet Marketplace! Shop for fresh produce and daily essentials from your favorite local grocery stores. Every purchase automatically earns points that discount your broadband or cable TV bill.
           </p>
           <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', marginTop: '1rem' }}>
-            <button className="btn" onClick={() => setActiveRole('customer')}>Test Customer Flow</button>
+            <button className="btn" onClick={() => setActiveRole('customer')}>Shop Groceries Now</button>
             <button className="btn btn-secondary" onClick={() => setActiveRole('admin')}>Open Admin Console</button>
           </div>
         </div>
 
         <div className="marketing-grid">
           <div className="glass-card" style={{ padding: '1.5rem' }}>
-            <TrendingUp size={24} style={{ color: 'var(--primary)', marginBottom: '1rem' }} />
-            <h3 style={{ marginBottom: '0.5rem', fontSize: '1.2rem' }}>Closed-Loop Points</h3>
+            <ShoppingBag size={24} style={{ color: 'var(--primary)', marginBottom: '1rem' }} />
+            <h3 style={{ marginBottom: '0.5rem', fontSize: '1.2rem' }}>Support Local Stores</h3>
             <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>
-              Points cannot be cashed out, gifted, or transferred. Under RBI regulations, this acts strictly as a closed loyalty pool redeemable against the issuing ISP bill.
+              Buy fresh groceries, vegetables, and daily staples from approved local shopkeepers in your immediate neighborhood.
             </p>
           </div>
-          <div className="glass-card" style={{ padding: '1.5rem' }}>
-            <ShoppingBag size={24} style={{ color: 'var(--secondary)', marginBottom: '1rem' }} />
-            <h3 style={{ marginBottom: '0.5rem', fontSize: '1.2rem' }}>Zero Reconciliation</h3>
-            <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>
-              Razorpay Route splits customer payments instantly. Stockists get paid next-day directly; platform retains its commissions automatically.
-            </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div className="glass-card" style={{ padding: '1.5rem', flex: 1 }}>
+              <Sparkles size={24} style={{ color: 'var(--secondary)', marginBottom: '1rem' }} />
+              <h3 style={{ marginBottom: '0.5rem', fontSize: '1.2rem' }}>ISP loyalty bonus</h3>
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+                Your local shopping commission converts into loyalty points. Use them to redeem WiFi boosters, speed upgrades, or cable channel packs!
+              </p>
+            </div>
           </div>
           <div className="glass-card" style={{ padding: '1.5rem' }}>
             <ShieldAlert size={24} style={{ color: 'var(--accent)', marginBottom: '1rem' }} />
             <h3 style={{ marginBottom: '0.5rem', fontSize: '1.2rem' }}>Offline Tolerance</h3>
             <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>
-              Designed for rural areas with spotty network. Stockists manage inventory and order handshakes locally and sync automatically when back online.
+              Built specifically for semi-urban or rural connectivity. Place orders and manage store inventory offline; changes sync when the signal returns.
             </p>
           </div>
         </div>
@@ -2065,9 +2226,6 @@ export default function App() {
     );
   };
 
-  // ----------------------------------------------------
-  // 4. ADMIN DESKTOP PORTAL
-  // ----------------------------------------------------
   const renderAdminView = () => {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.75rem', width: '100%' }}>
@@ -2094,7 +2252,10 @@ export default function App() {
                 <UserCheck size={16} /> Shop Approvals Queue ({pendingKyc.length})
               </button>
               <button className={`admin-nav-item ${adminTab === 'rates' ? 'active' : ''}`} onClick={() => setAdminTab('rates')}>
-                <Settings size={16} /> Commission Rules
+                <Settings size={16} /> Commission & Points Config
+              </button>
+              <button className={`admin-nav-item ${adminTab === 'feedback' ? 'active' : ''}`} onClick={() => setAdminTab('feedback')}>
+                <ShieldAlert size={16} /> Feedback & Reports ({allFeedbackReports.length})
               </button>
               <button className={`admin-nav-item ${adminTab === 'anomalies' ? 'active' : ''}`} onClick={() => setAdminTab('anomalies')}>
                 <ShieldAlert size={16} /> Flagged Store Orders ({anomalies.length})
@@ -2103,7 +2264,10 @@ export default function App() {
                 <ArrowRightLeft size={16} /> Broadband Discounts ({pendingRedemptions.filter(r=>r.billing_sync_status==='PENDING').length})
               </button>
               <button className={`admin-nav-item ${adminTab === 'vendors' ? 'active' : ''}`} onClick={() => setAdminTab('vendors')}>
-                <ShoppingBag size={16} /> Approved Wholesalers
+                <ShoppingBag size={16} /> Wholesalers ({vendors.length})
+              </button>
+              <button className={`admin-nav-item ${adminTab === 'transactions' ? 'active' : ''}`} onClick={() => setAdminTab('transactions')}>
+                <ArrowRightLeft size={16} /> All Transactions
               </button>
             </div>
 
@@ -2158,53 +2322,157 @@ export default function App() {
 
               {adminTab === 'rates' && (
                 <div>
-                  <h2 style={{ fontSize: '1.4rem', marginBottom: '1rem' }}>ISP Broadband Commission Rules (কমিশন নীতি)</h2>
+                  <h2 style={{ fontSize: '1.4rem', marginBottom: '1rem' }}>ISP Commission & Customer Points Config (কমিশন ও পয়েন্ট নীতি)</h2>
                   <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
-                    Set regional percentage charges on customer purchases. Points pool credits are derived from the store profit margin remaining after this commission.
+                    Set regional percentage charges or override rates per shop, and independently configure customer point earn rates.
                   </p>
 
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '2rem' }}>
-                    <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                      <h4>Configure Commission</h4>
-                      <div className="input-group">
-                        <label className="input-label">Region</label>
-                        <select className="text-input" value={configRegion} onChange={e => setConfigRegion(e.target.value)}>
-                          <option value="r1">Kolkata South (Garia)</option>
-                          <option value="r2">Rural West Bengal (Bishnupur)</option>
-                        </select>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem' }}>
+                    {/* LEFT COLUMN: COMMISSION SETUP */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                      <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                        <h4>Configure Regional Commission</h4>
+                        <div className="input-group">
+                          <label className="input-label">Region</label>
+                          <select className="text-input" value={configRegion} onChange={e => setConfigRegion(e.target.value)}>
+                            <option value="r1">Kolkata South (Garia)</option>
+                            <option value="r2">Rural West Bengal (Bishnupur)</option>
+                          </select>
+                        </div>
+                        <div className="input-group">
+                          <label className="input-label">Category</label>
+                          <input type="text" className="text-input" value={configCategory} onChange={e => setConfigCategory(e.target.value)} />
+                        </div>
+                        <div className="input-group">
+                          <label className="input-label">Commission Rate (%)</label>
+                          <input type="number" className="text-input" value={configRate} onChange={e => setConfigRate(parseFloat(e.target.value))} />
+                        </div>
+                        <button className="btn" onClick={handleSaveCommissionRate}>Save Regional Config</button>
                       </div>
-                      <div className="input-group">
-                        <label className="input-label">Category</label>
-                        <input type="text" className="text-input" value={configCategory} onChange={e => setConfigCategory(e.target.value)} />
+
+                      <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                        <h4>Configure Shop Commission Override (§9)</h4>
+                        <div className="input-group">
+                          <label className="input-label">Select Shop</label>
+                          <select className="text-input" value={selectedStockistForCommission} onChange={e => setSelectedStockistForCommission(e.target.value)}>
+                            <option value="">-- Select a Shop --</option>
+                            {customerStockists.map(s => (
+                              <option key={s.id} value={s.id}>{s.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="input-group">
+                          <label className="input-label">Override Rate (%)</label>
+                          <input type="number" className="text-input" value={configStockistRate} onChange={e => setConfigStockistRate(parseFloat(e.target.value))} />
+                        </div>
+                        <button className="btn" onClick={() => handleSaveStockistCommission(selectedStockistForCommission, configStockistRate)} disabled={!selectedStockistForCommission}>
+                          Save Shop Override
+                        </button>
                       </div>
-                      <div className="input-group">
-                        <label className="input-label">Commission Rate (%)</label>
-                        <input type="number" className="text-input" value={configRate} onChange={e => setConfigRate(parseFloat(e.target.value))} />
-                      </div>
-                      <button className="btn" onClick={handleSaveCommissionRate}>Save Config Rules</button>
                     </div>
 
-                    <div>
-                      <table className="admin-table">
-                        <thead>
-                          <tr>
-                            <th>Region</th>
-                            <th>Category</th>
-                            <th>Commission Rate (%)</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {commissionRates.map(cr => (
-                            <tr key={cr.id}>
-                              <td>{cr.region_id === 'r1' ? 'Kolkata South' : 'Rural Bishnupur'}</td>
-                              <td>{cr.category}</td>
-                              <td>{cr.rate_percent}%</td>
+                    {/* RIGHT COLUMN: POINTS CONFIGURATION & VIEWS */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                      <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                        <h4>Configure Customer Points Earn Rate (§10)</h4>
+                        <div className="input-group">
+                          <label className="input-label">Region (Default Scope)</label>
+                          <select className="text-input" value={earnRateRegion} onChange={e => setEarnRateRegion(e.target.value)}>
+                            <option value="r1">Kolkata South (Garia)</option>
+                            <option value="r2">Rural West Bengal (Bishnupur)</option>
+                          </select>
+                        </div>
+                        <div className="input-group">
+                          <label className="input-label">Or Specific Shop Override</label>
+                          <select className="text-input" value={earnRateStockist} onChange={e => setEarnRateStockist(e.target.value)}>
+                            <option value="">-- Use Regional (Default) --</option>
+                            {customerStockists.map(s => (
+                              <option key={s.id} value={s.id}>{s.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="input-group">
+                          <label className="input-label">Points Earn Rate (% of Profit Margin)</label>
+                          <input type="number" className="text-input" value={earnRatePercent} onChange={e => setEarnRatePercent(parseFloat(e.target.value))} />
+                        </div>
+                        <button className="btn" onClick={() => handleSavePointsEarnConfig(earnRateRegion, earnRateStockist, earnRatePercent)}>
+                          Save Points Rate Config
+                        </button>
+                      </div>
+
+                      <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '200px', overflowY: 'auto' }}>
+                        <span style={{ fontSize: '0.75rem', fontWeight: 'bold' }}>Active Configured Shop Overrides</span>
+                        <table className="admin-table">
+                          <thead>
+                            <tr>
+                              <th>Shop ID</th>
+                              <th>Rate</th>
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                          </thead>
+                          <tbody>
+                            {allStockistCommissionRates.map(scr => (
+                              <tr key={scr.id}>
+                                <td style={{ fontFamily: 'monospace' }}>{scr.stockist_id}</td>
+                                <td>{scr.rate_percent}%</td>
+                              </tr>
+                            ))}
+                            {allStockistCommissionRates.length === 0 && (
+                              <tr>
+                                <td colSpan="2" style={{ color: 'var(--text-muted)' }}>No overrides set.</td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
                   </div>
+                </div>
+              )}
+
+              {adminTab === 'feedback' && (
+                <div>
+                  <h2 style={{ fontSize: '1.4rem', marginBottom: '1rem' }}>Feedback & Incident Queue (§11)</h2>
+                  <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
+                    View service ratings, wrong items, no-shows, or customer behavioral reports filed by user roles.
+                  </p>
+
+                  <table className="admin-table">
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>Reporter</th>
+                        <th>Target Role</th>
+                        <th>Target Name</th>
+                        <th>Order ID</th>
+                        <th>Rating</th>
+                        <th>Reason</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {allFeedbackReports.map(fb => (
+                        <tr key={fb.id}>
+                          <td>{new Date(fb.created_at).toLocaleDateString()}</td>
+                          <td style={{ fontWeight: 'bold' }}>{fb.reporter_name} ({fb.reporter_role})</td>
+                          <td>{fb.target_role}</td>
+                          <td>{fb.target_name}</td>
+                          <td style={{ fontFamily: 'monospace' }}>#{fb.order_id.substring(2).toUpperCase()}</td>
+                          <td>
+                            <span style={{ color: 'var(--warning)', fontWeight: 'bold' }}>
+                              {'★'.repeat(fb.rating)}{'☆'.repeat(5 - fb.rating)}
+                            </span>
+                          </td>
+                          <td>{fb.reason}</td>
+                        </tr>
+                      ))}
+                      {allFeedbackReports.length === 0 && (
+                        <tr>
+                          <td colSpan="7" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
+                            No feedback reports submitted yet.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
                 </div>
               )}
 
@@ -2288,7 +2556,7 @@ export default function App() {
                           <td>{new Date(r.created_at).toLocaleDateString()}</td>
                           <td>{r.customer_name}</td>
                           <td>{r.customer_phone}</td>
-                          <td style={{ fontWeight: 'bold', color: 'var(--accent)' }}>₹{Math.abs(r.amount)}</td>
+                          <td style={{ fontWeight: 'bold', color: 'var(--accent)' }}>{Math.abs(r.amount)} pts</td>
                           <td>
                             <span className={`badge ${r.billing_sync_status === 'SYNCED' ? 'badge-success' : 'badge-warning'}`}>
                               {r.billing_sync_status || 'PENDING'}
@@ -2297,7 +2565,7 @@ export default function App() {
                           <td>
                             {r.billing_sync_status !== 'SYNCED' ? (
                               <button className="btn btn-accent" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }} onClick={() => handleCompleteRedemption(r.id)}>
-                                Approve & Sync Bill Discount (ডিসকাউন্ট অনুমোদন)
+                                Approve & Sync Bill Discount
                               </button>
                             ) : (
                               <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>Synced to Billing</span>
@@ -2321,30 +2589,57 @@ export default function App() {
                 <div>
                   <h2 style={{ fontSize: '1.4rem', marginBottom: '1rem' }}>Approved Wholesalers List (পাইকারি বিক্রেতা)</h2>
                   <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
-                    Configure distributors that stockists can purchase grocery inventory from.
+                    Configure wholesalers and approve them for local shopkeepers to buy stock from.
                   </p>
 
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '2rem' }}>
-                    <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                      <h4>Register Wholesaler (পাইকারি বিক্রেতা রেজিস্টার)</h4>
-                      <div className="input-group">
-                        <label className="input-label">Wholesaler Name</label>
-                        <input 
-                          type="text" 
-                          placeholder="e.g. Bishnupur Wholesale Union" 
-                          className="text-input" 
-                          value={adminNewVendor}
-                          onChange={e => setAdminNewVendor(e.target.value)}
-                        />
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                      <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                        <h4>Register Wholesaler</h4>
+                        <div className="input-group">
+                          <label className="input-label">Wholesaler Name</label>
+                          <input 
+                            type="text" 
+                            placeholder="e.g. Garia Staples Wholesale Hub" 
+                            className="text-input" 
+                            value={adminNewVendor}
+                            onChange={e => setAdminNewVendor(e.target.value)}
+                          />
+                        </div>
+                        <div className="input-group">
+                          <label className="input-label">Region Area</label>
+                          <select className="text-input" value={selectedRegionId} onChange={e => setSelectedRegionId(e.target.value)}>
+                            <option value="r1">Kolkata South (Garia)</option>
+                            <option value="r2">Rural West Bengal (Bishnupur)</option>
+                          </select>
+                        </div>
+                        <button className="btn" onClick={handleCreateVendor}>Register Wholesaler</button>
                       </div>
-                      <div className="input-group">
-                        <label className="input-label">Region Area</label>
-                        <select className="text-input" value={selectedRegionId} onChange={e => setSelectedRegionId(e.target.value)}>
-                          <option value="r1">Kolkata South (Garia)</option>
-                          <option value="r2">Rural West Bengal (Bishnupur)</option>
-                        </select>
+
+                      <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                        <h4>Approve Wholesaler for Store (§12)</h4>
+                        <div className="input-group">
+                          <label className="input-label">Select Shop</label>
+                          <select className="text-input" value={vendorAdminStockistId} onChange={e => setVendorAdminStockistId(e.target.value)}>
+                            <option value="">-- Select Shop --</option>
+                            {customerStockists.map(s => (
+                              <option key={s.id} value={s.id}>{s.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="input-group">
+                          <label className="input-label">Select Wholesaler</label>
+                          <select className="text-input" value={vendorAdminVendorId} onChange={e => setVendorAdminVendorId(e.target.value)}>
+                            <option value="">-- Select Wholesaler --</option>
+                            {vendors.map(v => (
+                              <option key={v.id} value={v.id}>{v.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <button className="btn" onClick={() => handleAssignVendorToStockist(vendorAdminStockistId, vendorAdminVendorId)} disabled={!vendorAdminStockistId || !vendorAdminVendorId}>
+                          Approve Association
+                        </button>
                       </div>
-                      <button className="btn" onClick={handleCreateVendor}>Register Wholesaler</button>
                     </div>
 
                     <div>
@@ -2368,6 +2663,51 @@ export default function App() {
                       </table>
                     </div>
                   </div>
+                </div>
+              )}
+
+              {adminTab === 'transactions' && (
+                <div>
+                  <h2 style={{ fontSize: '1.4rem', marginBottom: '1rem' }}>All Marketplace Transactions (§13)</h2>
+                  <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
+                    Full visibility into orders, split commissions, and points generated across Garia & Bishnupur regions.
+                  </p>
+
+                  <table className="admin-table">
+                    <thead>
+                      <tr>
+                        <th>Order ID</th>
+                        <th>Store</th>
+                        <th>Total Amount</th>
+                        <th>Subtotal</th>
+                        <th>Delivery Fee</th>
+                        <th>Shop Share</th>
+                        <th>ISP Share</th>
+                        <th>Points</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {dbState?.orders?.map(o => (
+                        <tr key={o.id}>
+                          <td style={{ fontFamily: 'monospace' }}>#{o.id.substring(2).toUpperCase()}</td>
+                          <td>{o.stockist_name}</td>
+                          <td style={{ fontWeight: 'bold' }}>₹{o.total_price.toFixed(2)}</td>
+                          <td>₹{o.subtotal.toFixed(2)}</td>
+                          <td>₹{o.delivery_fee.toFixed(2)}</td>
+                          <td style={{ color: 'var(--accent)' }}>₹{(o.stockist_amount || 0).toFixed(2)}</td>
+                          <td style={{ color: 'var(--primary)' }}>₹{(o.platform_amount || 0).toFixed(2)}</td>
+                          <td>{(o.points_credited || 0)} pts</td>
+                        </tr>
+                      ))}
+                      {(!dbState?.orders || dbState.orders.length === 0) && (
+                        <tr>
+                          <td colSpan="8" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
+                            No transactions recorded.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
                 </div>
               )}
 

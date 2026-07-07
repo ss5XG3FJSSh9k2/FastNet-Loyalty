@@ -132,7 +132,7 @@ app.get('/api/products', (req, res) => {
 
 // Restock inventory from vendor
 app.post('/api/stockists/restock', (req, res) => {
-  const { stockistId, items } = req.body; // items: [{productId, quantity}]
+  const { stockistId, items, vendorId } = req.body; // items: [{productId, quantity}], optional vendorId
   if (!stockistId || !items || !Array.isArray(items)) {
     return res.status(400).json({ error: 'Invalid restock parameters' });
   }
@@ -142,8 +142,19 @@ app.post('/api/stockists/restock', (req, res) => {
   if (!stockist) {
     return res.status(404).json({ error: 'Stockist not found' });
   }
-  if (!stockist.vendor_id) {
-    return res.status(400).json({ error: 'No approved Vendor assigned. Please contact Admin.' });
+
+  // Check approved vendors from junction table
+  const stockistVendors = db.getTable('stockist_vendors');
+  const approved = stockistVendors.filter(sv => sv.stockist_id === stockistId);
+  if (approved.length === 0) {
+    return res.status(400).json({ error: 'No approved Wholesalers assigned. Please contact Admin.' });
+  }
+
+  if (vendorId) {
+    const isApproved = approved.some(sv => sv.vendor_id === vendorId);
+    if (!isApproved) {
+      return res.status(400).json({ error: 'Selected wholesaler is not approved for this store.' });
+    }
   }
 
   const inventory = db.getTable('stockist_inventory');
@@ -163,7 +174,7 @@ app.post('/api/stockists/restock', (req, res) => {
   });
 
   db.saveTable('stockist_inventory', inventory);
-  return res.json({ success: true, message: 'Stock updated successfully from vendor.' });
+  return res.json({ success: true, message: 'Stock updated successfully.' });
 });
 
 // ----------------------------------------------------
@@ -191,6 +202,28 @@ app.get('/api/stockists/by-user/:userId', (req, res) => {
 // ORDER & PAYMENT SPLIT ENDPOINTS
 // ----------------------------------------------------
 
+// Helper: Settlement Engine (§14)
+function calculateSettlement(subtotal, totalProfitMargin, stockistId, regionId) {
+  const stockistCommissionRates = db.getTable('stockist_commission_rates');
+  const scr = stockistCommissionRates.find(r => r.stockist_id === stockistId);
+  const commissionRate = scr ? parseFloat(scr.rate_percent) : 10.00;
+  const platformCommission = (subtotal * commissionRate) / 100;
+
+  const pointsEarnConfig = db.getTable('points_earn_config');
+  const pecStockist = pointsEarnConfig.find(r => r.stockist_id === stockistId);
+  const pecRegion = pointsEarnConfig.find(r => r.region_id === regionId && !r.stockist_id);
+  const earnRatePercent = pecStockist ? parseFloat(pecStockist.earn_rate_percent) : (pecRegion ? parseFloat(pecRegion.earn_rate_percent) : 45.0);
+
+  const pointsCredited = Math.round(totalProfitMargin * (earnRatePercent / 100) * 100) / 100;
+
+  return {
+    commissionRateUsed: commissionRate,
+    earnRateUsed: earnRatePercent,
+    platformCommission,
+    pointsCredited
+  };
+}
+
 app.post('/api/orders', (req, res) => {
   const { customerId, stockistId, items } = req.body; // items: [{productId, quantity}]
   if (!customerId || !stockistId || !items || items.length === 0) {
@@ -205,7 +238,6 @@ app.post('/api/orders', (req, res) => {
   const stockist = stockists.find(s => s.id === stockistId);
   if (!stockist) return res.status(404).json({ error: 'Stockist not found' });
 
-  // 1. Fetch products & inventory
   const products = db.getTable('products');
   const inventory = db.getTable('stockist_inventory');
   
@@ -238,38 +270,22 @@ app.post('/api/orders', (req, res) => {
     });
   }
 
-  // 2. Validate Min Order Value
-  if (subtotal < parseFloat(stockist.min_order_value)) {
-    return res.status(400).json({ error: `Minimum order value for ${stockist.name} is ₹${stockist.min_order_value}` });
-  }
+  // §3: Remove minimum order value and low-order cart fee — for now. Bypassed.
 
-  // 3. Calculate Fees
-  // Delivery Fee: Default ₹30 for Bishnupur, ₹40 for Kolkata
-  const deliveryFee = stockist.region_id === 'r2' ? 30.00 : 40.00;
-  
-  // Low Order Fee (Zomato/Swiggy style): If subtotal < ₹150, charge ₹20 fee (keeps as platform revenue, not loyalty pool)
-  const lowOrderFee = subtotal < 150.00 ? 20.00 : 0.00;
-  
+  // §7: Default fulfillment option is pickup, delivery fee is 0 initially.
+  const deliveryFee = 0.00;
+  const lowOrderFee = 0.00; // Removed per §3
   const totalPrice = subtotal + deliveryFee + lowOrderFee;
 
-  // 4. Calculate Platform Commission (tiered categories/regions)
-  const commissionRates = db.getTable('commission_rates');
-  // Simple check for groceries tier
-  const rateRecord = commissionRates.find(c => c.region_id === stockist.region_id && c.category === 'groceries');
-  const commissionRate = rateRecord ? parseFloat(rateRecord.rate_percent) : 10.00;
-  const platformCommission = (subtotal * commissionRate) / 100;
+  // §14: Settlement engine deterministic calculation
+  const settlement = calculateSettlement(subtotal, totalProfitMargin, stockistId, customer.region_id);
+  const platformCommission = settlement.platformCommission;
+  const pointsCredited = settlement.pointsCredited;
 
-  // 5. Razorpay split calculations
   // Stockist Payout = Subtotal - Commission + Delivery Fee
-  // Platform Retains = Commission + Low Order Fee
   const stockistPayout = subtotal - platformCommission + deliveryFee;
   const platformPayout = platformCommission + lowOrderFee;
 
-  // 6. Points credit (40-50% of profit margin)
-  // Let's use 45% as standard
-  const pointsCredited = Math.round(totalProfitMargin * 0.45 * 100) / 100;
-
-  // 7. Deduct inventory quantities
   inventory.forEach(inv => {
     const item = items.find(it => it.productId === inv.product_id && inv.stockist_id === stockistId);
     if (item) {
@@ -279,7 +295,6 @@ app.post('/api/orders', (req, res) => {
   });
   db.saveTable('stockist_inventory', inventory);
 
-  // 8. Create Order Record
   const orderId = 'o-' + generateId();
   const order = {
     id: orderId,
@@ -293,7 +308,10 @@ app.post('/api/orders', (req, res) => {
     delivery_fee: deliveryFee,
     low_order_fee: lowOrderFee,
     total_price: totalPrice,
-    payment_status: 'PAID', // Instant mock success
+    fulfillment_type: 'PICKUP', // Default pickup (§7)
+    pickup_slot: null,
+    pickup_eta_minutes: 10,
+    payment_status: 'PAID',
     razorpay_order_id: 'rzp_order_' + generateId(),
     razorpay_payment_id: 'rzp_pay_' + generateId(),
     created_at: new Date().toISOString()
@@ -303,7 +321,6 @@ app.post('/api/orders', (req, res) => {
   orders.push(order);
   db.saveTable('orders', orders);
 
-  // Save Order Items
   const savedOrderItems = db.getTable('order_items');
   orderItems.forEach(oi => {
     oi.order_id = orderId;
@@ -311,7 +328,6 @@ app.post('/api/orders', (req, res) => {
   });
   db.saveTable('order_items', savedOrderItems);
 
-  // 9. Log Razorpay Split Payout
   const splitPayouts = db.getTable('split_payouts');
   splitPayouts.push({
     id: 'sp-' + generateId(),
@@ -319,12 +335,13 @@ app.post('/api/orders', (req, res) => {
     stockist_id: stockistId,
     stockist_amount: stockistPayout,
     platform_amount: platformPayout,
+    commission_rate_used: settlement.commissionRateUsed,
+    earn_rate_used: settlement.earnRateUsed,
     status: 'PROCESSED_IMMEDIATELY',
     created_at: new Date().toISOString()
   });
   db.saveTable('split_payouts', splitPayouts);
 
-  // 10. Append Points Ledger Row
   const pointsLedger = db.getTable('points_ledger');
   pointsLedger.push({
     id: 'l-' + generateId(),
@@ -339,8 +356,7 @@ app.post('/api/orders', (req, res) => {
   });
   db.saveTable('points_ledger', pointsLedger);
 
-  // 11. Anomaly Check
-  // Check orders in last 24h for this customer & stockist
+  // Anomaly Check
   const last24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   const recentOrders = orders.filter(o => 
     o.customer_id === customerId && 
@@ -363,7 +379,6 @@ app.post('/api/orders', (req, res) => {
       created_at: new Date().toISOString()
     });
     db.saveTable('anomaly_logs', anomalyLogs);
-    console.log(`[ANOMALY WARNING] Collusion flag raised for customer ${customer.name} and stockist ${stockist.name}`);
   }
 
   return res.json({
@@ -390,7 +405,6 @@ app.get('/api/orders', (req, res) => {
     filtered = filtered.filter(o => o.stockist_id === stockistId);
   }
 
-  // Attach items to response
   const orderItems = db.getTable('order_items');
   const users = db.getTable('users');
   const splitPayouts = db.getTable('split_payouts');
@@ -399,10 +413,10 @@ app.get('/api/orders', (req, res) => {
     const customer = users.find(u => u.id === o.customer_id);
     const payout = splitPayouts.find(sp => sp.order_id === o.id);
 
-    // Commission fallback calculation if not found in split_payouts table
-    const commissionRates = db.getTable('commission_rates');
-    const rateRecord = commissionRates.find(c => c.region_id === o.region_id && c.category === 'groceries');
-    const commissionRate = rateRecord ? parseFloat(rateRecord.rate_percent) : 10.00;
+    // Commission lookup (stockist-wise first, fallback regional)
+    const stockistCommissionRates = db.getTable('stockist_commission_rates');
+    const scr = stockistCommissionRates.find(r => r.stockist_id === o.stockist_id);
+    const commissionRate = scr ? parseFloat(scr.rate_percent) : 10.00;
     const platformCommission = (o.subtotal * commissionRate) / 100;
     const stockistPayout = o.subtotal - platformCommission + o.delivery_fee;
     const platformPayout = platformCommission + o.low_order_fee;
@@ -420,7 +434,7 @@ app.get('/api/orders', (req, res) => {
   return res.json(enriched);
 });
 
-// Update Order Status (or batch updates for Offline tolerance)
+// Update Order Status
 app.patch('/api/orders/:id/status', (req, res) => {
   const { id } = req.params;
   const { status } = req.body;
@@ -439,9 +453,59 @@ app.patch('/api/orders/:id/status', (req, res) => {
   return res.json({ success: true, order });
 });
 
+// PATCH fulfillment endpoint (§7)
+app.patch('/api/orders/:id/fulfillment', (req, res) => {
+  const { id } = req.params;
+  const { fulfillmentType, pickupSlot } = req.body;
+
+  const orders = db.getTable('orders');
+  const order = orders.find(o => o.id === id);
+  if (!order) return res.status(404).json({ error: 'Order not found' });
+
+  if (fulfillmentType === 'DELIVERY') {
+    if (order.fulfillment_type === 'DELIVERY') {
+      return res.status(400).json({ error: 'Already switched to delivery. Cannot switch back.' });
+    }
+    // Switch to delivery
+    order.fulfillment_type = 'DELIVERY';
+    
+    const stockists = db.getTable('stockists');
+    const stockist = stockists.find(s => s.id === order.stockist_id);
+    const deliveryFee = stockist.region_id === 'r2' ? 30.00 : 40.00;
+
+    order.delivery_fee = deliveryFee;
+    order.total_price = order.subtotal + deliveryFee + order.low_order_fee;
+
+    // Recalculate splits
+    const splitPayouts = db.getTable('split_payouts');
+    const payout = splitPayouts.find(sp => sp.order_id === id);
+    
+    // Settlement calculations
+    const settlement = calculateSettlement(order.subtotal, 0, order.stockist_id, order.region_id);
+    const stockistPayout = order.subtotal - settlement.platformCommission + deliveryFee;
+    const platformPayout = settlement.platformCommission + order.low_order_fee;
+
+    if (payout) {
+      payout.stockist_amount = stockistPayout;
+      payout.platform_amount = platformPayout;
+      db.saveTable('split_payouts', splitPayouts);
+    }
+  } else if (pickupSlot) {
+    if (order.fulfillment_type === 'DELIVERY') {
+      return res.status(400).json({ error: 'Cannot set pickup slot for delivery orders.' });
+    }
+    order.pickup_slot = pickupSlot;
+  } else {
+    return res.status(400).json({ error: 'Invalid parameters.' });
+  }
+
+  db.saveTable('orders', orders);
+  return res.json({ success: true, order });
+});
+
 // Offline sync endpoint
 app.post('/api/orders/sync', (req, res) => {
-  const { updates } = req.body; // Array of { orderId, status, updatedAt }
+  const { updates } = req.body;
   if (!updates || !Array.isArray(updates)) {
     return res.status(400).json({ error: 'Invalid sync payload' });
   }
@@ -484,9 +548,9 @@ app.get('/api/ledger/history/:customerId', (req, res) => {
   return res.json(customerLedger);
 });
 
-// Redeem Points (closed-loop: must apply to ISP bill)
+// Redeem Points (§5)
 app.post('/api/ledger/redeem', (req, res) => {
-  const { customerId, amount } = req.body;
+  const { customerId, amount, redemptionType } = req.body;
   if (!customerId || !amount || parseFloat(amount) <= 0) {
     return res.status(400).json({ error: 'Invalid redemption parameters' });
   }
@@ -495,7 +559,6 @@ app.post('/api/ledger/redeem', (req, res) => {
   const customer = users.find(u => u.id === customerId);
   if (!customer) return res.status(404).json({ error: 'Customer not found' });
 
-  // 1. Calculate current balance
   const ledger = db.getTable('points_ledger');
   const customerLedger = ledger.filter(l => l.customer_id === customerId);
   const currentBalance = customerLedger.reduce((sum, item) => sum + parseFloat(item.amount), 0);
@@ -504,10 +567,16 @@ app.post('/api/ledger/redeem', (req, res) => {
     return res.status(400).json({ error: 'Insufficient points balance' });
   }
 
-  // 2. Append REDEEM ledger entry
   const redeemAmount = -Math.abs(parseFloat(amount));
   const ledgerId = 'l-' + generateId();
   
+  let description = `Redeemed points against Broadband Bill`;
+  if (redemptionType === 'CABLE_RECHARGE') {
+    description = `Redeemed for Cable TV Recharge`;
+  } else if (redemptionType === 'WIFI_TOPUP') {
+    description = `Redeemed for WiFi Top-up`;
+  }
+
   ledger.push({
     id: ledgerId,
     tenant_id: customer.tenant_id,
@@ -516,9 +585,9 @@ app.post('/api/ledger/redeem', (req, res) => {
     amount: redeemAmount,
     type: 'REDEEM',
     order_id: null,
-    description: `Redeemed points against Broadband Bill`,
+    description,
     created_at: new Date().toISOString(),
-    billing_sync_status: 'PENDING' // Track manual billing sync
+    billing_sync_status: 'PENDING'
   });
   db.saveTable('points_ledger', ledger);
 
@@ -526,22 +595,83 @@ app.post('/api/ledger/redeem', (req, res) => {
     success: true,
     ledgerId,
     remaining_balance: currentBalance + redeemAmount,
-    message: 'Points successfully queued for redemption. Discount will be applied on your next ISP bill.'
+    message: 'Points successfully queued for redemption.'
   });
+});
+
+// ----------------------------------------------------
+// FEEDBACK & REPORT ENDPOINTS (§11)
+// ----------------------------------------------------
+
+app.post('/api/feedback', (req, res) => {
+  const { reporterId, reporterRole, targetId, targetRole, orderId, rating, reason } = req.body;
+  if (!reporterId || !reporterRole || !targetId || !targetRole || !orderId || !rating || !reason) {
+    return res.status(400).json({ error: 'All fields are required' });
+  }
+
+  const feedback = db.getTable('feedback_reports');
+  const newFeedback = {
+    id: 'fb-' + generateId(),
+    reporter_id: reporterId,
+    reporter_role: reporterRole,
+    target_id: targetId,
+    target_role: targetRole,
+    order_id: orderId,
+    rating: parseInt(rating, 10),
+    reason,
+    created_at: new Date().toISOString()
+  };
+
+  feedback.push(newFeedback);
+  db.saveTable('feedback_reports', feedback);
+  return res.json({ success: true, feedback: newFeedback });
+});
+
+app.get('/api/admin/feedback', (req, res) => {
+  const feedback = db.getTable('feedback_reports');
+  const users = db.getTable('users');
+  const stockists = db.getTable('stockists');
+
+  const enriched = feedback.map(fb => {
+    let reporterName = 'Unknown';
+    let targetName = 'Unknown';
+
+    if (fb.reporter_role === 'CUSTOMER') {
+      const u = users.find(x => x.id === fb.reporter_id);
+      reporterName = u ? u.name : 'Unknown Customer';
+    } else {
+      const s = stockists.find(x => x.id === fb.reporter_id);
+      reporterName = s ? s.name : 'Unknown Shopkeeper';
+    }
+
+    if (fb.target_role === 'CUSTOMER') {
+      const u = users.find(x => x.id === fb.target_id);
+      targetName = u ? u.name : 'Unknown Customer';
+    } else {
+      const s = stockists.find(x => x.id === fb.target_id);
+      targetName = s ? s.name : 'Unknown Shopkeeper';
+    }
+
+    return {
+      ...fb,
+      reporter_name: reporterName,
+      target_name: targetName
+    };
+  }).reverse();
+
+  return res.json(enriched);
 });
 
 // ----------------------------------------------------
 // ADMIN ENDPOINTS
 // ----------------------------------------------------
 
-// Get KYC Queue
 app.get('/api/admin/kyc-queue', (req, res) => {
   const users = db.getTable('users');
   const pending = users.filter(u => u.role === 'STOCKIST' && u.kyc_status === 'PENDING');
   return res.json(pending);
 });
 
-// Approve KYC & Assign Vendor
 app.post('/api/admin/approve-kyc', (req, res) => {
   const { userId, vendorId, deliveryRadius, minOrderValue } = req.body;
   if (!userId || !vendorId) {
@@ -552,13 +682,10 @@ app.post('/api/admin/approve-kyc', (req, res) => {
   const userIndex = users.findIndex(u => u.id === userId);
   if (userIndex === -1) return res.status(404).json({ error: 'User not found' });
 
-  // Update User Status
   users[userIndex].kyc_status = 'APPROVED';
   db.saveTable('users', users);
 
   const user = users[userIndex];
-
-  // Create Stockist Profile
   const stockists = db.getTable('stockists');
   const newStockist = {
     id: 's-' + generateId(),
@@ -566,9 +693,9 @@ app.post('/api/admin/approve-kyc', (req, res) => {
     region_id: user.region_id,
     user_id: user.id,
     name: user.name + ' Store',
-    vendor_id: vendorId,
+    vendor_id: vendorId, // backward compatibility
     delivery_radius_km: parseFloat(deliveryRadius) || 5.0,
-    min_order_value: parseFloat(minOrderValue) || 150.0,
+    min_order_value: 0, // Bypassed min order fee
     is_active: true,
     created_at: new Date().toISOString()
   };
@@ -576,14 +703,22 @@ app.post('/api/admin/approve-kyc', (req, res) => {
   stockists.push(newStockist);
   db.saveTable('stockists', stockists);
 
-  // Initialize basic inventory for this new stockist (empty or default products mapped)
+  // Initialize junction table (§12)
+  const stockistVendors = db.getTable('stockist_vendors');
+  stockistVendors.push({
+    stockist_id: newStockist.id,
+    vendor_id: vendorId,
+    approved_at: new Date().toISOString()
+  });
+  db.saveTable('stockist_vendors', stockistVendors);
+
   const products = db.getTable('products').filter(p => p.region_id === user.region_id);
   const inventory = db.getTable('stockist_inventory');
   products.forEach(p => {
     inventory.push({
       stockist_id: newStockist.id,
       product_id: p.id,
-      stock_qty: 0, // Starts out of stock, must restock from vendor
+      stock_qty: 0,
       is_available: false
     });
   });
@@ -592,13 +727,11 @@ app.post('/api/admin/approve-kyc', (req, res) => {
   return res.json({ success: true, stockist: newStockist });
 });
 
-// Get Commission Rates Config
 app.get('/api/admin/commission-rates', (req, res) => {
   const rates = db.getTable('commission_rates');
   return res.json(rates);
 });
 
-// Update Commission Rates
 app.post('/api/admin/commission-rates', (req, res) => {
   const { category, ratePercent, regionId } = req.body;
   if (!category || ratePercent === undefined || !regionId) {
@@ -625,13 +758,116 @@ app.post('/api/admin/commission-rates', (req, res) => {
   return res.json({ success: true, rates });
 });
 
-// Get Anomaly Flags
+// Per-stockist commission endpoints (§9)
+app.get('/api/admin/stockist-commission-rates', (req, res) => {
+  const rates = db.getTable('stockist_commission_rates');
+  return res.json(rates);
+});
+
+app.post('/api/admin/stockist-commission-rates', (req, res) => {
+  const { stockistId, ratePercent } = req.body;
+  if (!stockistId || ratePercent === undefined) {
+    return res.status(400).json({ error: 'stockistId and ratePercent are required' });
+  }
+
+  const rates = db.getTable('stockist_commission_rates');
+  const idx = rates.findIndex(r => r.stockist_id === stockistId);
+
+  if (idx > -1) {
+    rates[idx].rate_percent = parseFloat(ratePercent);
+  } else {
+    rates.push({
+      id: 'scr-' + generateId(),
+      stockist_id: stockistId,
+      rate_percent: parseFloat(ratePercent),
+      created_at: new Date().toISOString()
+    });
+  }
+
+  db.saveTable('stockist_commission_rates', rates);
+  return res.json({ success: true, rates });
+});
+
+// Points earn config endpoints (§10)
+app.get('/api/admin/points-earn-config', (req, res) => {
+  const configs = db.getTable('points_earn_config');
+  return res.json(configs);
+});
+
+app.post('/api/admin/points-earn-config', (req, res) => {
+  const { regionId, stockistId, earnRatePercent } = req.body;
+  if (earnRatePercent === undefined) {
+    return res.status(400).json({ error: 'earnRatePercent is required' });
+  }
+
+  const configs = db.getTable('points_earn_config');
+  let idx = -1;
+  if (stockistId) {
+    idx = configs.findIndex(c => c.stockist_id === stockistId);
+  } else if (regionId) {
+    idx = configs.findIndex(c => c.region_id === regionId && !c.stockist_id);
+  } else {
+    return res.status(400).json({ error: 'Either regionId or stockistId is required' });
+  }
+
+  const updatedConfig = {
+    id: idx > -1 ? configs[idx].id : 'pec-' + generateId(),
+    region_id: regionId || null,
+    stockist_id: stockistId || null,
+    earn_rate_percent: parseFloat(earnRatePercent),
+    created_at: idx > -1 ? configs[idx].created_at : new Date().toISOString()
+  };
+
+  if (idx > -1) {
+    configs[idx] = updatedConfig;
+  } else {
+    configs.push(updatedConfig);
+  }
+
+  db.saveTable('points_earn_config', configs);
+  return res.json({ success: true, configs });
+});
+
+// Approved vendors junction management (§12)
+app.post('/api/admin/stockist-vendors', (req, res) => {
+  const { stockistId, vendorId } = req.body;
+  if (!stockistId || !vendorId) {
+    return res.status(400).json({ error: 'stockistId and vendorId are required' });
+  }
+
+  const stockistVendors = db.getTable('stockist_vendors');
+  const exists = stockistVendors.some(sv => sv.stockist_id === stockistId && sv.vendor_id === vendorId);
+
+  if (!exists) {
+    stockistVendors.push({
+      stockist_id: stockistId,
+      vendor_id: vendorId,
+      approved_at: new Date().toISOString()
+    });
+    db.saveTable('stockist_vendors', stockistVendors);
+  }
+
+  return res.json({ success: true, stockistVendors });
+});
+
+app.get('/api/stockists/:stockistId/vendors', (req, res) => {
+  const { stockistId } = req.params;
+  const stockistVendors = db.getTable('stockist_vendors');
+  const vendors = db.getTable('vendors');
+
+  const approvedIds = stockistVendors
+    .filter(sv => sv.stockist_id === stockistId)
+    .map(sv => sv.vendor_id);
+
+  const approvedVendors = vendors.filter(v => approvedIds.includes(v.id));
+  return res.json(approvedVendors);
+});
+
 app.get('/api/admin/anomalies', (req, res) => {
   const logs = db.getTable('anomaly_logs');
   return res.json(logs);
 });
 
-// Get Billing Sync Redemptions
 app.get('/api/admin/redemptions', (req, res) => {
   const ledger = db.getTable('points_ledger');
   const users = db.getTable('users');
@@ -651,7 +887,6 @@ app.get('/api/admin/redemptions', (req, res) => {
   return res.json(redemptions);
 });
 
-// Complete redemption manually (billing integration sync)
 app.post('/api/admin/complete-redemption', (req, res) => {
   const { ledgerId } = req.body;
   if (!ledgerId) return res.status(400).json({ error: 'Ledger ID required' });
@@ -665,13 +900,11 @@ app.post('/api/admin/complete-redemption', (req, res) => {
   return res.json({ success: true, entry: ledger[idx] });
 });
 
-// Get list of Vendors
 app.get('/api/admin/vendors', (req, res) => {
   const vendors = db.getTable('vendors');
   return res.json(vendors);
 });
 
-// Create Vendor
 app.post('/api/admin/vendors', (req, res) => {
   const { name, regionId } = req.body;
   if (!name || !regionId) return res.status(400).json({ error: 'Name and regionId required' });
@@ -689,9 +922,8 @@ app.post('/api/admin/vendors', (req, res) => {
   return res.json({ success: true, vendor: newVendor });
 });
 
-// Reset DB (Demo helper)
+// Reset DB
 app.post('/api/admin/reset-db', (req, res) => {
-  db.write(db.read()); // This triggers default if empty, but let's delete files to hard-reset
   const path = require('path');
   const fs = require('fs');
   const DB_PATH = path.join(__dirname, 'db.json');
@@ -699,7 +931,7 @@ app.post('/api/admin/reset-db', (req, res) => {
     fs.unlinkSync(DB_PATH);
   }
   const fresh = db.read();
-  return res.json({ success: true, message: 'Database reset to default seed data successfully.', state: fresh });
+  return res.json({ success: true, message: 'Database reset successfully.', state: fresh });
 });
 
 // Start Server
