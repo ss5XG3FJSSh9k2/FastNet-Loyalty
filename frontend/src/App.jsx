@@ -75,6 +75,14 @@ export default function App() {
   const [selectedRestockVendorId, setSelectedRestockVendorId] = useState('');
   const [prepElapsedOrders, setPrepElapsedOrders] = useState([]);
   const [restockQuantities, setRestockQuantities] = useState({});
+  const [enteredPins, setEnteredPins] = useState({});
+  const [showAddProductModal, setShowAddProductModal] = useState(false);
+  const [newProdName, setNewProdName] = useState('');
+  const [newProdPrice, setNewProdPrice] = useState('');
+  const [newProdCostPrice, setNewProdCostPrice] = useState('');
+  const [newProdCategory, setNewProdCategory] = useState('groceries');
+  const [newProdInitialStock, setNewProdInitialStock] = useState('10');
+  const [lowStockThreshold, setLowStockThreshold] = useState('15');
 
   // Stockist App State
   const [stockistProfile, setStockistProfile] = useState(null);
@@ -558,6 +566,34 @@ export default function App() {
     syncInspectorTable();
   }, [currentUser, activeRole, showDevSettings]);
 
+  // Live order status polling for customer (§A1)
+  useEffect(() => {
+    if (activeRole !== 'customer' || !currentUser || currentUser.role !== 'CUSTOMER') {
+      return;
+    }
+    const pollInterval = setInterval(async () => {
+      try {
+        const oRes = await fetch(`${API_BASE}/orders?customerId=${currentUser.id}`);
+        if (oRes.ok) {
+          const oData = await oRes.json();
+          setCustomerOrders(prev => {
+            // Compare and Toast on changes
+            oData.forEach(newO => {
+              const oldO = prev.find(o => o.id === newO.id);
+              if (oldO && oldO.status !== newO.status) {
+                showToast(`Order #${newO.id.substring(2).toUpperCase()} status updated to ${newO.status}!`, 'info');
+              }
+            });
+            return oData;
+          });
+        }
+      } catch (err) {
+        console.error('Error polling customer orders:', err);
+      }
+    }, 6000);
+    return () => clearInterval(pollInterval);
+  }, [currentUser, activeRole]);
+
   // ----------------------------------------------------
   // AUTH LOGIC
   // ----------------------------------------------------
@@ -761,6 +797,10 @@ export default function App() {
   const addToCart = (product) => {
     if (!selectedStockist) return;
     setCustomerCart(prev => {
+      if (prev.length > 0 && prev[0].stockistId !== selectedStockist.id) {
+        showToast(`Cleared previous items to start a new order at ${selectedStockist.name}`, 'info');
+        return [{ product, quantity: 1, stockistId: selectedStockist.id, stockistName: selectedStockist.name }];
+      }
       const existing = prev.find(item => item.product.id === product.id && item.stockistId === selectedStockist.id);
       if (existing) {
         return prev.map(item => 
@@ -1308,6 +1348,126 @@ export default function App() {
     }
   };
 
+  const handleReorder = async (order) => {
+    try {
+      const targetStockist = customerStockists.find(s => s.id === order.stockist_id);
+      if (!targetStockist) {
+        showToast('Store is no longer active in your area', 'error');
+        return;
+      }
+      setSelectedStockist(targetStockist);
+      
+      const res = await fetch(`${API_BASE}/products?regionId=${currentUser.region_id}&stockistId=${targetStockist.id}`);
+      if (!res.ok) {
+        showToast('Failed to load store products', 'error');
+        return;
+      }
+      const currentProds = await res.json();
+      
+      const newCart = [];
+      let omittedCount = 0;
+      
+      order.items.forEach(pastItem => {
+        const currentProd = currentProds.find(p => p.id === pastItem.product_id);
+        if (currentProd && currentProd.stock_qty > 0) {
+          const qty = Math.min(pastItem.quantity, currentProd.stock_qty);
+          newCart.push({
+            product: currentProd,
+            quantity: qty,
+            stockistId: targetStockist.id,
+            stockistName: targetStockist.name
+          });
+          if (qty < pastItem.quantity) {
+            omittedCount++;
+          }
+        } else {
+          omittedCount++;
+        }
+      });
+      
+      if (newCart.length === 0) {
+        showToast('All items from this past order are out of stock', 'error');
+        return;
+      }
+      
+      setCustomerCart(newCart);
+      setCustomerAppTab('store');
+      if (omittedCount > 0) {
+        showToast(`Cart refilled! Omitted ${omittedCount} out-of-stock items.`, 'warning');
+      } else {
+        showToast('Cart refilled with past order items!', 'success');
+      }
+    } catch (err) {
+      showToast('Reorder failed', 'error');
+    }
+  };
+
+  const handleAddNewProduct = async () => {
+    if (!newProdName || !newProdPrice || !newProdInitialStock) {
+      showToast('Please fill all required product fields', 'error');
+      return;
+    }
+    try {
+      const payload = {
+        name: newProdName,
+        price: parseFloat(newProdPrice),
+        costPrice: newProdCostPrice ? parseFloat(newProdCostPrice) : parseFloat(newProdPrice) * 0.75,
+        category: newProdCategory,
+        initialStock: parseInt(newProdInitialStock, 10),
+        stockistId: stockistProfile.id,
+        regionId: currentUser.region_id
+      };
+      
+      const res = await fetch(`${API_BASE}/products`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast(`Product ${newProdName} added successfully!`, 'success');
+        setShowAddProductModal(false);
+        setNewProdName('');
+        setNewProdPrice('');
+        setNewProdCostPrice('');
+        setNewProdCategory('groceries');
+        setNewProdInitialStock('10');
+        loadStockistData();
+        fetchDbState();
+      } else {
+        showToast(data.error || 'Failed to add product', 'error');
+      }
+    } catch (err) {
+      showToast('Error adding product', 'error');
+    }
+  };
+
+  const handleVerifyPickupPIN = async (orderId) => {
+    const pin = enteredPins[orderId];
+    if (!pin) {
+      showToast('Please enter the 4-digit verification PIN', 'error');
+      return;
+    }
+    try {
+      const res = await fetch(`${API_BASE}/orders/${orderId}/verify-pickup`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast('Pickup PIN verified! Order completed.', 'success');
+        setEnteredPins(prev => ({ ...prev, [orderId]: '' }));
+        loadStockistData();
+        fetchDbState();
+      } else {
+        showToast(data.error || 'Incorrect PIN', 'error');
+      }
+    } catch (err) {
+      showToast('PIN verification error', 'error');
+    }
+  };
+
   const handleResetDb = () => performReset(true);
 
   // CSV Exporter for billing sync
@@ -1612,6 +1772,60 @@ export default function App() {
     );
   };
 
+  const handleStartNewOrder = async (targetShopId, productName) => {
+    try {
+      const targetStockist = customerStockists.find(s => s.id === targetShopId);
+      if (!targetStockist) return;
+      setSelectedStockist(targetStockist);
+      
+      const res = await fetch(`${API_BASE}/products?regionId=${currentUser.region_id}&stockistId=${targetStockist.id}`);
+      if (!res.ok) return;
+      const currentProds = await res.json();
+      
+      const targetProd = currentProds.find(p => p.name.toLowerCase().includes(productName.toLowerCase()));
+      if (targetProd && targetProd.stock_qty > 0) {
+        setCustomerCart([{ product: targetProd, quantity: 1, stockistId: targetStockist.id, stockistName: targetStockist.name }]);
+        showToast(`Started new order at ${targetStockist.name} with ${targetProd.name}!`, 'success');
+      } else {
+        showToast(`Item is currently out of stock at ${targetStockist.name}`, 'warning');
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const AlternativeShops = ({ productName, regionId, excludeStockistId }) => {
+    const [alts, setAlts] = useState([]);
+    useEffect(() => {
+      fetch(`${API_BASE}/products/search-alternatives?name=${encodeURIComponent(productName)}&regionId=${regionId}&excludeStockistId=${excludeStockistId}`)
+        .then(res => res.json())
+        .then(data => setAlts(data))
+        .catch(err => console.error(err));
+    }, [productName, regionId, excludeStockistId]);
+
+    if (alts.length === 0) return null;
+
+    return (
+      <div style={{ marginTop: '0.4rem', fontSize: '0.65rem', background: 'rgba(245,158,11,0.08)', border: '1px dashed var(--warning)', borderRadius: '6px', padding: '0.35rem', width: '100%' }}>
+        <span style={{ color: 'var(--warning)', fontWeight: 'bold' }}>Also available at:</span>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', marginTop: '0.2rem' }}>
+          {alts.map(alt => (
+            <div key={alt.shopId} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ color: 'var(--text-muted)' }}>{alt.shopName} (₹{alt.price})</span>
+              <button 
+                className="badge badge-warning" 
+                style={{ border: 'none', cursor: 'pointer', fontSize: '0.55rem', padding: '0.1rem 0.3rem' }}
+                onClick={() => handleStartNewOrder(alt.shopId, productName)}
+              >
+                Order Here
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
   // ----------------------------------------------------
   // 2. CUSTOMER MOBILE APP SIMULATOR
   // ----------------------------------------------------
@@ -1845,6 +2059,11 @@ export default function App() {
                                   </p>
                                 </div>
 
+                                <div style={{ background: 'rgba(99, 102, 241, 0.08)', border: '1px dashed var(--primary)', borderRadius: '6px', padding: '0.4rem', marginTop: '0.4rem', textAlign: 'center' }}>
+                                  <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>🔑 Verification PIN (পিকআপ কোড):</span>
+                                  <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: 'var(--primary-glow)', letterSpacing: '0.15em' }}>{o.pickup_pin || '1234'}</div>
+                                </div>
+
                                 <button 
                                   className="btn" 
                                   style={{ width: '100%', padding: '0.3rem', fontSize: '0.65rem', marginTop: '0.5rem', background: 'rgba(236,72,153,0.1)', color: 'var(--secondary)', border: '1px solid var(--secondary)' }}
@@ -1859,6 +2078,33 @@ export default function App() {
                                 <p style={{ fontSize: '0.6rem', color: 'var(--text-muted)', marginTop: '0.1rem' }}>Shipping charges applied. Cannot switch back to pickup.</p>
                               </div>
                             )}
+
+                            {/* Transparent Points Breakdown Receipt (§B3) */}
+                            <div style={{ marginTop: '0.4rem', padding: '0.5rem', background: 'rgba(255,255,255,0.02)', borderRadius: '6px', fontSize: '0.65rem', border: '1px solid rgba(255,255,255,0.05)' }}>
+                              <div style={{ fontWeight: 'bold', color: 'var(--accent)' }}>💡 Point Breakdown (পয়েন্ট হিসাব):</div>
+                              <div style={{ marginTop: '0.2rem', color: 'var(--text-muted)' }}>
+                                • English: You earned <strong>{o.pointsCredited || o.points_credited || 0} pts</strong> because this order's margin was <strong>₹{o.margin || (o.subtotal * 0.25).toFixed(1)}</strong> and your reward rate is <strong>{o.earnRatePercent || 40}%</strong>.
+                              </div>
+                              <div style={{ color: 'var(--text-muted)', marginTop: '0.1rem' }}>
+                                • বাংলা: আপনি <strong>{o.pointsCredited || o.points_credited || 0} pts</strong> পেয়েছেন কারণ লাভ ছিল <strong>₹{o.margin || (o.subtotal * 0.25).toFixed(1)}</strong> ও হার <strong>{o.earnRatePercent || 40}%</strong>।
+                              </div>
+                              <div style={{ color: 'var(--text-muted)', marginTop: '0.1rem' }}>
+                                • हिंदी: आपने <strong>{o.pointsCredited || o.points_credited || 0} pts</strong> कमाए हैं क्योंकि मुनाफा <strong>₹{o.margin || (o.subtotal * 0.25).toFixed(1)}</strong> व दर <strong>{o.earnRatePercent || 40}%</strong> है।
+                              </div>
+                            </div>
+
+                            {/* WhatsApp Notification Share Trigger (§B1) */}
+                            <button 
+                              className="btn btn-secondary" 
+                              style={{ width: '100%', padding: '0.35rem', fontSize: '0.65rem', marginTop: '0.35rem', background: 'rgba(37,211,102,0.1)', color: '#25D366', border: '1px solid rgba(37,211,102,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.25rem' }}
+                              onClick={() => {
+                                const waMsg = `Hello! FastNet Supermarket order #${o.id.substring(2).toUpperCase()} confirmed at ${o.stockist_name} for ₹${o.total_price}. Pickup PIN: ${o.pickup_pin || 'N/A'}. Subtotal: ₹${o.subtotal}. I earned ${o.pointsCredited || o.points_credited || 0} pts discount!`;
+                                window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(waMsg)}`, '_blank');
+                              }}
+                            >
+                              💬 Share Order Status to WhatsApp (শেয়ার করুন)
+                            </button>
+
                           </div>
                         );
                       })}
@@ -1920,25 +2166,32 @@ export default function App() {
                             {customerProducts.map(p => {
                               const rate = getPointsRate(selectedStockist.id, currentUser.region_id);
                               const earnEst = Math.round((p.price - p.cost_price) * (rate / 100) * 100) / 100;
+                              const isOutOfStock = p.stock_qty <= 0;
                               return (
-                                <div key={p.id} className="netflix-card" style={{ display: 'flex', padding: '0.6rem', gap: '0.75rem', alignItems: 'center' }}>
-                                  <img src={p.image_url} alt={p.name} style={{ width: '56px', height: '56px', borderRadius: '6px', objectFit: 'cover' }} />
-                                  <div style={{ flex: 1 }}>
-                                    <h4 style={{ fontSize: '0.75rem', color: 'white' }}>{p.name}</h4>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.2rem' }}>
-                                      <span style={{ fontWeight: 'bold', fontSize: '0.85rem' }}>₹{p.price}</span>
-                                      <span className="badge badge-success" style={{ fontSize: '0.55rem', padding: '0.1rem 0.25rem' }}>
-                                        Earn {earnEst} pts
-                                      </span>
+                                <div key={p.id} className="netflix-card" style={{ display: 'flex', flexDirection: 'column', padding: '0.6rem', gap: '0.5rem' }}>
+                                  <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', width: '100%' }}>
+                                    <img src={p.image_url} alt={p.name} style={{ width: '56px', height: '56px', borderRadius: '6px', objectFit: 'cover' }} />
+                                    <div style={{ flex: 1 }}>
+                                      <h4 style={{ fontSize: '0.75rem', color: 'white' }}>{p.name}</h4>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.2rem' }}>
+                                        <span style={{ fontWeight: 'bold', fontSize: '0.85rem' }}>₹{p.price}</span>
+                                        <span className="badge badge-success" style={{ fontSize: '0.55rem', padding: '0.1rem 0.25rem' }}>
+                                          Earn {earnEst} pts
+                                        </span>
+                                      </div>
                                     </div>
+                                    <button 
+                                      className="btn btn-accent" 
+                                      style={{ padding: '0.3rem 0.5rem', fontSize: '0.7rem', height: '28px', background: isOutOfStock ? 'rgba(255,255,255,0.05)' : '', color: isOutOfStock ? 'var(--text-muted)' : '', border: isOutOfStock ? '1px solid rgba(255,255,255,0.05)' : '' }}
+                                      disabled={isOutOfStock}
+                                      onClick={() => addToCart(p)}
+                                    >
+                                      {isOutOfStock ? 'Out of Stock' : <><Plus size={12} /> Add</>}
+                                    </button>
                                   </div>
-                                  <button 
-                                    className="btn btn-accent" 
-                                    style={{ padding: '0.3rem 0.5rem', fontSize: '0.7rem', height: '28px' }}
-                                    onClick={() => addToCart(p)}
-                                  >
-                                    <Plus size={12} /> Add
-                                  </button>
+                                  {isOutOfStock && (
+                                    <AlternativeShops productName={p.name} regionId={currentUser.region_id} excludeStockistId={selectedStockist.id} />
+                                  )}
                                 </div>
                               );
                             })}
@@ -2130,7 +2383,7 @@ export default function App() {
                             <div key={o.id} className="glass-card" style={{ padding: '0.65rem', fontSize: '0.7rem', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
                               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                                 <span style={{ fontWeight: 'bold' }}>Order #{o.id.substring(2).toUpperCase()}</span>
-                                <span className={`badge ${o.status === 'DELIVERED' ? 'badge-success' : 'badge-warning'}`}>{o.status}</span>
+                                <span key={o.status} className={`badge ${o.status === 'DELIVERED' ? 'badge-success' : 'badge-warning'} status-badge-glow`}>{o.status}</span>
                               </div>
                               <div style={{ color: 'var(--text-muted)' }}>Store: {o.stockist_name}</div>
                               <div style={{ color: 'var(--text-muted)', fontSize: '0.625rem' }}>
@@ -2167,24 +2420,51 @@ export default function App() {
                                 </div>
                               )}
 
-                              <div style={{ borderTop: '1px solid rgba(255,255,255,0.03)', paddingTop: '0.4rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              {o.fulfillment_type === 'PICKUP' && o.status !== 'DELIVERED' && (
+                                <div style={{ background: 'rgba(255,255,255,0.02)', padding: '0.3rem', borderRadius: '4px', border: '1px dashed rgba(255,255,255,0.05)', fontSize: '0.65rem' }}>
+                                  🔑 Pickup PIN (পিকআপ কোড): <strong style={{ color: 'var(--primary-glow)', letterSpacing: '0.05em' }}>{o.pickup_pin || '1234'}</strong>
+                                </div>
+                              )}
+
+                              <div style={{ borderTop: '1px solid rgba(255,255,255,0.03)', paddingTop: '0.4rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.3rem' }}>
                                 <span>Paid: ₹{o.total_price.toFixed(2)}</span>
                                 
-                                {o.status === 'DELIVERED' ? (
+                                <div style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
+                                  <button 
+                                    className="badge badge-primary" 
+                                    style={{ border: 'none', cursor: 'pointer', padding: '0.2rem 0.4rem', fontSize: '0.6rem' }}
+                                    onClick={() => handleReorder(o)}
+                                  >
+                                    🔁 Reorder
+                                  </button>
+
                                   <button 
                                     className="badge badge-success" 
-                                    style={{ border: 'none', cursor: 'pointer' }}
+                                    style={{ border: 'none', cursor: 'pointer', background: 'rgba(37,211,102,0.1)', color: '#25D366', padding: '0.2rem 0.4rem', fontSize: '0.6rem' }}
                                     onClick={() => {
-                                      setSubmittingFeedbackOrder(o);
-                                      setFeedbackRating(5);
-                                      setFeedbackReason('');
+                                      const waMsg = `Hi! FastNet Supermarket order #${o.id.substring(2).toUpperCase()} status is ${o.status}. Total: ₹${o.total_price}. Pickup PIN: ${o.pickup_pin || 'N/A'}.`;
+                                      window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(waMsg)}`, '_blank');
                                     }}
                                   >
-                                    Rate Shop (ফিডব্যাক)
+                                    💬 Share
                                   </button>
-                                ) : (
-                                  <span>{new Date(o.created_at).toLocaleDateString()}</span>
-                                )}
+
+                                  {o.status === 'DELIVERED' ? (
+                                    <button 
+                                      className="badge badge-success" 
+                                      style={{ border: 'none', cursor: 'pointer', padding: '0.2rem 0.4rem', fontSize: '0.6rem' }}
+                                      onClick={() => {
+                                        setSubmittingFeedbackOrder(o);
+                                        setFeedbackRating(5);
+                                        setFeedbackReason('');
+                                      }}
+                                    >
+                                      Rate Shop
+                                    </button>
+                                  ) : (
+                                    <span style={{ fontSize: '0.6rem', color: 'var(--text-muted)' }}>{new Date(o.created_at).toLocaleDateString()}</span>
+                                  )}
+                                </div>
                               </div>
                             </div>
                           );
@@ -2471,29 +2751,65 @@ export default function App() {
                           </div>
 
                           {/* Action Buttons */}
-                          <div style={{ display: 'flex', gap: '0.25rem', marginTop: '0.25rem' }}>
-                            {o.status === 'PENDING' && (
-                              <button className="btn" style={{ flex: 1, padding: '0.35rem 0', fontSize: '0.7rem' }} onClick={() => handleUpdateOrderStatus(o.id, 'ACCEPTED')}>
-                                Accept (স্বীকার করুন)
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', marginTop: '0.25rem' }}>
+                            <div style={{ display: 'flex', gap: '0.25rem' }}>
+                              {o.status === 'PENDING' && (
+                                <button className="btn" style={{ flex: 1, padding: '0.35rem 0', fontSize: '0.7rem' }} onClick={() => handleUpdateOrderStatus(o.id, 'ACCEPTED')}>
+                                  Accept (স্বীকার করুন)
+                                </button>
+                              )}
+                              {o.status === 'ACCEPTED' && (
+                                <button className="btn btn-accent" style={{ flex: 1, padding: '0.35rem 0', fontSize: '0.7rem' }} onClick={() => handleUpdateOrderStatus(o.id, 'PREPARING')}>
+                                  Prepare (প্যাক করুন)
+                                </button>
+                              )}
+                              {o.status === 'PREPARING' && (
+                                <button className="btn btn-accent" style={{ flex: 1, padding: '0.35rem 0', fontSize: '0.7rem' }} onClick={() => handleUpdateOrderStatus(o.id, 'SHIPPED')}>
+                                  {o.fulfillment_type === 'PICKUP' ? 'Mark Ready for Pickup' : 'Deliver (ডেলিভারি করুন)'}
+                                </button>
+                              )}
+                              {o.status === 'SHIPPED' && (
+                                o.fulfillment_type === 'PICKUP' ? (
+                                  <div style={{ display: 'flex', gap: '0.25rem', width: '100%' }}>
+                                    <input 
+                                      type="text" 
+                                      placeholder="Enter Customer PIN" 
+                                      maxLength="4"
+                                      style={{ flex: 1, padding: '0.25rem', fontSize: '0.7rem', background: 'var(--bg-surface-elevated)', border: '1px solid var(--border-color)', color: 'white', borderRadius: '4px', textAlign: 'center' }}
+                                      value={enteredPins[o.id] || ''}
+                                      onChange={e => setEnteredPins(prev => ({ ...prev, [o.id]: e.target.value }))}
+                                    />
+                                    <button 
+                                      className="btn btn-accent" 
+                                      style={{ padding: '0.25rem 0.5rem', fontSize: '0.7rem' }}
+                                      onClick={() => handleVerifyPickupPIN(o.id)}
+                                    >
+                                      Verify PIN
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <button className="btn" style={{ flex: 1, padding: '0.35rem 0', fontSize: '0.7rem', background: 'var(--accent)' }} onClick={() => handleUpdateOrderStatus(o.id, 'DELIVERED')}>
+                                    Complete & Pay (ডেলিভারি সম্পন্ন)
+                                  </button>
+                                )
+                              )}
+                              {o.status !== 'DELIVERED' && o.status !== 'CANCELLED' && (
+                                <button className="btn btn-danger" style={{ padding: '0.35rem 0.5rem', fontSize: '0.7rem' }} onClick={() => handleUpdateOrderStatus(o.id, 'CANCELLED')}>Cancel</button>
+                              )}
+                            </div>
+                            
+                            {o.status === 'DELIVERED' && (
+                              <button 
+                                className="btn btn-secondary" 
+                                style={{ width: '100%', padding: '0.25rem 0', fontSize: '0.65rem', background: 'rgba(245,158,11,0.06)', color: 'var(--warning)', border: '1px solid rgba(245,158,11,0.2)' }}
+                                onClick={() => {
+                                  setSubmittingFeedbackOrder(o);
+                                  setFeedbackRating(5);
+                                  setFeedbackReason('');
+                                }}
+                              >
+                                ★ Report / Rate Customer (ক্রেতার ফিডব্যাক)
                               </button>
-                            )}
-                            {o.status === 'ACCEPTED' && (
-                              <button className="btn btn-accent" style={{ flex: 1, padding: '0.35rem 0', fontSize: '0.7rem' }} onClick={() => handleUpdateOrderStatus(o.id, 'PREPARING')}>
-                                Prepare (প্যাক করুন)
-                              </button>
-                            )}
-                            {o.status === 'PREPARING' && (
-                              <button className="btn btn-accent" style={{ flex: 1, padding: '0.35rem 0', fontSize: '0.7rem' }} onClick={() => handleUpdateOrderStatus(o.id, 'SHIPPED')}>
-                                Deliver (ডেলিভারি করুন)
-                              </button>
-                            )}
-                            {o.status === 'SHIPPED' && (
-                              <button className="btn" style={{ flex: 1, padding: '0.35rem 0', fontSize: '0.7rem', background: 'var(--accent)' }} onClick={() => handleUpdateOrderStatus(o.id, 'DELIVERED')}>
-                                Complete & Pay (ডেলিভারি সম্পন্ন)
-                              </button>
-                            )}
-                            {o.status !== 'DELIVERED' && o.status !== 'CANCELLED' && (
-                              <button className="btn btn-danger" style={{ padding: '0.35rem 0.5rem', fontSize: '0.7rem' }} onClick={() => handleUpdateOrderStatus(o.id, 'CANCELLED')}>Cancel</button>
                             )}
                           </div>
                         </div>
@@ -2505,7 +2821,27 @@ export default function App() {
                   </div>
 
                   {/* Inventory Restock Panel */}
-                  <h3 style={{ fontSize: '0.95rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem', marginTop: '0.5rem' }}>Store Inventory (পাইকারি স্টক কিনুন)</h3>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem', marginTop: '1rem' }}>
+                    <h3 style={{ fontSize: '0.95rem', margin: 0 }}>Store Inventory (স্টক তালিকা)</h3>
+                    <button 
+                      className="btn btn-accent" 
+                      style={{ padding: '0.2rem 0.5rem', fontSize: '0.65rem' }} 
+                      onClick={() => setShowAddProductModal(true)}
+                    >
+                      + Add New SKU
+                    </button>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.02)', padding: '0.4rem 0.6rem', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.05)', marginTop: '0.5rem' }}>
+                    <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>⚠️ Low Stock Warning Threshold:</span>
+                    <input 
+                      type="number" 
+                      min="0" 
+                      style={{ width: '45px', padding: '0.2rem', fontSize: '0.7rem', background: 'var(--bg-surface-elevated)', border: '1px solid var(--border-color)', color: 'white', borderRadius: '4px', textAlign: 'center' }}
+                      value={lowStockThreshold}
+                      onChange={e => setLowStockThreshold(e.target.value)}
+                    />
+                  </div>
                   
                   <div className="input-group" style={{ marginTop: '0.5rem' }}>
                     <label className="input-label" style={{ fontSize: '0.65rem' }}>Select Wholesaler (পাইকারি বিক্রেতা)</label>
@@ -2525,13 +2861,20 @@ export default function App() {
                   </div>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '0.5rem' }}>
-                    {stockistProducts.map(p => (
-                      <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-surface)', padding: '0.5rem 0.75rem', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '0.75rem' }}>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontWeight: '600', color: 'white' }}>{p.name}</div>
-                          <div style={{ color: 'var(--text-muted)', fontSize: '0.65rem' }}>Stock qty: <strong style={{ color: p.stock_qty > 10 ? 'var(--accent)' : 'var(--danger)' }}>{p.stock_qty}</strong></div>
-                        </div>
-                        <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
+                    {stockistProducts.map(p => {
+                      const isLowStock = p.stock_qty < parseInt(lowStockThreshold || '15', 10);
+                      return (
+                        <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-surface)', padding: '0.5rem 0.75rem', borderRadius: '6px', border: isLowStock ? '1px dashed var(--warning)' : '1px solid var(--border-color)', fontSize: '0.75rem' }}>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontWeight: '600', color: 'white' }}>{p.name}</div>
+                            <div style={{ color: 'var(--text-muted)', fontSize: '0.65rem' }}>
+                              Stock qty: <strong style={{ color: p.stock_qty > 0 ? 'var(--accent)' : 'var(--danger)' }}>{p.stock_qty}</strong>
+                              {isLowStock && (
+                                <span style={{ color: 'var(--warning)', marginLeft: '0.4rem', fontWeight: 'bold' }}>⚠️ Low Stock</span>
+                              )}
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
                           <input 
                             type="number" 
                             min="1" 
@@ -2548,10 +2891,100 @@ export default function App() {
                           </button>
                         </div>
                       </div>
-                    ))}
+                    );
+                  })}
                   </div>
 
                   <button className="btn btn-danger" style={{ width: '100%', marginTop: 'auto', fontSize: '0.8rem' }} onClick={handleLogout}>Log Out</button>
+
+                  {showAddProductModal && (
+                    <div style={{ position: 'absolute', inset: 0, background: 'rgba(11,14,20,0.96)', zIndex: 110, display: 'flex', flexDirection: 'column', padding: '1.25rem', justifyContent: 'center' }}>
+                      <div className="glass-card" style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+                        <h3 style={{ fontSize: '1rem', color: 'white', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.35rem' }}>Add New SKU (নতুন পণ্য তৈরি)</h3>
+                        
+                        <div className="input-group">
+                          <label className="input-label" style={{ fontSize: '0.65rem' }}>Product Name *</label>
+                          <input type="text" className="text-input" placeholder="e.g. Fresh Potatoes 1kg" value={newProdName} onChange={e => setNewProdName(e.target.value)} style={{ fontSize: '0.75rem', padding: '0.3rem' }} />
+                        </div>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                          <div className="input-group">
+                            <label className="input-label" style={{ fontSize: '0.65rem' }}>Selling Price (₹) *</label>
+                            <input type="number" className="text-input" placeholder="30" value={newProdPrice} onChange={e => setNewProdPrice(e.target.value)} style={{ fontSize: '0.75rem', padding: '0.3rem' }} />
+                          </div>
+                          <div className="input-group">
+                            <label className="input-label" style={{ fontSize: '0.65rem' }}>Wholesale Cost (₹)</label>
+                            <input type="number" className="text-input" placeholder="22" value={newProdCostPrice} onChange={e => setNewProdCostPrice(e.target.value)} style={{ fontSize: '0.75rem', padding: '0.3rem' }} />
+                          </div>
+                        </div>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                          <div className="input-group">
+                            <label className="input-label" style={{ fontSize: '0.65rem' }}>Category</label>
+                            <select className="text-input" value={newProdCategory} onChange={e => setNewProdCategory(e.target.value)} style={{ fontSize: '0.75rem', padding: '0.3rem', background: 'var(--bg-surface)' }}>
+                              <option value="groceries">Groceries</option>
+                              <option value="packaged_foods">Packaged Foods</option>
+                              <option value="dairy">Dairy</option>
+                            </select>
+                          </div>
+                          <div className="input-group">
+                            <label className="input-label" style={{ fontSize: '0.65rem' }}>Initial Stock *</label>
+                            <input type="number" min="0" className="text-input" value={newProdInitialStock} onChange={e => setNewProdInitialStock(e.target.value)} style={{ fontSize: '0.75rem', padding: '0.3rem' }} />
+                          </div>
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.25rem' }}>
+                          <button className="btn btn-accent" style={{ flex: 1, padding: '0.35rem 0', fontSize: '0.75rem' }} onClick={handleAddNewProduct}>
+                            Save SKU
+                          </button>
+                          <button className="btn btn-secondary" style={{ flex: 1, padding: '0.35rem 0', fontSize: '0.75rem' }} onClick={() => setShowAddProductModal(false)}>
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {submittingFeedbackOrder && submittingFeedbackOrder.stockist_id === stockistProfile.id && (
+                    <div style={{ position: 'absolute', inset: 0, background: 'rgba(11,14,20,0.96)', zIndex: 110, display: 'flex', flexDirection: 'column', padding: '1.25rem', justifyContent: 'center' }}>
+                      <div className="glass-card" style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+                        <h3 style={{ fontSize: '1rem', color: 'white', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.35rem' }}>Report Customer (ক্রেতার ফিডব্যাক)</h3>
+                        <p style={{ color: 'var(--text-muted)', fontSize: '0.65rem', margin: 0 }}>Rate buyer behavior for {submittingFeedbackOrder.customer_name}</p>
+                        
+                        <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center' }}>
+                          {[1,2,3,4,5].map(star => (
+                            <span 
+                              key={star} 
+                              style={{ fontSize: '1.5rem', cursor: 'pointer', color: star <= feedbackRating ? 'var(--warning)' : 'var(--text-muted)' }}
+                              onClick={() => setFeedbackRating(star)}
+                            >
+                              ★
+                            </span>
+                          ))}
+                        </div>
+
+                        <div className="input-group">
+                          <label className="input-label" style={{ fontSize: '0.65rem' }}>Details / Incident Reason</label>
+                          <textarea 
+                            className="text-input" 
+                            style={{ height: '60px', fontSize: '0.75rem', padding: '0.3rem' }} 
+                            placeholder="e.g. Prompt collector, highly cooperative"
+                            value={feedbackReason}
+                            onChange={e => setFeedbackReason(e.target.value)}
+                          />
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.25rem' }}>
+                          <button className="btn btn-accent" style={{ flex: 1, padding: '0.35rem 0', fontSize: '0.75rem' }} onClick={() => handleSaveFeedback('STOCKIST')}>
+                            Submit
+                          </button>
+                          <button className="btn btn-secondary" style={{ flex: 1, padding: '0.35rem 0', fontSize: '0.75rem' }} onClick={() => setSubmittingFeedbackOrder(null)}>
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                 </div>
               </>

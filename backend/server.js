@@ -130,6 +130,103 @@ app.get('/api/products', (req, res) => {
   return res.json(filtered);
 });
 
+// Product SKU creation endpoint (§A2)
+app.post('/api/products', (req, res) => {
+  const { name, price, costPrice, category, initialStock, stockistId, regionId } = req.body;
+  if (!name || !price || !category || initialStock === undefined || !stockistId || !regionId) {
+    return res.status(400).json({ error: 'Missing product fields' });
+  }
+
+  const products = db.getTable('products');
+  const productId = 'p-' + generateId();
+  
+  const newProduct = {
+    id: productId,
+    tenant_id: 't1',
+    region_id: regionId,
+    name,
+    category,
+    price: parseFloat(price),
+    cost_price: costPrice ? parseFloat(costPrice) : parseFloat(price) * 0.75,
+    description: name + ' added by local stockist',
+    image_url: 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=200&auto=format&fit=crop&q=60&ixlib=rb-4.0.3'
+  };
+
+  products.push(newProduct);
+  db.saveTable('products', products);
+
+  // Add to stockist inventory
+  const inventory = db.getTable('stockist_inventory');
+  inventory.push({
+    stockist_id: stockistId,
+    product_id: productId,
+    stock_qty: parseInt(initialStock, 10),
+    is_available: parseInt(initialStock, 10) > 0
+  });
+  db.saveTable('stockist_inventory', inventory);
+
+  return res.json({ success: true, product: newProduct });
+});
+
+// Search alternative shops having item in stock (§A3)
+app.get('/api/products/search-alternatives', (req, res) => {
+  const { name, regionId, excludeStockistId } = req.query;
+  if (!name || !regionId) {
+    return res.status(400).json({ error: 'Missing parameters' });
+  }
+
+  const products = db.getTable('products');
+  const inventory = db.getTable('stockist_inventory');
+  const stockists = db.getTable('stockists');
+
+  const similarProducts = products.filter(p => p.region_id === regionId && p.name.toLowerCase().includes(name.toLowerCase()));
+  
+  const alternatives = [];
+  similarProducts.forEach(p => {
+    const invList = inventory.filter(i => i.product_id === p.id && i.stock_qty > 0 && i.stockist_id !== excludeStockistId);
+    invList.forEach(inv => {
+      const stockist = stockists.find(s => s.id === inv.stockist_id && s.is_active);
+      if (stockist) {
+        alternatives.push({
+          shopId: stockist.id,
+          shopName: stockist.name,
+          stockQty: inv.stock_qty,
+          price: p.price
+        });
+      }
+    });
+  });
+
+  return res.json(alternatives);
+});
+
+// Verify pickup PIN and complete order (§B4)
+app.post('/api/orders/:id/verify-pickup', (req, res) => {
+  const { id } = req.params;
+  const { pin } = req.body;
+
+  const orders = db.getTable('orders');
+  const order = orders.find(o => o.id === id);
+  if (!order) return res.status(404).json({ error: 'Order not found' });
+
+  if (order.pickup_pin !== pin) {
+    return res.status(400).json({ error: 'Incorrect pickup verification PIN.' });
+  }
+
+  order.status = 'DELIVERED';
+  db.saveTable('orders', orders);
+
+  // Sync split payout status if exists
+  const splitPayouts = db.getTable('split_payouts');
+  const payout = splitPayouts.find(sp => sp.order_id === id);
+  if (payout) {
+    payout.status = 'PROCESSED_IMMEDIATELY';
+    db.saveTable('split_payouts', splitPayouts);
+  }
+
+  return res.json({ success: true, order });
+});
+
 // Restock inventory from vendor
 app.post('/api/stockists/restock', (req, res) => {
   const { stockistId, items, vendorId } = req.body; // items: [{productId, quantity}], optional vendorId
@@ -311,6 +408,7 @@ app.post('/api/orders', (req, res) => {
     fulfillment_type: 'PICKUP', // Default pickup (§7)
     pickup_slot: null,
     pickup_eta_minutes: 10,
+    pickup_pin: Math.floor(1000 + Math.random() * 9000).toString(), // Generated Verification PIN (§B4)
     payment_status: 'PAID',
     razorpay_order_id: 'rzp_order_' + generateId(),
     razorpay_payment_id: 'rzp_pay_' + generateId(),
@@ -385,6 +483,8 @@ app.post('/api/orders', (req, res) => {
     success: true,
     orderId,
     pointsCredited,
+    margin: totalProfitMargin,
+    earnRatePercent: settlement.earnRateUsed,
     razorpay_split: {
       stockist_share: stockistPayout,
       platform_share: platformPayout

@@ -1029,4 +1029,25 @@ h1, h2, h3, h4, h5, h6 {
   color: var(--warning);
 }
 
+/* Animations for order status and stock alerts (§A1, §B5) */
+@keyframes status-glow {
+  0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4); }
+  50% { transform: scale(1.04); box-shadow: 0 0 8px 4px rgba(16, 185, 129, 0.2); }
+  100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+}
+
+.status-badge-glow {
+  animation: status-glow 1s ease-out;
+}
+
+@keyframes stock-pulse {
+  0% { transform: scale(1); opacity: 0.95; }
+  50% { transform: scale(1.02); opacity: 1; border-color: var(--danger); }
+  100% { transform: scale(1); opacity: 0.95; }
+}
+
+.stock-alert-pulse {
+  animation: stock-pulse 2s infinite ease-in-out;
+}
+
 
