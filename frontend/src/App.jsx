@@ -73,6 +73,8 @@ export default function App() {
   // Stockist App State additions
   const [stockistApprovedVendors, setStockistApprovedVendors] = useState([]);
   const [selectedRestockVendorId, setSelectedRestockVendorId] = useState('');
+  const [prepElapsedOrders, setPrepElapsedOrders] = useState([]);
+  const [restockQuantities, setRestockQuantities] = useState({});
 
   // Stockist App State
   const [stockistProfile, setStockistProfile] = useState(null);
@@ -191,9 +193,9 @@ export default function App() {
             const pDal = pData.find(p => p.id === 'p3') || pData[2] || pData[0];
             
             setCustomerCart([
-              { product: pPotato, quantity: 3 },
-              { product: pOnion, quantity: 2 },
-              { product: pDal, quantity: 2 }
+              { product: pPotato, quantity: 3, stockistId: sData[0].id, stockistName: sData[0].name },
+              { product: pOnion, quantity: 2, stockistId: sData[0].id, stockistName: sData[0].name },
+              { product: pDal, quantity: 2, stockistId: sData[0].id, stockistName: sData[0].name }
             ]);
             showToast("Demo basket filled! Press 'Place Order (অর্ডার করুন)' on the phone.", "info");
           }
@@ -748,25 +750,34 @@ export default function App() {
     }
   };
 
+  const getPointsRate = (stockistId, regionId) => {
+    const pecStockist = allPointsEarnConfigs.find(c => c.stockist_id === stockistId);
+    if (pecStockist) return parseFloat(pecStockist.earn_rate_percent);
+    const pecRegion = allPointsEarnConfigs.find(c => c.region_id === regionId && !c.stockist_id);
+    if (pecRegion) return parseFloat(pecRegion.earn_rate_percent);
+    return 45.0; // default fallback
+  };
+
   const addToCart = (product) => {
+    if (!selectedStockist) return;
     setCustomerCart(prev => {
-      const existing = prev.find(item => item.product.id === product.id);
+      const existing = prev.find(item => item.product.id === product.id && item.stockistId === selectedStockist.id);
       if (existing) {
         return prev.map(item => 
-          item.product.id === product.id 
+          (item.product.id === product.id && item.stockistId === selectedStockist.id)
             ? { ...item, quantity: item.quantity + 1 } 
             : item
         );
       }
-      return [...prev, { product, quantity: 1 }];
+      return [...prev, { product, quantity: 1, stockistId: selectedStockist.id, stockistName: selectedStockist.name }];
     });
     showToast(`Added ${product.name} to cart`);
   };
 
-  const updateCartQty = (productId, change) => {
+  const updateCartQty = (productId, stockistId, change) => {
     setCustomerCart(prev => {
       return prev.map(item => {
-        if (item.product.id === productId) {
+        if (item.product.id === productId && item.stockistId === stockistId) {
           const newQty = item.quantity + change;
           return newQty > 0 ? { ...item, quantity: newQty } : null;
         }
@@ -777,47 +788,68 @@ export default function App() {
 
   // Calculated checkout metrics
   const cartSubtotal = customerCart.reduce((sum, item) => sum + (item.product.price * item.quantity), 0);
-  const cartMargin = customerCart.reduce((sum, item) => sum + ((item.product.price - item.product.cost_price) * item.quantity), 0);
-  const deliveryFee = selectedStockist ? (selectedStockist.region_id === 'r2' ? 30.00 : 40.00) : 0.00;
-  const lowOrderFee = cartSubtotal > 0 && cartSubtotal < 150.00 ? 20.00 : 0.00;
-  const cartTotal = cartSubtotal + deliveryFee + lowOrderFee;
-  const estimatedEarnPoints = Math.round(cartMargin * 0.45 * 100) / 100;
+  const cartTotal = cartSubtotal; // Zero delivery fee at checkout (§7), zero low-order fee (§3)
+  const estimatedEarnPoints = Math.round(
+    customerCart.reduce((sum, item) => {
+      const itemMargin = (item.product.price - item.product.cost_price) * item.quantity;
+      const rate = getPointsRate(item.stockistId, currentUser?.region_id || 'r1');
+      return sum + (itemMargin * (rate / 100));
+    }, 0) * 100
+  ) / 100;
 
   const handleCheckout = async () => {
     if (customerCart.length === 0) return;
-    if (cartSubtotal < selectedStockist.min_order_value) {
-      showToast(`Min order value is ₹${selectedStockist.min_order_value}`, 'error');
-      return;
-    }
+
+    // Group items by stockistId
+    const groups = {};
+    customerCart.forEach(item => {
+      if (!groups[item.stockistId]) {
+        groups[item.stockistId] = [];
+      }
+      groups[item.stockistId].push(item);
+    });
 
     try {
-      const payload = {
-        customerId: currentUser.id,
-        stockistId: selectedStockist.id,
-        items: customerCart.map(item => ({
-          productId: item.product.id,
-          quantity: item.quantity
-        }))
-      };
-      
-      const res = await fetch(`${API_BASE}/orders`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      const data = await res.json();
-      logApi('POST', '/orders', payload, res.status, data);
+      const ordersPlaced = [];
+      let totalPoints = 0;
 
-      if (res.ok) {
-        setCheckoutResult(data);
-        setCustomerCart([]);
-        loadCustomerData();
-        showToast(`Order placed! Credited ₹${data.pointsCredited} in loyalty points.`);
-        if (tourStep === 1) {
-          setTourStep(2);
+      for (const stockistId of Object.keys(groups)) {
+        const payload = {
+          customerId: currentUser.id,
+          stockistId: stockistId,
+          items: groups[stockistId].map(item => ({
+            productId: item.product.id,
+            quantity: item.quantity
+          }))
+        };
+
+        const res = await fetch(`${API_BASE}/orders`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        logApi('POST', '/orders', payload, res.status, data);
+
+        if (res.ok) {
+          ordersPlaced.push(data.order || data);
+          totalPoints += data.pointsCredited;
+        } else {
+          showToast(data.error || 'Failed to place order', 'error');
+          return;
         }
-      } else {
-        showToast(data.error || 'Failed to place order', 'error');
+      }
+
+      setCheckoutResult({
+        success: true,
+        orders: ordersPlaced,
+        totalPointsCredited: totalPoints
+      });
+      setCustomerCart([]);
+      loadCustomerData();
+      showToast(`Order placed successfully! Credited ${totalPoints} pts in rewards.`);
+      if (tourStep === 1) {
+        setTourStep(2);
       }
     } catch (err) {
       showToast('Checkout service error', 'error');
@@ -1173,20 +1205,86 @@ export default function App() {
     }
   };
 
-  const handleSaveFeedback = async () => {
+  const handleSwitchToDelivery = async (orderId) => {
+    try {
+      const res = await fetch(`${API_BASE}/orders/${orderId}/fulfillment`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fulfillmentType: 'DELIVERY' })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast('Switched to delivery! Payouts updated.');
+        if (checkoutResult) {
+          setCheckoutResult(prev => {
+            const updatedOrders = prev.orders.map(o => o.id === orderId ? data.order : o);
+            return { ...prev, orders: updatedOrders };
+          });
+        }
+        loadCustomerData();
+      } else {
+        showToast(data.error || 'Failed to switch to delivery', 'error');
+      }
+    } catch (err) {
+      showToast('Fulfillment service error', 'error');
+    }
+  };
+
+  const handleSavePickupSlot = async (orderId, slot) => {
+    try {
+      const res = await fetch(`${API_BASE}/orders/${orderId}/fulfillment`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pickupSlot: slot })
+      });
+      if (res.ok) {
+        showToast('Pickup slot confirmed!');
+        if (checkoutResult) {
+          const data = await res.json();
+          setCheckoutResult(prev => {
+            const updatedOrders = prev.orders.map(o => o.id === orderId ? data.order : o);
+            return { ...prev, orders: updatedOrders };
+          });
+        }
+        loadCustomerData();
+      } else {
+        const data = await res.json();
+        showToast(data.error || 'Failed to save slot', 'error');
+      }
+    } catch (err) {
+      showToast('Fulfillment service error', 'error');
+    }
+  };
+
+  const handleSaveFeedback = async (role) => {
     if (!submittingFeedbackOrder) return;
     try {
-      const payload = {
-        reporterRole: 'STOCKIST',
-        reporterId: stockistProfile.id,
-        reporterName: stockistProfile.name,
-        targetRole: 'CUSTOMER',
-        targetId: submittingFeedbackOrder.customer_name,
-        targetName: submittingFeedbackOrder.customer_name,
-        orderId: submittingFeedbackOrder.id,
-        rating: feedbackRating,
-        reason: feedbackReason
-      };
+      let payload = {};
+      if (role === 'CUSTOMER') {
+        payload = {
+          reporterRole: 'CUSTOMER',
+          reporterId: currentUser.id,
+          reporterName: currentUser.name,
+          targetRole: 'STOCKIST',
+          targetId: submittingFeedbackOrder.stockist_id,
+          targetName: submittingFeedbackOrder.stockist_name,
+          orderId: submittingFeedbackOrder.id,
+          rating: feedbackRating,
+          reason: feedbackReason
+        };
+      } else {
+        payload = {
+          reporterRole: 'STOCKIST',
+          reporterId: stockistProfile.id,
+          reporterName: stockistProfile.name,
+          targetRole: 'CUSTOMER',
+          targetId: submittingFeedbackOrder.customer_id,
+          targetName: submittingFeedbackOrder.customer_name || 'Amit Sen',
+          orderId: submittingFeedbackOrder.id,
+          rating: feedbackRating,
+          reason: feedbackReason
+        };
+      }
       const res = await fetch(`${API_BASE}/feedback`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1195,10 +1293,11 @@ export default function App() {
       const data = await res.json();
       logApi('POST', '/feedback', payload, res.status, data);
       if (res.ok) {
-        showToast('Incident reported successfully!');
+        showToast('Feedback submitted successfully!');
         setSubmittingFeedbackOrder(null);
         setFeedbackRating(5);
         setFeedbackReason('');
+        loadCustomerData();
         loadStockistData();
         fetchDbState();
       } else {
@@ -1657,66 +1756,122 @@ export default function App() {
                           </div>
                         )}
 
-                        <button className="btn btn-accent" style={{ width: '100%' }} onClick={handleRegister}>
+                        <button className="btn btn-accent" style={{ width: '100%', marginTop: '1rem' }} onClick={handleRegister}>
                           Sign Up & Login
                         </button>
                       </div>
                     </>
                   )}
+
+                  <div style={{ textAlign: 'center', marginTop: '1rem' }}>
+                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Demo customer: <strong>9876543210</strong> (Code: 123456)</span>
+                  </div>
                 </div>
               </>
             ) : (
               <>
+                {/* Simulated Phone Status Bar */}
                 <div className="phone-header">
-                  <span>FastNet 5G</span>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                    <span className="badge badge-success" style={{ fontSize: '0.55rem', padding: '0.1rem 0.35rem' }}>₹{customerBalance} Pts</span>
+                    <span>FastNet 5G</span>
+                    <span className="badge badge-success" style={{ fontSize: '0.55rem', padding: '0.1rem 0.35rem' }}>{customerBalance} pts</span>
                   </div>
                   <span>📶 🔋 19:43</span>
                 </div>
 
                 {/* Checkout Success Modal overlay */}
                 {checkoutResult && (
-                  <div style={{ position: 'absolute', inset: 0, background: 'rgba(11,14,20,0.96)', zIndex: 100, display: 'flex', flexDirection: 'column', padding: '1.5rem', justifyContent: 'center' }}>
-                    <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
-                      <div style={{ display: 'inline-flex', padding: '0.75rem', borderRadius: '50%', background: 'rgba(16, 185, 129, 0.1)', color: 'var(--accent)', marginBottom: '0.5rem' }}>
-                        <CheckCircle2 size={40} />
+                  <div style={{ position: 'absolute', inset: 0, background: 'rgba(11,14,20,0.97)', zIndex: 100, display: 'flex', flexDirection: 'column', padding: '1.25rem', overflowY: 'auto' }}>
+                    <div style={{ textAlign: 'center', marginBottom: '1rem', marginTop: '1rem' }}>
+                      <div style={{ display: 'inline-flex', padding: '0.5rem', borderRadius: '50%', background: 'rgba(16, 185, 129, 0.1)', color: 'var(--accent)', marginBottom: '0.5rem' }}>
+                        <CheckCircle2 size={36} />
                       </div>
-                      <h3 style={{ fontSize: '1.4rem', color: 'white' }}>Order Placed (অর্ডার সফল হয়েছে)</h3>
-                      <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>Discount points will activate on shop delivery.</p>
+                      <h3 style={{ fontSize: '1.25rem', color: 'white' }}>Order Placed (অর্ডার সফল হয়েছে)</h3>
+                      <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>Rewards will credit immediately, configure your fulfillment below.</p>
                     </div>
 
-                    <div className="points-glow-box" style={{ padding: '1rem', borderRadius: '8px', textAlign: 'center', marginBottom: '1.5rem' }}>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Broadband discount points earned</span>
-                      <h2 style={{ fontSize: '2.2rem', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
-                        <Sparkles size={24} style={{ color: 'var(--warning)' }} />
-                        +₹{checkoutResult.pointsCredited}
+                    <div className="points-glow-box" style={{ padding: '0.75rem', borderRadius: '8px', textAlign: 'center', marginBottom: '1rem' }}>
+                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Total Rewards Credited</span>
+                      <h2 style={{ fontSize: '1.8rem', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', margin: '0.25rem 0' }}>
+                        <Sparkles size={20} style={{ color: 'var(--warning)' }} />
+                        +{checkoutResult.totalPointsCredited} pts
                       </h2>
-                      <p style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>Drawn directly from grocery store's profit margin.</p>
                     </div>
 
-                    <div style={{ background: 'var(--bg-surface-elevated)', padding: '0.75rem', borderRadius: '6px', marginBottom: '1.5rem', fontSize: '0.725rem' }}>
-                      <strong style={{ color: 'var(--text-muted)', fontSize: '0.65rem', textTransform: 'uppercase' }}>Payout Split (পেমেন্ট বন্টন):</strong>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.5rem' }}>
-                        <span>Shopkeeper payout:</span>
-                        <span style={{ fontWeight: 'bold', color: 'white' }}>₹{checkoutResult.razorpay_split.stockist_share.toFixed(2)}</span>
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <span>ISP broadband share:</span>
-                        <span style={{ fontWeight: 'bold', color: 'white' }}>₹{checkoutResult.razorpay_split.platform_share.toFixed(2)}</span>
-                      </div>
-                      <div className="split-viz">
-                        <div className="split-stockist" style={{ width: `${(checkoutResult.razorpay_split.stockist_share / (checkoutResult.razorpay_split.stockist_share + checkoutResult.razorpay_split.platform_share)) * 100}%` }}>Shopkeeper</div>
-                        <div className="split-platform" style={{ width: `${(checkoutResult.razorpay_split.platform_share / (checkoutResult.razorpay_split.stockist_share + checkoutResult.razorpay_split.platform_share)) * 100}%` }}>ISP</div>
-                      </div>
+                    {/* Fulfillment Setup Block for placed orders */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '1.5rem' }}>
+                      <h4 style={{ fontSize: '0.8rem', color: 'white', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.25rem' }}>Fulfillment Settings</h4>
+                      {checkoutResult.orders.map(o => {
+                        const isPrepElapsed = prepElapsedOrders.includes(o.id);
+                        return (
+                          <div key={o.id} style={{ background: 'var(--bg-surface-elevated)', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '0.75rem' }}>
+                              <span>{o.stockist_name}</span>
+                              <span style={{ color: 'var(--accent)' }}>#{o.id.substring(2).toUpperCase()}</span>
+                            </div>
+                            
+                            {o.fulfillment_type === 'PICKUP' ? (
+                              <div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.25rem' }}>
+                                  <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Status: Take Away (Pickup)</span>
+                                  {!isPrepElapsed ? (
+                                    <button 
+                                      className="btn btn-secondary" 
+                                      style={{ padding: '0.15rem 0.4rem', fontSize: '0.6rem' }} 
+                                      onClick={() => setPrepElapsedOrders(prev => [...prev, o.id])}
+                                    >
+                                      Simulate Prep ETA Elapsed
+                                    </button>
+                                  ) : (
+                                    <span style={{ color: 'var(--accent)', fontSize: '0.6rem', fontWeight: 'bold' }}>Ready for Pickup!</span>
+                                  )}
+                                </div>
+
+                                <div className="input-group" style={{ margin: 0 }}>
+                                  <select 
+                                    className="text-input" 
+                                    style={{ fontSize: '0.7rem', padding: '0.25rem' }} 
+                                    disabled={!isPrepElapsed}
+                                    value={o.pickup_slot || ''}
+                                    onChange={e => handleSavePickupSlot(o.id, e.target.value)}
+                                  >
+                                    <option value="">-- Choose Pickup Time Slot --</option>
+                                    <option value="Morning (8 AM - 12 PM)">Morning (8 AM - 12 PM)</option>
+                                    <option value="Afternoon (12 PM - 4 PM)">Afternoon (12 PM - 4 PM)</option>
+                                    <option value="Evening (4 PM - 8 PM)">Evening (4 PM - 8 PM)</option>
+                                  </select>
+                                  <p style={{ color: 'var(--text-muted)', fontSize: '0.55rem', marginTop: '0.2rem' }}>
+                                    {!isPrepElapsed ? '⚠️ Waiting for stockist prep time (ETA: 10 min).' : '⏰ Buffer grace window: 1-hour to collect.'}
+                                  </p>
+                                </div>
+
+                                <button 
+                                  className="btn" 
+                                  style={{ width: '100%', padding: '0.3rem', fontSize: '0.65rem', marginTop: '0.5rem', background: 'rgba(236,72,153,0.1)', color: 'var(--secondary)', border: '1px solid var(--secondary)' }}
+                                  onClick={() => handleSwitchToDelivery(o.id)}
+                                >
+                                  Switch to Delivery (+₹40)
+                                </button>
+                              </div>
+                            ) : (
+                              <div>
+                                <span style={{ fontSize: '0.65rem', color: 'var(--secondary)', fontWeight: 'bold' }}>🚚 Mode: DELIVERY (একমুখী ডেলিভারি)</span>
+                                <p style={{ fontSize: '0.6rem', color: 'var(--text-muted)', marginTop: '0.1rem' }}>Shipping charges applied. Cannot switch back to pickup.</p>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
 
-                    <button className="btn" onClick={() => { setCheckoutResult(null); loadCustomerData(); }}>Continue Shopping (বাজার করুন)</button>
+                    <button className="btn btn-accent" style={{ marginTop: 'auto' }} onClick={() => { setCheckoutResult(null); loadCustomerData(); }}>
+                      Done & Continue Shopping
+                    </button>
                   </div>
                 )}
 
                 {/* Inner Content based on App Tab */}
-                <div style={{ flex: 1, padding: '1rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <div style={{ flex: 1, padding: '1rem', display: 'flex', flexDirection: 'column', gap: '1rem', overflowY: 'auto' }}>
                   
                   {/* Top Customer info bar */}
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1729,62 +1884,71 @@ export default function App() {
 
                   {customerAppTab === 'store' && (
                     <>
-                      {/* Store selector dropdown */}
-                      <div className="input-group" style={{ margin: 0 }}>
-                        <label className="input-label">Select Hyperlocal Shop (দোকান সিলেক্ট করুন)</label>
-                        <select 
-                          className="text-input" 
-                          value={selectedStockist ? selectedStockist.id : ''} 
-                          onChange={e => setSelectedStockist(customerStockists.find(s => s.id === e.target.value))}
-                          style={{ background: 'var(--bg-surface)' }}
-                        >
-                          {customerStockists.map(s => (
-                            <option key={s.id} value={s.id}>{s.name} ({s.delivery_radius_km}km Range)</option>
-                          ))}
-                        </select>
-                      </div>
-
-                      {selectedStockist && (
-                        <div className="glass-card" style={{ fontSize: '0.7rem', background: 'var(--bg-surface)', padding: '0.6rem 0.75rem' }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                            <span>Min Order: <strong>₹{selectedStockist.min_order_value}</strong></span>
-                            <span>Delivery Radius: <strong>{selectedStockist.delivery_radius_km}km</strong></span>
+                      {/* Shop Selection discovery cards */}
+                      {!selectedStockist ? (
+                        <div>
+                          <h3 style={{ fontSize: '0.95rem', marginBottom: '0.75rem' }}>Select Local Grocery Store</h3>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                            {customerStockists.map(s => (
+                              <div key={s.id} className="glass-card" style={{ padding: '0.85rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <div>
+                                  <h4 style={{ fontSize: '0.85rem', color: 'white' }}>{s.name}</h4>
+                                  <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Delivery: {s.delivery_radius_km}km radius</span>
+                                </div>
+                                <button className="btn btn-accent" style={{ padding: '0.35rem 0.75rem', fontSize: '0.75rem' }} onClick={() => setSelectedStockist(s)}>
+                                  Shop (বাজার করুন)
+                                </button>
+                              </div>
+                            ))}
+                            {customerStockists.length === 0 && (
+                              <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem', textAlign: 'center' }}>No stores active in your area.</p>
+                            )}
                           </div>
                         </div>
+                      ) : (
+                        <>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <button className="btn btn-secondary" style={{ padding: '0.25rem 0.5rem', fontSize: '0.7rem' }} onClick={() => setSelectedStockist(null)}>
+                              ← Other Shops
+                            </button>
+                            <span style={{ fontSize: '0.8rem', color: 'white', fontWeight: 'bold' }}>{selectedStockist.name}</span>
+                          </div>
+
+                          {/* Catalog List */}
+                          <h3 style={{ fontSize: '0.95rem', marginTop: '0.25rem' }}>Popular Staples (রোজকার বাজার)</h3>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                            {customerProducts.map(p => {
+                              const rate = getPointsRate(selectedStockist.id, currentUser.region_id);
+                              const earnEst = Math.round((p.price - p.cost_price) * (rate / 100) * 100) / 100;
+                              return (
+                                <div key={p.id} className="netflix-card" style={{ display: 'flex', padding: '0.6rem', gap: '0.75rem', alignItems: 'center' }}>
+                                  <img src={p.image_url} alt={p.name} style={{ width: '56px', height: '56px', borderRadius: '6px', objectFit: 'cover' }} />
+                                  <div style={{ flex: 1 }}>
+                                    <h4 style={{ fontSize: '0.75rem', color: 'white' }}>{p.name}</h4>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.2rem' }}>
+                                      <span style={{ fontWeight: 'bold', fontSize: '0.85rem' }}>₹{p.price}</span>
+                                      <span className="badge badge-success" style={{ fontSize: '0.55rem', padding: '0.1rem 0.25rem' }}>
+                                        Earn {earnEst} pts
+                                      </span>
+                                    </div>
+                                  </div>
+                                  <button 
+                                    className="btn btn-accent" 
+                                    style={{ padding: '0.3rem 0.5rem', fontSize: '0.7rem', height: '28px' }}
+                                    onClick={() => addToCart(p)}
+                                  >
+                                    <Plus size={12} /> Add
+                                  </button>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </>
                       )}
 
-                      {/* Catalog List */}
-                      <h3 style={{ fontSize: '0.95rem', marginTop: '0.5rem' }}>Popular Staples (রোজকার বাজার)</h3>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                        {customerProducts.map(p => {
-                          const earnEst = Math.round((p.price - p.cost_price) * 0.45 * 100) / 100;
-                          return (
-                            <div key={p.id} className="netflix-card" style={{ display: 'flex', padding: '0.6rem', gap: '0.75rem', alignItems: 'center' }}>
-                              <img src={p.image_url} alt={p.name} style={{ width: '56px', height: '56px', borderRadius: '6px', objectFit: 'cover' }} />
-                              <div style={{ flex: 1 }}>
-                                <h4 style={{ fontSize: '0.75rem', color: 'white' }}>{p.name}</h4>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.2rem' }}>
-                                  <span style={{ fontWeight: 'bold', fontSize: '0.85rem' }}>₹{p.price}</span>
-                                  <span className="badge badge-success" style={{ fontSize: '0.5rem', padding: '0.1rem 0.25rem' }}>
-                                    Earn ₹{earnEst} Pts
-                                  </span>
-                                </div>
-                              </div>
-                              <button 
-                                className="btn btn-accent" 
-                                style={{ padding: '0.3rem 0.5rem', fontSize: '0.7rem', height: '28px' }}
-                                onClick={() => addToCart(p)}
-                              >
-                                <Plus size={12} /> Add (যোগ করুন)
-                              </button>
-                            </div>
-                          );
-                        })}
-                      </div>
-
-                      {/* Floating Cart Panel */}
+                      {/* Floating Unified Cart Panel */}
                       {customerCart.length > 0 && (
-                        <div style={{ position: 'sticky', bottom: '0', background: 'var(--bg-surface-elevated)', border: '1px solid var(--primary)', borderRadius: '8px', padding: '0.85rem', display: 'flex', flexDirection: 'column', gap: '0.65rem', marginTop: 'auto', boxShadow: '0 -5px 15px rgba(0,0,0,0.5)' }}>
+                        <div style={{ position: 'sticky', bottom: '0', background: 'var(--bg-surface-elevated)', border: '1px solid var(--primary)', borderRadius: '8px', padding: '0.85rem', display: 'flex', flexDirection: 'column', gap: '0.65rem', marginTop: 'auto', boxShadow: '0 -5px 15px rgba(0,0,0,0.5)', zIndex: 50 }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <span style={{ fontSize: '0.75rem', fontWeight: 'bold' }}>{customerCart.length} Items Selected</span>
                             <span style={{ fontSize: '0.9rem', fontWeight: 'bold', color: 'var(--accent)' }}>₹{cartTotal.toFixed(2)}</span>
@@ -1792,37 +1956,25 @@ export default function App() {
 
                           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem', color: 'var(--text-muted)' }}>
                             <span>Subtotal: ₹{cartSubtotal}</span>
-                            <span>Est. Subsidy: <strong style={{ color: 'var(--accent)' }}>+₹{estimatedEarnPoints} Pts</strong></span>
+                            <span>Est. Rewards: <strong style={{ color: 'var(--accent)' }}>+{estimatedEarnPoints} pts</strong></span>
                           </div>
 
-                          {lowOrderFee > 0 && (
-                            <div style={{ fontSize: '0.6rem', color: 'var(--warning)', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                              <AlertCircle size={10} /> Charging low-order fee of ₹20 (Cart under ₹150)
-                            </div>
-                          )}
-
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', borderTop: '1px solid var(--border-color)', paddingTop: '0.4rem' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', borderTop: '1px solid var(--border-color)', paddingTop: '0.4rem', maxHeight: '100px', overflowY: 'auto' }}>
                             {customerCart.map(item => (
-                              <div key={item.product.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.7rem' }}>
-                                <span style={{ textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', width: '180px' }}>{item.product.name}</span>
+                              <div key={`${item.product.id}-${item.stockistId}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.7rem' }}>
+                                <span style={{ textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', width: '130px' }}>{item.product.name} ({item.stockistName})</span>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                                  <button onClick={() => updateCartQty(item.product.id, -1)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}><Minus size={10} /></button>
+                                  <button onClick={() => updateCartQty(item.product.id, item.stockistId, -1)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}><Minus size={10} /></button>
                                   <span>{item.quantity}</span>
-                                  <button onClick={() => updateCartQty(item.product.id, 1)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}><Plus size={10} /></button>
+                                  <button onClick={() => updateCartQty(item.product.id, item.stockistId, 1)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}><Plus size={10} /></button>
                                 </div>
                               </div>
                             ))}
                           </div>
 
-                          {cartSubtotal < selectedStockist.min_order_value ? (
-                            <button className="btn btn-secondary" style={{ width: '100%', fontSize: '0.75rem', cursor: 'not-allowed' }} disabled>
-                              Min. Order ₹{selectedStockist.min_order_value} Required
-                            </button>
-                          ) : (
-                            <button className="btn" style={{ width: '100%', fontSize: '0.8rem' }} onClick={handleCheckout}>
-                              Place Order (অর্ডার করুন / Order Karo)
-                            </button>
-                          )}
+                          <button className="btn" style={{ width: '100%', fontSize: '0.8rem' }} onClick={handleCheckout}>
+                            Place Order (বাজারের অর্ডার দিন)
+                          </button>
                         </div>
                       )}
                     </>
@@ -1830,6 +1982,13 @@ export default function App() {
 
                   {customerAppTab === 'ledger' && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                      {/* Points Balance Card (Moderated) */}
+                      <div className="points-glow-box" style={{ padding: '0.75rem', borderRadius: '12px', textAlign: 'center' }}>
+                        <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>ACCUMULATED LOYALTY POINTS</span>
+                        <h1 style={{ fontSize: '1.5rem', margin: '0.15rem 0', color: 'white', fontWeight: 'bold' }}>{customerBalance} pts</h1>
+                        <p style={{ fontSize: '0.55rem', color: 'var(--text-muted)' }}>Closed-loop points redeemable against issuing operator services.</p>
+                      </div>
+
                       {/* Broadband Bill status */}
                       <div style={{ background: 'var(--bg-surface-elevated)', border: '1px solid var(--border-color)', padding: '1rem', borderRadius: '12px' }}>
                         <h4 style={{ fontSize: '0.75rem', color: '#818CF8', marginBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>FastNet Broadband Bill (ইন্টারনেট বিল)</h4>
@@ -1850,34 +2009,22 @@ export default function App() {
                             ₹{Math.max(0, 499 - discountApplied).toFixed(2)}
                           </span>
                         </div>
-                        {discountApplied > 0 && (
-                          <div style={{ background: 'rgba(16, 185, 129, 0.08)', border: '1px solid var(--accent)', borderRadius: '6px', padding: '0.35rem', fontSize: '0.625rem', color: 'var(--accent)', marginTop: '0.5rem', textAlign: 'center' }}>
-                            🎉 Subsidy applied! Saved in broadband billing account.
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Points Balance Card */}
-                      <div className="points-glow-box" style={{ padding: '1rem', borderRadius: '12px', textAlign: 'center' }}>
-                        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>ACCUMULATED LOYALTY POINTS</span>
-                        <h1 style={{ fontSize: '2.2rem', margin: '0.15rem 0', color: 'white' }}>₹{customerBalance}</h1>
-                        <p style={{ fontSize: '0.6rem', color: 'var(--text-muted)' }}>Subsidizes broadband internet bill.</p>
                       </div>
 
                       {/* Redeem Input */}
                       <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-color)', padding: '0.85rem', borderRadius: '8px' }}>
-                        <h4 style={{ fontSize: '0.75rem', marginBottom: '0.5rem' }}>Redeem Points (ডিসকাউন্ট হিসেবে ব্যবহার করুন)</h4>
+                        <h4 style={{ fontSize: '0.75rem', marginBottom: '0.5rem' }}>Redeem Broadband Subsidy (বিল ডিসকাউন্ট করুন)</h4>
                         <div style={{ display: 'flex', gap: '0.5rem' }}>
                           <input 
                             type="number" 
-                            placeholder="Enter points value" 
+                            placeholder="Enter points to redeem" 
                             className="text-input" 
                             value={redeemAmount}
                             onChange={e => setRedeemAmount(e.target.value)}
                             style={{ flex: 1, padding: '0.4rem 0.75rem', fontSize: '0.8rem' }}
                           />
                           <button className="btn btn-accent" onClick={handleRedeemPoints} style={{ padding: '0.4rem 0.85rem', fontSize: '0.75rem' }}>
-                            Redeem (রিডিম করুন)
+                            Redeem
                           </button>
                         </div>
                       </div>
@@ -1891,7 +2038,7 @@ export default function App() {
                               <div style={{ color: 'var(--text-muted)', fontSize: '0.6rem' }}>{new Date(l.created_at).toLocaleDateString()}</div>
                             </div>
                             <div style={{ fontWeight: 'bold', color: l.type === 'EARN' ? 'var(--accent)' : 'var(--danger)', fontSize: '0.8rem' }}>
-                              {l.amount > 0 ? `+₹${l.amount}` : `-₹${Math.abs(l.amount)}`}
+                              {l.amount > 0 ? `+${l.amount} pts` : `-${Math.abs(l.amount)} pts`}
                             </div>
                           </div>
                         ))}
@@ -1902,26 +2049,191 @@ export default function App() {
                     </div>
                   )}
 
+                  {customerAppTab === 'pointshop' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                      <div className="points-glow-box" style={{ padding: '0.75rem', borderRadius: '12px', textAlign: 'center' }}>
+                        <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>REWARDS BALANCE</span>
+                        <h1 style={{ fontSize: '1.5rem', margin: '0.15rem 0', color: 'white', fontWeight: 'bold' }}>{customerBalance} pts</h1>
+                      </div>
+
+                      <h3 style={{ fontSize: '0.9rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.4rem' }}>Point Shop Catalog (§5)</h3>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                        
+                        <div className="netflix-card" style={{ display: 'flex', padding: '0.75rem', gap: '0.75rem', alignItems: 'center' }}>
+                          <div style={{ flex: 1 }}>
+                            <h4 style={{ fontSize: '0.8rem', color: 'white', fontWeight: 'bold' }}>Cable TV 1-Month Basic Pack</h4>
+                            <p style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Redeem 100 points for a 30-day regional channel package.</p>
+                            <span style={{ fontSize: '0.75rem', color: 'var(--accent)', fontWeight: 'bold', display: 'block', marginTop: '0.25rem' }}>Cost: 100 pts</span>
+                          </div>
+                          <button className="btn btn-accent" style={{ padding: '0.4rem 0.6rem', fontSize: '0.7rem' }} onClick={async () => {
+                            if (customerBalance < 100) { showToast('Insufficient points', 'error'); return; }
+                            try {
+                              const res = await fetch(`${API_BASE}/ledger/redeem`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ customerId: currentUser.id, amount: 100, redemptionType: 'CABLE_RECHARGE' })
+                              });
+                              if (res.ok) { showToast('Redeemed successfully for Cable TV!'); loadCustomerData(); }
+                            } catch (e) { showToast('Redemption error'); }
+                          }}>Redeem</button>
+                        </div>
+
+                        <div className="netflix-card" style={{ display: 'flex', padding: '0.75rem', gap: '0.75rem', alignItems: 'center' }}>
+                          <div style={{ flex: 1 }}>
+                            <h4 style={{ fontSize: '0.8rem', color: 'white', fontWeight: 'bold' }}>Cable TV Premium HD Pack</h4>
+                            <p style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Redeem 250 points for all sports and movie HD channels.</p>
+                            <span style={{ fontSize: '0.75rem', color: 'var(--accent)', fontWeight: 'bold', display: 'block', marginTop: '0.25rem' }}>Cost: 250 pts</span>
+                          </div>
+                          <button className="btn btn-accent" style={{ padding: '0.4rem 0.6rem', fontSize: '0.7rem' }} onClick={async () => {
+                            if (customerBalance < 250) { showToast('Insufficient points', 'error'); return; }
+                            try {
+                              const res = await fetch(`${API_BASE}/ledger/redeem`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ customerId: currentUser.id, amount: 250, redemptionType: 'CABLE_RECHARGE' })
+                              });
+                              if (res.ok) { showToast('Redeemed successfully for HD Cable Pack!'); loadCustomerData(); }
+                            } catch (e) { showToast('Redemption error'); }
+                          }}>Redeem</button>
+                        </div>
+
+                        <div className="netflix-card" style={{ display: 'flex', padding: '0.75rem', gap: '0.75rem', alignItems: 'center' }}>
+                          <div style={{ flex: 1 }}>
+                            <h4 style={{ fontSize: '0.8rem', color: 'white', fontWeight: 'bold' }}>WiFi Router Speed Booster (100 Mbps)</h4>
+                            <p style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Redeem 150 points for 48 hours of high-speed bandwidth boost.</p>
+                            <span style={{ fontSize: '0.75rem', color: 'var(--accent)', fontWeight: 'bold', display: 'block', marginTop: '0.25rem' }}>Cost: 150 pts</span>
+                          </div>
+                          <button className="btn btn-accent" style={{ padding: '0.4rem 0.6rem', fontSize: '0.7rem' }} onClick={async () => {
+                            if (customerBalance < 150) { showToast('Insufficient points', 'error'); return; }
+                            try {
+                              const res = await fetch(`${API_BASE}/ledger/redeem`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ customerId: currentUser.id, amount: 150, redemptionType: 'WIFI_TOPUP' })
+                              });
+                              if (res.ok) { showToast('Speed booster activated!'); loadCustomerData(); }
+                            } catch (e) { showToast('Redemption error'); }
+                          }}>Redeem</button>
+                        </div>
+
+                      </div>
+                    </div>
+                  )}
+
                   {customerAppTab === 'orders' && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                       <h3 style={{ fontSize: '0.85rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.4rem' }}>My Orders (আমার অর্ডার)</h3>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                        {customerOrders.map(o => (
-                          <div key={o.id} className="glass-card" style={{ padding: '0.65rem', fontSize: '0.7rem', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                              <span style={{ fontWeight: 'bold' }}>Order #{o.id.substring(2).toUpperCase()}</span>
-                              <span className={`badge ${o.status === 'DELIVERED' ? 'badge-success' : 'badge-warning'}`}>{o.status}</span>
+                        {customerOrders.map(o => {
+                          const isPrepElapsed = prepElapsedOrders.includes(o.id);
+                          return (
+                            <div key={o.id} className="glass-card" style={{ padding: '0.65rem', fontSize: '0.7rem', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                <span style={{ fontWeight: 'bold' }}>Order #{o.id.substring(2).toUpperCase()}</span>
+                                <span className={`badge ${o.status === 'DELIVERED' ? 'badge-success' : 'badge-warning'}`}>{o.status}</span>
+                              </div>
+                              <div style={{ color: 'var(--text-muted)' }}>Store: {o.stockist_name}</div>
+                              <div style={{ color: 'var(--text-muted)', fontSize: '0.625rem' }}>
+                                Delivery Mode: {o.fulfillment_type === 'DELIVERY' ? '🚚 DELIVERY' : ` Take Away (Pickup slot: ${o.pickup_slot || 'Pending slot selection'})`}
+                              </div>
+
+                              {/* Active slot picker inside orders list if pickup is chosen and slots are pending */}
+                              {o.status !== 'DELIVERED' && o.fulfillment_type === 'PICKUP' && (
+                                <div style={{ border: '1px dashed var(--border-color)', borderRadius: '6px', padding: '0.5rem', marginTop: '0.25rem', background: 'rgba(255,255,255,0.01)' }}>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.25rem' }}>
+                                    <span style={{ fontSize: '0.6rem', color: 'var(--text-muted)' }}>Time Slot Select:</span>
+                                    {!isPrepElapsed && (
+                                      <button 
+                                        className="btn btn-secondary" 
+                                        style={{ padding: '0.1rem 0.3rem', fontSize: '0.55rem' }}
+                                        onClick={() => setPrepElapsedOrders(prev => [...prev, o.id])}
+                                      >
+                                        Simulate Prep Time Elapsed
+                                      </button>
+                                    )}
+                                  </div>
+                                  <select 
+                                    className="text-input" 
+                                    style={{ fontSize: '0.65rem', padding: '0.2rem' }}
+                                    disabled={!isPrepElapsed}
+                                    value={o.pickup_slot || ''}
+                                    onChange={e => handleSavePickupSlot(o.id, e.target.value)}
+                                  >
+                                    <option value="">-- Choose Pickup Slot --</option>
+                                    <option value="Morning (8 AM - 12 PM)">Morning (8 AM - 12 PM)</option>
+                                    <option value="Afternoon (12 PM - 4 PM)">Afternoon (12 PM - 4 PM)</option>
+                                    <option value="Evening (4 PM - 8 PM)">Evening (4 PM - 8 PM)</option>
+                                  </select>
+                                </div>
+                              )}
+
+                              <div style={{ borderTop: '1px solid rgba(255,255,255,0.03)', paddingTop: '0.4rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <span>Paid: ₹{o.total_price.toFixed(2)}</span>
+                                
+                                {o.status === 'DELIVERED' ? (
+                                  <button 
+                                    className="badge badge-success" 
+                                    style={{ border: 'none', cursor: 'pointer' }}
+                                    onClick={() => {
+                                      setSubmittingFeedbackOrder(o);
+                                      setFeedbackRating(5);
+                                      setFeedbackReason('');
+                                    }}
+                                  >
+                                    Rate Shop (ফিডব্যাক)
+                                  </button>
+                                ) : (
+                                  <span>{new Date(o.created_at).toLocaleDateString()}</span>
+                                )}
+                              </div>
                             </div>
-                            <div style={{ color: 'var(--text-muted)' }}>Store: {o.stockist_name}</div>
-                            <div style={{ borderTop: '1px solid rgba(255,255,255,0.03)', paddingTop: '0.4rem', display: 'flex', justifyContent: 'space-between' }}>
-                              <span>Paid: ₹{o.total_price.toFixed(2)}</span>
-                              <span>{new Date(o.created_at).toLocaleDateString()}</span>
-                            </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                         {customerOrders.length === 0 && (
                           <p style={{ color: 'var(--text-muted)', fontSize: '0.7rem', textAlign: 'center' }}>No orders placed yet.</p>
                         )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Customer Rating Modal Overlay */}
+                  {submittingFeedbackOrder && submittingFeedbackOrder.customer_id === currentUser.id && (
+                    <div style={{ position: 'absolute', inset: 0, background: 'rgba(11,14,20,0.96)', zIndex: 110, display: 'flex', flexDirection: 'column', padding: '1.5rem', justifyContent: 'center' }}>
+                      <div className="glass-card" style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                        <h3 style={{ fontSize: '1.1rem', color: 'white' }}>Rate Grocery Store (§11)</h3>
+                        <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>Rate service quality at {submittingFeedbackOrder.stockist_name}</p>
+                        
+                        <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center' }}>
+                          {[1,2,3,4,5].map(star => (
+                            <span 
+                              key={star} 
+                              style={{ fontSize: '1.5rem', cursor: 'pointer', color: star <= feedbackRating ? 'var(--warning)' : 'var(--text-muted)' }}
+                              onClick={() => setFeedbackRating(star)}
+                            >
+                              ★
+                            </span>
+                          ))}
+                        </div>
+
+                        <div className="input-group">
+                          <label className="input-label">Details / Comment</label>
+                          <textarea 
+                            className="text-input" 
+                            style={{ height: '60px', fontSize: '0.75rem' }} 
+                            placeholder="e.g. Fresh potatoes, quick preparation!"
+                            value={feedbackReason}
+                            onChange={e => setFeedbackReason(e.target.value)}
+                          />
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '0.5rem' }}>
+                          <button className="btn btn-accent" style={{ flex: 1 }} onClick={() => handleSaveFeedback('CUSTOMER')}>
+                            Submit Rating
+                          </button>
+                          <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setSubmittingFeedbackOrder(null)}>
+                            Cancel
+                          </button>
+                        </div>
                       </div>
                     </div>
                   )}
@@ -1931,7 +2243,7 @@ export default function App() {
                 <div className="phone-footer">
                   <button className={`phone-nav-btn ${customerAppTab === 'store' ? 'active' : ''}`} onClick={() => setCustomerAppTab('store')}>
                     <ShoppingBag size={18} />
-                    Shop (বাজার করুন)
+                    Shop (বাজার)
                   </button>
                   <button className={`phone-nav-btn ${customerAppTab === 'ledger' ? 'active' : ''}`} onClick={() => setCustomerAppTab('ledger')}>
                     <Sparkles size={18} />
@@ -2194,23 +2506,47 @@ export default function App() {
 
                   {/* Inventory Restock Panel */}
                   <h3 style={{ fontSize: '0.95rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem', marginTop: '0.5rem' }}>Store Inventory (পাইকারি স্টক কিনুন)</h3>
-                  <p style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>
-                    Assigned Wholesaler: <strong>{vendors.find(v => v.id === stockistProfile.vendor_id)?.name || 'None Assigned'}</strong>
-                  </p>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  
+                  <div className="input-group" style={{ marginTop: '0.5rem' }}>
+                    <label className="input-label" style={{ fontSize: '0.65rem' }}>Select Wholesaler (পাইকারি বিক্রেতা)</label>
+                    <select 
+                      className="text-input" 
+                      value={selectedRestockVendorId} 
+                      onChange={e => setSelectedRestockVendorId(e.target.value)}
+                      style={{ background: 'var(--bg-surface)', fontSize: '0.7rem', padding: '0.25rem' }}
+                    >
+                      {stockistApprovedVendors.map(v => (
+                        <option key={v.id} value={v.id}>{v.name}</option>
+                      ))}
+                      {stockistApprovedVendors.length === 0 && (
+                        <option value="">No Approved Wholesalers</option>
+                      )}
+                    </select>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '0.5rem' }}>
                     {stockistProducts.map(p => (
                       <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-surface)', padding: '0.5rem 0.75rem', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '0.75rem' }}>
-                        <div>
+                        <div style={{ flex: 1 }}>
                           <div style={{ fontWeight: '600', color: 'white' }}>{p.name}</div>
                           <div style={{ color: 'var(--text-muted)', fontSize: '0.65rem' }}>Stock qty: <strong style={{ color: p.stock_qty > 10 ? 'var(--accent)' : 'var(--danger)' }}>{p.stock_qty}</strong></div>
                         </div>
-                        <button 
-                          className="btn btn-secondary" 
-                          style={{ padding: '0.25rem 0.5rem', fontSize: '0.7rem' }}
-                          onClick={() => handlePurchaseStock(p.id, 20)}
-                        >
-                          Restock +20 (স্টক আনুন)
-                        </button>
+                        <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
+                          <input 
+                            type="number" 
+                            min="1" 
+                            style={{ width: '45px', padding: '0.25rem', fontSize: '0.7rem', background: 'var(--bg-surface-elevated)', border: '1px solid var(--border-color)', color: 'white', borderRadius: '4px', textAlign: 'center' }}
+                            value={restockQuantities[p.id] || '20'}
+                            onChange={e => setRestockQuantities(prev => ({ ...prev, [p.id]: e.target.value }))}
+                          />
+                          <button 
+                            className="btn btn-accent" 
+                            style={{ padding: '0.25rem 0.5rem', fontSize: '0.7rem' }}
+                            onClick={() => handlePurchaseStock(p.id, restockQuantities[p.id] || 20, selectedRestockVendorId)}
+                          >
+                            Buy Stock
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>
