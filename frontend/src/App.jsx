@@ -17,7 +17,8 @@ import {
   Minus, 
   RotateCcw,
   Download,
-  AlertCircle
+  AlertCircle,
+  Gift
 } from 'lucide-react';
 
 const API_BASE = 'http://localhost:3001/api';
@@ -2302,76 +2303,104 @@ export default function App() {
                     </div>
                   )}
 
-                  {customerAppTab === 'pointshop' && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                      <div className="points-glow-box" style={{ padding: '0.75rem', borderRadius: '12px', textAlign: 'center' }}>
-                        <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>REWARDS BALANCE</span>
-                        <h1 style={{ fontSize: '1.5rem', margin: '0.15rem 0', color: 'white', fontWeight: 'bold' }}>{customerBalance} pts</h1>
+                  {customerAppTab === 'pointshop' && (() => {
+                    const redeemItem = async (cost, type, label) => {
+                      if (customerBalance < cost) { showToast(`Need ${cost} pts — you have ${customerBalance.toFixed(1)}`, 'error'); return; }
+                      try {
+                        const res = await fetch(`${API_BASE}/ledger/redeem`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ customerId: currentUser.id, amount: cost, redemptionType: type })
+                        });
+                        if (res.ok) { showToast(`✅ ${label} redeemed!`); loadCustomerData(); }
+                        else { const d = await res.json(); showToast(d.error || 'Redemption failed', 'error'); }
+                      } catch (e) { showToast('Redemption error', 'error'); }
+                    };
+
+                    const shopItems = [
+                      {
+                        category: '📡 Broadband & WiFi',
+                        color: '#6366f1',
+                        items: [
+                          { label: 'Bill Discount — ₹50 off', sub: 'Instantly off your next monthly broadband bill', pts: 50, type: 'BROADBAND_DISCOUNT_50', emoji: '💸' },
+                          { label: 'Bill Discount — ₹100 off', sub: 'For power users. Cuts bill by ₹100 this month', pts: 100, type: 'BROADBAND_DISCOUNT_100', emoji: '💳' },
+                          { label: 'Speed Booster 48h (100 Mbps)', sub: '2 days of priority bandwidth. No throttling.', pts: 150, type: 'WIFI_TOPUP', emoji: '⚡' },
+                          { label: 'Data Top-up 10 GB', sub: 'Extra 10 GB added to your plan instantly', pts: 80, type: 'DATA_TOPUP', emoji: '📶' },
+                        ]
+                      },
+                      {
+                        category: '📺 Cable TV',
+                        color: '#ec4899',
+                        items: [
+                          { label: 'Basic Pack — 1 Month Free', sub: '30 days of regional & local channels', pts: 100, type: 'CABLE_RECHARGE', emoji: '📺' },
+                          { label: 'HD Premium Pack — 1 Month', sub: 'Sports, Movies, News HD channels', pts: 250, type: 'CABLE_RECHARGE', emoji: '🎬' },
+                          { label: 'Kids & Family Bundle', sub: 'Cartoon Network, Pogo & family channels', pts: 120, type: 'CABLE_RECHARGE', emoji: '👨‍👩‍👧' },
+                        ]
+                      },
+                      {
+                        category: '🛍️ Grocery Vouchers',
+                        color: '#10b981',
+                        items: [
+                          { label: '₹25 off next grocery order', sub: 'Auto-applied at checkout on your next FastNet order', pts: 25, type: 'GROCERY_VOUCHER_25', emoji: '🛒' },
+                          { label: '₹75 off grocery order', sub: 'Valid on orders above ₹200 from any local store', pts: 60, type: 'GROCERY_VOUCHER_75', emoji: '🥦' },
+                        ]
+                      },
+                    ];
+
+                    return (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+
+                        {/* Header Hero */}
+                        <div style={{ background: 'linear-gradient(135deg, rgba(99,102,241,0.25) 0%, rgba(236,72,153,0.15) 100%)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: '14px', padding: '1rem', textAlign: 'center' }}>
+                          <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: '0.2rem' }}>Your Balance</div>
+                          <div style={{ fontSize: '2rem', fontWeight: '800', color: 'white', lineHeight: 1 }}>{customerBalance.toFixed(1)} <span style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>pts</span></div>
+                          <div style={{ fontSize: '0.6rem', color: '#818cf8', marginTop: '0.35rem' }}>≈ ₹{customerBalance.toFixed(0)} in value · Earned from your grocery shopping</div>
+                          <div style={{ marginTop: '0.5rem', display: 'flex', justifyContent: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                            {shopItems.map(cat => (
+                              <span key={cat.category} style={{ fontSize: '0.55rem', padding: '0.15rem 0.5rem', borderRadius: '99px', background: cat.color + '22', color: cat.color, border: `1px solid ${cat.color}44` }}>{cat.category}</span>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Catalog Sections */}
+                        {shopItems.map(cat => (
+                          <div key={cat.category}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
+                              <div style={{ width: '3px', height: '14px', borderRadius: '2px', background: cat.color }} />
+                              <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'white' }}>{cat.category}</span>
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                              {cat.items.map(item => {
+                                const canAfford = customerBalance >= item.pts;
+                                return (
+                                  <div key={item.label} style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', padding: '0.65rem 0.75rem', borderRadius: '10px', background: canAfford ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.01)', border: `1px solid ${canAfford ? cat.color + '33' : 'rgba(255,255,255,0.05)'}`, opacity: canAfford ? 1 : 0.55, transition: 'all 0.2s' }}>
+                                    <div style={{ fontSize: '1.4rem', flexShrink: 0, width: '32px', textAlign: 'center' }}>{item.emoji}</div>
+                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                      <div style={{ fontSize: '0.75rem', fontWeight: '600', color: 'white', lineHeight: 1.2 }}>{item.label}</div>
+                                      <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', marginTop: '0.15rem' }}>{item.sub}</div>
+                                      <div style={{ fontSize: '0.7rem', fontWeight: 'bold', color: cat.color, marginTop: '0.2rem' }}>{item.pts} pts</div>
+                                    </div>
+                                    <button
+                                      id={`redeem-${item.type}`}
+                                      disabled={!canAfford}
+                                      onClick={() => redeemItem(item.pts, item.type, item.label)}
+                                      style={{ flexShrink: 0, padding: '0.35rem 0.6rem', fontSize: '0.65rem', fontWeight: 'bold', borderRadius: '8px', border: 'none', cursor: canAfford ? 'pointer' : 'not-allowed', background: canAfford ? cat.color : 'rgba(255,255,255,0.1)', color: canAfford ? 'white' : 'var(--text-muted)', transition: 'all 0.2s' }}
+                                    >
+                                      Redeem
+                                    </button>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ))}
+
+                        <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', textAlign: 'center', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '0.75rem' }}>
+                          Points earned from FastNet grocery orders · Redeemable against FastNet services only · Non-transferable
+                        </div>
                       </div>
-
-                      <h3 style={{ fontSize: '0.9rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.4rem' }}>Point Shop Catalog (§5)</h3>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                        
-                        <div className="netflix-card" style={{ display: 'flex', padding: '0.75rem', gap: '0.75rem', alignItems: 'center' }}>
-                          <div style={{ flex: 1 }}>
-                            <h4 style={{ fontSize: '0.8rem', color: 'white', fontWeight: 'bold' }}>Cable TV 1-Month Basic Pack</h4>
-                            <p style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Redeem 100 points for a 30-day regional channel package.</p>
-                            <span style={{ fontSize: '0.75rem', color: 'var(--accent)', fontWeight: 'bold', display: 'block', marginTop: '0.25rem' }}>Cost: 100 pts</span>
-                          </div>
-                          <button className="btn btn-accent" style={{ padding: '0.4rem 0.6rem', fontSize: '0.7rem' }} onClick={async () => {
-                            if (customerBalance < 100) { showToast('Insufficient points', 'error'); return; }
-                            try {
-                              const res = await fetch(`${API_BASE}/ledger/redeem`, {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ customerId: currentUser.id, amount: 100, redemptionType: 'CABLE_RECHARGE' })
-                              });
-                              if (res.ok) { showToast('Redeemed successfully for Cable TV!'); loadCustomerData(); }
-                            } catch (e) { showToast('Redemption error'); }
-                          }}>Redeem</button>
-                        </div>
-
-                        <div className="netflix-card" style={{ display: 'flex', padding: '0.75rem', gap: '0.75rem', alignItems: 'center' }}>
-                          <div style={{ flex: 1 }}>
-                            <h4 style={{ fontSize: '0.8rem', color: 'white', fontWeight: 'bold' }}>Cable TV Premium HD Pack</h4>
-                            <p style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Redeem 250 points for all sports and movie HD channels.</p>
-                            <span style={{ fontSize: '0.75rem', color: 'var(--accent)', fontWeight: 'bold', display: 'block', marginTop: '0.25rem' }}>Cost: 250 pts</span>
-                          </div>
-                          <button className="btn btn-accent" style={{ padding: '0.4rem 0.6rem', fontSize: '0.7rem' }} onClick={async () => {
-                            if (customerBalance < 250) { showToast('Insufficient points', 'error'); return; }
-                            try {
-                              const res = await fetch(`${API_BASE}/ledger/redeem`, {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ customerId: currentUser.id, amount: 250, redemptionType: 'CABLE_RECHARGE' })
-                              });
-                              if (res.ok) { showToast('Redeemed successfully for HD Cable Pack!'); loadCustomerData(); }
-                            } catch (e) { showToast('Redemption error'); }
-                          }}>Redeem</button>
-                        </div>
-
-                        <div className="netflix-card" style={{ display: 'flex', padding: '0.75rem', gap: '0.75rem', alignItems: 'center' }}>
-                          <div style={{ flex: 1 }}>
-                            <h4 style={{ fontSize: '0.8rem', color: 'white', fontWeight: 'bold' }}>WiFi Router Speed Booster (100 Mbps)</h4>
-                            <p style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Redeem 150 points for 48 hours of high-speed bandwidth boost.</p>
-                            <span style={{ fontSize: '0.75rem', color: 'var(--accent)', fontWeight: 'bold', display: 'block', marginTop: '0.25rem' }}>Cost: 150 pts</span>
-                          </div>
-                          <button className="btn btn-accent" style={{ padding: '0.4rem 0.6rem', fontSize: '0.7rem' }} onClick={async () => {
-                            if (customerBalance < 150) { showToast('Insufficient points', 'error'); return; }
-                            try {
-                              const res = await fetch(`${API_BASE}/ledger/redeem`, {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ customerId: currentUser.id, amount: 150, redemptionType: 'WIFI_TOPUP' })
-                              });
-                              if (res.ok) { showToast('Speed booster activated!'); loadCustomerData(); }
-                            } catch (e) { showToast('Redemption error'); }
-                          }}>Redeem</button>
-                        </div>
-
-                      </div>
-                    </div>
-                  )}
+                    );
+                  })()}
 
                   {customerAppTab === 'orders' && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -2523,15 +2552,20 @@ export default function App() {
                 <div className="phone-footer">
                   <button className={`phone-nav-btn ${customerAppTab === 'store' ? 'active' : ''}`} onClick={() => setCustomerAppTab('store')}>
                     <ShoppingBag size={18} />
-                    Shop (বাজার)
+                    Shop
                   </button>
                   <button className={`phone-nav-btn ${customerAppTab === 'ledger' ? 'active' : ''}`} onClick={() => setCustomerAppTab('ledger')}>
                     <Sparkles size={18} />
-                    Points (পয়েন্ট)
+                    Points
+                  </button>
+                  <button id="nav-pointshop" className={`phone-nav-btn ${customerAppTab === 'pointshop' ? 'active' : ''}`} onClick={() => setCustomerAppTab('pointshop')} style={{ position: 'relative' }}>
+                    <Gift size={18} />
+                    Rewards
+                    {customerBalance > 0 && <span style={{ position: 'absolute', top: '4px', right: '6px', background: 'var(--accent)', color: 'black', fontSize: '0.45rem', fontWeight: 'bold', borderRadius: '99px', padding: '1px 4px', lineHeight: 1.2 }}>{Math.floor(customerBalance)}</span>}
                   </button>
                   <button className={`phone-nav-btn ${customerAppTab === 'orders' ? 'active' : ''}`} onClick={() => setCustomerAppTab('orders')}>
                     <ArrowRightLeft size={18} />
-                    History (ইতিহাস)
+                    Orders
                   </button>
                 </div>
               </>

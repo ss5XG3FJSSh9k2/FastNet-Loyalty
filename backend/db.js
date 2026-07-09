@@ -17,7 +17,8 @@ const DEFAULT_DB = {
     { id: 'u-cust2', tenant_id: 't1', region_id: 'r2', phone: '8765432109', name: 'Radha Roy', role: 'CUSTOMER', kyc_status: 'APPROVED', created_at: new Date().toISOString() },
     { id: 'u-stk1', tenant_id: 't1', region_id: 'r1', phone: '7654321098', name: 'Madan Shaw', role: 'STOCKIST', kyc_status: 'APPROVED', created_at: new Date().toISOString() },
     { id: 'u-stk2', tenant_id: 't1', region_id: 'r2', phone: '6543210987', name: 'Prabhat Sarkar', role: 'STOCKIST', kyc_status: 'APPROVED', created_at: new Date().toISOString() },
-    { id: 'u-stk3', tenant_id: 't1', region_id: 'r2', phone: '5432109876', name: 'Gopal Joy', role: 'STOCKIST', kyc_status: 'PENDING', kyc_details: { id_type: 'Aadhaar', id_number: '1234-5678-9012', shop_address: 'Bishnupur Market Road' }, created_at: new Date().toISOString() }
+    { id: 'u-stk3', tenant_id: 't1', region_id: 'r2', phone: '5432109876', name: 'Gopal Joy', role: 'STOCKIST', kyc_status: 'PENDING', kyc_details: { id_type: 'Aadhaar', id_number: '1234-5678-9012', shop_address: 'Bishnupur Market Road' }, created_at: new Date().toISOString() },
+    { id: 'u-stk4', tenant_id: 't1', region_id: 'r1', phone: '4321098765', name: 'Soumik Banerjee', role: 'STOCKIST', kyc_status: 'APPROVED', created_at: new Date().toISOString() }
   ],
   vendors: [
     { id: 'v1', tenant_id: 't1', region_id: 'r1', name: 'Kolkata Wholesale Mart', created_at: new Date().toISOString() },
@@ -25,7 +26,8 @@ const DEFAULT_DB = {
   ],
   stockists: [
     { id: 's1', tenant_id: 't1', region_id: 'r1', user_id: 'u-stk1', name: 'Madan Grocers', vendor_id: 'v1', delivery_radius_km: 3.0, min_order_value: 0, is_active: true, created_at: new Date().toISOString() },
-    { id: 's2', tenant_id: 't1', region_id: 'r2', user_id: 'u-stk2', name: 'Sarkar Daily Store', vendor_id: 'v2', delivery_radius_km: 6.0, min_order_value: 0, is_active: true, created_at: new Date().toISOString() }
+    { id: 's2', tenant_id: 't1', region_id: 'r2', user_id: 'u-stk2', name: 'Sarkar Daily Store', vendor_id: 'v2', delivery_radius_km: 6.0, min_order_value: 0, is_active: true, created_at: new Date().toISOString() },
+    { id: 's3', tenant_id: 't1', region_id: 'r1', user_id: 'u-stk4', name: 'Banerjee Corner Store', vendor_id: 'v1', delivery_radius_km: 2.5, min_order_value: 0, is_active: true, created_at: new Date().toISOString() }
   ],
   products: [
     { id: 'p1', tenant_id: 't1', region_id: 'r1', name: 'Fresh Potatoes (Alu, 1kg)', category: 'groceries', price: 30.0, cost_price: 22.0, description: 'Staple local potatoes', image_url: 'https://images.unsplash.com/photo-1518977676601-b53f82aba655?auto=format&fit=crop&q=80&w=300', created_at: new Date().toISOString() },
@@ -60,7 +62,16 @@ const DEFAULT_DB = {
     { stockist_id: 's2', product_id: 'p7-r2', stock_qty: 20, is_available: true },
     { stockist_id: 's2', product_id: 'p8-r2', stock_qty: 45, is_available: true },
     { stockist_id: 's2', product_id: 'p9-r2', stock_qty: 60, is_available: true },
-    { stockist_id: 's2', product_id: 'p10-r2', stock_qty: 18, is_available: true }
+    { stockist_id: 's2', product_id: 'p10-r2', stock_qty: 18, is_available: true },
+
+    // s3 = Banerjee Corner Store (r1, same region as s1) — stocked so A3 alternatives search returns results
+    { stockist_id: 's3', product_id: 'p1', stock_qty: 30, is_available: true },
+    { stockist_id: 's3', product_id: 'p2', stock_qty: 25, is_available: true },
+    { stockist_id: 's3', product_id: 'p3', stock_qty: 15, is_available: true },
+    { stockist_id: 's3', product_id: 'p4', stock_qty: 80, is_available: true },
+    { stockist_id: 's3', product_id: 'p5', stock_qty: 40, is_available: true },
+    { stockist_id: 's3', product_id: 'p8', stock_qty: 60, is_available: true },
+    { stockist_id: 's3', product_id: 'p9', stock_qty: 50, is_available: true }
   ],
   orders: [],
   order_items: [],
@@ -89,7 +100,13 @@ const DEFAULT_DB = {
   // Many-to-many stockist-vendor junction
   stockist_vendors: [
     { stockist_id: 's1', vendor_id: 'v1', approved_at: new Date().toISOString() },
-    { stockist_id: 's2', vendor_id: 'v2', approved_at: new Date().toISOString() }
+    { stockist_id: 's2', vendor_id: 'v2', approved_at: new Date().toISOString() },
+    { stockist_id: 's3', vendor_id: 'v1', approved_at: new Date().toISOString() }
+  ],
+  stockist_commission_rates: [
+    { id: 'scr1', stockist_id: 's1', rate_percent: 10.0, created_at: new Date().toISOString() },
+    { id: 'scr2', stockist_id: 's2', rate_percent: 8.0, created_at: new Date().toISOString() },
+    { id: 'scr3', stockist_id: 's3', rate_percent: 10.0, created_at: new Date().toISOString() }
   ],
   anomaly_logs: []
 };

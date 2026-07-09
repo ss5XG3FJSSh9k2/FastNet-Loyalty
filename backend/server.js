@@ -224,7 +224,7 @@ app.post('/api/orders/:id/verify-pickup', (req, res) => {
     db.saveTable('split_payouts', splitPayouts);
   }
 
-  return res.json({ success: true, order });
+  return res.json({ success: true, order: enrichOrder(order) });
 });
 
 // Restock inventory from vendor
@@ -321,6 +321,39 @@ function calculateSettlement(subtotal, totalProfitMargin, stockistId, regionId) 
   };
 }
 
+// Helper: Enrich Order
+function enrichOrder(o) {
+  if (!o) return null;
+  const orderItems = db.getTable('order_items');
+  const users = db.getTable('users');
+  const splitPayouts = db.getTable('split_payouts');
+  
+  const items = orderItems.filter(oi => oi.order_id === o.id);
+  const customer = users.find(u => u.id === o.customer_id);
+  const payout = splitPayouts.find(sp => sp.order_id === o.id);
+
+  const stockistCommissionRates = db.getTable('stockist_commission_rates');
+  const scr = stockistCommissionRates.find(r => r.stockist_id === o.stockist_id);
+  const commissionRate = scr ? parseFloat(scr.rate_percent) : 10.00;
+  const platformCommission = (o.subtotal * commissionRate) / 100;
+  const stockistPayout = o.subtotal - platformCommission + o.delivery_fee;
+  const platformPayout = platformCommission + o.low_order_fee;
+
+  return {
+    ...o,
+    items,
+    pointsCredited: o.points_credited !== undefined ? o.points_credited : (o.points_credited || 0),
+    points_credited: o.points_credited !== undefined ? o.points_credited : (o.points_credited || 0),
+    earnRatePercent: o.earn_rate_used !== undefined ? o.earn_rate_used : (o.earn_rate_used || 40),
+    earn_rate_used: o.earn_rate_used !== undefined ? o.earn_rate_used : (o.earn_rate_used || 40),
+    margin: o.margin !== undefined ? o.margin : (o.margin || (o.subtotal * 0.25).toFixed(1)),
+    customer_name: customer ? customer.name : 'Unknown Subscriber',
+    customer_phone: customer ? customer.phone : '',
+    stockist_amount: payout ? parseFloat(payout.stockist_amount) : stockistPayout,
+    platform_amount: payout ? parseFloat(payout.platform_amount) : platformPayout
+  };
+}
+
 app.post('/api/orders', (req, res) => {
   const { customerId, stockistId, items } = req.body; // items: [{productId, quantity}]
   if (!customerId || !stockistId || !items || items.length === 0) {
@@ -410,6 +443,9 @@ app.post('/api/orders', (req, res) => {
     pickup_eta_minutes: 10,
     pickup_pin: Math.floor(1000 + Math.random() * 9000).toString(), // Generated Verification PIN (§B4)
     payment_status: 'PAID',
+    points_credited: pointsCredited,
+    margin: totalProfitMargin,
+    earn_rate_used: settlement.earnRateUsed,
     razorpay_order_id: 'rzp_order_' + generateId(),
     razorpay_payment_id: 'rzp_pay_' + generateId(),
     created_at: new Date().toISOString()
@@ -485,6 +521,7 @@ app.post('/api/orders', (req, res) => {
     pointsCredited,
     margin: totalProfitMargin,
     earnRatePercent: settlement.earnRateUsed,
+    order,
     razorpay_split: {
       stockist_share: stockistPayout,
       platform_share: platformPayout
@@ -508,28 +545,7 @@ app.get('/api/orders', (req, res) => {
   const orderItems = db.getTable('order_items');
   const users = db.getTable('users');
   const splitPayouts = db.getTable('split_payouts');
-  const enriched = filtered.map(o => {
-    const items = orderItems.filter(oi => oi.order_id === o.id);
-    const customer = users.find(u => u.id === o.customer_id);
-    const payout = splitPayouts.find(sp => sp.order_id === o.id);
-
-    // Commission lookup (stockist-wise first, fallback regional)
-    const stockistCommissionRates = db.getTable('stockist_commission_rates');
-    const scr = stockistCommissionRates.find(r => r.stockist_id === o.stockist_id);
-    const commissionRate = scr ? parseFloat(scr.rate_percent) : 10.00;
-    const platformCommission = (o.subtotal * commissionRate) / 100;
-    const stockistPayout = o.subtotal - platformCommission + o.delivery_fee;
-    const platformPayout = platformCommission + o.low_order_fee;
-
-    return { 
-      ...o, 
-      items,
-      customer_name: customer ? customer.name : 'Unknown Subscriber',
-      customer_phone: customer ? customer.phone : '',
-      stockist_amount: payout ? parseFloat(payout.stockist_amount) : stockistPayout,
-      platform_amount: payout ? parseFloat(payout.platform_amount) : platformPayout
-    };
-  }).reverse(); // Sort newest first
+  const enriched = filtered.map(o => enrichOrder(o)).reverse(); // Sort newest first
 
   return res.json(enriched);
 });
@@ -550,7 +566,7 @@ app.patch('/api/orders/:id/status', (req, res) => {
 
   order.status = status;
   db.saveTable('orders', orders);
-  return res.json({ success: true, order });
+  return res.json({ success: true, order: enrichOrder(order) });
 });
 
 // PATCH fulfillment endpoint (§7)
@@ -600,7 +616,7 @@ app.patch('/api/orders/:id/fulfillment', (req, res) => {
   }
 
   db.saveTable('orders', orders);
-  return res.json({ success: true, order });
+  return res.json({ success: true, order: enrichOrder(order) });
 });
 
 // Offline sync endpoint
