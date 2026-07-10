@@ -282,7 +282,33 @@ app.get('/api/stockists', (req, res) => {
   const { regionId } = req.query;
   const stockists = db.getTable('stockists');
   const filtered = regionId ? stockists.filter(s => s.region_id === regionId && s.is_active) : stockists;
-  return res.json(filtered);
+
+  const orders = db.getTable('orders');
+  const enriched = filtered.map(s => {
+    const shopOrders = orders.filter(o => o.stockist_id === s.id);
+    const finished = shopOrders.filter(o => ['DELIVERED', 'CANCELLED'].includes(o.status));
+    const delivered = finished.filter(o => o.status === 'DELIVERED').length;
+    const totalFinished = finished.length;
+
+    let reliabilityBadge = 'Active Partner';
+    if (totalFinished > 0) {
+      const rate = (delivered / totalFinished) * 100;
+      if (rate >= 90) {
+        reliabilityBadge = 'Highly Reliable (90%+ Fulfilled)';
+      } else if (rate >= 80) {
+        reliabilityBadge = 'Reliable Partner';
+      }
+    } else {
+      reliabilityBadge = 'New Stockist (Verified)';
+    }
+
+    return {
+      ...s,
+      reliabilityBadge
+    };
+  });
+
+  return res.json(enriched);
 });
 
 app.get('/api/stockists/by-user/:userId', (req, res) => {
@@ -697,6 +723,32 @@ app.get('/api/ledger/history/:customerId', (req, res) => {
   return res.json(customerLedger);
 });
 
+// Helper: Get Redemption Description (§2)
+function getRedemptionDescription(type, pts) {
+  if (type === 'BROADBAND_DISCOUNT') {
+    return `Broadband Bill Discount - ₹${pts.toFixed(0)}`;
+  }
+  if (type === 'BROADBAND_DISCOUNT_50') {
+    return 'Broadband Bill Discount - ₹50';
+  }
+  if (type === 'BROADBAND_DISCOUNT_100') {
+    return 'Broadband Bill Discount - ₹100';
+  }
+  if (type === 'WIFI_TOPUP') {
+    return 'WiFi Speed Booster 48h (100 Mbps)';
+  }
+  if (type === 'DATA_TOPUP') {
+    return 'WiFi Data Top-up 10 GB';
+  }
+  if (type === 'CABLE_RECHARGE') {
+    if (pts === 100) return 'Cable TV Basic Pack - 1 Month Free';
+    if (pts === 250) return 'Cable TV HD Premium Pack - 1 Month';
+    if (pts === 120) return 'Cable TV Kids & Family Bundle';
+    return 'Cable TV Recharge Package';
+  }
+  return 'Redeemed points against Broadband Bill';
+}
+
 // Redeem Points (§5)
 app.post('/api/ledger/redeem', (req, res) => {
   const { customerId, amount, redemptionType } = req.body;
@@ -731,32 +783,8 @@ app.post('/api/ledger/redeem', (req, res) => {
 
   const redeemAmount = -Math.abs(parseFloat(amount));
   const ledgerId = 'l-' + generateId();
-  
-  let description = '';
   const pts = parseFloat(amount);
-  if (redemptionType === 'BROADBAND_DISCOUNT') {
-    description = `Broadband Bill Discount - ₹${pts.toFixed(0)}`;
-  } else if (redemptionType === 'BROADBAND_DISCOUNT_50') {
-    description = 'Broadband Bill Discount - ₹50';
-  } else if (redemptionType === 'BROADBAND_DISCOUNT_100') {
-    description = 'Broadband Bill Discount - ₹100';
-  } else if (redemptionType === 'WIFI_TOPUP') {
-    description = 'WiFi Speed Booster 48h (100 Mbps)';
-  } else if (redemptionType === 'DATA_TOPUP') {
-    description = 'WiFi Data Top-up 10 GB';
-  } else if (redemptionType === 'CABLE_RECHARGE') {
-    if (pts === 100) {
-      description = 'Cable TV Basic Pack - 1 Month Free';
-    } else if (pts === 250) {
-      description = 'Cable TV HD Premium Pack - 1 Month';
-    } else if (pts === 120) {
-      description = 'Cable TV Kids & Family Bundle';
-    } else {
-      description = 'Cable TV Recharge Package';
-    }
-  } else {
-    description = 'Redeemed points against Broadband Bill';
-  }
+  const description = getRedemptionDescription(redemptionType, pts);
 
   ledger.push({
     id: ledgerId,
@@ -765,6 +793,7 @@ app.post('/api/ledger/redeem', (req, res) => {
     customer_id: customer.id,
     amount: redeemAmount,
     type: 'REDEEM',
+    redemption_type: redemptionType,
     order_id: null,
     description,
     created_at: new Date().toISOString(),
@@ -786,8 +815,8 @@ app.post('/api/ledger/redeem', (req, res) => {
 
 app.post('/api/feedback', (req, res) => {
   const { reporterId, reporterRole, targetId, targetRole, orderId, rating, reason } = req.body;
-  if (!reporterId || !reporterRole || !targetId || !targetRole || !orderId || !rating || !reason) {
-    return res.status(400).json({ error: 'All fields are required' });
+  if (!reporterId || !reporterRole || !targetId || !targetRole || !orderId || rating === undefined) {
+    return res.status(400).json({ error: 'Reporter, target, order ID, and rating are required.' });
   }
 
   const feedback = db.getTable('feedback_reports');
@@ -799,7 +828,7 @@ app.post('/api/feedback', (req, res) => {
     target_role: targetRole,
     order_id: orderId,
     rating: parseInt(rating, 10),
-    reason,
+    reason: reason || '',
     created_at: new Date().toISOString()
   };
 

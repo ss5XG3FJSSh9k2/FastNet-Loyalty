@@ -168,6 +168,12 @@ export default function App() {
     setTimeout(() => setToast(null), 4000);
   };
 
+  const formatPoints = (value) => {
+    const num = parseFloat(value) || 0;
+    const formatted = num % 1 === 0 ? num.toFixed(0) : num.toFixed(1);
+    return `${formatted} pts`;
+  };
+
   // ----------------------------------------------------
   // GUIDED WALKTHROUGH DEMO AUTOMATION
   // ----------------------------------------------------
@@ -2012,7 +2018,7 @@ export default function App() {
                 <div className="phone-header">
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
                     <span>FastNet 5G</span>
-                    <span className="badge badge-success" style={{ fontSize: '0.55rem', padding: '0.1rem 0.35rem' }}>{customerBalance} pts</span>
+                    <span className="badge badge-success" style={{ fontSize: '0.55rem', padding: '0.1rem 0.35rem' }}>{formatPoints(customerBalance)}</span>
                   </div>
                   <span>📶 🔋 19:43</span>
                 </div>
@@ -2032,7 +2038,7 @@ export default function App() {
                       <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Total Rewards Credited</span>
                       <h2 style={{ fontSize: '1.8rem', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', margin: '0.25rem 0' }}>
                         <Sparkles size={20} style={{ color: 'var(--warning)' }} />
-                        +{checkoutResult.totalPointsCredited} pts
+                        +{formatPoints(checkoutResult.totalPointsCredited)}
                       </h2>
                     </div>
 
@@ -2163,7 +2169,10 @@ export default function App() {
                               <div key={s.id} className="glass-card" style={{ padding: '0.85rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                 <div>
                                   <h4 style={{ fontSize: '0.85rem', color: 'white' }}>{s.name}</h4>
-                                  <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Delivery: {s.delivery_radius_km}km radius</span>
+                                  <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.2rem', alignItems: 'center' }}>
+                                    <span className="badge badge-success" style={{ fontSize: '0.55rem', padding: '0.1rem 0.35rem' }}>✓ {s.reliabilityBadge || 'Verified'}</span>
+                                    <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Delivery: {s.delivery_radius_km}km radius</span>
+                                  </div>
                                 </div>
                                 <button className="btn btn-accent" style={{ padding: '0.35rem 0.75rem', fontSize: '0.75rem' }} onClick={() => setSelectedStockist(s)}>
                                   Shop (বাজার করুন)
@@ -2200,7 +2209,7 @@ export default function App() {
                                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.2rem' }}>
                                         <span style={{ fontWeight: 'bold', fontSize: '0.85rem' }}>₹{p.price}</span>
                                         <span className="badge badge-success" style={{ fontSize: '0.55rem', padding: '0.1rem 0.25rem' }}>
-                                          Earn {earnEst} pts
+                                          Earn {formatPoints(earnEst)}
                                         </span>
                                       </div>
                                     </div>
@@ -2233,7 +2242,7 @@ export default function App() {
 
                           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem', color: 'var(--text-muted)' }}>
                             <span>Subtotal: ₹{cartSubtotal}</span>
-                            <span>Est. Rewards: <strong style={{ color: 'var(--accent)' }}>+{estimatedEarnPoints} pts</strong></span>
+                            <span>Est. Rewards: <strong style={{ color: 'var(--accent)' }}>+{formatPoints(estimatedEarnPoints)}</strong></span>
                           </div>
 
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', borderTop: '1px solid var(--border-color)', paddingTop: '0.4rem', maxHeight: '100px', overflowY: 'auto' }}>
@@ -2262,7 +2271,7 @@ export default function App() {
                       {/* Points Balance Card (Moderated) */}
                       <div className="points-glow-box" style={{ padding: '0.75rem', borderRadius: '12px', textAlign: 'center' }}>
                         <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>ACCUMULATED LOYALTY POINTS</span>
-                        <h1 style={{ fontSize: '1.5rem', margin: '0.15rem 0', color: 'white', fontWeight: 'bold' }}>{customerBalance} pts</h1>
+                        <h1 style={{ fontSize: '1.5rem', margin: '0.15rem 0', color: 'white', fontWeight: 'bold' }}>{formatPoints(customerBalance)}</h1>
                         <p style={{ fontSize: '0.55rem', color: 'var(--text-muted)' }}>Closed-loop points redeemable against issuing operator services.</p>
                       </div>
 
@@ -2315,7 +2324,7 @@ export default function App() {
                               <div style={{ color: 'var(--text-muted)', fontSize: '0.6rem' }}>{new Date(l.created_at).toLocaleDateString()}</div>
                             </div>
                             <div style={{ fontWeight: 'bold', color: l.type === 'EARN' ? 'var(--accent)' : 'var(--danger)', fontSize: '0.8rem' }}>
-                              {l.amount > 0 ? `+${l.amount} pts` : `-${Math.abs(l.amount)} pts`}
+                              {l.amount > 0 ? '+' : '-'}{formatPoints(Math.abs(l.amount))}
                             </div>
                           </div>
                         ))}
@@ -2328,7 +2337,7 @@ export default function App() {
 
                   {customerAppTab === 'pointshop' && (() => {
                     const redeemItem = async (cost, type, label) => {
-                      if (customerBalance < cost) { showToast(`Need ${cost} pts — you have ${customerBalance.toFixed(1)}`, 'error'); return; }
+                      if (customerBalance < cost) { showToast(`Need ${formatPoints(cost)} — you have ${formatPoints(customerBalance)}`, 'error'); return; }
                       try {
                         const res = await fetch(`${API_BASE}/ledger/redeem`, {
                           method: 'POST',
@@ -2368,7 +2377,7 @@ export default function App() {
                         {/* Header Hero */}
                         <div style={{ background: 'linear-gradient(135deg, rgba(99,102,241,0.25) 0%, rgba(236,72,153,0.15) 100%)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: '14px', padding: '1rem', textAlign: 'center' }}>
                           <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: '0.2rem' }}>Your Balance</div>
-                          <div style={{ fontSize: '2rem', fontWeight: '800', color: 'white', lineHeight: 1 }}>{customerBalance.toFixed(1)} <span style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>pts</span></div>
+                          <div style={{ fontSize: '2rem', fontWeight: '800', color: 'white', lineHeight: 1 }}>{formatPoints(customerBalance)}</div>
                           <div style={{ fontSize: '0.6rem', color: '#818cf8', marginTop: '0.35rem' }}>Redeemable across FastNet broadband, wifi, and cable TV plans</div>
                           <div style={{ marginTop: '0.5rem', display: 'flex', justifyContent: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
                             {shopItems.map(cat => (
@@ -2393,7 +2402,7 @@ export default function App() {
                                     <div style={{ flex: 1, minWidth: 0 }}>
                                       <div style={{ fontSize: '0.75rem', fontWeight: '600', color: 'white', lineHeight: 1.2 }}>{item.label}</div>
                                       <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', marginTop: '0.15rem' }}>{item.sub}</div>
-                                      <div style={{ fontSize: '0.7rem', fontWeight: 'bold', color: cat.color, marginTop: '0.2rem' }}>{item.pts} pts</div>
+                                      <div style={{ fontSize: '0.7rem', fontWeight: 'bold', color: cat.color, marginTop: '0.2rem' }}>{formatPoints(item.pts)}</div>
                                     </div>
                                     <button
                                       id={`redeem-${item.type}`}
@@ -3379,7 +3388,7 @@ export default function App() {
                           <td>{new Date(r.created_at).toLocaleDateString()}</td>
                           <td>{r.customer_name}</td>
                           <td>{r.customer_phone}</td>
-                          <td style={{ fontWeight: 'bold', color: 'var(--accent)' }}>{Math.abs(r.amount)} pts</td>
+                          <td style={{ fontWeight: 'bold', color: 'var(--accent)' }}>{formatPoints(Math.abs(r.amount))}</td>
                           <td>{r.description || 'N/A'}</td>
                           <td>
                             <span className={`badge ${r.billing_sync_status === 'SYNCED' ? 'badge-success' : 'badge-warning'}`}>
@@ -3520,7 +3529,7 @@ export default function App() {
                           <td>₹{o.delivery_fee.toFixed(2)}</td>
                           <td style={{ color: 'var(--accent)' }}>₹{(o.stockist_amount || 0).toFixed(2)}</td>
                           <td style={{ color: 'var(--primary)' }}>₹{(o.platform_amount || 0).toFixed(2)}</td>
-                          <td>{(o.points_credited || 0)} pts</td>
+                          <td>{formatPoints(o.points_credited || 0)}</td>
                         </tr>
                       ))}
                       {(!dbState?.orders || dbState.orders.length === 0) && (

@@ -1,0 +1,210 @@
+const http = require('http');
+
+function post(url, body) {
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(url);
+    const data = JSON.stringify(body || {});
+    const req = http.request({
+      hostname: parsed.hostname,
+      port: parsed.port,
+      path: parsed.pathname,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(data)
+      }
+    }, (res) => {
+      let raw = '';
+      res.on('data', chunk => raw += chunk);
+      res.on('end', () => {
+        try { resolve({ status: res.statusCode, body: JSON.parse(raw) }); }
+        catch(e) { resolve({ status: res.statusCode, body: raw }); }
+      });
+    });
+    req.on('error', reject);
+    req.write(data);
+    req.end();
+  });
+}
+
+function patch(url, body) {
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(url);
+    const data = JSON.stringify(body || {});
+    const req = http.request({
+      hostname: parsed.hostname,
+      port: parsed.port,
+      path: parsed.pathname,
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(data)
+      }
+    }, (res) => {
+      let raw = '';
+      res.on('data', chunk => raw += chunk);
+      res.on('end', () => {
+        try { resolve({ status: res.statusCode, body: JSON.parse(raw) }); }
+        catch(e) { resolve({ status: res.statusCode, body: raw }); }
+      });
+    });
+    req.on('error', reject);
+    req.write(data);
+    req.end();
+  });
+}
+
+function get(url) {
+  return new Promise((resolve, reject) => {
+    http.get(url, (res) => {
+      let raw = '';
+      res.on('data', chunk => raw += chunk);
+      res.on('end', () => {
+        try { resolve({ status: res.statusCode, body: JSON.parse(raw) }); }
+        catch(e) { resolve({ status: res.statusCode, body: raw }); }
+      });
+    }).on('error', reject);
+  });
+}
+
+let testCount = 0;
+let passedCount = 0;
+
+function assert(condition, message) {
+  testCount++;
+  if (condition) {
+    passedCount++;
+    console.log(`[PASS] Test #${testCount}: ${message}`);
+  } else {
+    console.error(`[FAIL] Test #${testCount}: ${message}`);
+    process.exit(1);
+  }
+}
+
+async function main() {
+  console.log('=== RUNNING ACCUMULATED REGRESSION SUITE ===');
+
+  // Reset database to starting state
+  console.log('\nResetting database...');
+  await post('http://localhost:3001/api/admin/reset-db');
+
+  // 1. Payment split math
+  console.log('\n--- 1. Payment Split Math ---');
+  const orderRes = await post('http://localhost:3001/api/orders', {
+    customerId: 'u-cust1',
+    stockistId: 's1',
+    items: [
+      { productId: 'p1', quantity: 2 }, // Alu, price: 30, cost: 22. Subtotal: 60. profit: 16
+      { productId: 'p3', quantity: 1 }  // Dal, price: 60, cost: 48. Subtotal: 60. profit: 12
+    ]
+  });
+  
+  assert(orderRes.status === 200, 'Order created successfully');
+  const orderId = orderRes.body.orderId;
+  const orderDetails = (await get(`http://localhost:3001/api/orders`)).body.find(o => o.id === orderId);
+  
+  assert(orderDetails !== undefined, 'Order details fetched from DB');
+  const totalDue = orderDetails.total_price;
+  const stockistAmt = orderDetails.stockist_amount;
+  const platformAmt = orderDetails.platform_amount;
+  assert(Math.abs(stockistAmt + platformAmt - totalDue) < 0.01, `Split math sums to order total: ${stockistAmt} + ${platformAmt} === ${totalDue}`);
+
+  // 2. Points calculation from profit margin
+  console.log('\n--- 2. Points Calculated from Profit Margin ---');
+  // Margin for 2 Alu + 1 Dal = (30-22)*2 + (60-48) = 16 + 12 = 28.
+  // Earn rate for s1 (region r1) is 45%.
+  // Expected points = 28 * 0.45 = 12.6.
+  const pointsCredited = orderDetails.points_credited;
+  assert(Math.abs(pointsCredited - 12.6) < 0.01, `Points calculated correctly from profit margin: ${pointsCredited} === 12.6`);
+
+  // 3. Redemption allowlist
+  console.log('\n--- 3. Redemption Allowlist Rejection ---');
+  const badRedeem = await post('http://localhost:3001/api/ledger/redeem', {
+    customerId: 'u-cust1',
+    amount: 10,
+    redemptionType: 'GROCERY_VOUCHER_25'
+  });
+  assert(badRedeem.status === 400, 'Invalid redemption type rejected with 400 Bad Request');
+
+  // 4. Redemption descriptions match type
+  console.log('\n--- 4. Redemption Descriptions ---');
+  // Add some points first to allow redemptions
+  // Customer Amit Sen had 12.6 pts from the order. Let's redeem:
+  const red1 = await post('http://localhost:3001/api/ledger/redeem', {
+    customerId: 'u-cust1',
+    amount: 5,
+    redemptionType: 'BROADBAND_DISCOUNT'
+  });
+  assert(red1.status === 200, 'Custom Broadband Discount redeemed');
+  
+  const red2 = await post('http://localhost:3001/api/ledger/redeem', {
+    customerId: 'u-cust1',
+    amount: 5,
+    redemptionType: 'WIFI_TOPUP'
+  });
+  assert(red2.status === 200, 'WiFi Speed Booster redeemed');
+
+  const history = (await get('http://localhost:3001/api/ledger/history/u-cust1')).body;
+  const entry1 = history.find(h => h.id === red1.body.ledgerId);
+  const entry2 = history.find(h => h.id === red2.body.ledgerId);
+
+  assert(entry1 && entry1.description === 'Broadband Bill Discount - ₹5', 'Broadband discount description is correct');
+  assert(entry2 && entry2.description === 'WiFi Speed Booster 48h (100 Mbps)', 'WiFi booster description is correct');
+
+  // 5. CSV export data columns check
+  console.log('\n--- 5. CSV Export Columns & Descriptions ---');
+  const redemptionsRes = await get('http://localhost:3001/api/admin/redemptions');
+  assert(redemptionsRes.status === 200, 'Fetched redemptions list');
+  const testRed = redemptionsRes.body[0];
+  assert(testRed && testRed.description !== undefined, 'Redemption log in DB includes description field');
+  assert(testRed && testRed.redemption_type !== undefined, 'Redemption log in DB includes redemption_type field');
+
+  // 6. Points reversal on cancellation
+  console.log('\n--- 6. Points Reversal on Cancellation ---');
+  const balBefore = (await get('http://localhost:3001/api/ledger/balance/u-cust1')).body.balance;
+  await patch(`http://localhost:3001/api/orders/${orderId}/status`, { status: 'CANCELLED' });
+  const balAfter = (await get('http://localhost:3001/api/ledger/balance/u-cust1')).body.balance;
+  
+  // Reversal should deduct the points earned (12.6)
+  assert(Math.abs(balBefore - balAfter - 12.6) < 0.01, `Cancellations correctly subtract order earnings: balance went from ${balBefore} to ${balAfter}`);
+
+  // 7. Anomaly flagging persists to FLAGGED status
+  console.log('\n--- 7. Anomaly Flagging Persistence ---');
+  // Create 3 orders to trigger anomaly detection (we cancelled 1, but total placed counts)
+  await post('http://localhost:3001/api/orders', {
+    customerId: 'u-cust1',
+    stockistId: 's1',
+    items: [{ productId: 'p1', quantity: 1 }]
+  });
+  await post('http://localhost:3001/api/orders', {
+    customerId: 'u-cust1',
+    stockistId: 's1',
+    items: [{ productId: 'p1', quantity: 1 }]
+  });
+
+  const anomalies = (await get('http://localhost:3001/api/admin/anomalies')).body;
+  assert(anomalies.length > 0, 'Anomaly logged successfully');
+  const targetAnomaly = anomalies[0];
+  assert(targetAnomaly.status === 'PENDING', 'Initial anomaly status is PENDING');
+
+  const flagRes = await post(`http://localhost:3001/api/admin/anomalies/${targetAnomaly.id}/flag`);
+  assert(flagRes.status === 200, 'Anomaly flagged successfully via API');
+
+  const anomaliesUpdated = (await get('http://localhost:3001/api/admin/anomalies')).body;
+  const updatedAnomaly = anomaliesUpdated.find(a => a.id === targetAnomaly.id);
+  assert(updatedAnomaly && updatedAnomaly.status === 'FLAGGED', 'Anomaly status persisted as FLAGGED');
+
+  // 8. No rupee symbol on raw points
+  console.log('\n--- 8. Raw Points Balance Format ---');
+  const balanceRawObj = (await get('http://localhost:3001/api/ledger/balance/u-cust1')).body;
+  assert(typeof balanceRawObj.balance === 'number', 'Raw points balance is numeric');
+  assert(!String(balanceRawObj.balance).includes('₹'), 'Raw points balance payload does not contain rupee symbol (₹)');
+
+  console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
+  process.exit(0);
+}
+
+main().catch(err => {
+  console.error('Fatal error during regression tests:', err);
+  process.exit(1);
+});
