@@ -321,6 +321,30 @@ function calculateSettlement(subtotal, totalProfitMargin, stockistId, regionId) 
   };
 }
 
+// Helper: Reverse points if order is cancelled
+function reverseOrderPoints(orderId) {
+  const ledger = db.getTable('points_ledger');
+  const existingEarn = ledger.find(l => l.order_id === orderId && l.type === 'EARN');
+  if (existingEarn) {
+    const alreadyReversed = ledger.some(l => l.order_id === orderId && l.type === 'REVERSAL');
+    if (!alreadyReversed) {
+      ledger.push({
+        id: 'l-' + generateId(),
+        tenant_id: existingEarn.tenant_id,
+        region_id: existingEarn.region_id,
+        customer_id: existingEarn.customer_id,
+        amount: -existingEarn.amount,
+        type: 'REVERSAL',
+        order_id: orderId,
+        description: `Reversal of points earned from Cancelled Order #${orderId.substring(2).toUpperCase()}`,
+        created_at: new Date().toISOString(),
+        billing_sync_status: 'PENDING'
+      });
+      db.saveTable('points_ledger', ledger);
+    }
+  }
+}
+
 // Helper: Enrich Order
 function enrichOrder(o) {
   if (!o) return null;
@@ -510,6 +534,7 @@ app.post('/api/orders', (req, res) => {
       stockist_name: stockist.name,
       reason: 'High order frequency detected: customer placed ' + recentOrders.length + ' orders with this stockist in 24 hours.',
       frequency_metric: `${recentOrders.length} orders / 24h`,
+      status: 'PENDING',
       created_at: new Date().toISOString()
     });
     db.saveTable('anomaly_logs', anomalyLogs);
@@ -566,6 +591,11 @@ app.patch('/api/orders/:id/status', (req, res) => {
 
   order.status = status;
   db.saveTable('orders', orders);
+
+  if (status === 'CANCELLED') {
+    reverseOrderPoints(id);
+  }
+
   return res.json({ success: true, order: enrichOrder(order) });
 });
 
@@ -634,6 +664,9 @@ app.post('/api/orders/sync', (req, res) => {
     if (order) {
       order.status = upd.status;
       syncCount++;
+      if (upd.status === 'CANCELLED') {
+        reverseOrderPoints(upd.orderId);
+      }
     }
   });
 
@@ -672,6 +705,7 @@ app.post('/api/ledger/redeem', (req, res) => {
   }
 
   const ALLOWED_REDEMPTION_TYPES = [
+    'BROADBAND_DISCOUNT',
     'BROADBAND_DISCOUNT_50',
     'BROADBAND_DISCOUNT_100',
     'WIFI_TOPUP',
@@ -700,7 +734,9 @@ app.post('/api/ledger/redeem', (req, res) => {
   
   let description = '';
   const pts = parseFloat(amount);
-  if (redemptionType === 'BROADBAND_DISCOUNT_50') {
+  if (redemptionType === 'BROADBAND_DISCOUNT') {
+    description = `Broadband Bill Discount - ₹${pts.toFixed(0)}`;
+  } else if (redemptionType === 'BROADBAND_DISCOUNT_50') {
     description = 'Broadband Bill Discount - ₹50';
   } else if (redemptionType === 'BROADBAND_DISCOUNT_100') {
     description = 'Broadband Bill Discount - ₹100';
@@ -1011,6 +1047,17 @@ app.get('/api/stockists/:stockistId/vendors', (req, res) => {
 app.get('/api/admin/anomalies', (req, res) => {
   const logs = db.getTable('anomaly_logs');
   return res.json(logs);
+});
+
+app.post('/api/admin/anomalies/:id/flag', (req, res) => {
+  const { id } = req.params;
+  const logs = db.getTable('anomaly_logs');
+  const idx = logs.findIndex(l => l.id === id);
+  if (idx === -1) return res.status(404).json({ error: 'Anomaly log not found.' });
+
+  logs[idx].status = 'FLAGGED';
+  db.saveTable('anomaly_logs', logs);
+  return res.json({ success: true, log: logs[idx] });
 });
 
 app.get('/api/admin/redemptions', (req, res) => {

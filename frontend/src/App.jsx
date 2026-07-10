@@ -908,7 +908,11 @@ export default function App() {
     }
 
     try {
-      const payload = { customerId: currentUser.id, amount: parseFloat(redeemAmount) };
+      const payload = { 
+        customerId: currentUser.id, 
+        amount: parseFloat(redeemAmount),
+        redemptionType: 'BROADBAND_DISCOUNT'
+      };
       const res = await fetch(`${API_BASE}/ledger/redeem`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -918,7 +922,7 @@ export default function App() {
       logApi('POST', '/ledger/redeem', payload, res.status, data);
 
       if (res.ok) {
-        showToast(`Redeemed ₹${redeemAmount} against ISP bill! (বিল ডিসকাউন্ট করা হয়েছে)`);
+        showToast(`Redeemed ${redeemAmount} points against ISP bill! (বিল ডিসকাউন্ট করা হয়েছে)`);
         setDiscountApplied(prev => prev + parseFloat(redeemAmount));
         setRedeemAmount('');
         loadCustomerData();
@@ -1243,6 +1247,25 @@ export default function App() {
       }
     } catch (err) {
       showToast('Network error assigning wholesaler', 'error');
+    }
+  };
+
+  const handleFlagAnomaly = async (anomalyId) => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/anomalies/${anomalyId}/flag`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const data = await res.json();
+      logApi('POST', `/admin/anomalies/${anomalyId}/flag`, null, res.status, data);
+      if (res.ok) {
+        showToast('Stockist account flagged for review.');
+        fetchDbState();
+      } else {
+        showToast(data.error || 'Failed to flag anomaly', 'error');
+      }
+    } catch (err) {
+      showToast('Network error flagging anomaly', 'error');
     }
   };
 
@@ -1751,7 +1774,7 @@ export default function App() {
                 <hr style={{ borderColor: 'var(--border-color)' }} />
                 <div>
                   <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Loyalty Points Credited</p>
-                  <div className="calc-val" style={{ color: 'var(--primary)' }}>₹{((calcCustomers * (calcMarketplace * 0.18) * 0.45)).toLocaleString(undefined, {maximumFractionDigits: 0})}</div>
+                  <div className="calc-val" style={{ color: 'var(--primary)' }}>{((calcCustomers * (calcMarketplace * 0.18) * 0.45)).toLocaleString(undefined, {maximumFractionDigits: 0})} pts</div>
                   <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>Directly subsidizing customer broadband bills monthly</p>
                 </div>
               </div>
@@ -3298,9 +3321,13 @@ export default function App() {
                           <td><span className="badge badge-danger">{an.frequency_metric}</span></td>
                           <td style={{ color: 'var(--warning)', fontSize: '0.8rem' }}>{an.reason}</td>
                           <td>
-                            <button className="btn btn-secondary" style={{ padding: '0.25rem 0.5rem', fontSize: '0.7rem' }} onClick={() => showToast('Stockist account flagged for review.')}>
-                              Flag for Review (তদন্ত করুন)
-                            </button>
+                            {an.status === 'FLAGGED' ? (
+                              <span style={{ color: 'var(--danger)', fontWeight: 'bold', fontSize: '0.75rem' }}>⚠️ Flagged for Investigation</span>
+                            ) : (
+                              <button className="btn btn-secondary" style={{ padding: '0.25rem 0.5rem', fontSize: '0.7rem' }} onClick={() => handleFlagAnomaly(an.id)}>
+                                Flag for Review (তদন্ত করুন)
+                              </button>
+                            )}
                           </td>
                         </tr>
                       ))}
