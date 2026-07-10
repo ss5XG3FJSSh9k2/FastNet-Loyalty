@@ -1477,9 +1477,9 @@ export default function App() {
       showToast('No redemptions to export', 'error');
       return;
     }
-    const headers = 'ID,Timestamp,Customer Name,Customer Phone,Amount,Status\n';
+    const headers = 'ID,Timestamp,Customer Name,Customer Phone,Amount,Status,Redemption Type\n';
     const rows = pendingRedemptions.map(r => 
-      `"${r.id}","${r.created_at}","${r.customer_name}","${r.customer_phone}",${Math.abs(r.amount)},"${r.billing_sync_status}"`
+      `"${r.id}","${r.created_at}","${r.customer_name}","${r.customer_phone}",${Math.abs(r.amount)},"${r.billing_sync_status}","${r.description || ''}"`
     ).join('\n');
     
     const blob = new Blob([headers + rows], { type: 'text/csv' });
@@ -2337,14 +2337,6 @@ export default function App() {
                           { label: 'Kids & Family Bundle', sub: 'Cartoon Network, Pogo & family channels', pts: 120, type: 'CABLE_RECHARGE', emoji: '👨‍👩‍👧' },
                         ]
                       },
-                      {
-                        category: '🛍️ Grocery Vouchers',
-                        color: '#10b981',
-                        items: [
-                          { label: '₹25 off next grocery order', sub: 'Auto-applied at checkout on your next FastNet order', pts: 25, type: 'GROCERY_VOUCHER_25', emoji: '🛒' },
-                          { label: '₹75 off grocery order', sub: 'Valid on orders above ₹200 from any local store', pts: 60, type: 'GROCERY_VOUCHER_75', emoji: '🥦' },
-                        ]
-                      },
                     ];
 
                     return (
@@ -2354,7 +2346,7 @@ export default function App() {
                         <div style={{ background: 'linear-gradient(135deg, rgba(99,102,241,0.25) 0%, rgba(236,72,153,0.15) 100%)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: '14px', padding: '1rem', textAlign: 'center' }}>
                           <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: '0.2rem' }}>Your Balance</div>
                           <div style={{ fontSize: '2rem', fontWeight: '800', color: 'white', lineHeight: 1 }}>{customerBalance.toFixed(1)} <span style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>pts</span></div>
-                          <div style={{ fontSize: '0.6rem', color: '#818cf8', marginTop: '0.35rem' }}>≈ ₹{customerBalance.toFixed(0)} in value · Earned from your grocery shopping</div>
+                          <div style={{ fontSize: '0.6rem', color: '#818cf8', marginTop: '0.35rem' }}>Redeemable across FastNet broadband, wifi, and cable TV plans</div>
                           <div style={{ marginTop: '0.5rem', display: 'flex', justifyContent: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
                             {shopItems.map(cat => (
                               <span key={cat.category} style={{ fontSize: '0.55rem', padding: '0.15rem 0.5rem', borderRadius: '99px', background: cat.color + '22', color: cat.color, border: `1px solid ${cat.color}44` }}>{cat.category}</span>
@@ -3348,6 +3340,7 @@ export default function App() {
                         <th>Subscriber Name</th>
                         <th>Subscriber Phone</th>
                         <th>Subscriber Discount</th>
+                        <th>Redemption Type</th>
                         <th>Sync Status</th>
                         <th>Actions</th>
                       </tr>
@@ -3360,6 +3353,7 @@ export default function App() {
                           <td>{r.customer_name}</td>
                           <td>{r.customer_phone}</td>
                           <td style={{ fontWeight: 'bold', color: 'var(--accent)' }}>{Math.abs(r.amount)} pts</td>
+                          <td>{r.description || 'N/A'}</td>
                           <td>
                             <span className={`badge ${r.billing_sync_status === 'SYNCED' ? 'badge-success' : 'badge-warning'}`}>
                               {r.billing_sync_status || 'PENDING'}
@@ -3378,7 +3372,7 @@ export default function App() {
                       ))}
                       {pendingRedemptions.length === 0 && (
                         <tr>
-                          <td colSpan="7" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
+                          <td colSpan="8" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
                             No subscriber redemptions logged.
                           </td>
                         </tr>

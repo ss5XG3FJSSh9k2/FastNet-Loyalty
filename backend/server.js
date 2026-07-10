@@ -671,6 +671,18 @@ app.post('/api/ledger/redeem', (req, res) => {
     return res.status(400).json({ error: 'Invalid redemption parameters' });
   }
 
+  const ALLOWED_REDEMPTION_TYPES = [
+    'BROADBAND_DISCOUNT_50',
+    'BROADBAND_DISCOUNT_100',
+    'WIFI_TOPUP',
+    'DATA_TOPUP',
+    'CABLE_RECHARGE'
+  ];
+
+  if (!redemptionType || !ALLOWED_REDEMPTION_TYPES.includes(redemptionType)) {
+    return res.status(400).json({ error: 'Invalid redemption type.' });
+  }
+
   const users = db.getTable('users');
   const customer = users.find(u => u.id === customerId);
   if (!customer) return res.status(404).json({ error: 'Customer not found' });
@@ -686,11 +698,28 @@ app.post('/api/ledger/redeem', (req, res) => {
   const redeemAmount = -Math.abs(parseFloat(amount));
   const ledgerId = 'l-' + generateId();
   
-  let description = `Redeemed points against Broadband Bill`;
-  if (redemptionType === 'CABLE_RECHARGE') {
-    description = `Redeemed for Cable TV Recharge`;
+  let description = '';
+  const pts = parseFloat(amount);
+  if (redemptionType === 'BROADBAND_DISCOUNT_50') {
+    description = 'Broadband Bill Discount - ₹50';
+  } else if (redemptionType === 'BROADBAND_DISCOUNT_100') {
+    description = 'Broadband Bill Discount - ₹100';
   } else if (redemptionType === 'WIFI_TOPUP') {
-    description = `Redeemed for WiFi Top-up`;
+    description = 'WiFi Speed Booster 48h (100 Mbps)';
+  } else if (redemptionType === 'DATA_TOPUP') {
+    description = 'WiFi Data Top-up 10 GB';
+  } else if (redemptionType === 'CABLE_RECHARGE') {
+    if (pts === 100) {
+      description = 'Cable TV Basic Pack - 1 Month Free';
+    } else if (pts === 250) {
+      description = 'Cable TV HD Premium Pack - 1 Month';
+    } else if (pts === 120) {
+      description = 'Cable TV Kids & Family Bundle';
+    } else {
+      description = 'Cable TV Recharge Package';
+    }
+  } else {
+    description = 'Redeemed points against Broadband Bill';
   }
 
   ledger.push({
