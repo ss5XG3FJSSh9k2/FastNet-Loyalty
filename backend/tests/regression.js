@@ -200,6 +200,56 @@ async function main() {
   assert(typeof balanceRawObj.balance === 'number', 'Raw points balance is numeric');
   assert(!String(balanceRawObj.balance).includes('₹'), 'Raw points balance payload does not contain rupee symbol (₹)');
 
+  // 9. Flexible pre-order switching & post-order lock
+  console.log('\n--- 9. Fulfillment Pre-order Delivery Fee & Post-order Lock ---');
+  const orderDelRes = await post('http://localhost:3001/api/orders', {
+    customerId: 'u-cust1',
+    stockistId: 's1',
+    fulfillmentType: 'DELIVERY',
+    items: [{ productId: 'p1', quantity: 1 }]
+  });
+  assert(orderDelRes.status === 200, 'Order with DELIVERY fulfillment created successfully');
+  const orderDelId = orderDelRes.body.orderId;
+  
+  const orderDelDetails = (await get(`http://localhost:3001/api/orders`)).body.find(o => o.id === orderDelId);
+  assert(orderDelDetails.fulfillment_type === 'DELIVERY', 'Order fulfillment type is DELIVERY');
+  assert(orderDelDetails.delivery_fee === 40, `Delivery fee of 40 applied: ${orderDelDetails.delivery_fee}`);
+  assert(orderDelDetails.total_price === 70, `Total price includes delivery fee: ${orderDelDetails.total_price} === 70`);
+
+  const patchPickupRes = await patch(`http://localhost:3001/api/orders/${orderDelId}/fulfillment`, {
+    fulfillmentType: 'PICKUP'
+  });
+  assert(patchPickupRes.status === 400, 'Switching post-order from DELIVERY to PICKUP is blocked');
+
+  const orderPickRes = await post('http://localhost:3001/api/orders', {
+    customerId: 'u-cust1',
+    stockistId: 's1',
+    fulfillmentType: 'PICKUP',
+    items: [{ productId: 'p1', quantity: 1 }]
+  });
+  assert(orderPickRes.status === 200, 'Order with PICKUP fulfillment created successfully');
+  const orderPickId = orderPickRes.body.orderId;
+
+  const patchDelRes = await patch(`http://localhost:3001/api/orders/${orderPickId}/fulfillment`, {
+    fulfillmentType: 'DELIVERY'
+  });
+  assert(patchDelRes.status === 200, 'Switching post-order from PICKUP to DELIVERY is allowed');
+  
+  const orderPickDetailsUpdated = (await get(`http://localhost:3001/api/orders`)).body.find(o => o.id === orderPickId);
+  assert(orderPickDetailsUpdated.fulfillment_type === 'DELIVERY', 'Fulfillment type updated to DELIVERY');
+  assert(orderPickDetailsUpdated.delivery_fee === 40, 'Delivery fee calculated and added');
+  assert(orderPickDetailsUpdated.total_price === 70, 'Total price updated with delivery fee');
+
+  // 10. IST timezone boundary check
+  console.log('\n--- 10. IST Timezone Boundary Check ---');
+  const dateAt20UTC = new Date('2026-07-13T20:00:00Z');
+  function localISTDateString(date) {
+    const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+    const istDate = new Date(date.getTime() + IST_OFFSET_MS);
+    return istDate.toISOString().slice(0, 10);
+  }
+  assert(localISTDateString(dateAt20UTC) === '2026-07-14', 'IST timezone boundary wraps correctly past midnight IST');
+
   console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);
 }

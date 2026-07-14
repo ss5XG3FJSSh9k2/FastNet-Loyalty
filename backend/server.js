@@ -321,6 +321,110 @@ app.get('/api/stockists/by-user/:userId', (req, res) => {
   return res.json(stockist);
 });
 
+// Helper for IST Day Boundary
+function getISTDateString(date = new Date()) {
+  const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+  const istDate = new Date(date.getTime() + IST_OFFSET_MS);
+  return istDate.toISOString().slice(0, 10); // "YYYY-MM-DD"
+}
+
+app.get('/api/stockists/:id/stats', (req, res) => {
+  const { id } = req.params;
+  const orders = db.getTable('orders').filter(o => o.stockist_id === id);
+  const todayStr = getISTDateString();
+
+  const todayOrders = orders.filter(o => getISTDateString(new Date(o.created_at)) === todayStr);
+  const todayDelivered = todayOrders.filter(o => o.status === 'DELIVERED');
+  
+  const today_earnings = todayDelivered.reduce((sum, o) => {
+    const enriched = enrichOrder(o);
+    return sum + (enriched.stockist_amount || 0);
+  }, 0);
+  
+  const today_order_count = todayDelivered.length;
+
+  const deliveredOrders = orders.filter(o => o.status === 'DELIVERED');
+  const totalDeliveredValue = deliveredOrders.reduce((sum, o) => {
+    const enriched = enrichOrder(o);
+    return sum + (enriched.stockist_amount || 0);
+  }, 0);
+  const avg_order_value = deliveredOrders.length > 0 ? (totalDeliveredValue / deliveredOrders.length) : 0;
+
+  const total_fulfilled = orders.filter(o => o.status === 'DELIVERED').length;
+  const total_cancelled = orders.filter(o => o.status === 'CANCELLED').length;
+
+  // Top 5 selling products
+  const orderItems = db.getTable('order_items');
+  const deliveredOrderIds = new Set(deliveredOrders.map(o => o.id));
+  const items = orderItems.filter(oi => deliveredOrderIds.has(oi.order_id));
+
+  const productQuantities = {};
+  items.forEach(item => {
+    if (!productQuantities[item.product_id]) {
+      productQuantities[item.product_id] = { id: item.product_id, name: item.name, qty: 0 };
+    }
+    productQuantities[item.product_id].qty += item.quantity;
+  });
+
+  const top_products = Object.values(productQuantities)
+    .sort((a, b) => b.qty - a.qty)
+    .slice(0, 5);
+
+  // Weekly data (last 7 days trend)
+  const weekly_data = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(Date.now() - i * 24 * 60 * 60 * 1000);
+    const istStr = getISTDateString(d);
+    const options = { weekday: 'short', timeZone: 'Asia/Kolkata' };
+    const dayName = d.toLocaleDateString('en-US', options);
+
+    const dayOrders = orders.filter(o => o.status === 'DELIVERED' && getISTDateString(new Date(o.created_at)) === istStr);
+    const dayEarnings = dayOrders.reduce((sum, o) => {
+      const enriched = enrichOrder(o);
+      return sum + (enriched.stockist_amount || 0);
+    }, 0);
+
+    weekly_data.push({
+      day: dayName,
+      earnings: Math.round(dayEarnings * 100) / 100
+    });
+  }
+
+  // Monthly data (last 28 days trend, grouped by 4 weeks)
+  const monthly_data = [];
+  for (let i = 3; i >= 0; i--) {
+    const startOffset = (i + 1) * 7;
+    const endOffset = i * 7;
+    let weekEarnings = 0;
+    
+    for (let dayOffset = startOffset - 1; dayOffset >= endOffset; dayOffset--) {
+      const d = new Date(Date.now() - dayOffset * 24 * 60 * 60 * 1000);
+      const istStr = getISTDateString(d);
+      const dayOrders = orders.filter(o => o.status === 'DELIVERED' && getISTDateString(new Date(o.created_at)) === istStr);
+      weekEarnings += dayOrders.reduce((sum, o) => {
+        const enriched = enrichOrder(o);
+        return sum + (enriched.stockist_amount || 0);
+      }, 0);
+    }
+    
+    monthly_data.push({
+      day: `Wk -${i}`,
+      earnings: Math.round(weekEarnings * 100) / 100
+    });
+  }
+
+  return res.json({
+    today_earnings,
+    today_order_count,
+    avg_order_value,
+    total_fulfilled,
+    total_cancelled,
+    top_products,
+    weekly_data,
+    monthly_data
+  });
+});
+
 // ----------------------------------------------------
 // ORDER & PAYMENT SPLIT ENDPOINTS
 // ----------------------------------------------------
@@ -405,7 +509,7 @@ function enrichOrder(o) {
 }
 
 app.post('/api/orders', (req, res) => {
-  const { customerId, stockistId, items } = req.body; // items: [{productId, quantity}]
+  const { customerId, stockistId, items, fulfillmentType } = req.body; // items: [{productId, quantity}]
   if (!customerId || !stockistId || !items || items.length === 0) {
     return res.status(400).json({ error: 'Invalid order request' });
   }
@@ -453,7 +557,8 @@ app.post('/api/orders', (req, res) => {
   // §3: Remove minimum order value and low-order cart fee — for now. Bypassed.
 
   // §7: Default fulfillment option is pickup, delivery fee is 0 initially.
-  const deliveryFee = 0.00;
+  const reqFulfillment = fulfillmentType || 'PICKUP';
+  const deliveryFee = reqFulfillment === 'DELIVERY' ? (stockist.region_id === 'r2' ? 30.00 : 40.00) : 0.00;
   const lowOrderFee = 0.00; // Removed per §3
   const totalPrice = subtotal + deliveryFee + lowOrderFee;
 
@@ -488,7 +593,7 @@ app.post('/api/orders', (req, res) => {
     delivery_fee: deliveryFee,
     low_order_fee: lowOrderFee,
     total_price: totalPrice,
-    fulfillment_type: 'PICKUP', // Default pickup (§7)
+    fulfillment_type: reqFulfillment,
     pickup_slot: null,
     pickup_eta_minutes: 10,
     pickup_pin: Math.floor(1000 + Math.random() * 9000).toString(), // Generated Verification PIN (§B4)
@@ -634,41 +739,48 @@ app.patch('/api/orders/:id/fulfillment', (req, res) => {
   const order = orders.find(o => o.id === id);
   if (!order) return res.status(404).json({ error: 'Order not found' });
 
-  if (fulfillmentType === 'DELIVERY') {
-    if (order.fulfillment_type === 'DELIVERY') {
-      return res.status(400).json({ error: 'Already switched to delivery. Cannot switch back.' });
+  if (fulfillmentType) {
+    if (fulfillmentType === 'PICKUP') {
+      if (order.fulfillment_type === 'DELIVERY') {
+        return res.status(400).json({ error: 'Already switched to delivery. Cannot switch back.' });
+      }
+      order.fulfillment_type = 'PICKUP';
+    } else if (fulfillmentType === 'DELIVERY') {
+      if (order.fulfillment_type !== 'DELIVERY') {
+        order.fulfillment_type = 'DELIVERY';
+        
+        const stockists = db.getTable('stockists');
+        const stockist = stockists.find(s => s.id === order.stockist_id);
+        const deliveryFee = stockist.region_id === 'r2' ? 30.00 : 40.00;
+
+        order.delivery_fee = deliveryFee;
+        order.total_price = order.subtotal + deliveryFee + order.low_order_fee;
+
+        // Recalculate splits
+        const splitPayouts = db.getTable('split_payouts');
+        const payout = splitPayouts.find(sp => sp.order_id === id);
+        
+        // Settlement calculations
+        const settlement = calculateSettlement(order.subtotal, 0, order.stockist_id, order.region_id);
+        const stockistPayout = order.subtotal - settlement.platformCommission + deliveryFee;
+        const platformPayout = settlement.platformCommission + order.low_order_fee;
+
+        if (payout) {
+          payout.stockist_amount = stockistPayout;
+          payout.platform_amount = platformPayout;
+          db.saveTable('split_payouts', splitPayouts);
+        }
+      }
+    } else {
+      return res.status(400).json({ error: 'Invalid parameters.' });
     }
-    // Switch to delivery
-    order.fulfillment_type = 'DELIVERY';
-    
-    const stockists = db.getTable('stockists');
-    const stockist = stockists.find(s => s.id === order.stockist_id);
-    const deliveryFee = stockist.region_id === 'r2' ? 30.00 : 40.00;
+  }
 
-    order.delivery_fee = deliveryFee;
-    order.total_price = order.subtotal + deliveryFee + order.low_order_fee;
-
-    // Recalculate splits
-    const splitPayouts = db.getTable('split_payouts');
-    const payout = splitPayouts.find(sp => sp.order_id === id);
-    
-    // Settlement calculations
-    const settlement = calculateSettlement(order.subtotal, 0, order.stockist_id, order.region_id);
-    const stockistPayout = order.subtotal - settlement.platformCommission + deliveryFee;
-    const platformPayout = settlement.platformCommission + order.low_order_fee;
-
-    if (payout) {
-      payout.stockist_amount = stockistPayout;
-      payout.platform_amount = platformPayout;
-      db.saveTable('split_payouts', splitPayouts);
-    }
-  } else if (pickupSlot) {
+  if (pickupSlot) {
     if (order.fulfillment_type === 'DELIVERY') {
       return res.status(400).json({ error: 'Cannot set pickup slot for delivery orders.' });
     }
     order.pickup_slot = pickupSlot;
-  } else {
-    return res.status(400).json({ error: 'Invalid parameters.' });
   }
 
   db.saveTable('orders', orders);

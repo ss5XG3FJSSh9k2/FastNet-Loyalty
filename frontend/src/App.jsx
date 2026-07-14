@@ -18,8 +18,40 @@ import {
   RotateCcw,
   Download,
   AlertCircle,
-  Gift
+  Gift,
+  Truck,
+  Store,
+  Key,
+  RefreshCw,
+  MessageSquare,
+  Search,
+  X,
+  Signal,
+  Package,
+  BarChart2,
+  AlertTriangle,
+  MapPin,
+  Phone,
+  LogOut,
+  HelpCircle,
+  Battery,
+  Clock,
+  ArrowLeft,
+  Tv,
+  Languages,
+  ChevronDown,
+  ChevronUp,
+  FileText
 } from 'lucide-react';
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer
+} from 'recharts';
 
 const API_BASE = 'http://localhost:3001/api';
 
@@ -41,12 +73,15 @@ export default function App() {
   const [selectedStockist, setSelectedStockist] = useState(null);
   const [customerProducts, setCustomerProducts] = useState([]);
   const [customerCart, setCustomerCart] = useState([]);
+  const [cartFulfillment, setCartFulfillment] = useState('PICKUP');
+  const [simulatedWaMessage, setSimulatedWaMessage] = useState(null);
   const [customerLedger, setCustomerLedger] = useState([]);
   const [customerBalance, setCustomerBalance] = useState(0);
   const [customerOrders, setCustomerOrders] = useState([]);
   const [customerAppTab, setCustomerAppTab] = useState('store'); // store, ledger, orders
   const [redeemAmount, setRedeemAmount] = useState('');
   const [checkoutResult, setCheckoutResult] = useState(null);
+  const [customerSearch, setCustomerSearch] = useState('');
 
   // New expansion states
   const [activeFulfillmentOrder, setActiveFulfillmentOrder] = useState(null);
@@ -77,6 +112,7 @@ export default function App() {
   const [prepElapsedOrders, setPrepElapsedOrders] = useState([]);
   const [restockQuantities, setRestockQuantities] = useState({});
   const [enteredPins, setEnteredPins] = useState({});
+  const [analyticsRange, setAnalyticsRange] = useState('weekly'); // weekly, monthly
   const [showAddProductModal, setShowAddProductModal] = useState(false);
   const [newProdName, setNewProdName] = useState('');
   const [newProdPrice, setNewProdPrice] = useState('');
@@ -84,6 +120,24 @@ export default function App() {
   const [newProdCategory, setNewProdCategory] = useState('groceries');
   const [newProdInitialStock, setNewProdInitialStock] = useState('10');
   const [lowStockThreshold, setLowStockThreshold] = useState('15');
+
+  // Multi-lingual & Simulation States
+  const [lang, setLang] = useState('en');
+  const t = (en, hi, bn) => lang === 'hi' ? hi : lang === 'bn' ? bn : en;
+  const [productSearch, setProductSearch] = useState('');
+  const [stockistProductSearch, setStockistProductSearch] = useState('');
+  const [fulfillmentPreference, setFulfillmentPreference] = useState('PICKUP');
+  const [expandedBreakdownOrders, setExpandedBreakdownOrders] = useState(new Set());
+  const toggleBreakdown = (orderId) => {
+    setExpandedBreakdownOrders(prev => {
+      const next = new Set(prev);
+      if (next.has(orderId)) next.delete(orderId); else next.add(orderId);
+      return next;
+    });
+  };
+  const [waModalOrder, setWaModalOrder] = useState(null);
+  const [stockistAnalytics, setStockistAnalytics] = useState(null);
+  const [stockistActiveTab, setStockistActiveTab] = useState('orders'); // orders | analytics | inventory
 
   // Stockist App State
   const [stockistProfile, setStockistProfile] = useState(null);
@@ -835,7 +889,8 @@ export default function App() {
 
   // Calculated checkout metrics
   const cartSubtotal = customerCart.reduce((sum, item) => sum + (item.product.price * item.quantity), 0);
-  const cartTotal = cartSubtotal; // Zero delivery fee at checkout (§7), zero low-order fee (§3)
+  const cartDeliveryFee = cartFulfillment === 'DELIVERY' ? (selectedStockist?.region_id === 'r2' ? 30.00 : 40.00) : 0.00;
+  const cartTotal = cartSubtotal + cartDeliveryFee;
   const estimatedEarnPoints = Math.round(
     customerCart.reduce((sum, item) => {
       const itemMargin = (item.product.price - item.product.cost_price) * item.quantity;
@@ -864,6 +919,7 @@ export default function App() {
         const payload = {
           customerId: currentUser.id,
           stockistId: stockistId,
+          fulfillmentType: cartFulfillment,
           items: groups[stockistId].map(item => ({
             productId: item.product.id,
             quantity: item.quantity
@@ -981,6 +1037,13 @@ export default function App() {
       const allVRes = await fetch(`${API_BASE}/admin/vendors`);
       const allVData = await allVRes.json();
       setVendors(allVData);
+
+      // Fetch stockist stats
+      const statsRes = await fetch(`${API_BASE}/stockists/${pData.id}/stats`);
+      if (statsRes.ok) {
+        const statsData = await statsRes.json();
+        setStockistAnalytics(statsData);
+      }
     } catch (err) {
       console.error('Error loading stockist details:', err);
     }
@@ -1866,17 +1929,45 @@ export default function App() {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.75rem', width: '100%' }}>
         <div className="perspective-banner">
-          <span>👤 CUSTOMER VIEW (ক্রেতা মোড): {isLoggedOut ? "Not logged in (লগইন করা নেই)" : `${currentUser.name} (${activeRegionName})`}</span>
+          <span><UserCheck size={14} style={{ display: 'inline', marginRight: '0.25rem', verticalAlign: 'middle' }} /> {t('Customer View', 'कस्टमर व्यू', 'গ্রাহক মোড')}: {isLoggedOut ? t('Not logged in', 'লগইন করা নেই', 'লগইন করা নেই') : `${currentUser.name} (${activeRegionName})`}</span>
         </div>
         
         <div className="phone-mockup">
           <div className="phone-notch"></div>
           <div className="phone-screen">
+            {/* Language Selector Bar */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.4rem 0.75rem', background: 'rgba(255,255,255,0.02)', borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: '0.7rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', color: 'var(--text-muted)' }}>
+                <Languages size={12} />
+                <span>Language:</span>
+              </div>
+              <div style={{ display: 'flex', gap: '0.35rem' }}>
+                <button 
+                  onClick={() => setLang('en')} 
+                  style={{ background: lang === 'en' ? 'var(--primary)' : 'none', border: 'none', color: 'white', padding: '0.15rem 0.4rem', borderRadius: '4px', fontSize: '0.65rem', cursor: 'pointer', fontWeight: lang === 'en' ? 'bold' : 'normal' }}
+                >
+                  English
+                </button>
+                <button 
+                  onClick={() => setLang('hi')} 
+                  style={{ background: lang === 'hi' ? 'var(--primary)' : 'none', border: 'none', color: 'white', padding: '0.15rem 0.4rem', borderRadius: '4px', fontSize: '0.65rem', cursor: 'pointer', fontWeight: lang === 'hi' ? 'bold' : 'normal' }}
+                >
+                  हिंदी
+                </button>
+                <button 
+                  onClick={() => setLang('bn')} 
+                  style={{ background: lang === 'bn' ? 'var(--primary)' : 'none', border: 'none', color: 'white', padding: '0.15rem 0.4rem', borderRadius: '4px', fontSize: '0.65rem', cursor: 'pointer', fontWeight: lang === 'bn' ? 'bold' : 'normal' }}
+                >
+                  বাংলা
+                </button>
+              </div>
+            </div>
+
             {isLoggedOut ? (
               <>
                 <div className="phone-header">
                   <span>FastNet 5G</span>
-                  <span>📶 🔋 19:43</span>
+                  <span><Signal size={12} style={{ display: 'inline', marginRight: '0.2rem' }} /><Battery size={12} style={{ display: 'inline', marginRight: '0.2rem' }} /> 19:43</span>
                 </div>
                 {/* Localized Auth Form */}
                 <div style={{ padding: '2rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '1.5rem', justifyContent: 'center', height: '100%' }}>
@@ -1884,14 +1975,14 @@ export default function App() {
                     <div style={{ display: 'inline-flex', padding: '0.75rem', borderRadius: '50%', background: 'var(--primary-glow)', color: 'var(--primary)', marginBottom: '0.75rem' }}>
                       <Smartphone size={32} />
                     </div>
-                    <h2 style={{ fontSize: '1.4rem', fontWeight: 'bold' }}>Phone OTP Login (লগইন করুন)</h2>
+                    <h2 style={{ fontSize: '1.4rem', fontWeight: 'bold' }}>{t('Phone OTP Login', 'फ़ोन ओटीपी लॉगिन', 'ফোন ওটিপি লগইন')}</h2>
                     <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>FastNet Hyperlocal Storefront Access</p>
                   </div>
 
                   {!otpSent ? (
                     <>
                       <div className="input-group">
-                        <label className="input-label">Phone Number (মোবাইল নম্বর)</label>
+                        <label className="input-label">{t('Phone Number', 'फ़ोन नंबर', 'মোবাইল নম্বর')}</label>
                         <input 
                           type="tel" 
                           placeholder="Enter 10-digit mobile number" 
@@ -1900,7 +1991,7 @@ export default function App() {
                           onChange={e => setLoginPhone(e.target.value.replace(/\D/g,'').substring(0,10))}
                         />
                       </div>
-                      <button className="btn" onClick={handleSendOtp}>Send Code (ওটিপি পাঠান / OTP Bhejo)</button>
+                      <button className="btn" onClick={handleSendOtp}>{t('Send Code', 'ओटीपी भेजें', 'কোড পাঠান')}</button>
                       
                       <div style={{ background: 'rgba(255,255,255,0.02)', padding: '0.75rem', borderRadius: '6px', fontSize: '0.7rem', border: '1px dashed var(--border-color)', color: 'var(--text-muted)' }}>
                         <strong>Demo Accounts:</strong>
@@ -1914,7 +2005,7 @@ export default function App() {
                         OTP sent to <strong>{loginPhone}</strong>. Use demo code <strong>123456</strong>.
                       </div>
                       <div className="input-group">
-                        <label className="input-label">Enter 6-Digit OTP (কোড লিখুন)</label>
+                        <label className="input-label">{t('Enter 6-Digit OTP', 'ओटीपी कोड दर्ज करें', 'ওটিপি কোড লিখুন')}</label>
                         <input 
                           type="text" 
                           placeholder="123456" 
@@ -1927,7 +2018,7 @@ export default function App() {
                       </div>
                       <div style={{ display: 'flex', gap: '0.5rem' }}>
                         <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setOtpSent(false)}>Back</button>
-                        <button className="btn" style={{ flex: 2 }} onClick={handleVerifyOtp}>Verify (যাচাই করুন / Login)</button>
+                        <button className="btn" style={{ flex: 2 }} onClick={handleVerifyOtp}>{t('Verify & Login', 'सत्यापित करें और लॉगिन करें', 'যাচাই করুন এবং লগইন')}</button>
                       </div>
 
                       {/* Registration section */}
@@ -1937,7 +2028,7 @@ export default function App() {
                         </p>
                         
                         <div className="input-group">
-                          <label className="input-label">Your Name (নাম)</label>
+                          <label className="input-label">{t('Your Name', 'आपका नाम', 'আপনার নাম')}</label>
                           <input 
                             type="text" 
                             placeholder="e.g. Joy Dev" 
@@ -1948,7 +2039,7 @@ export default function App() {
                         </div>
 
                         <div className="input-group">
-                          <label className="input-label">Select Region (অঞ্চল)</label>
+                          <label className="input-label">{t('Select Region', 'क्षेत्र चुनें', 'অঞ্চল নির্বাচন করুন')}</label>
                           <select className="text-input" value={regRegion} onChange={e => setRegRegion(e.target.value)}>
                             <option value="r1">Kolkata South (Garia)</option>
                             <option value="r2">Rural West Bengal (Bishnupur)</option>
@@ -2001,7 +2092,7 @@ export default function App() {
                         )}
 
                         <button className="btn btn-accent" style={{ width: '100%', marginTop: '1rem' }} onClick={handleRegister}>
-                          Sign Up & Login
+                          {t('Sign Up & Login', 'साइन अप और लॉगिन', 'সাইন আপ ও লগইন')}
                         </button>
                       </div>
                     </>
@@ -2020,22 +2111,21 @@ export default function App() {
                     <span>FastNet 5G</span>
                     <span className="badge badge-success" style={{ fontSize: '0.55rem', padding: '0.1rem 0.35rem' }}>{formatPoints(customerBalance)}</span>
                   </div>
-                  <span>📶 🔋 19:43</span>
+                  <span><Signal size={12} style={{ display: 'inline', marginRight: '0.2rem' }} /><Battery size={12} style={{ display: 'inline', marginRight: '0.2rem' }} /> 19:43</span>
                 </div>
 
-                {/* Checkout Success Modal overlay */}
                 {checkoutResult && (
                   <div style={{ position: 'absolute', inset: 0, background: 'rgba(11,14,20,0.97)', zIndex: 100, display: 'flex', flexDirection: 'column', padding: '1.25rem', overflowY: 'auto' }}>
                     <div style={{ textAlign: 'center', marginBottom: '1rem', marginTop: '1rem' }}>
                       <div style={{ display: 'inline-flex', padding: '0.5rem', borderRadius: '50%', background: 'rgba(16, 185, 129, 0.1)', color: 'var(--accent)', marginBottom: '0.5rem' }}>
                         <CheckCircle2 size={36} />
                       </div>
-                      <h3 style={{ fontSize: '1.25rem', color: 'white' }}>Order Placed (অর্ডার সফল হয়েছে)</h3>
-                      <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>Rewards will credit immediately, configure your fulfillment below.</p>
+                      <h3 style={{ fontSize: '1.25rem', color: 'white' }}>{t('Order Placed', 'ऑर्डर सफल हुआ', 'অর্ডার সফল হয়েছে')}</h3>
+                      <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>{t('Rewards will credit immediately, configure your fulfillment below.', 'पुरस्कार तुरंत जमा हो जाएंगे, नीचे अपना फ़ुलफ़िलमेंट सेट करें।', 'রিওয়ার্ডস সরাসরি যুক্ত হবে, নিচে আপনার ফুলফিলমেন্ট সেটিংস পরিবর্তন করুন।')}</p>
                     </div>
 
                     <div className="points-glow-box" style={{ padding: '0.75rem', borderRadius: '8px', textAlign: 'center', marginBottom: '1rem' }}>
-                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Total Rewards Credited</span>
+                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{t('Total Rewards Credited', 'कुल संचित रिवॉर्ड्स', 'মোট সঞ্চিত রিওয়ার্ড')}</span>
                       <h2 style={{ fontSize: '1.8rem', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', margin: '0.25rem 0' }}>
                         <Sparkles size={20} style={{ color: 'var(--warning)' }} />
                         +{formatPoints(checkoutResult.totalPointsCredited)}
@@ -2044,7 +2134,7 @@ export default function App() {
 
                     {/* Fulfillment Setup Block for placed orders */}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '1.5rem' }}>
-                      <h4 style={{ fontSize: '0.8rem', color: 'white', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.25rem' }}>Fulfillment Settings</h4>
+                      <h4 style={{ fontSize: '0.8rem', color: 'white', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.25rem' }}>{t('Fulfillment Settings', 'फ़ुलफ़िलमेंट सेटिंग्स', 'ফুলফিলমেন্ট সেটিংস')}</h4>
                       {checkoutResult.orders.map(o => {
                         const isPrepElapsed = prepElapsedOrders.includes(o.id);
                         return (
@@ -2057,17 +2147,17 @@ export default function App() {
                             {o.fulfillment_type === 'PICKUP' ? (
                               <div>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.25rem' }}>
-                                  <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Status: Take Away (Pickup)</span>
+                                  <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>{t('Status: Take Away (Pickup)', 'स्थिति: टेक अवे (पिकअप)', 'অবস্থা: টেক অ্যাওয়ে (পিকআপ)')}</span>
                                   {!isPrepElapsed ? (
                                     <button 
                                       className="btn btn-secondary" 
                                       style={{ padding: '0.15rem 0.4rem', fontSize: '0.6rem' }} 
                                       onClick={() => setPrepElapsedOrders(prev => [...prev, o.id])}
                                     >
-                                      Simulate Prep ETA Elapsed
+                                      {t('Simulate Prep ETA Elapsed', 'सिम्युलेट प्रेप ईटीए', 'সিমুলেট প্রেপ ইটিএ')}
                                     </button>
                                   ) : (
-                                    <span style={{ color: 'var(--accent)', fontSize: '0.6rem', fontWeight: 'bold' }}>Ready for Pickup!</span>
+                                    <span style={{ color: 'var(--accent)', fontSize: '0.6rem', fontWeight: 'bold' }}>{t('Ready for Pickup!', 'पिकअप के लिए तैयार!', 'পিকআপের জন্য প্রস্তুত!')}</span>
                                   )}
                                 </div>
 
@@ -2079,19 +2169,23 @@ export default function App() {
                                     value={o.pickup_slot || ''}
                                     onChange={e => handleSavePickupSlot(o.id, e.target.value)}
                                   >
-                                    <option value="">-- Choose Pickup Time Slot --</option>
-                                    <option value="Morning (8 AM - 12 PM)">Morning (8 AM - 12 PM)</option>
-                                    <option value="Afternoon (12 PM - 4 PM)">Afternoon (12 PM - 4 PM)</option>
-                                    <option value="Evening (4 PM - 8 PM)">Evening (4 PM - 8 PM)</option>
+                                    <option value="">-- {t('Choose Pickup Time Slot', 'पिकअप समय स्लॉट चुनें', 'পিকআপ সময় স্লট নির্বাচন')} --</option>
+                                    <option value="Morning (8 AM - 12 PM)">{t('Morning (8 AM - 12 PM)', 'सुबह (८ पूर्वाह्न - १२ अपराह्न)', 'সকাল (৮টা - ১২টা)')}</option>
+                                    <option value="Afternoon (12 PM - 4 PM)">{t('Afternoon (12 PM - 4 PM)', 'दोपहर (१२ अपराह्न - ४ अपराह्न)', 'দুপুর (১২টা - ৪টা)')}</option>
+                                    <option value="Evening (4 PM - 8 PM)">{t('Evening (4 PM - 8 PM)', 'शाम (४ अपराह्न - ८ अपराह्न)', 'সন্ধ্যা (৪টা - ৮টা)')}</option>
                                   </select>
                                   <p style={{ color: 'var(--text-muted)', fontSize: '0.55rem', marginTop: '0.2rem' }}>
-                                    {!isPrepElapsed ? '⚠️ Waiting for stockist prep time (ETA: 10 min).' : '⏰ Buffer grace window: 1-hour to collect.'}
+                                    {!isPrepElapsed ? (
+                                      <span><AlertTriangle size={10} style={{ display: 'inline', marginRight: '0.2rem', verticalAlign: 'middle' }} /> {t('Waiting for stockist prep time (ETA: 10 min).', 'दुकानदार की तैयारी के समय की प्रतीक्षा है (ईटीए: १० मिनट)।', 'দোকানদারের প্রস্তুতির জন্য অপেক্ষা করুন (ETA: ১০ মিনিট)।')}</span>
+                                    ) : (
+                                      <span><Clock size={10} style={{ display: 'inline', marginRight: '0.2rem', verticalAlign: 'middle' }} /> {t('Buffer grace window: 1-hour to collect.', 'बफर ग्रेस विंडो: संग्रह करने के लिए १ घंटा।', 'সংগ্রহ করার জন্য ১ ঘণ্টা সময় পাবেন।')}</span>
+                                    )}
                                   </p>
                                 </div>
 
                                 <div style={{ background: 'rgba(99, 102, 241, 0.08)', border: '1px dashed var(--primary)', borderRadius: '6px', padding: '0.4rem', marginTop: '0.4rem', textAlign: 'center' }}>
-                                  <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>🔑 Verification PIN (পিকআপ কোড):</span>
-                                  <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: 'var(--primary-glow)', letterSpacing: '0.15em' }}>{o.pickup_pin || '1234'}</div>
+                                  <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}><Key size={10} style={{ display: 'inline', marginRight: '0.2rem', verticalAlign: 'middle' }} /> {t('Verification PIN:', 'सत्यापन पिन:', 'পিকআপ কোড:')}:</span>
+                                  <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: 'var(--primary)', letterSpacing: '0.15em' }}>{o.pickup_pin || '1234'}</div>
                                 </div>
 
                                 <button 
@@ -2099,28 +2193,46 @@ export default function App() {
                                   style={{ width: '100%', padding: '0.3rem', fontSize: '0.65rem', marginTop: '0.5rem', background: 'rgba(236,72,153,0.1)', color: 'var(--secondary)', border: '1px solid var(--secondary)' }}
                                   onClick={() => handleSwitchToDelivery(o.id)}
                                 >
-                                  Switch to Delivery (+₹40)
+                                  {t('Switch to Delivery', 'डिलिवरी पर स्विच करें', 'ডেলিভারি মোডে যান')} (+₹{o.region_id === 'r2' ? 30 : 40})
                                 </button>
                               </div>
                             ) : (
                               <div>
-                                <span style={{ fontSize: '0.65rem', color: 'var(--secondary)', fontWeight: 'bold' }}>🚚 Mode: DELIVERY (একমুখী ডেলিভারি)</span>
-                                <p style={{ fontSize: '0.6rem', color: 'var(--text-muted)', marginTop: '0.1rem' }}>Shipping charges applied. Cannot switch back to pickup.</p>
+                                <span style={{ fontSize: '0.65rem', color: 'var(--secondary)', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                                  <Truck size={12} /> {t('Mode: DELIVERY', 'डिलिवरी मोड', 'ডেলিভারি মোড')}
+                                </span>
+                                <p style={{ fontSize: '0.6rem', color: 'var(--text-muted)', marginTop: '0.1rem' }}>{t('Shipping charges applied. Cannot switch back to pickup.', 'डिलिवरी शुल्क लागू। अब पिकअप पर वापस नहीं जा सकते।', 'ডেলিভারি চার্জ যুক্ত হয়েছে। পিকআপে ফিরে যাওয়া সম্ভব নয়।')}</p>
                               </div>
                             )}
 
-                            {/* Transparent Points Breakdown Receipt (§B3) */}
-                            <div style={{ marginTop: '0.4rem', padding: '0.5rem', background: 'rgba(255,255,255,0.02)', borderRadius: '6px', fontSize: '0.65rem', border: '1px solid rgba(255,255,255,0.05)' }}>
-                              <div style={{ fontWeight: 'bold', color: 'var(--accent)' }}>💡 Point Breakdown (পয়েন্ট হিসাব):</div>
-                              <div style={{ marginTop: '0.2rem', color: 'var(--text-muted)' }}>
-                                • English: You earned <strong>{o.pointsCredited || o.points_credited || 0} pts</strong> because this order's margin was <strong>₹{o.margin || (o.subtotal * 0.25).toFixed(1)}</strong> and your reward rate is <strong>{o.earnRatePercent || 40}%</strong>.
-                              </div>
-                              <div style={{ color: 'var(--text-muted)', marginTop: '0.1rem' }}>
-                                • বাংলা: আপনি <strong>{o.pointsCredited || o.points_credited || 0} pts</strong> পেয়েছেন কারণ লাভ ছিল <strong>₹{o.margin || (o.subtotal * 0.25).toFixed(1)}</strong> ও হার <strong>{o.earnRatePercent || 40}%</strong>।
-                              </div>
-                              <div style={{ color: 'var(--text-muted)', marginTop: '0.1rem' }}>
-                                • हिंदी: आपने <strong>{o.pointsCredited || o.points_credited || 0} pts</strong> कमाए हैं क्योंकि मुनाफा <strong>₹{o.margin || (o.subtotal * 0.25).toFixed(1)}</strong> व दर <strong>{o.earnRatePercent || 40}%</strong> है।
-                              </div>
+                            {/* Transparent Points Breakdown Receipt */}
+                            <div style={{ marginTop: '0.4rem', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                              <button 
+                                className="btn btn-secondary" 
+                                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', fontSize: '0.65rem', padding: '0.35rem', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)' }}
+                                onClick={() => toggleBreakdown(o.id)}
+                              >
+                                <span style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                                  <Sparkles size={12} style={{ color: 'var(--primary)' }} />
+                                  {t('Show Points Breakdown', 'पॉइंट्स विवरण दिखाएं', 'পয়েন্টের হিসাব দেখান')}
+                                </span>
+                                {expandedBreakdownOrders.has(o.id) ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                              </button>
+                              
+                              {expandedBreakdownOrders.has(o.id) && (
+                                <div style={{ padding: '0.5rem', background: 'rgba(255,255,255,0.02)', borderRadius: '6px', fontSize: '0.65rem', border: '1px solid rgba(255,255,255,0.05)', marginTop: '0.15rem' }}>
+                                  <div style={{ fontWeight: 'bold', color: 'var(--accent)' }}>
+                                    {t('Point Breakdown', 'पॉइंट्स विवरण', 'পয়েন্ট হিসাব')}
+                                  </div>
+                                  <div style={{ marginTop: '0.2rem', color: 'var(--text-muted)' }}>
+                                    {t(
+                                      `You earned ${o.pointsCredited || o.points_credited || 0} pts because this order's margin was ₹${o.margin || (o.subtotal * 0.25).toFixed(1)} and your reward rate is ${o.earnRatePercent || 40}%.`,
+                                      `आपने ${o.pointsCredited || o.points_credited || 0} pts कमाए हैं क्योंकि मुनाफा ₹${o.margin || (o.subtotal * 0.25).toFixed(1)} व दर ${o.earnRatePercent || 40}% है।`,
+                                      `আপনি ${o.pointsCredited || o.points_credited || 0} pts পেয়েছেন কারণ লাভ ছিল ₹${o.margin || (o.subtotal * 0.25).toFixed(1)} ও হার ${o.earnRatePercent || 40}%।`
+                                    )}
+                                  </div>
+                                </div>
+                              )}
                             </div>
 
                             {/* WhatsApp Notification Share Trigger (§B1) */}
@@ -2128,11 +2240,19 @@ export default function App() {
                               className="btn btn-secondary" 
                               style={{ width: '100%', padding: '0.35rem', fontSize: '0.65rem', marginTop: '0.35rem', background: 'rgba(37,211,102,0.1)', color: '#25D366', border: '1px solid rgba(37,211,102,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.25rem' }}
                               onClick={() => {
-                                const waMsg = `Hello! FastNet Supermarket order #${o.id.substring(2).toUpperCase()} confirmed at ${o.stockist_name} for ₹${o.total_price}. Pickup PIN: ${o.pickup_pin || 'N/A'}. Subtotal: ₹${o.subtotal}. I earned ${o.pointsCredited || o.points_credited || 0} pts discount!`;
-                                window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(waMsg)}`, '_blank');
+                                setSimulatedWaMessage({
+                                  orderId: o.id,
+                                  customerName: currentUser.name,
+                                  stockistName: o.stockist_name,
+                                  totalPrice: o.total_price,
+                                  pickupPin: o.pickup_pin,
+                                  points: o.pointsCredited || o.points_credited || 0,
+                                  subtotal: o.subtotal,
+                                  fulfillmentType: o.fulfillment_type
+                                });
                               }}
                             >
-                              💬 Share Order Status to WhatsApp (শেয়ার করুন)
+                              <MessageSquare size={12} /> {t('Preview WhatsApp Notification', 'व्हाट्सएप सूचना का पूर्वावलोकन', 'হোয়াটসঅ্যাপ নোটিফিকেশন প্রিভিউ')}
                             </button>
 
                           </div>
@@ -2141,8 +2261,71 @@ export default function App() {
                     </div>
 
                     <button className="btn btn-accent" style={{ marginTop: 'auto' }} onClick={() => { setCheckoutResult(null); loadCustomerData(); }}>
-                      Done & Continue Shopping
+                      {t('Done & Continue Shopping', 'पूर्ण और खरीदारी जारी रखें', 'সম্পন্ন ও বাজার করা চালিয়ে যান')}
                     </button>
+                  </div>
+                )}
+
+                {/* Simulated WhatsApp Mockup Overlay */}
+                {simulatedWaMessage && (
+                  <div style={{ position: 'absolute', inset: 0, background: '#0b141a', zIndex: 110, display: 'flex', flexDirection: 'column' }}>
+                    {/* WhatsApp Header */}
+                    <div style={{ background: '#128c7e', padding: '0.75rem 0.5rem 0.5rem 0.5rem', color: 'white', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <button 
+                        style={{ background: 'none', border: 'none', color: 'white', display: 'flex', alignItems: 'center', cursor: 'pointer' }}
+                        onClick={() => setSimulatedWaMessage(null)}
+                      >
+                        <ArrowLeft size={16} />
+                      </button>
+                      <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#128c7e', fontWeight: 'bold', fontSize: '0.75rem' }}>
+                        FN
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        <span style={{ fontSize: '0.75rem', fontWeight: 'bold' }}>FastNet Updates</span>
+                        <span style={{ fontSize: '0.55rem', opacity: 0.8 }}>online</span>
+                      </div>
+                    </div>
+
+                    {/* Chat Body */}
+                    <div style={{ flex: 1, padding: '1rem 0.75rem', overflowY: 'auto', background: '#0b141a', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                      <div style={{ alignSelf: 'center', background: '#182229', color: '#8696a0', padding: '0.2' + 'rem 0.4' + 'rem', borderRadius: '4px', fontSize: '0.55rem', textTransform: 'uppercase' }}>
+                        Today
+                      </div>
+                      
+                      {/* Message Bubble */}
+                      <div style={{ alignSelf: 'flex-start', background: '#202c33', color: '#e9edef', padding: '0.5rem 0.75rem', borderRadius: '0 8px 8px 8px', maxWidth: '85%', fontSize: '0.7rem', border: '1px solid rgba(255,255,255,0.05)', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                        <span style={{ color: '#25d366', fontWeight: 'bold', fontSize: '0.65rem' }}>FastNet Supermarket</span>
+                        <p style={{ margin: 0, whiteSpace: 'pre-line' }}>
+                          {`Hello ${simulatedWaMessage.customerName || 'Valued Customer'}! 👋\n\nYour FastNet Supermarket order is confirmed at *${simulatedWaMessage.stockistName}*.\n\n🛍️ *Order ID:* #${simulatedWaMessage.orderId.substring(2).toUpperCase()}\n💰 *Total Price:* ₹${simulatedWaMessage.totalPrice}\n💵 *Subtotal:* ₹${simulatedWaMessage.subtotal}\n⭐ *Rewards Earned:* +${simulatedWaMessage.points} pts\n\n${
+                            simulatedWaMessage.fulfillmentType === 'PICKUP'
+                              ? `📍 *Fulfillment:* Store Pickup\n🔑 *Verification PIN:* ${simulatedWaMessage.pickupPin || '1234'}\n\nPlease share this PIN with the shopkeeper when picking up your items.`
+                              : `🚚 *Fulfillment:* Home Delivery\n\nYour order will be delivered to your registered address shortly.`
+                          }\n\nThank you for choosing FastNet!`}
+                        </p>
+                        <span style={{ alignSelf: 'flex-end', fontSize: '0.5rem', color: '#8696a0', marginTop: '0.2rem' }}>19:43 ✓✓</span>
+                      </div>
+                    </div>
+
+                    {/* Action Bar */}
+                    <div style={{ padding: '0.5rem 0.75rem', background: '#1f2c34', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                      <button 
+                        className="btn btn-accent" 
+                        style={{ flex: 1, padding: '0.4rem', fontSize: '0.7rem', background: '#25d366', color: 'white', border: 'none' }}
+                        onClick={() => {
+                          const waText = `Hello ${simulatedWaMessage.customerName}! FastNet Supermarket order #${simulatedWaMessage.orderId.substring(2).toUpperCase()} confirmed at ${simulatedWaMessage.stockistName} for ₹${simulatedWaMessage.totalPrice}. Fulfillment: ${simulatedWaMessage.fulfillmentType}. Pickup PIN: ${simulatedWaMessage.pickupPin || 'N/A'}. I earned ${simulatedWaMessage.points} pts!`;
+                          window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(waText)}`, '_blank');
+                        }}
+                      >
+                        Send Real Message via WhatsApp
+                      </button>
+                      <button 
+                        className="btn btn-secondary" 
+                        style={{ padding: '0.4rem 0.75rem', fontSize: '0.7rem' }}
+                        onClick={() => setSimulatedWaMessage(null)}
+                      >
+                        Close
+                      </button>
+                    </div>
                   </div>
                 )}
 
@@ -2193,10 +2376,23 @@ export default function App() {
                             <span style={{ fontSize: '0.8rem', color: 'white', fontWeight: 'bold' }}>{selectedStockist.name}</span>
                           </div>
 
+                          {/* Search bar for customer app catalog */}
+                          <div style={{ position: 'relative', margin: '0.5rem 0' }}>
+                            <input 
+                              type="text" 
+                              className="text-input" 
+                              style={{ fontSize: '0.75rem', padding: '0.4rem 0.75rem 0.4rem 2rem', width: '100%' }}
+                              placeholder={t('Search products...', 'उत्पाद खोजें...', 'পণ্য খুঁজুন...')}
+                              value={customerSearch}
+                              onChange={e => setCustomerSearch(e.target.value)}
+                            />
+                            <Search size={14} style={{ position: 'absolute', left: '0.65rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                          </div>
+
                           {/* Catalog List */}
-                          <h3 style={{ fontSize: '0.95rem', marginTop: '0.25rem' }}>Popular Staples (রোজকার বাজার)</h3>
+                          <h3 style={{ fontSize: '0.95rem', marginTop: '0.25rem' }}>{t('Popular Staples', 'लोकप्रिय स्टेपल्स', 'রোজকার বাজার')}</h3>
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                            {customerProducts.map(p => {
+                            {customerProducts.filter(p => p.name.toLowerCase().includes(customerSearch.toLowerCase())).map(p => {
                               const rate = getPointsRate(selectedStockist.id, currentUser.region_id);
                               const earnEst = Math.round((p.price - p.cost_price) * (rate / 100) * 100) / 100;
                               const isOutOfStock = p.stock_qty <= 0;
@@ -2219,7 +2415,7 @@ export default function App() {
                                       disabled={isOutOfStock}
                                       onClick={() => addToCart(p)}
                                     >
-                                      {isOutOfStock ? 'Out of Stock' : <><Plus size={12} /> Add</>}
+                                      {isOutOfStock ? t('Out of Stock', 'स्टॉक में नहीं है', 'স্টকে নেই') : <><Plus size={12} /> {t('Add', 'जोड़ें', 'যুক্ত করুন')}</>}
                                     </button>
                                   </div>
                                   {isOutOfStock && (
@@ -2228,6 +2424,9 @@ export default function App() {
                                 </div>
                               );
                             })}
+                            {customerProducts.filter(p => p.name.toLowerCase().includes(customerSearch.toLowerCase())).length === 0 && (
+                              <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem', textAlign: 'center', padding: '1rem' }}>{t('No products found', 'कोई उत्पाद नहीं मिला', 'কোনো পণ্য পাওয়া যায়নি')}</p>
+                            )}
                           </div>
                         </>
                       )}
@@ -2235,15 +2434,71 @@ export default function App() {
                       {/* Floating Unified Cart Panel */}
                       {customerCart.length > 0 && (
                         <div style={{ position: 'sticky', bottom: '0', background: 'var(--bg-surface-elevated)', border: '1px solid var(--primary)', borderRadius: '8px', padding: '0.85rem', display: 'flex', flexDirection: 'column', gap: '0.65rem', marginTop: 'auto', boxShadow: '0 -5px 15px rgba(0,0,0,0.5)', zIndex: 50 }}>
+                          
+                          {/* Segment Picker for Pickup/Delivery */}
+                          <div style={{ display: 'flex', background: 'rgba(255,255,255,0.05)', borderRadius: '8px', padding: '0.2rem', gap: '0.2rem' }}>
+                            <button
+                              type="button"
+                              onClick={() => setCartFulfillment('PICKUP')}
+                              style={{
+                                flex: 1,
+                                padding: '0.5rem',
+                                fontSize: '0.75rem',
+                                fontWeight: 'bold',
+                                borderRadius: '6px',
+                                border: 'none',
+                                cursor: 'pointer',
+                                background: cartFulfillment === 'PICKUP' ? 'var(--primary)' : 'transparent',
+                                color: 'white',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '0.25rem'
+                              }}
+                            >
+                              <Key size={14} />
+                              {t('Store Pickup', 'स्टोर पिकअप', 'দোকান থেকে পিকআপ')}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setCartFulfillment('DELIVERY')}
+                              style={{
+                                flex: 1,
+                                padding: '0.5rem',
+                                fontSize: '0.75rem',
+                                fontWeight: 'bold',
+                                borderRadius: '6px',
+                                border: 'none',
+                                cursor: 'pointer',
+                                background: cartFulfillment === 'DELIVERY' ? 'var(--primary)' : 'transparent',
+                                color: 'white',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '0.25rem'
+                              }}
+                            >
+                              <Truck size={14} />
+                              {t('Home Delivery', 'होम डिलीवरी', 'হোম ডেলিভারি')}
+                            </button>
+                          </div>
+
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <span style={{ fontSize: '0.75rem', fontWeight: 'bold' }}>{customerCart.length} Items Selected</span>
+                            <span style={{ fontSize: '0.75rem', fontWeight: 'bold' }}>{t(`${customerCart.length} Items Selected`, `${customerCart.length} सामान चुना गया`, `${customerCart.length}টি পণ্য নির্বাচন করা হয়েছে`)}</span>
                             <span style={{ fontSize: '0.9rem', fontWeight: 'bold', color: 'var(--accent)' }}>₹{cartTotal.toFixed(2)}</span>
                           </div>
 
                           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem', color: 'var(--text-muted)' }}>
-                            <span>Subtotal: ₹{cartSubtotal}</span>
-                            <span>Est. Rewards: <strong style={{ color: 'var(--accent)' }}>+{formatPoints(estimatedEarnPoints)}</strong></span>
+                            <span>{t('Subtotal', 'उप-योग', 'উপ-মোট')}: ₹{cartSubtotal}</span>
+                            <span>{t('Est. Rewards', 'अनुमानित पुरस्कार', 'সম্ভাব‍্য পয়েন্ট')}: <strong style={{ color: 'var(--accent)' }}>+{formatPoints(estimatedEarnPoints)}</strong></span>
                           </div>
+
+                          {cartFulfillment === 'DELIVERY' && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem', color: 'var(--secondary)', fontWeight: 'bold' }}>
+                              <span>{t('Delivery Fee', 'डिलिवरी शुल्क', 'ডেলিভারি চার্জ')}:</span>
+                              <span>₹{cartDeliveryFee.toFixed(2)}</span>
+                            </div>
+                          )}
 
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', borderTop: '1px solid var(--border-color)', paddingTop: '0.4rem', maxHeight: '100px', overflowY: 'auto' }}>
                             {customerCart.map(item => (
@@ -2257,9 +2512,8 @@ export default function App() {
                               </div>
                             ))}
                           </div>
-
                           <button className="btn" style={{ width: '100%', fontSize: '0.8rem' }} onClick={handleCheckout}>
-                            Place Order (বাজারের অর্ডার দিন)
+                            {t('Place Order', 'ऑर्डर दें', 'বাজারের অর্ডার দিন')}
                           </button>
                         </div>
                       )}
@@ -2269,67 +2523,36 @@ export default function App() {
                   {customerAppTab === 'ledger' && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
                       {/* Points Balance Card (Moderated) */}
-                      <div className="points-glow-box" style={{ padding: '0.75rem', borderRadius: '12px', textAlign: 'center' }}>
-                        <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>ACCUMULATED LOYALTY POINTS</span>
-                        <h1 style={{ fontSize: '1.5rem', margin: '0.15rem 0', color: 'white', fontWeight: 'bold' }}>{formatPoints(customerBalance)}</h1>
-                        <p style={{ fontSize: '0.55rem', color: 'var(--text-muted)' }}>Closed-loop points redeemable against issuing operator services.</p>
+                      <div className="points-glow-box" style={{ padding: '1.25rem 0.75rem', borderRadius: '12px', textAlign: 'center' }}>
+                        <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                          {t('ACCUMULATED LOYALTY POINTS', 'संचित लॉयल्टी पॉइंट्स', 'সঞ্চিত লয়্যালটি পয়েন্ট')}
+                        </span>
+                        <h1 style={{ fontSize: '1.75rem', margin: '0.25rem 0', color: 'white', fontWeight: 'bold' }}>{formatPoints(customerBalance)}</h1>
+                        <p style={{ fontSize: '0.6rem', color: 'var(--text-muted)', margin: 0 }}>
+                          {t('Closed-loop points redeemable in the Rewards tab.', 'पुरस्कार टैब में रिडीम करने योग्य पॉइंट्स।', 'রিওয়ার্ডস ট্যাবে রিডিম করার যোগ্য পয়েন্ট।')}
+                        </p>
                       </div>
 
-                      {/* Broadband Bill status */}
-                      <div style={{ background: 'var(--bg-surface-elevated)', border: '1px solid var(--border-color)', padding: '1rem', borderRadius: '12px' }}>
-                        <h4 style={{ fontSize: '0.75rem', color: '#818CF8', marginBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>FastNet Broadband Bill (ইন্টারনেট বিল)</h4>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                          <span>Monthly Bill:</span>
-                          <span style={{ textDecoration: discountApplied > 0 ? 'line-through' : 'none' }}>₹499.00</span>
-                        </div>
-                        {discountApplied > 0 && (
-                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--accent)' }}>
-                            <span>Loyalty Subsidy Applied:</span>
-                            <span>-₹{discountApplied.toFixed(2)}</span>
-                          </div>
-                        )}
-                        <hr style={{ borderColor: 'rgba(255,255,255,0.05)', margin: '0.4rem 0' }} />
-                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', color: 'white', fontWeight: 'bold' }}>
-                          <span>Outstanding Bill Amount:</span>
-                          <span style={{ color: discountApplied >= 499 ? 'var(--accent)' : 'white' }}>
-                            ₹{Math.max(0, 499 - discountApplied).toFixed(2)}
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Redeem Input */}
-                      <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-color)', padding: '0.85rem', borderRadius: '8px' }}>
-                        <h4 style={{ fontSize: '0.75rem', marginBottom: '0.5rem' }}>Redeem Broadband Subsidy (বিল ডিসকাউন্ট করুন)</h4>
-                        <div style={{ display: 'flex', gap: '0.5rem' }}>
-                          <input 
-                            type="number" 
-                            placeholder="Enter points to redeem" 
-                            className="text-input" 
-                            value={redeemAmount}
-                            onChange={e => setRedeemAmount(e.target.value)}
-                            style={{ flex: 1, padding: '0.4rem 0.75rem', fontSize: '0.8rem' }}
-                          />
-                          <button className="btn btn-accent" onClick={handleRedeemPoints} style={{ padding: '0.4rem 0.85rem', fontSize: '0.75rem' }}>
-                            Redeem
-                          </button>
-                        </div>
-                      </div>
-
-                      <h3 style={{ fontSize: '0.85rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.4rem' }}>Discount History (ডিসকাউন্ট লগ)</h3>
+                      <h3 style={{ fontSize: '0.85rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.4rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                        <TrendingUp size={14} style={{ color: 'var(--primary)' }} />
+                        {t('Points History', 'पॉइंट इतिहास', 'পয়েন্ট इतिहास')}
+                      </h3>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                         {customerLedger.map(l => (
-                          <div key={l.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.4rem 0', borderBottom: '1px dashed rgba(255,255,255,0.05)', fontSize: '0.7rem' }}>
+                          <div key={l.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.45rem 0', borderBottom: '1px dashed rgba(255,255,255,0.05)', fontSize: '0.7rem' }}>
                             <div>
                               <div style={{ fontWeight: '600', color: 'white' }}>{l.description}</div>
                               <div style={{ color: 'var(--text-muted)', fontSize: '0.6rem' }}>{new Date(l.created_at).toLocaleDateString()}</div>
                             </div>
                             <div style={{ fontWeight: 'bold', color: l.type === 'EARN' ? 'var(--accent)' : 'var(--danger)', fontSize: '0.8rem' }}>
-                              {l.amount > 0 ? '+' : '-'}{formatPoints(Math.abs(l.amount))}
+                              {l.amount > 0 ? '+' : ''}{formatPoints(l.amount)}
                             </div>
                           </div>
                         ))}
                         {customerLedger.length === 0 && (
-                          <p style={{ color: 'var(--text-muted)', fontSize: '0.7rem', textAlign: 'center' }}>No transactions recorded.</p>
+                          <p style={{ color: 'var(--text-muted)', fontSize: '0.7rem', textAlign: 'center' }}>
+                            {t('No transactions recorded.', 'कोई लेन-देन दर्ज नहीं है।', 'কোনো লেনদেন রেকর্ড করা হয়নি।')}
+                          </p>
                         )}
                       </div>
                     </div>
@@ -2351,22 +2574,22 @@ export default function App() {
 
                     const shopItems = [
                       {
-                        category: '📡 Broadband & WiFi',
+                        category: t('Broadband & WiFi', 'ब्रॉडबैंड और वाईफाई', 'ব্রডব্যান্ড ও ওয়াইফাই'),
                         color: '#6366f1',
                         items: [
-                          { label: 'Bill Discount — ₹50 off', sub: 'Instantly off your next monthly broadband bill', pts: 50, type: 'BROADBAND_DISCOUNT_50', emoji: '💸' },
-                          { label: 'Bill Discount — ₹100 off', sub: 'For power users. Cuts bill by ₹100 this month', pts: 100, type: 'BROADBAND_DISCOUNT_100', emoji: '💳' },
-                          { label: 'Speed Booster 48h (100 Mbps)', sub: '2 days of priority bandwidth. No throttling.', pts: 150, type: 'WIFI_TOPUP', emoji: '⚡' },
-                          { label: 'Data Top-up 10 GB', sub: 'Extra 10 GB added to your plan instantly', pts: 80, type: 'DATA_TOPUP', emoji: '📶' },
+                          { label: t('Bill Discount — ₹50 off', 'बिल डिस्काउंट — ₹50 छूट', 'বিল ডিসকাউন্ট — ₹৫০ ছাড়'), sub: t('Instantly off your next monthly broadband bill', 'अगले मासिक ब्रॉडबैंड बिल से तुरंत छूट', 'আপনার পরবর্তী ব্রডব্যান্ড বিল থেকে সাথে সাথে ছাড়'), pts: 50, type: 'BROADBAND_DISCOUNT_50', icon: 'bill' },
+                          { label: t('Bill Discount — ₹100 off', 'बिल डिस्काउंट — ₹100 छूट', 'বিল ডিসকাউন্ট — ₹১০০ ছাড়'), sub: t('For power users. Cuts bill by ₹100 this month', 'पावर उपयोगकर्ताओं के लिए। इस महीने बिल ₹100 कम करें', 'পাওয়ার ইউজারদের জন্য। এই মাসের বিলে ১০০ টাকা ছাড়'), pts: 100, type: 'BROADBAND_DISCOUNT_100', icon: 'bill' },
+                          { label: t('Speed Booster 48h (100 Mbps)', 'स्पीड बूस्टर 48h (100 Mbps)', 'স্পিড বুস্টার ৪৮ ঘণ্টা (১০০ Mbps)'), sub: t('2 days of priority bandwidth. No throttling.', '२ दिनों की प्राथमिकता बैंडविड्थ। कोई सीमा नहीं।', '২ দিন হাই স্পিড ব্যান্ডউইডথ পাবেন।'), pts: 150, type: 'WIFI_TOPUP', icon: 'wifi' },
+                          { label: t('Data Top-up 10 GB', 'डेटा टॉप-अप 10 GB', 'ডাটা টপ-আপ ১০ জিবি'), sub: t('Extra 10 GB added to your plan instantly', 'आपके प्लान में तुरंत १० जीबी अतिरिक्त जोड़ा गया', 'আপনার অ্যাকাউন্টে সরাসরি ১০ জিবি ডাটা যোগ হবে'), pts: 80, type: 'DATA_TOPUP', icon: 'wifi' },
                         ]
                       },
                       {
-                        category: '📺 Cable TV',
+                        category: t('Cable TV', 'केबल टीवी', 'কেবল টিভি'),
                         color: '#ec4899',
                         items: [
-                          { label: 'Basic Pack — 1 Month Free', sub: '30 days of regional & local channels', pts: 100, type: 'CABLE_RECHARGE', emoji: '📺' },
-                          { label: 'HD Premium Pack — 1 Month', sub: 'Sports, Movies, News HD channels', pts: 250, type: 'CABLE_RECHARGE', emoji: '🎬' },
-                          { label: 'Kids & Family Bundle', sub: 'Cartoon Network, Pogo & family channels', pts: 120, type: 'CABLE_RECHARGE', emoji: '👨‍👩‍👧' },
+                          { label: t('Basic Pack — 1 Month Free', 'बुनियादी पैक — १ महीना मुफ्त', 'বেসিক প্যাক — ১ মাস ফ্রি'), sub: t('30 days of regional & local channels', 'क्षेत्रीय और स्थानीय चैनलों के ३० दिन', '৩০ দিন সব লোকাল ও আঞ্চলিক চ্যানেল দেখতে পাবেন'), pts: 100, type: 'CABLE_RECHARGE', icon: 'tv' },
+                          { label: t('HD Premium Pack — 1 Month', 'एचडी प्रीमियम पैक — १ महीना', 'এইচডি প্রিমিয়াম প্যাক — ১ মাস'), sub: t('Sports, Movies, News HD channels', 'खेल, सिनेमा, समाचार एचडी चैनल', 'সব স্পোর্টস, মুভি ও নিউজ এইচডি চ্যানেল পাবেন'), pts: 250, type: 'CABLE_RECHARGE', icon: 'tv' },
+                          { label: t('Kids & Family Bundle', 'किड्स एंड फैमिली बंडल', 'কিডস ও ফ্যামিলি বান্ডেল'), sub: t('Cartoon Network, Pogo & family channels', 'कार्टून नेटवर्क, पोगो और पारिवारिक चैनल', 'কার্টুন নেটওয়ার্ক, পোগো ও ফ্যামিলি চ্যানেল প্যাক'), pts: 120, type: 'CABLE_RECHARGE', icon: 'tv' },
                         ]
                       },
                     ];
@@ -2376,9 +2599,9 @@ export default function App() {
 
                         {/* Header Hero */}
                         <div style={{ background: 'linear-gradient(135deg, rgba(99,102,241,0.25) 0%, rgba(236,72,153,0.15) 100%)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: '14px', padding: '1rem', textAlign: 'center' }}>
-                          <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: '0.2rem' }}>Your Balance</div>
+                          <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: '0.2rem' }}>{t('Your Balance', 'आपका बैलेंस', 'আপনার ব্যালেন্স')}</div>
                           <div style={{ fontSize: '2rem', fontWeight: '800', color: 'white', lineHeight: 1 }}>{formatPoints(customerBalance)}</div>
-                          <div style={{ fontSize: '0.6rem', color: '#818cf8', marginTop: '0.35rem' }}>Redeemable across FastNet broadband, wifi, and cable TV plans</div>
+                          <div style={{ fontSize: '0.6rem', color: '#818cf8', marginTop: '0.35rem' }}>{t('Redeemable across FastNet broadband, wifi, and cable TV plans', 'फास्टनेट ब्रॉडबैंड, वाईफाई और केबल टीवी प्लान में रिडीम करने योग्य', 'ফাস্টনেট ব্রডব্যান্ড, ওয়াইফাই এবং কেবল টিভি প্ল্যানে রিডিম করার যোগ্য')}</div>
                           <div style={{ marginTop: '0.5rem', display: 'flex', justifyContent: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
                             {shopItems.map(cat => (
                               <span key={cat.category} style={{ fontSize: '0.55rem', padding: '0.15rem 0.5rem', borderRadius: '99px', background: cat.color + '22', color: cat.color, border: `1px solid ${cat.color}44` }}>{cat.category}</span>
@@ -2398,7 +2621,11 @@ export default function App() {
                                 const canAfford = customerBalance >= item.pts;
                                 return (
                                   <div key={item.label} style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', padding: '0.65rem 0.75rem', borderRadius: '10px', background: canAfford ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.01)', border: `1px solid ${canAfford ? cat.color + '33' : 'rgba(255,255,255,0.05)'}`, opacity: canAfford ? 1 : 0.55, transition: 'all 0.2s' }}>
-                                    <div style={{ fontSize: '1.4rem', flexShrink: 0, width: '32px', textAlign: 'center' }}>{item.emoji}</div>
+                                    <div style={{ flexShrink: 0, width: '32px', display: 'flex', justifyContent: 'center' }}>
+                                      {item.icon === 'bill' && <FileText size={20} style={{ color: cat.color }} />}
+                                      {item.icon === 'wifi' && <Signal size={20} style={{ color: cat.color }} />}
+                                      {item.icon === 'tv' && <Tv size={20} style={{ color: cat.color }} />}
+                                    </div>
                                     <div style={{ flex: 1, minWidth: 0 }}>
                                       <div style={{ fontSize: '0.75rem', fontWeight: '600', color: 'white', lineHeight: 1.2 }}>{item.label}</div>
                                       <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', marginTop: '0.15rem' }}>{item.sub}</div>
@@ -2410,7 +2637,7 @@ export default function App() {
                                       onClick={() => redeemItem(item.pts, item.type, item.label)}
                                       style={{ flexShrink: 0, padding: '0.35rem 0.6rem', fontSize: '0.65rem', fontWeight: 'bold', borderRadius: '8px', border: 'none', cursor: canAfford ? 'pointer' : 'not-allowed', background: canAfford ? cat.color : 'rgba(255,255,255,0.1)', color: canAfford ? 'white' : 'var(--text-muted)', transition: 'all 0.2s' }}
                                     >
-                                      Redeem
+                                      {t('Redeem', 'रिडीम', 'রিডিম')}
                                     </button>
                                   </div>
                                 );
@@ -2428,30 +2655,43 @@ export default function App() {
 
                   {customerAppTab === 'orders' && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                      <h3 style={{ fontSize: '0.85rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.4rem' }}>My Orders (আমার অর্ডার)</h3>
+                      <h3 style={{ fontSize: '0.85rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.4rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                        <ArrowRightLeft size={14} style={{ color: 'var(--primary)' }} />
+                        {t('My Orders', 'मेरे ऑर्डर', 'আমার অর্ডার')}
+                      </h3>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                         {customerOrders.map(o => {
                           const isPrepElapsed = prepElapsedOrders.includes(o.id);
                           return (
                             <div key={o.id} className="glass-card" style={{ padding: '0.65rem', fontSize: '0.7rem', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
                               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                <span style={{ fontWeight: 'bold' }}>Order #{o.id.substring(2).toUpperCase()}</span>
+                                <span style={{ fontWeight: 'bold' }}>{t('Order', 'ऑर्डर', 'অর্ডার')} #{o.id.substring(2).toUpperCase()}</span>
                                 <span key={o.status} className={`badge ${o.status === 'DELIVERED' ? 'badge-success' : 'badge-warning'} status-badge-glow`}>{o.status}</span>
                               </div>
-                              <div style={{ color: 'var(--text-muted)' }}>Store: {o.stockist_name}</div>
-                              <div style={{ color: 'var(--text-muted)', fontSize: '0.625rem' }}>
-                                Delivery Mode: {o.fulfillment_type === 'DELIVERY' ? '🚚 DELIVERY' : ` Take Away (Pickup slot: ${o.pickup_slot || 'Pending slot selection'})`}
+                              <div style={{ color: 'var(--text-muted)' }}>{t('Store', 'दुकान', 'दुकान')}: {o.stockist_name}</div>
+                              <div style={{ color: 'var(--text-muted)', fontSize: '0.625rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                                {o.fulfillment_type === 'DELIVERY' ? (
+                                  <>
+                                    <Truck size={12} style={{ color: 'var(--secondary)' }} />
+                                    <span>{t('Mode: DELIVERY', 'मोड: होम डिलीवरी', 'অবস্থা: হোম ডেলিভারি')}</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Store size={12} style={{ color: 'var(--primary)' }} />
+                                    <span>{t('Mode: Take Away', 'मोड: पिकअप', 'অবস্থা: पिकअप')} ({o.pickup_slot || t('Pending slot', 'स्लॉट लंबित', 'স্লট পেন্ডিং')})</span>
+                                  </>
+                                )}
                               </div>
 
                               {/* Active slot picker inside orders list if pickup is chosen and slots are pending */}
                               {o.status !== 'DELIVERED' && o.fulfillment_type === 'PICKUP' && (
                                 <div style={{ border: '1px dashed var(--border-color)', borderRadius: '6px', padding: '0.5rem', marginTop: '0.25rem', background: 'rgba(255,255,255,0.01)' }}>
                                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.25rem' }}>
-                                    <span style={{ fontSize: '0.6rem', color: 'var(--text-muted)' }}>Time Slot Select:</span>
+                                    <span style={{ fontSize: '0.6rem', color: 'var(--text-muted)' }}>{t('Choose Slot:', 'स्लॉट चुनें:', 'স্লট নির্বাচন করুন:')}</span>
                                     {!isPrepElapsed && (
                                       <button 
                                         className="btn btn-secondary" 
-                                        style={{ padding: '0.1rem 0.3rem', fontSize: '0.55rem' }}
+                                        style={{ padding: '0.1rem 0.3rem', fontSize: '0.55rem', minHeight: '20px', height: '20px' }}
                                         onClick={() => setPrepElapsedOrders(prev => [...prev, o.id])}
                                       >
                                         Simulate Prep Time Elapsed
@@ -2460,7 +2700,7 @@ export default function App() {
                                   </div>
                                   <select 
                                     className="text-input" 
-                                    style={{ fontSize: '0.65rem', padding: '0.2rem' }}
+                                    style={{ fontSize: '0.65rem', padding: '0.2rem', minHeight: '28px', height: '28px' }}
                                     disabled={!isPrepElapsed}
                                     value={o.pickup_slot || ''}
                                     onChange={e => handleSavePickupSlot(o.id, e.target.value)}
@@ -2474,32 +2714,30 @@ export default function App() {
                               )}
 
                               {o.fulfillment_type === 'PICKUP' && o.status !== 'DELIVERED' && (
-                                <div style={{ background: 'rgba(255,255,255,0.02)', padding: '0.3rem', borderRadius: '4px', border: '1px dashed rgba(255,255,255,0.05)', fontSize: '0.65rem' }}>
-                                  🔑 Pickup PIN (পিকআপ কোড): <strong style={{ color: 'var(--primary-glow)', letterSpacing: '0.05em' }}>{o.pickup_pin || '1234'}</strong>
+                                <div style={{ background: 'rgba(255,255,255,0.02)', padding: '0.35rem', borderRadius: '4px', border: '1px dashed rgba(255,255,255,0.05)', fontSize: '0.65rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                                  <Key size={12} style={{ color: 'var(--primary)' }} />
+                                  <span>{t('Pickup PIN:', 'पिकअप पिन:', 'পিকআপ কোড:')} <strong style={{ color: 'white', letterSpacing: '0.05em' }}>{o.pickup_pin || '1234'}</strong></span>
                                 </div>
                               )}
 
                               <div style={{ borderTop: '1px solid rgba(255,255,255,0.03)', paddingTop: '0.4rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.3rem' }}>
-                                <span>Paid: ₹{o.total_price.toFixed(2)}</span>
+                                <span>{t('Paid', 'भुगतान', 'পরিশোধ')}: ₹{o.total_price.toFixed(2)}</span>
                                 
                                 <div style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
                                   <button 
                                     className="badge badge-primary" 
-                                    style={{ border: 'none', cursor: 'pointer', padding: '0.2rem 0.4rem', fontSize: '0.6rem' }}
+                                    style={{ border: 'none', cursor: 'pointer', padding: '0.2rem 0.4rem', fontSize: '0.6rem', display: 'flex', alignItems: 'center', gap: '0.15rem' }}
                                     onClick={() => handleReorder(o)}
                                   >
-                                    🔁 Reorder
+                                    <RefreshCw size={10} /> {t('Reorder', 'पुनः ऑर्डर', 'রিঅর্ডার')}
                                   </button>
 
                                   <button 
                                     className="badge badge-success" 
-                                    style={{ border: 'none', cursor: 'pointer', background: 'rgba(37,211,102,0.1)', color: '#25D366', padding: '0.2rem 0.4rem', fontSize: '0.6rem' }}
-                                    onClick={() => {
-                                      const waMsg = `Hi! FastNet Supermarket order #${o.id.substring(2).toUpperCase()} status is ${o.status}. Total: ₹${o.total_price}. Pickup PIN: ${o.pickup_pin || 'N/A'}.`;
-                                      window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(waMsg)}`, '_blank');
-                                    }}
+                                    style={{ border: 'none', cursor: 'pointer', background: 'rgba(37,211,102,0.1)', color: '#25D366', padding: '0.2rem 0.4rem', fontSize: '0.6rem', display: 'flex', alignItems: 'center', gap: '0.15rem' }}
+                                    onClick={() => setWaModalOrder(o)}
                                   >
-                                    💬 Share
+                                    <MessageSquare size={10} /> {t('Alert', 'अलर्ट', 'প্রিভিউ')}
                                   </button>
 
                                   {o.status === 'DELIVERED' ? (
@@ -2515,7 +2753,7 @@ export default function App() {
                                       Rate Shop
                                     </button>
                                   ) : (
-                                    <span style={{ fontSize: '0.6rem', color: 'var(--text-muted)' }}>{new Date(o.created_at).toLocaleDateString()}</span>
+                                    <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>{new Date(o.created_at).toLocaleDateString()}</span>
                                   )}
                                 </div>
                               </div>
@@ -2523,7 +2761,9 @@ export default function App() {
                           );
                         })}
                         {customerOrders.length === 0 && (
-                          <p style={{ color: 'var(--text-muted)', fontSize: '0.7rem', textAlign: 'center' }}>No orders placed yet.</p>
+                          <p style={{ color: 'var(--text-muted)', fontSize: '0.7rem', textAlign: 'center' }}>
+                            {t('No orders placed yet.', 'कोई ऑर्डर अभी तक नहीं किया गया है।', 'কোনো অর্ডার এখনো করা হয়নি।')}
+                          </p>
                         )}
                       </div>
                     </div>
@@ -2576,20 +2816,20 @@ export default function App() {
                 <div className="phone-footer">
                   <button className={`phone-nav-btn ${customerAppTab === 'store' ? 'active' : ''}`} onClick={() => setCustomerAppTab('store')}>
                     <ShoppingBag size={18} />
-                    Shop
+                    {t('Shop', 'दुकान', 'বাজার')}
                   </button>
                   <button className={`phone-nav-btn ${customerAppTab === 'ledger' ? 'active' : ''}`} onClick={() => setCustomerAppTab('ledger')}>
                     <Sparkles size={18} />
-                    Points
+                    {t('Points', 'पॉइंट्स', 'পয়েন্ট')}
                   </button>
                   <button id="nav-pointshop" className={`phone-nav-btn ${customerAppTab === 'pointshop' ? 'active' : ''}`} onClick={() => setCustomerAppTab('pointshop')} style={{ position: 'relative' }}>
                     <Gift size={18} />
-                    Rewards
+                    {t('Rewards', 'इनाम', 'রিওয়ার্ডস')}
                     {customerBalance > 0 && <span style={{ position: 'absolute', top: '4px', right: '6px', background: 'var(--accent)', color: 'black', fontSize: '0.45rem', fontWeight: 'bold', borderRadius: '99px', padding: '1px 4px', lineHeight: 1.2 }}>{Math.floor(customerBalance)}</span>}
                   </button>
                   <button className={`phone-nav-btn ${customerAppTab === 'orders' ? 'active' : ''}`} onClick={() => setCustomerAppTab('orders')}>
                     <ArrowRightLeft size={18} />
-                    Orders
+                    {t('Orders', 'ऑर्डर', 'অর্ডার')}
                   </button>
                 </div>
               </>
@@ -2687,365 +2927,466 @@ export default function App() {
                     {stockistProfile.name}
                   </span>
                   <span className={`badge ${offlineMode ? 'badge-danger' : 'badge-success'}`} style={{ fontSize: '0.55rem' }}>
-                    {offlineMode ? 'Offline (অফলাইন)' : 'Online (অনলাইন)'}
+                    {offlineMode ? 'Offline' : 'Online'}
                   </span>
                 </div>
 
-                <div style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '1rem', flex: 1 }}>
+                <div style={{ padding: '0.85rem', display: 'flex', flexDirection: 'column', gap: '0.85rem', flex: 1, overflowY: 'auto' }}>
                   
-                  {/* Today's Earnings Summary Widget */}
-                  <div style={{ background: 'linear-gradient(135deg, var(--primary) 0%, var(--primary-glow) 100%)', borderRadius: '12px', padding: '0.85rem 1rem', color: 'white', display: 'flex', flexDirection: 'column', gap: '0.15rem', boxShadow: '0 4px 12px rgba(99, 102, 241, 0.2)', border: '1px solid rgba(255,255,255,0.1)' }}>
-                    <span style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'rgba(255,255,255,0.7)', fontWeight: '600' }}>🏪 Today's Total Earnings (আজকের আয়)</span>
-                    <span style={{ fontSize: '1.7rem', fontWeight: 'bold', fontFamily: 'var(--font-display)' }}>
-                      ₹{todaysEarnings.toFixed(2)}
-                    </span>
-                    <span style={{ fontSize: '0.55rem', color: 'rgba(255,255,255,0.75)' }}>Instant wholesale settlement share credited to bank</span>
-                  </div>
+                  {stockistActiveTab === 'orders' && (
+                    <>
+                      {/* Today's Earnings Summary Widget */}
+                      <div style={{ background: 'linear-gradient(135deg, var(--primary) 0%, var(--primary-glow) 100%)', borderRadius: '12px', padding: '0.85rem 1rem', color: 'white', display: 'flex', flexDirection: 'column', gap: '0.15rem', boxShadow: '0 4px 12px rgba(99, 102, 241, 0.2)', border: '1px solid rgba(255,255,255,0.1)' }}>
+                        <span style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'rgba(255,255,255,0.7)', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                          <Store size={12} /> Today's Earnings (আজকের আয়)
+                        </span>
+                        <span style={{ fontSize: '1.7rem', fontWeight: 'bold', fontFamily: 'var(--font-display)' }}>
+                          ₹{todaysEarnings.toFixed(2)}
+                        </span>
+                        <span style={{ fontSize: '0.55rem', color: 'rgba(255,255,255,0.75)' }}>Settlement share credited to bank</span>
+                      </div>
 
-                  {/* Sync bar if offline queue has items */}
-                  {offlineQueue.length > 0 && (
-                    <div style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid var(--warning)', borderRadius: '6px', padding: '0.5rem 0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.75rem' }}>
-                      <span><strong>{offlineQueue.length}</strong> updates pending sync</span>
-                      {!offlineMode && (
-                        <button className="badge badge-warning" style={{ border: 'none', cursor: 'pointer' }} onClick={handleSyncOfflineQueue}>
-                          Sync Now
-                        </button>
+                      {/* Sync bar if offline queue has items */}
+                      {offlineQueue.length > 0 && (
+                        <div style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid var(--warning)', borderRadius: '6px', padding: '0.5rem 0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.75rem' }}>
+                          <span><strong>{offlineQueue.length}</strong> updates pending sync</span>
+                          {!offlineMode && (
+                            <button className="badge badge-warning" style={{ border: 'none', cursor: 'pointer' }} onClick={handleSyncOfflineQueue}>
+                              Sync Now
+                            </button>
+                          )}
+                        </div>
                       )}
-                    </div>
-                  )}
 
-                  {/* Offline toggle control */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-surface)', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-                    <div>
-                      <h4 style={{ fontSize: '0.8rem', color: 'white' }}>Signal Simulator (নেটওয়ার্ক সিগন্যাল)</h4>
-                      <p style={{ color: 'var(--text-muted)', fontSize: '0.65rem' }}>Test offline rural store state</p>
-                    </div>
-                    <button 
-                      onClick={toggleOfflineMode} 
-                      className={`badge ${offlineMode ? 'badge-danger' : 'badge-success'}`}
-                      style={{ border: 'none', cursor: 'pointer', padding: '0.4rem 0.6rem', textTransform: 'uppercase' }}
-                    >
-                      {offlineMode ? 'Connect' : 'Disconnect'}
-                    </button>
-                  </div>
-
-                  {/* Active Orders Queue */}
-                  <h3 style={{ fontSize: '0.95rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem' }}>New Orders (নতুন অর্ডার)</h3>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                    {stockistOrders.map(o => {
-                      const isNew = o.status === 'PENDING';
-                      return (
-                        <div 
-                          key={o.id} 
-                          className={`glass-card ${isNew ? 'new-order-card' : ''}`} 
-                          style={{ 
-                            padding: '0.75rem', 
-                            fontSize: '0.75rem', 
-                            display: 'flex', 
-                            flexDirection: 'column', 
-                            gap: '0.5rem',
-                            border: isNew ? '1px solid var(--primary)' : '1px solid var(--border-color)',
-                            transition: 'all 0.3s ease'
-                          }}
+                      {/* Offline toggle control */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-surface)', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                        <div>
+                          <h4 style={{ fontSize: '0.8rem', color: 'white', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                            <Signal size={14} /> Network Signal
+                          </h4>
+                          <p style={{ color: 'var(--text-muted)', fontSize: '0.65rem' }}>Test offline rural store state</p>
+                        </div>
+                        <button 
+                          onClick={toggleOfflineMode} 
+                          className={`badge ${offlineMode ? 'badge-danger' : 'badge-success'}`}
+                          style={{ border: 'none', cursor: 'pointer', padding: '0.4rem 0.6rem', textTransform: 'uppercase' }}
                         >
-                          {/* Order Header / New Badge */}
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <span style={{ fontWeight: 'bold', fontSize: '0.75rem', color: 'white' }}>
-                              Order #{o.id.substring(2).toUpperCase()}
-                            </span>
-                            <div style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
-                              {isNew && (
-                                <span className="badge badge-primary" style={{ fontSize: '0.55rem', background: 'var(--primary)', color: 'white', padding: '0.15rem 0.35rem', animation: 'pulse 1s infinite', fontWeight: 'bold' }}>
-                                  NEW INCOMING (নতুন অর্ডার)
-                                </span>
-                              )}
-                              <span className={`badge ${o.status === 'DELIVERED' ? 'badge-success' : 'badge-warning'}`} style={{ fontSize: '0.6rem' }}>
-                                {o.status}
-                              </span>
-                            </div>
-                          </div>
-
-                          {/* Basic Customer Context */}
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.1rem', background: 'rgba(255, 255, 255, 0.02)', padding: '0.45rem', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.05)' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                              <span style={{ fontWeight: 'bold', color: 'white', fontSize: '0.75rem' }}>👤 {o.customer_name}</span>
-                              <span style={{ fontSize: '0.65rem', color: 'var(--accent)' }}>📍 {o.region_id === 'r2' ? 'Bishnupur Rural' : 'Garia Urban'}</span>
-                            </div>
-                            <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>📞 Phone: {o.customer_phone || 'N/A'}</span>
-                          </div>
-
-                          {/* Visual Step Progress Bar */}
-                          {renderOrderProgressBar(o.status)}
-
-                          {/* Order Items List */}
-                          <div style={{ background: 'rgba(0,0,0,0.15)', padding: '0.4rem 0.5rem', borderRadius: '4px' }}>
-                            <div style={{ fontWeight: '600', color: 'var(--text-muted)', fontSize: '0.65rem', marginBottom: '0.25rem', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '0.2rem' }}>ITEMS TO PACK:</div>
-                            {o.items && o.items.map(item => (
-                              <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-main)', fontSize: '0.7rem' }}>
-                                <span>• {item.name} x {item.quantity}</span>
-                                <span style={{ color: 'var(--text-muted)' }}>₹{item.price * item.quantity}</span>
-                              </div>
-                            ))}
-                          </div>
-
-                          {/* Split Payout Breakdown */}
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', padding: '0.5rem', background: 'rgba(99, 102, 241, 0.05)', borderRadius: '6px', border: '1px dashed rgba(99, 102, 241, 0.2)' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem', color: 'var(--text-muted)' }}>
-                              <span>Split Settlements (প্রাপ্য কমিশন ভাগ):</span>
-                            </div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', fontWeight: 'bold' }}>
-                              <span style={{ color: 'var(--accent)' }}>🏪 Payout to You:</span>
-                              <span style={{ color: 'var(--accent)' }}>₹{parseFloat(o.stockist_amount || 0).toFixed(2)}</span>
-                            </div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem', color: 'var(--text-muted)' }}>
-                              <span>⚙️ FastNet Commission:</span>
-                              <span>₹{parseFloat(o.platform_amount || 0).toFixed(2)}</span>
-                            </div>
-                          </div>
-
-                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem', color: 'var(--text-muted)', padding: '0 0.1rem' }}>
-                            <span>Basket Subtotal: ₹{o.subtotal}</span>
-                            <span>Total Price: ₹{o.total_price}</span>
-                          </div>
-
-                          {/* Action Buttons */}
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', marginTop: '0.25rem' }}>
-                            <div style={{ display: 'flex', gap: '0.25rem' }}>
-                              {o.status === 'PENDING' && (
-                                <button className="btn" style={{ flex: 1, padding: '0.35rem 0', fontSize: '0.7rem' }} onClick={() => handleUpdateOrderStatus(o.id, 'ACCEPTED')}>
-                                  Accept (স্বীকার করুন)
-                                </button>
-                              )}
-                              {o.status === 'ACCEPTED' && (
-                                <button className="btn btn-accent" style={{ flex: 1, padding: '0.35rem 0', fontSize: '0.7rem' }} onClick={() => handleUpdateOrderStatus(o.id, 'PREPARING')}>
-                                  Prepare (প্যাক করুন)
-                                </button>
-                              )}
-                              {o.status === 'PREPARING' && (
-                                <button className="btn btn-accent" style={{ flex: 1, padding: '0.35rem 0', fontSize: '0.7rem' }} onClick={() => handleUpdateOrderStatus(o.id, 'SHIPPED')}>
-                                  {o.fulfillment_type === 'PICKUP' ? 'Mark Ready for Pickup' : 'Deliver (ডেলিভারি করুন)'}
-                                </button>
-                              )}
-                              {o.status === 'SHIPPED' && (
-                                o.fulfillment_type === 'PICKUP' ? (
-                                  <div style={{ display: 'flex', gap: '0.25rem', width: '100%' }}>
-                                    <input 
-                                      type="text" 
-                                      placeholder="Enter Customer PIN" 
-                                      maxLength="4"
-                                      style={{ flex: 1, padding: '0.25rem', fontSize: '0.7rem', background: 'var(--bg-surface-elevated)', border: '1px solid var(--border-color)', color: 'white', borderRadius: '4px', textAlign: 'center' }}
-                                      value={enteredPins[o.id] || ''}
-                                      onChange={e => setEnteredPins(prev => ({ ...prev, [o.id]: e.target.value }))}
-                                    />
-                                    <button 
-                                      className="btn btn-accent" 
-                                      style={{ padding: '0.25rem 0.5rem', fontSize: '0.7rem' }}
-                                      onClick={() => handleVerifyPickupPIN(o.id)}
-                                    >
-                                      Verify PIN
-                                    </button>
-                                  </div>
-                                ) : (
-                                  <button className="btn" style={{ flex: 1, padding: '0.35rem 0', fontSize: '0.7rem', background: 'var(--accent)' }} onClick={() => handleUpdateOrderStatus(o.id, 'DELIVERED')}>
-                                    Complete & Pay (ডেলিভারি সম্পন্ন)
-                                  </button>
-                                )
-                              )}
-                              {o.status !== 'DELIVERED' && o.status !== 'CANCELLED' && (
-                                <button className="btn btn-danger" style={{ padding: '0.35rem 0.5rem', fontSize: '0.7rem' }} onClick={() => handleUpdateOrderStatus(o.id, 'CANCELLED')}>Cancel</button>
-                              )}
-                            </div>
-                            
-                            {o.status === 'DELIVERED' && (
-                              <button 
-                                className="btn btn-secondary" 
-                                style={{ width: '100%', padding: '0.25rem 0', fontSize: '0.65rem', background: 'rgba(245,158,11,0.06)', color: 'var(--warning)', border: '1px solid rgba(245,158,11,0.2)' }}
-                                onClick={() => {
-                                  setSubmittingFeedbackOrder(o);
-                                  setFeedbackRating(5);
-                                  setFeedbackReason('');
-                                }}
-                              >
-                                ★ Report / Rate Customer (ক্রেতার ফিডব্যাক)
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                    {stockistOrders.length === 0 && (
-                      <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem', textAlign: 'center' }}>No orders in queue.</p>
-                    )}
-                  </div>
-
-                  {/* Inventory Restock Panel */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem', marginTop: '1rem' }}>
-                    <h3 style={{ fontSize: '0.95rem', margin: 0 }}>Store Inventory (স্টক তালিকা)</h3>
-                    <button 
-                      className="btn btn-accent" 
-                      style={{ padding: '0.2rem 0.5rem', fontSize: '0.65rem' }} 
-                      onClick={() => setShowAddProductModal(true)}
-                    >
-                      + Add New SKU
-                    </button>
-                  </div>
-
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.02)', padding: '0.4rem 0.6rem', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.05)', marginTop: '0.5rem' }}>
-                    <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>⚠️ Low Stock Warning Threshold:</span>
-                    <input 
-                      type="number" 
-                      min="0" 
-                      style={{ width: '45px', padding: '0.2rem', fontSize: '0.7rem', background: 'var(--bg-surface-elevated)', border: '1px solid var(--border-color)', color: 'white', borderRadius: '4px', textAlign: 'center' }}
-                      value={lowStockThreshold}
-                      onChange={e => setLowStockThreshold(e.target.value)}
-                    />
-                  </div>
-                  
-                  <div className="input-group" style={{ marginTop: '0.5rem' }}>
-                    <label className="input-label" style={{ fontSize: '0.65rem' }}>Select Wholesaler (পাইকারি বিক্রেতা)</label>
-                    <select 
-                      className="text-input" 
-                      value={selectedRestockVendorId} 
-                      onChange={e => setSelectedRestockVendorId(e.target.value)}
-                      style={{ background: 'var(--bg-surface)', fontSize: '0.7rem', padding: '0.25rem' }}
-                    >
-                      {stockistApprovedVendors.map(v => (
-                        <option key={v.id} value={v.id}>{v.name}</option>
-                      ))}
-                      {stockistApprovedVendors.length === 0 && (
-                        <option value="">No Approved Wholesalers</option>
-                      )}
-                    </select>
-                  </div>
-
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '0.5rem' }}>
-                    {stockistProducts.map(p => {
-                      const isLowStock = p.stock_qty < parseInt(lowStockThreshold || '15', 10);
-                      return (
-                        <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-surface)', padding: '0.5rem 0.75rem', borderRadius: '6px', border: isLowStock ? '1px dashed var(--warning)' : '1px solid var(--border-color)', fontSize: '0.75rem' }}>
-                          <div style={{ flex: 1 }}>
-                            <div style={{ fontWeight: '600', color: 'white' }}>{p.name}</div>
-                            <div style={{ color: 'var(--text-muted)', fontSize: '0.65rem' }}>
-                              Stock qty: <strong style={{ color: p.stock_qty > 0 ? 'var(--accent)' : 'var(--danger)' }}>{p.stock_qty}</strong>
-                              {isLowStock && (
-                                <span style={{ color: 'var(--warning)', marginLeft: '0.4rem', fontWeight: 'bold' }}>⚠️ Low Stock</span>
-                              )}
-                            </div>
-                          </div>
-                          <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
-                          <input 
-                            type="number" 
-                            min="1" 
-                            style={{ width: '45px', padding: '0.25rem', fontSize: '0.7rem', background: 'var(--bg-surface-elevated)', border: '1px solid var(--border-color)', color: 'white', borderRadius: '4px', textAlign: 'center' }}
-                            value={restockQuantities[p.id] || '20'}
-                            onChange={e => setRestockQuantities(prev => ({ ...prev, [p.id]: e.target.value }))}
-                          />
-                          <button 
-                            className="btn btn-accent" 
-                            style={{ padding: '0.25rem 0.5rem', fontSize: '0.7rem' }}
-                            onClick={() => handlePurchaseStock(p.id, restockQuantities[p.id] || 20, selectedRestockVendorId)}
-                          >
-                            Buy Stock
-                          </button>
-                        </div>
+                          {offlineMode ? 'Connect' : 'Disconnect'}
+                        </button>
                       </div>
-                    );
-                  })}
-                  </div>
 
-                  <button className="btn btn-danger" style={{ width: '100%', marginTop: 'auto', fontSize: '0.8rem' }} onClick={handleLogout}>Log Out</button>
-
-                  {showAddProductModal && (
-                    <div style={{ position: 'absolute', inset: 0, background: 'rgba(11,14,20,0.96)', zIndex: 110, display: 'flex', flexDirection: 'column', padding: '1.25rem', justifyContent: 'center' }}>
-                      <div className="glass-card" style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
-                        <h3 style={{ fontSize: '1rem', color: 'white', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.35rem' }}>Add New SKU (নতুন পণ্য তৈরি)</h3>
-                        
-                        <div className="input-group">
-                          <label className="input-label" style={{ fontSize: '0.65rem' }}>Product Name *</label>
-                          <input type="text" className="text-input" placeholder="e.g. Fresh Potatoes 1kg" value={newProdName} onChange={e => setNewProdName(e.target.value)} style={{ fontSize: '0.75rem', padding: '0.3rem' }} />
-                        </div>
-
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
-                          <div className="input-group">
-                            <label className="input-label" style={{ fontSize: '0.65rem' }}>Selling Price (₹) *</label>
-                            <input type="number" className="text-input" placeholder="30" value={newProdPrice} onChange={e => setNewProdPrice(e.target.value)} style={{ fontSize: '0.75rem', padding: '0.3rem' }} />
-                          </div>
-                          <div className="input-group">
-                            <label className="input-label" style={{ fontSize: '0.65rem' }}>Wholesale Cost (₹)</label>
-                            <input type="number" className="text-input" placeholder="22" value={newProdCostPrice} onChange={e => setNewProdCostPrice(e.target.value)} style={{ fontSize: '0.75rem', padding: '0.3rem' }} />
-                          </div>
-                        </div>
-
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
-                          <div className="input-group">
-                            <label className="input-label" style={{ fontSize: '0.65rem' }}>Category</label>
-                            <select className="text-input" value={newProdCategory} onChange={e => setNewProdCategory(e.target.value)} style={{ fontSize: '0.75rem', padding: '0.3rem', background: 'var(--bg-surface)' }}>
-                              <option value="groceries">Groceries</option>
-                              <option value="packaged_foods">Packaged Foods</option>
-                              <option value="dairy">Dairy</option>
-                            </select>
-                          </div>
-                          <div className="input-group">
-                            <label className="input-label" style={{ fontSize: '0.65rem' }}>Initial Stock *</label>
-                            <input type="number" min="0" className="text-input" value={newProdInitialStock} onChange={e => setNewProdInitialStock(e.target.value)} style={{ fontSize: '0.75rem', padding: '0.3rem' }} />
-                          </div>
-                        </div>
-
-                        <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.25rem' }}>
-                          <button className="btn btn-accent" style={{ flex: 1, padding: '0.35rem 0', fontSize: '0.75rem' }} onClick={handleAddNewProduct}>
-                            Save SKU
-                          </button>
-                          <button className="btn btn-secondary" style={{ flex: 1, padding: '0.35rem 0', fontSize: '0.75rem' }} onClick={() => setShowAddProductModal(false)}>
-                            Cancel
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {submittingFeedbackOrder && submittingFeedbackOrder.stockist_id === stockistProfile.id && (
-                    <div style={{ position: 'absolute', inset: 0, background: 'rgba(11,14,20,0.96)', zIndex: 110, display: 'flex', flexDirection: 'column', padding: '1.25rem', justifyContent: 'center' }}>
-                      <div className="glass-card" style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
-                        <h3 style={{ fontSize: '1rem', color: 'white', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.35rem' }}>Report Customer (ক্রেতার ফিডব্যাক)</h3>
-                        <p style={{ color: 'var(--text-muted)', fontSize: '0.65rem', margin: 0 }}>Rate buyer behavior for {submittingFeedbackOrder.customer_name}</p>
-                        
-                        <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center' }}>
-                          {[1,2,3,4,5].map(star => (
-                            <span 
-                              key={star} 
-                              style={{ fontSize: '1.5rem', cursor: 'pointer', color: star <= feedbackRating ? 'var(--warning)' : 'var(--text-muted)' }}
-                              onClick={() => setFeedbackRating(star)}
+                      {/* Active Orders Queue */}
+                      <h3 style={{ fontSize: '0.9rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.4rem', marginTop: '0.25rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                        <ArrowRightLeft size={14} style={{ color: 'var(--primary)' }} />
+                        New Orders (নতুন অর্ডার)
+                      </h3>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                        {stockistOrders.map(o => {
+                          const isNew = o.status === 'PENDING';
+                          return (
+                            <div 
+                              key={o.id} 
+                              className={`glass-card ${isNew ? 'new-order-card' : ''}`} 
+                              style={{ 
+                                padding: '0.75rem', 
+                                fontSize: '0.75rem', 
+                                display: 'flex', 
+                                flexDirection: 'column', 
+                                gap: '0.5rem',
+                                border: isNew ? '1px solid var(--primary)' : '1px solid var(--border-color)',
+                                transition: 'all 0.3s ease'
+                              }}
                             >
-                              ★
-                            </span>
-                          ))}
-                        </div>
+                              {/* Order Header / New Badge */}
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <span style={{ fontWeight: 'bold', fontSize: '0.75rem', color: 'white' }}>
+                                  Order #{o.id.substring(2).toUpperCase()}
+                                </span>
+                                <div style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
+                                  {isNew && (
+                                    <span className="badge badge-primary" style={{ fontSize: '0.55rem', background: 'var(--primary)', color: 'white', padding: '0.15rem 0.35rem', animation: 'pulse 1s infinite', fontWeight: 'bold' }}>
+                                      NEW
+                                    </span>
+                                  )}
+                                  <span className={`badge ${o.status === 'DELIVERED' ? 'badge-success' : 'badge-warning'}`} style={{ fontSize: '0.6rem' }}>
+                                    {o.status}
+                                  </span>
+                                </div>
+                              </div>
 
-                        <div className="input-group">
-                          <label className="input-label" style={{ fontSize: '0.65rem' }}>Details / Incident Reason</label>
-                          <textarea 
-                            className="text-input" 
-                            style={{ height: '60px', fontSize: '0.75rem', padding: '0.3rem' }} 
-                            placeholder="e.g. Prompt collector, highly cooperative"
-                            value={feedbackReason}
-                            onChange={e => setFeedbackReason(e.target.value)}
-                          />
-                        </div>
+                              {/* Basic Customer Context */}
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.1rem', background: 'rgba(255, 255, 255, 0.02)', padding: '0.45rem', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                  <span style={{ fontWeight: 'bold', color: 'white', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                                    <UserCheck size={12} style={{ color: 'var(--primary)' }} /> {o.customer_name}
+                                  </span>
+                                  <span style={{ fontSize: '0.65rem', color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: '0.15rem' }}>
+                                    <MapPin size={10} /> {o.region_id === 'r2' ? 'Bishnupur Rural' : 'Garia Urban'}
+                                  </span>
+                                </div>
+                                <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                                  <Phone size={10} /> {o.customer_phone || 'N/A'}
+                                </span>
+                              </div>
 
-                        <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.25rem' }}>
-                          <button className="btn btn-accent" style={{ flex: 1, padding: '0.35rem 0', fontSize: '0.75rem' }} onClick={() => handleSaveFeedback('STOCKIST')}>
-                            Submit
-                          </button>
-                          <button className="btn btn-secondary" style={{ flex: 1, padding: '0.35rem 0', fontSize: '0.75rem' }} onClick={() => setSubmittingFeedbackOrder(null)}>
-                            Cancel
-                          </button>
-                        </div>
+                              {/* Visual Step Progress Bar */}
+                              {renderOrderProgressBar(o.status)}
+
+                              {/* Order Items List */}
+                              <div style={{ background: 'rgba(0,0,0,0.15)', padding: '0.4rem 0.5rem', borderRadius: '4px' }}>
+                                <div style={{ fontWeight: '600', color: 'var(--text-muted)', fontSize: '0.65rem', marginBottom: '0.25rem', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '0.2rem' }}>ITEMS TO PACK:</div>
+                                {o.items && o.items.map(item => (
+                                  <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-main)', fontSize: '0.7rem' }}>
+                                    <span>• {item.name} x {item.quantity}</span>
+                                    <span style={{ color: 'var(--text-muted)' }}>₹{item.price * item.quantity}</span>
+                                  </div>
+                                ))}
+                              </div>
+
+                              {/* Split Payout Breakdown */}
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', padding: '0.5rem', background: 'rgba(99, 102, 241, 0.05)', borderRadius: '6px', border: '1px dashed rgba(99, 102, 241, 0.2)' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem', color: 'var(--text-muted)' }}>
+                                  <span>Split Settlements (প্রাপ্য কমিশন ভাগ):</span>
+                                </div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', fontWeight: 'bold' }}>
+                                  <span style={{ color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                                    <Store size={12} /> Payout to You:
+                                  </span>
+                                  <span style={{ color: 'var(--accent)' }}>₹{parseFloat(o.stockist_amount || 0).toFixed(2)}</span>
+                                </div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem', color: 'var(--text-muted)' }}>
+                                  <span>Commission Split:</span>
+                                  <span>₹{parseFloat(o.platform_amount || 0).toFixed(2)}</span>
+                                </div>
+                              </div>
+
+                              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem', color: 'var(--text-muted)', padding: '0 0.1rem' }}>
+                                <span>Basket Subtotal: ₹{o.subtotal}</span>
+                                <span>Total Price: ₹{o.total_price}</span>
+                              </div>
+
+                              {/* Action Buttons */}
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', marginTop: '0.25rem' }}>
+                                <div style={{ display: 'flex', gap: '0.25rem' }}>
+                                  {o.status === 'PENDING' && (
+                                    <button className="btn" style={{ flex: 1, padding: '0.35rem 0', fontSize: '0.7rem' }} onClick={() => handleUpdateOrderStatus(o.id, 'ACCEPTED')}>
+                                      Accept
+                                    </button>
+                                  )}
+                                  {o.status === 'ACCEPTED' && (
+                                    <button className="btn btn-accent" style={{ flex: 1, padding: '0.35rem 0', fontSize: '0.7rem' }} onClick={() => handleUpdateOrderStatus(o.id, 'PREPARING')}>
+                                      Prepare
+                                    </button>
+                                  )}
+                                  {o.status === 'PREPARING' && (
+                                    <button className="btn btn-accent" style={{ flex: 1, padding: '0.35rem 0', fontSize: '0.7rem' }} onClick={() => handleUpdateOrderStatus(o.id, 'SHIPPED')}>
+                                      {o.fulfillment_type === 'PICKUP' ? 'Mark Ready' : 'Deliver'}
+                                    </button>
+                                  )}
+                                  {o.status === 'SHIPPED' && (
+                                    o.fulfillment_type === 'PICKUP' ? (
+                                      <div style={{ display: 'flex', gap: '0.25rem', width: '100%' }}>
+                                        <input 
+                                          type="text" 
+                                          placeholder="Enter PIN" 
+                                          maxLength="4"
+                                          style={{ flex: 1, padding: '0.25rem', fontSize: '0.7rem', background: 'var(--bg-surface-elevated)', border: '1px solid var(--border-color)', color: 'white', borderRadius: '4px', textAlign: 'center' }}
+                                          value={enteredPins[o.id] || ''}
+                                          onChange={e => setEnteredPins(prev => ({ ...prev, [o.id]: e.target.value }))}
+                                        />
+                                        <button 
+                                          className="btn btn-accent" 
+                                          style={{ padding: '0.25rem 0.5rem', fontSize: '0.7rem' }}
+                                          onClick={() => handleVerifyPickupPIN(o.id)}
+                                        >
+                                          Verify
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <button className="btn" style={{ flex: 1, padding: '0.35rem 0', fontSize: '0.7rem', background: 'var(--accent)' }} onClick={() => handleUpdateOrderStatus(o.id, 'DELIVERED')}>
+                                        Complete & Pay
+                                      </button>
+                                    )
+                                  )}
+                                  {o.status !== 'DELIVERED' && o.status !== 'CANCELLED' && (
+                                    <button className="btn btn-danger" style={{ padding: '0.35rem 0.5rem', fontSize: '0.7rem' }} onClick={() => handleUpdateOrderStatus(o.id, 'CANCELLED')}>Cancel</button>
+                                  )}
+                                </div>
+                                
+                                {o.status === 'DELIVERED' && (
+                                  <button 
+                                    className="btn btn-secondary" 
+                                    style={{ width: '100%', padding: '0.25rem 0', fontSize: '0.65rem', background: 'rgba(245,158,11,0.06)', color: 'var(--warning)', border: '1px solid rgba(245,158,11,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.25rem' }}
+                                    onClick={() => {
+                                      setSubmittingFeedbackOrder(o);
+                                      setFeedbackRating(5);
+                                      setFeedbackReason('');
+                                    }}
+                                  >
+                                    Rate Customer (ক্রেতার ফিডব্যাক)
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                        {stockistOrders.length === 0 && (
+                          <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem', textAlign: 'center' }}>No orders in queue.</p>
+                        )}
                       </div>
+                    </>
+                  )}
+
+                  {stockistActiveTab === 'inventory' && (
+                    <>
+                      {/* Inventory Restock Panel */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.4rem' }}>
+                        <h3 style={{ fontSize: '0.9rem', margin: 0, display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                          <Package size={14} style={{ color: 'var(--primary)' }} /> Inventory SKU list
+                        </h3>
+                        <button 
+                          className="btn btn-accent" 
+                          style={{ padding: '0.25rem 0.5rem', fontSize: '0.65rem', height: '28px', minHeight: '28px' }} 
+                          onClick={() => setShowAddProductModal(true)}
+                        >
+                          + Add SKU
+                        </button>
+                      </div>
+
+                      {/* Stockist Inventory Search Bar (#5) */}
+                      <div style={{ position: 'relative' }}>
+                        <input 
+                          type="text" 
+                          placeholder="Search stock inventory..."
+                          className="text-input" 
+                          style={{ width: '100%', paddingLeft: '2.25rem', height: '36px', minHeight: '36px', fontSize: '0.75rem' }}
+                          value={stockistProductSearch}
+                          onChange={e => setStockistProductSearch(e.target.value)}
+                        />
+                        <Search size={14} style={{ position: 'absolute', left: '0.75rem', top: '11px', color: 'var(--text-muted)' }} />
+                        {stockistProductSearch && (
+                          <button 
+                            onClick={() => setStockistProductSearch('')}
+                            style={{ position: 'absolute', right: '0.75rem', top: '10px', background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
+                          >
+                            <X size={14} />
+                          </button>
+                        )}
+                      </div>
+
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.02)', padding: '0.4rem 0.6rem', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                        <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Low Stock Threshold:</span>
+                        <input 
+                          type="number" 
+                          min="0" 
+                          style={{ width: '45px', padding: '0.2rem', fontSize: '0.7rem', background: 'var(--bg-surface-elevated)', border: '1px solid var(--border-color)', color: 'white', borderRadius: '4px', textAlign: 'center' }}
+                          value={lowStockThreshold}
+                          onChange={e => setLowStockThreshold(e.target.value)}
+                        />
+                      </div>
+                      
+                      <div className="input-group" style={{ margin: 0 }}>
+                        <label className="input-label" style={{ fontSize: '0.65rem' }}>Select Wholesaler (পাইকারি বিক্রেতা)</label>
+                        <select 
+                          className="text-input" 
+                          value={selectedRestockVendorId} 
+                          onChange={e => setSelectedRestockVendorId(e.target.value)}
+                          style={{ background: 'var(--bg-surface)', fontSize: '0.7rem', padding: '0.25rem', minHeight: '32px' }}
+                        >
+                          {stockistApprovedVendors.map(v => (
+                            <option key={v.id} value={v.id}>{v.name}</option>
+                          ))}
+                          {stockistApprovedVendors.length === 0 && (
+                            <option value="">No Approved Wholesalers</option>
+                          )}
+                        </select>
+                      </div>
+
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
+                        {stockistProducts
+                          .filter(p => p.name.toLowerCase().includes(stockistProductSearch.toLowerCase()))
+                          .map(p => {
+                            const isLowStock = p.stock_qty < parseInt(lowStockThreshold || '15', 10);
+                            return (
+                              <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-surface)', padding: '0.5rem 0.75rem', borderRadius: '6px', border: isLowStock ? '1px dashed var(--warning)' : '1px solid var(--border-color)', fontSize: '0.75rem' }}>
+                                <div style={{ flex: 1 }}>
+                                  <div style={{ fontWeight: '600', color: 'white' }}>{p.name}</div>
+                                  <div style={{ color: 'var(--text-muted)', fontSize: '0.65rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                                    <span>Stock qty:</span>
+                                    <strong style={{ color: p.stock_qty > 0 ? 'var(--accent)' : 'var(--danger)' }}>{p.stock_qty}</strong>
+                                    {isLowStock && (
+                                      <span style={{ color: 'var(--warning)', display: 'inline-flex', alignItems: 'center', gap: '0.15rem', fontWeight: 'bold' }}>
+                                        <AlertTriangle size={10} /> Low Stock
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                                <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
+                                  <input 
+                                    type="number" 
+                                    min="1" 
+                                    style={{ width: '45px', padding: '0.25rem', fontSize: '0.7rem', background: 'var(--bg-surface-elevated)', border: '1px solid var(--border-color)', color: 'white', borderRadius: '4px', textAlign: 'center' }}
+                                    value={restockQuantities[p.id] || '20'}
+                                    onChange={e => setRestockQuantities(prev => ({ ...prev, [p.id]: e.target.value }))}
+                                  />
+                                  <button 
+                                    className="btn btn-accent" 
+                                    style={{ padding: '0.25rem 0.5rem', fontSize: '0.7rem', minHeight: '28px', height: '28px' }}
+                                    onClick={() => handlePurchaseStock(p.id, restockQuantities[p.id] || 20, selectedRestockVendorId)}
+                                  >
+                                    Buy
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        {stockistProducts.filter(p => p.name.toLowerCase().includes(stockistProductSearch.toLowerCase())).length === 0 && (
+                          <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem', textAlign: 'center', padding: '1rem' }}>No matching inventory products.</p>
+                        )}
+                      </div>
+                    </>
+                  )}
+
+                  {stockistActiveTab === 'analytics' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+                      <h3 style={{ fontSize: '0.9rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.4rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                        <BarChart2 size={14} style={{ color: 'var(--primary)' }} />
+                        Performance Analytics (#15)
+                      </h3>
+
+                      {stockistAnalytics ? (
+                        <>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.65rem' }}>
+                            <div className="glass-card" style={{ padding: '0.75rem', textAlign: 'center' }}>
+                              <span style={{ fontSize: '0.55rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Today's Sales</span>
+                              <h3 style={{ fontSize: '1.2rem', color: 'white', margin: '0.15rem 0' }}>₹{stockistAnalytics.today_earnings.toFixed(2)}</h3>
+                              <span style={{ fontSize: '0.55rem', color: 'var(--accent)', fontWeight: 'bold' }}>{stockistAnalytics.today_order_count} orders</span>
+                            </div>
+                            <div className="glass-card" style={{ padding: '0.75rem', textAlign: 'center' }}>
+                              <span style={{ fontSize: '0.55rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Avg Order Value</span>
+                              <h3 style={{ fontSize: '1.2rem', color: 'white', margin: '0.15rem 0' }}>₹{stockistAnalytics.avg_order_value.toFixed(2)}</h3>
+                              <span style={{ fontSize: '0.55rem', color: 'var(--text-muted)' }}>fulfilled orders</span>
+                            </div>
+                          </div>
+
+                          <div className="glass-card" style={{ padding: '0.75rem' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                              <span style={{ fontSize: '0.55rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                {analyticsRange === 'weekly' ? '7-Day Sales Trend (₹)' : '4-Week Sales Trend (₹)'}
+                              </span>
+                              <div style={{ display: 'flex', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', padding: '0.1rem' }}>
+                                <button
+                                  type="button"
+                                  onClick={() => setAnalyticsRange('weekly')}
+                                  style={{
+                                    border: 'none',
+                                    fontSize: '0.55rem',
+                                    padding: '0.15rem 0.4rem',
+                                    borderRadius: '3px',
+                                    cursor: 'pointer',
+                                    background: analyticsRange === 'weekly' ? 'var(--primary)' : 'transparent',
+                                    color: 'white',
+                                    fontWeight: 'bold'
+                                  }}
+                                >
+                                  Weekly
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setAnalyticsRange('monthly')}
+                                  style={{
+                                    border: 'none',
+                                    fontSize: '0.55rem',
+                                    padding: '0.15rem 0.4rem',
+                                    borderRadius: '3px',
+                                    cursor: 'pointer',
+                                    background: analyticsRange === 'monthly' ? 'var(--primary)' : 'transparent',
+                                    color: 'white',
+                                    fontWeight: 'bold'
+                                  }}
+                                >
+                                  Monthly
+                                </button>
+                              </div>
+                            </div>
+                            <div style={{ height: 130, width: '100%', marginTop: '0.5rem' }}>
+                              <ResponsiveContainer width="100%" height="100%">
+                                <BarChart data={analyticsRange === 'weekly' ? stockistAnalytics.weekly_data : (stockistAnalytics.monthly_data || [])} margin={{ top: 5, right: 5, left: -25, bottom: 0 }}>
+                                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                                  <XAxis dataKey="day" stroke="var(--text-muted)" fontSize={8} tickLine={false} />
+                                  <YAxis stroke="var(--text-muted)" fontSize={8} tickLine={false} />
+                                  <Tooltip 
+                                    contentStyle={{ background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '9px' }}
+                                  />
+                                  <Bar dataKey="earnings" fill="var(--primary)" radius={[2, 2, 0, 0]} />
+                                </BarChart>
+                              </ResponsiveContainer>
+                            </div>
+                          </div>
+
+                          <div className="glass-card" style={{ padding: '0.75rem' }}>
+                            <span style={{ fontSize: '0.55rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Fulfillment Status</span>
+                            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem', alignItems: 'center' }}>
+                              <div style={{ flex: 1 }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem', marginBottom: '0.15rem' }}>
+                                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.15rem' }}><CheckCircle2 size={10} style={{ color: 'var(--accent)' }} /> Fulfilled: <strong>{stockistAnalytics.total_fulfilled}</strong></span>
+                                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.15rem' }}><AlertCircle size={10} style={{ color: 'var(--danger)' }} /> Cancelled: <strong>{stockistAnalytics.total_cancelled}</strong></span>
+                                </div>
+                                <div style={{ height: '6px', background: 'rgba(255,255,255,0.05)', borderRadius: '3px', overflow: 'hidden', display: 'flex' }}>
+                                  {stockistAnalytics.total_fulfilled + stockistAnalytics.total_cancelled > 0 ? (
+                                    <>
+                                      <div style={{ width: `${(stockistAnalytics.total_fulfilled / (stockistAnalytics.total_fulfilled + stockistAnalytics.total_cancelled)) * 100}%`, background: 'var(--accent)' }} />
+                                      <div style={{ width: `${(stockistAnalytics.total_cancelled / (stockistAnalytics.total_fulfilled + stockistAnalytics.total_cancelled)) * 100}%`, background: 'var(--danger)' }} />
+                                    </>
+                                  ) : (
+                                    <div style={{ width: '100%', background: 'rgba(255,255,255,0.1)' }} />
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="glass-card" style={{ padding: '0.75rem' }}>
+                            <span style={{ fontSize: '0.55rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Top Selling Products</span>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', marginTop: '0.5rem' }}>
+                              {stockistAnalytics.top_products.map((p, idx) => (
+                                <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', paddingBottom: '0.2rem', borderBottom: '1px solid rgba(255,255,255,0.02)' }}>
+                                  <span style={{ color: 'white' }}>{idx + 1}. {p.name}</span>
+                                  <span style={{ color: 'var(--accent)', fontWeight: 'bold' }}>{p.qty} sold</span>
+                                </div>
+                              ))}
+                              {stockistAnalytics.top_products.length === 0 && (
+                                <p style={{ color: 'var(--text-muted)', fontSize: '0.65rem', textAlign: 'center' }}>No products sold yet.</p>
+                              )}
+                            </div>
+                          </div>
+                        </>
+                      ) : (
+                        <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem', textAlign: 'center' }}>Loading analytics...</p>
+                      )}
                     </div>
                   )}
+
+                  <button className="btn btn-danger" style={{ width: '100%', marginTop: 'auto', fontSize: '0.8rem', minHeight: '36px', height: '36px' }} onClick={handleLogout}>Log Out</button>
 
                 </div>
+
+                <div className="phone-footer">
+                  <button className={`phone-nav-btn ${stockistActiveTab === 'orders' ? 'active' : ''}`} onClick={() => setStockistActiveTab('orders')}>
+                    <ArrowRightLeft size={18} />
+                    Orders
+                  </button>
+                  <button className={`phone-nav-btn ${stockistActiveTab === 'inventory' ? 'active' : ''}`} onClick={() => setStockistActiveTab('inventory')}>
+                    <Package size={18} />
+                    Inventory
+                  </button>
+                  <button className={`phone-nav-btn ${stockistActiveTab === 'analytics' ? 'active' : ''}`} onClick={() => { setStockistActiveTab('analytics'); loadStockistData(); }}>
+                    <BarChart2 size={18} />
+                    Analytics
+                  </button>
+                </div>
               </>
+
             )}
           </div>
         </div>
@@ -3057,14 +3398,14 @@ export default function App() {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.75rem', width: '100%' }}>
         <div className="perspective-banner">
-          <span>⚙️ OPERATOR PORTAL (অ্যাডমিন মোড): FastNet Broadband Operations Dashboard</span>
+          <span>⚙️ OPERATOR PORTAL (অ্যাডমিন মোড): FastNet Operations Dashboard</span>
         </div>
 
         <div className="admin-container">
           <div className="admin-header">
             <div>
               <h1>Operator Admin Dashboard</h1>
-              <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>FastNet Broadband Pilot Tenant Operations</p>
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>FastNet Pilot Tenant Operations</p>
             </div>
             <div style={{ display: 'flex', gap: '0.5rem' }}>
               <button className="btn btn-danger" onClick={handleResetDb} style={{ fontSize: '0.8rem' }}>
@@ -3088,7 +3429,7 @@ export default function App() {
                 <ShieldAlert size={16} /> Flagged Store Orders ({anomalies.length})
               </button>
               <button className={`admin-nav-item ${adminTab === 'redemptions' ? 'active' : ''}`} onClick={() => setAdminTab('redemptions')}>
-                <ArrowRightLeft size={16} /> Broadband Discounts ({pendingRedemptions.filter(r=>r.billing_sync_status==='PENDING').length})
+                <ArrowRightLeft size={16} /> Subscriber Bill Discounts ({pendingRedemptions.filter(r=>r.billing_sync_status==='PENDING').length})
               </button>
               <button className={`admin-nav-item ${adminTab === 'vendors' ? 'active' : ''}`} onClick={() => setAdminTab('vendors')}>
                 <ShoppingBag size={16} /> Wholesalers ({vendors.length})
@@ -3159,6 +3500,7 @@ export default function App() {
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
                       <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                         <h4>Configure Regional Commission</h4>
+                        <p style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: '-0.5rem' }}>* This percentage represents what the platform retains from sales in this region.</p>
                         <div className="input-group">
                           <label className="input-label">Region</label>
                           <select className="text-input" value={configRegion} onChange={e => setConfigRegion(e.target.value)}>
@@ -3179,6 +3521,7 @@ export default function App() {
 
                       <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                         <h4>Configure Shop Commission Override (§9)</h4>
+                        <p style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: '-0.5rem' }}>* Overrides the regional commission rate. This is the portion retained by the platform from this shop's sales.</p>
                         <div className="input-group">
                           <label className="input-label">Select Shop</label>
                           <select className="text-input" value={selectedStockistForCommission} onChange={e => setSelectedStockistForCommission(e.target.value)}>
@@ -3356,9 +3699,9 @@ export default function App() {
                 <div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
                     <div>
-                      <h2 style={{ fontSize: '1.4rem' }}>Subscriber Broadband Discounts (ব্রডব্যান্ড ডিসকাউন্ট)</h2>
+                      <h2 style={{ fontSize: '1.4rem' }}>Subscriber Bill Discounts (বিল ডিসকাউন্ট)</h2>
                       <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-                        Approve and synchronize redeemed bill discounts with FastNet CRM billing software.
+                        Approve and synchronize redeemed bill discounts with FastNet billing system.
                       </p>
                     </div>
                     <div style={{ display: 'flex', gap: '0.5rem' }}>
