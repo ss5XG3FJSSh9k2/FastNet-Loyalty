@@ -926,7 +926,7 @@ app.post('/api/ledger/redeem', (req, res) => {
 // ----------------------------------------------------
 
 app.post('/api/feedback', (req, res) => {
-  const { reporterId, reporterRole, targetId, targetRole, orderId, rating, reason } = req.body;
+  const { reporterId, reporterRole, targetId, targetRole, orderId, rating, reason, reportFlag } = req.body;
   if (!reporterId || !reporterRole || !targetId || !targetRole || !orderId || rating === undefined) {
     return res.status(400).json({ error: 'Reporter, target, order ID, and rating are required.' });
   }
@@ -941,6 +941,7 @@ app.post('/api/feedback', (req, res) => {
     order_id: orderId,
     rating: parseInt(rating, 10),
     reason: reason || '',
+    report_flag: !!reportFlag,
     created_at: new Date().toISOString()
   };
 

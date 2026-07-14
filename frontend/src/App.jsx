@@ -92,6 +92,7 @@ export default function App() {
   const [submittingFeedbackOrder, setSubmittingFeedbackOrder] = useState(null);
   const [feedbackRating, setFeedbackRating] = useState(5);
   const [feedbackReason, setFeedbackReason] = useState('');
+  const [reportFlag, setReportFlag] = useState(false);
   
   // Rate config form (per-stockist overrides)
   const [selectedStockistForCommission, setSelectedStockistForCommission] = useState('');
@@ -1402,7 +1403,8 @@ export default function App() {
           targetName: submittingFeedbackOrder.stockist_name,
           orderId: submittingFeedbackOrder.id,
           rating: feedbackRating,
-          reason: feedbackReason
+          reason: feedbackReason,
+          reportFlag: reportFlag
         };
       } else {
         payload = {
@@ -1414,7 +1416,8 @@ export default function App() {
           targetName: submittingFeedbackOrder.customer_name || 'Amit Sen',
           orderId: submittingFeedbackOrder.id,
           rating: feedbackRating,
-          reason: feedbackReason
+          reason: feedbackReason,
+          reportFlag: reportFlag
         };
       }
       const res = await fetch(`${API_BASE}/feedback`, {
@@ -1429,6 +1432,7 @@ export default function App() {
         setSubmittingFeedbackOrder(null);
         setFeedbackRating(5);
         setFeedbackReason('');
+        setReportFlag(false);
         loadCustomerData();
         loadStockistData();
         fetchDbState();
@@ -3111,7 +3115,7 @@ export default function App() {
                                   )}
                                 </div>
                                 
-                                {o.status === 'DELIVERED' && (
+                                {(o.status === 'DELIVERED' || o.status === 'CANCELLED') && (
                                   <button 
                                     className="btn btn-secondary" 
                                     style={{ width: '100%', padding: '0.25rem 0', fontSize: '0.65rem', background: 'rgba(245,158,11,0.06)', color: 'var(--warning)', border: '1px solid rgba(245,158,11,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.25rem' }}
@@ -3119,9 +3123,10 @@ export default function App() {
                                       setSubmittingFeedbackOrder(o);
                                       setFeedbackRating(5);
                                       setFeedbackReason('');
+                                      setReportFlag(false);
                                     }}
                                   >
-                                    Rate Customer (ক্রেতার ফিডব্যাক)
+                                    <UserCheck size={12} /> {t('Rate Customer', 'ग्राहक को रेट करें', 'ক্রেতাকে রেটিং দিন')}
                                   </button>
                                 )}
                               </div>
@@ -3367,6 +3372,65 @@ export default function App() {
 
                   <button className="btn btn-danger" style={{ width: '100%', marginTop: 'auto', fontSize: '0.8rem', minHeight: '36px', height: '36px' }} onClick={handleLogout}>Log Out</button>
 
+                  {/* Stockist-Side Rate Customer Modal Overlay */}
+                  {submittingFeedbackOrder && currentUser.role === 'STOCKIST' && (
+                    <div style={{ position: 'absolute', inset: 0, background: 'rgba(11,14,20,0.96)', zIndex: 110, display: 'flex', flexDirection: 'column', padding: '1.5rem', justifyContent: 'center' }}>
+                      <div className="glass-card" style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                        <h3 style={{ fontSize: '1.1rem', color: 'white', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                          <UserCheck size={16} style={{ color: 'var(--accent)' }} />
+                          {t('Rate Customer', 'ग्राहक को रेट करें', 'ক্রেতাকে রেটিং দিন')}
+                        </h3>
+                        <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>
+                          {t('Rate behavior of', 'व्यवहार को रेट करें', 'ব্যবহারের রেটিং দিন')}: <strong>{submittingFeedbackOrder.customer_name}</strong>
+                        </p>
+                        
+                        <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center' }}>
+                          {[1,2,3,4,5].map(star => (
+                            <span 
+                              key={star} 
+                              style={{ fontSize: '1.5rem', cursor: 'pointer', color: star <= feedbackRating ? 'var(--warning)' : 'var(--text-muted)' }}
+                              onClick={() => setFeedbackRating(star)}
+                            >
+                              ★
+                            </span>
+                          ))}
+                        </div>
+
+                        <div className="input-group">
+                          <label className="input-label">{t('Details / Comment', 'विवरण / टिप्पणी', 'মন্তব্য / বিবরণ')}</label>
+                          <textarea 
+                            className="text-input" 
+                            style={{ height: '60px', fontSize: '0.75rem' }} 
+                            placeholder={t('e.g. Abusive behavior, pickup no-show', 'जैसे: अभद्र व्यवहार, पिकअप नो-शो', 'যেমন: খারাপ ব্যবহার বা পিকআপ করতে না আসা')}
+                            value={feedbackReason}
+                            onChange={e => setFeedbackReason(e.target.value)}
+                          />
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
+                          <input 
+                            type="checkbox" 
+                            id="reportCustomerFlag" 
+                            checked={reportFlag} 
+                            onChange={e => setReportFlag(e.target.checked)} 
+                          />
+                          <label htmlFor="reportCustomerFlag" style={{ fontSize: '0.75rem', color: 'var(--text-main)', cursor: 'pointer' }}>
+                            {t('Report Customer for serious violation', 'गंभीर उल्लंघन के लिए रिपोर्ट करें', 'গুরুতর নিয়ম লঙ্ঘনের জন্য রিপোর্ট করুন')}
+                          </label>
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '0.5rem' }}>
+                          <button className="btn btn-accent" style={{ flex: 1 }} onClick={() => handleSaveFeedback('STOCKIST')}>
+                            {t('Submit', 'जमा करें', 'জমা দিন')}
+                          </button>
+                          <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => { setSubmittingFeedbackOrder(null); setReportFlag(false); }}>
+                            {t('Cancel', 'रद्द करें', 'বাতিল')}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                 </div>
 
                 <div className="phone-footer">
@@ -3608,26 +3672,39 @@ export default function App() {
                     <thead>
                       <tr>
                         <th>Date</th>
+                        <th>Direction</th>
                         <th>Reporter</th>
-                        <th>Target Role</th>
-                        <th>Target Name</th>
+                        <th>Target (Recipient)</th>
                         <th>Order ID</th>
                         <th>Rating</th>
-                        <th>Reason</th>
+                        <th>Reason / Incident Details</th>
                       </tr>
                     </thead>
                     <tbody>
                       {allFeedbackReports.map(fb => (
                         <tr key={fb.id}>
                           <td>{new Date(fb.created_at).toLocaleDateString()}</td>
-                          <td style={{ fontWeight: 'bold' }}>{fb.reporter_name} ({fb.reporter_role})</td>
-                          <td>{fb.target_role}</td>
-                          <td>{fb.target_name}</td>
+                          <td>
+                            {fb.reporter_role === 'CUSTOMER' ? (
+                              <span className="badge badge-success" style={{ fontSize: '0.6rem', padding: '0.15rem 0.35rem' }}>Customer ➔ Shop</span>
+                            ) : (
+                              <span className="badge badge-warning" style={{ fontSize: '0.6rem', padding: '0.15rem 0.35rem', background: 'rgba(236,72,153,0.15)', color: '#ec4899' }}>Shop ➔ Customer</span>
+                            )}
+                          </td>
+                          <td style={{ fontWeight: 'bold' }}>{fb.reporter_name}</td>
+                          <td>{fb.target_name} ({fb.target_role === 'STOCKIST' ? 'Shop' : 'Customer'})</td>
                           <td style={{ fontFamily: 'monospace' }}>#{fb.order_id.substring(2).toUpperCase()}</td>
                           <td>
-                            <span style={{ color: 'var(--warning)', fontWeight: 'bold' }}>
-                              {'★'.repeat(fb.rating)}{'☆'.repeat(5 - fb.rating)}
-                            </span>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                              <span style={{ color: 'var(--warning)', fontWeight: 'bold' }}>
+                                {'★'.repeat(fb.rating)}{'☆'.repeat(5 - fb.rating)}
+                              </span>
+                              {fb.report_flag && (
+                                <span className="badge badge-danger" style={{ fontSize: '0.55rem', padding: '0.1rem 0.25rem', display: 'inline-flex', alignItems: 'center', gap: '0.15rem', background: 'rgba(239,68,68,0.15)', color: 'var(--danger)' }}>
+                                  <AlertTriangle size={10} /> VIOLATION
+                                </span>
+                              )}
+                            </div>
                           </td>
                           <td>{fb.reason}</td>
                         </tr>

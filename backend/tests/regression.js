@@ -250,6 +250,30 @@ async function main() {
   }
   assert(localISTDateString(dateAt20UTC) === '2026-07-14', 'IST timezone boundary wraps correctly past midnight IST');
 
+  // 11. Stockist rates/reports a customer
+  console.log('\n--- 11. Stockist Rates/Reports a Customer ---');
+  const fbRes = await post('http://localhost:3001/api/feedback', {
+    reporterId: 's1',
+    reporterRole: 'STOCKIST',
+    targetId: 'u-cust1',
+    targetRole: 'CUSTOMER',
+    orderId: orderPickId,
+    rating: 2,
+    reason: 'Customer did not show up to pick up order.',
+    reportFlag: true
+  });
+  assert(fbRes.status === 200, 'Feedback from stockist submitted successfully');
+  
+  const adminFbRes = await get('http://localhost:3001/api/admin/feedback');
+  assert(adminFbRes.status === 200, 'Admin feedback queue retrieved successfully');
+  
+  const targetFb = adminFbRes.body.find(f => f.id === fbRes.body.feedback.id);
+  assert(targetFb !== undefined, 'Stockist feedback exists in admin feedback queue');
+  assert(targetFb.reporter_role === 'STOCKIST', `Reporter role is STOCKIST: ${targetFb.reporter_role}`);
+  assert(targetFb.target_role === 'CUSTOMER', `Target role is CUSTOMER: ${targetFb.target_role}`);
+  assert(targetFb.report_flag === true, `Report flag is set to true: ${targetFb.report_flag}`);
+  assert(targetFb.reason === 'Customer did not show up to pick up order.', 'Reason matches submitted text');
+
   console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);
 }
