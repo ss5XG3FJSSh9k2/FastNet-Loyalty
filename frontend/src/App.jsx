@@ -135,7 +135,6 @@ export default function App() {
       return next;
     });
   };
-  const [waModalOrder, setWaModalOrder] = useState(null);
   const [stockistAnalytics, setStockistAnalytics] = useState(null);
   const [stockistActiveTab, setStockistActiveTab] = useState('orders'); // orders | analytics | inventory
 
@@ -2296,10 +2295,10 @@ export default function App() {
                       <div style={{ alignSelf: 'flex-start', background: '#202c33', color: '#e9edef', padding: '0.5rem 0.75rem', borderRadius: '0 8px 8px 8px', maxWidth: '85%', fontSize: '0.7rem', border: '1px solid rgba(255,255,255,0.05)', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
                         <span style={{ color: '#25d366', fontWeight: 'bold', fontSize: '0.65rem' }}>FastNet Supermarket</span>
                         <p style={{ margin: 0, whiteSpace: 'pre-line' }}>
-                          {`Hello ${simulatedWaMessage.customerName || 'Valued Customer'}! 👋\n\nYour FastNet Supermarket order is confirmed at *${simulatedWaMessage.stockistName}*.\n\n🛍️ *Order ID:* #${simulatedWaMessage.orderId.substring(2).toUpperCase()}\n💰 *Total Price:* ₹${simulatedWaMessage.totalPrice}\n💵 *Subtotal:* ₹${simulatedWaMessage.subtotal}\n⭐ *Rewards Earned:* +${simulatedWaMessage.points} pts\n\n${
+                          {`Hello ${simulatedWaMessage.customerName || 'Valued Customer'}!\n\nYour FastNet Supermarket order is confirmed at *${simulatedWaMessage.stockistName}*.\n\n*Order ID:* #${simulatedWaMessage.orderId.substring(2).toUpperCase()}\n*Total Price:* ₹${simulatedWaMessage.totalPrice}\n*Subtotal:* ₹${simulatedWaMessage.subtotal}\n*Rewards Earned:* +${simulatedWaMessage.points} pts\n\n${
                             simulatedWaMessage.fulfillmentType === 'PICKUP'
-                              ? `📍 *Fulfillment:* Store Pickup\n🔑 *Verification PIN:* ${simulatedWaMessage.pickupPin || '1234'}\n\nPlease share this PIN with the shopkeeper when picking up your items.`
-                              : `🚚 *Fulfillment:* Home Delivery\n\nYour order will be delivered to your registered address shortly.`
+                              ? `*Fulfillment:* Store Pickup\n*Verification PIN:* ${simulatedWaMessage.pickupPin || '1234'}\n\nPlease share this PIN with the shopkeeper when picking up your items.`
+                              : `*Fulfillment:* Home Delivery\n\nYour order will be delivered to your registered address shortly.`
                           }\n\nThank you for choosing FastNet!`}
                         </p>
                         <span style={{ alignSelf: 'flex-end', fontSize: '0.5rem', color: '#8696a0', marginTop: '0.2rem' }}>19:43 ✓✓</span>
@@ -2309,21 +2308,11 @@ export default function App() {
                     {/* Action Bar */}
                     <div style={{ padding: '0.5rem 0.75rem', background: '#1f2c34', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                       <button 
-                        className="btn btn-accent" 
-                        style={{ flex: 1, padding: '0.4rem', fontSize: '0.7rem', background: '#25d366', color: 'white', border: 'none' }}
-                        onClick={() => {
-                          const waText = `Hello ${simulatedWaMessage.customerName}! FastNet Supermarket order #${simulatedWaMessage.orderId.substring(2).toUpperCase()} confirmed at ${simulatedWaMessage.stockistName} for ₹${simulatedWaMessage.totalPrice}. Fulfillment: ${simulatedWaMessage.fulfillmentType}. Pickup PIN: ${simulatedWaMessage.pickupPin || 'N/A'}. I earned ${simulatedWaMessage.points} pts!`;
-                          window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(waText)}`, '_blank');
-                        }}
-                      >
-                        Send Real Message via WhatsApp
-                      </button>
-                      <button 
                         className="btn btn-secondary" 
-                        style={{ padding: '0.4rem 0.75rem', fontSize: '0.7rem' }}
+                        style={{ width: '100%', padding: '0.5rem', fontSize: '0.75rem', fontWeight: 'bold' }}
                         onClick={() => setSimulatedWaMessage(null)}
                       >
-                        Close
+                        Close Preview
                       </button>
                     </div>
                   </div>
@@ -2567,7 +2556,7 @@ export default function App() {
                           headers: { 'Content-Type': 'application/json' },
                           body: JSON.stringify({ customerId: currentUser.id, amount: cost, redemptionType: type })
                         });
-                        if (res.ok) { showToast(`✅ ${label} redeemed!`); loadCustomerData(); }
+                        if (res.ok) { showToast(`Success: ${label} redeemed!`); loadCustomerData(); }
                         else { const d = await res.json(); showToast(d.error || 'Redemption failed', 'error'); }
                       } catch (e) { showToast('Redemption error', 'error'); }
                     };
@@ -2735,7 +2724,16 @@ export default function App() {
                                   <button 
                                     className="badge badge-success" 
                                     style={{ border: 'none', cursor: 'pointer', background: 'rgba(37,211,102,0.1)', color: '#25D366', padding: '0.2rem 0.4rem', fontSize: '0.6rem', display: 'flex', alignItems: 'center', gap: '0.15rem' }}
-                                    onClick={() => setWaModalOrder(o)}
+                                    onClick={() => setSimulatedWaMessage({
+                                      orderId: o.id,
+                                      customerName: currentUser.name,
+                                      stockistName: o.stockist_name,
+                                      totalPrice: o.total_price,
+                                      pickupPin: o.pickup_pin,
+                                      points: o.pointsCredited || o.points_credited || 0,
+                                      subtotal: o.subtotal,
+                                      fulfillmentType: o.fulfillment_type
+                                    })}
                                   >
                                     <MessageSquare size={10} /> {t('Alert', 'अलर्ट', 'প্রিভিউ')}
                                   </button>
@@ -2887,7 +2885,7 @@ export default function App() {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.75rem', width: '100%' }}>
         <div className="perspective-banner">
-          <span>🏪 SHOPKEEPER VIEW (দোকানদার মোড): {isLoggedOut ? "Not logged in (লগইন করা নেই)" : `${stockistProfile?.name || currentUser.name} (${activeRegionName})`}</span>
+          <span><Store size={14} style={{ display: 'inline', marginRight: '0.25rem', verticalAlign: 'middle' }} /> SHOPKEEPER VIEW (দোকানদার মোড): {isLoggedOut ? "Not logged in (লগইন করা নেই)" : `${stockistProfile?.name || currentUser.name} (${activeRegionName})`}</span>
         </div>
 
         <div className="phone-mockup">
@@ -2897,7 +2895,7 @@ export default function App() {
               <>
                 <div className="phone-header">
                   <span>FastNet 5G</span>
-                  <span>📶 🔋 19:43</span>
+                  <span><Signal size={12} style={{ display: 'inline', marginRight: '0.2rem' }} /><Battery size={12} style={{ display: 'inline', marginRight: '0.2rem' }} /> 19:43</span>
                 </div>
                 {renderAuthForm()}
               </>
@@ -2905,7 +2903,7 @@ export default function App() {
               <>
                 <div className="phone-header">
                   <span>FastNet 5G</span>
-                  <span>📶 🔋 19:43</span>
+                  <span><Signal size={12} style={{ display: 'inline', marginRight: '0.2rem' }} /><Battery size={12} style={{ display: 'inline', marginRight: '0.2rem' }} /> 19:43</span>
                 </div>
                 <div style={{ padding: '2rem 1.5rem', textAlign: 'center', display: 'flex', flexDirection: 'column', justify: 'center', height: '100%', gap: '1rem' }}>
                   <ShieldAlert size={48} style={{ color: 'var(--warning)', alignSelf: 'center' }} />
@@ -3398,7 +3396,7 @@ export default function App() {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.75rem', width: '100%' }}>
         <div className="perspective-banner">
-          <span>⚙️ OPERATOR PORTAL (অ্যাডমিন মোড): FastNet Operations Dashboard</span>
+          <span><Settings size={14} style={{ display: 'inline', marginRight: '0.25rem', verticalAlign: 'middle' }} /> OPERATOR PORTAL (অ্যাডমিন মোড): FastNet Operations Dashboard</span>
         </div>
 
         <div className="admin-container">
@@ -3674,7 +3672,9 @@ export default function App() {
                           <td style={{ color: 'var(--warning)', fontSize: '0.8rem' }}>{an.reason}</td>
                           <td>
                             {an.status === 'FLAGGED' ? (
-                              <span style={{ color: 'var(--danger)', fontWeight: 'bold', fontSize: '0.75rem' }}>⚠️ Flagged for Investigation</span>
+                              <span style={{ color: 'var(--danger)', fontWeight: 'bold', fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
+                                <AlertTriangle size={12} /> Flagged for Investigation
+                              </span>
                             ) : (
                               <button className="btn btn-secondary" style={{ padding: '0.25rem 0.5rem', fontSize: '0.7rem' }} onClick={() => handleFlagAnomaly(an.id)}>
                                 Flag for Review (তদন্ত করুন)
