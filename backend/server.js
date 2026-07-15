@@ -764,7 +764,8 @@ app.post('/api/orders', (req, res) => {
     orders: createdOrders,
     // Backwards compat: expose first order's id/points for single-store clients
     orderId: createdOrders[0].id,
-    pointsCredited: 0,
+    pointsCredited: createdOrders.reduce((sum, o) => sum + (o.points_credited || 0), 0),
+    totalPointsCredited: createdOrders.reduce((sum, o) => sum + (o.points_credited || 0), 0),
     margin: createdOrders[0].margin,
     earnRatePercent: createdOrders[0].earn_rate_used,
     order: createdOrders[0]

@@ -49,7 +49,9 @@ import {
   CheckCheck,
   Ban,
   Banknote,
-  Lock
+  Lock,
+  Check,
+  ArrowRight
 } from 'lucide-react';
 import {
   BarChart,
@@ -2264,11 +2266,11 @@ export default function App() {
                         <CheckCircle2 size={36} />
                       </div>
                       <h3 style={{ fontSize: '1.25rem', color: 'white' }}>{t('Order Placed', 'ऑर्डर सफल हुआ', 'অর্ডার সফল হয়েছে')}</h3>
-                      <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>{t('Rewards will credit immediately, configure your fulfillment below.', 'पुरस्कार तुरंत जमा हो जाएंगे, नीचे अपना फ़ुलफ़िलमेंट सेट करें।', 'রিওয়ার্ডস সরাসরি যুক্ত হবে, নিচে আপনার ফুলফিলমেন্ট সেটিংস পরিবর্তন করুন।')}</p>
+                      <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>{t('Points credited when you collect your order. Configure fulfillment below.', 'ऑर्डर लेने पर अंक मिलेंगे। नीचे फ़ुलफ़िलमेंट सेट करें।', 'রিওয়ার্ডস সরাসরি যুক্ত হবে, নিচে আপনার ফুলফিলমেন্ট সেটিংস পরিবর্তন করুন।')}</p>
                     </div>
 
                     <div className="points-glow-box" style={{ padding: '0.75rem', borderRadius: '8px', textAlign: 'center', marginBottom: '1rem' }}>
-                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{t('Total Rewards Credited', 'कुल संचित रिवॉर्ड्स', 'মোট সঞ্চিত রিওয়ার্ড')}</span>
+                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{t('Points earned — credited on collection', 'अंक — लेने पर जमा होंगे', 'মোট সঞ্চিত রিওয়ার্ড')}</span>
                       <h2 style={{ fontSize: '1.8rem', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', margin: '0.25rem 0' }}>
                         <Sparkles size={20} style={{ color: 'var(--warning)' }} />
                         +{formatPoints(checkoutResult.totalPointsCredited)}
@@ -2291,7 +2293,7 @@ export default function App() {
                               <div>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.25rem' }}>
                                   <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>{t('Status: Take Away (Pickup)', 'स्थिति: टेक अवे (पिकअप)', 'অবস্থা: টেক অ্যাওয়ে (পিকআপ)')}</span>
-                                  {!isPrepElapsed ? (
+                                  {!isPrepElapsed ? (showDevSettings &&
                                     <button 
                                       className="btn btn-secondary" 
                                       style={{ padding: '0.15rem 0.4rem', fontSize: '0.6rem' }} 
@@ -2300,7 +2302,7 @@ export default function App() {
                                       {t('Simulate Prep ETA Elapsed', 'सिम्युलेट प्रेप ईटीए', 'সিমুলেট প্রেপ ইটিএ')}
                                     </button>
                                   ) : (
-                                    <span style={{ color: 'var(--accent)', fontSize: '0.6rem', fontWeight: 'bold' }}>{t('Ready for Pickup!', 'पिकअप के लिए तैयार!', 'পিকআপের জন্য প্রস্তুত!')}</span>
+                                    <span style={{ color: 'var(--accent)', fontSize: '0.6rem', fontWeight: 'bold' }}>{t('Slot open — choose your time', 'स्लॉट खुला — समय चुनें', 'স্লট খোলা — সময় নির্বাচন করুন')}</span>
                                   )}
                                 </div>
 
@@ -2327,7 +2329,7 @@ export default function App() {
                                 </div>
 
                                 <div style={{ background: 'rgba(99, 102, 241, 0.08)', border: '1px dashed var(--primary)', borderRadius: '6px', padding: '0.4rem', marginTop: '0.4rem', textAlign: 'center' }}>
-                                  <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}><Key size={10} style={{ display: 'inline', marginRight: '0.2rem', verticalAlign: 'middle' }} /> {t('Verification PIN:', 'सत्यापन पिन:', 'পিকআপ কোড:')}:</span>
+                                  <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}><Key size={10} style={{ display: 'inline', marginRight: '0.2rem', verticalAlign: 'middle' }} /> {t('Verification PIN:', 'सत्यापन पिन:', 'পিকআপ কোড:')}</span>
                                   <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: 'var(--primary)', letterSpacing: '0.15em' }}>{o.pickup_pin || '1234'}</div>
                                 </div>
 
@@ -2445,7 +2447,7 @@ export default function App() {
                               : `*Fulfillment:* Home Delivery\n\nYour order will be delivered to your registered address shortly.`
                           }\n\nThank you for choosing FastNet!`}
                         </p>
-                        <span style={{ alignSelf: 'flex-end', fontSize: '0.5rem', color: '#8696a0', marginTop: '0.2rem' }}>19:43 ✓✓</span>
+                        <span style={{ alignSelf: 'flex-end', fontSize: '0.5rem', color: '#8696a0', marginTop: '0.2rem' }}>19:43 <CheckCheck size={10} style={{ display: 'inline', color: '#53bdeb' }} /></span>
                       </div>
                     </div>
 
@@ -2546,7 +2548,7 @@ export default function App() {
                                 <div>
                                   <h4 style={{ fontSize: '0.85rem', color: 'white' }}>{s.name}</h4>
                                   <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.2rem', alignItems: 'center' }}>
-                                    <span className="badge badge-success" style={{ fontSize: '0.55rem', padding: '0.1rem 0.35rem' }}>✓ {s.reliabilityBadge || 'Verified'}</span>
+                                    <span className="badge badge-success" style={{ fontSize: '0.55rem', padding: '0.1rem 0.35rem' }}><Check size={9} style={{ display: 'inline', marginRight: '0.15rem' }} />{s.reliabilityBadge || 'Verified'}</span>
                                     <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Delivery: {s.delivery_radius_km}km radius</span>
                                   </div>
                                 </div>
@@ -2908,7 +2910,7 @@ export default function App() {
                                    </span>
                                    {o.payment_status && (
                                      <span className={`badge ${o.payment_status === 'RELEASED' ? 'badge-success' : o.payment_status === 'COD' ? 'badge-warning' : 'badge-primary'}`} style={{ fontSize: '0.55rem', padding: '0.1rem 0.3rem' }}>
-                                       {o.payment_status === 'HELD' ? '🔒 HELD' : o.payment_status === 'RELEASED' ? '✓ RELEASED' : '💵 COD'}
+                                       {o.payment_status === 'HELD' ? <><Lock size={9} /> HELD</> : o.payment_status === 'RELEASED' ? <><Check size={9} /> RELEASED</> : <><Banknote size={9} /> COD</>}
                                      </span>
                                    )}
                                  </div>
@@ -2933,7 +2935,7 @@ export default function App() {
                                 <div style={{ border: '1px dashed var(--border-color)', borderRadius: '6px', padding: '0.5rem', marginTop: '0.25rem', background: 'rgba(255,255,255,0.01)' }}>
                                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.25rem' }}>
                                     <span style={{ fontSize: '0.6rem', color: 'var(--text-muted)' }}>{t('Choose Slot:', 'स्लॉट चुनें:', 'স্লট নির্বাচন করুন:')}</span>
-                                    {!isPrepElapsed && (
+                                    {!isPrepElapsed && showDevSettings && (
                                       <button 
                                         className="btn btn-secondary" 
                                         style={{ padding: '0.1rem 0.3rem', fontSize: '0.55rem', minHeight: '20px', height: '20px' }}
@@ -4019,9 +4021,9 @@ export default function App() {
                           <td>{new Date(fb.created_at).toLocaleDateString()}</td>
                           <td>
                             {fb.reporter_role === 'CUSTOMER' ? (
-                              <span className="badge badge-success" style={{ fontSize: '0.6rem', padding: '0.15rem 0.35rem' }}>Customer ➔ Shop</span>
+                              <span className="badge badge-success" style={{ fontSize: '0.6rem', padding: '0.15rem 0.35rem' }}>Customer <ArrowRight size={9} style={{ display: 'inline' }} /> Shop</span>
                             ) : (
-                              <span className="badge badge-warning" style={{ fontSize: '0.6rem', padding: '0.15rem 0.35rem', background: 'rgba(236,72,153,0.15)', color: '#ec4899' }}>Shop ➔ Customer</span>
+                              <span className="badge badge-warning" style={{ fontSize: '0.6rem', padding: '0.15rem 0.35rem', background: 'rgba(236,72,153,0.15)', color: '#ec4899' }}>Shop <ArrowRight size={9} style={{ display: 'inline' }} /> Customer</span>
                             )}
                           </td>
                           <td style={{ fontWeight: 'bold' }}>{fb.reporter_name}</td>
@@ -4315,7 +4317,7 @@ export default function App() {
                           <td>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', alignItems: 'flex-start' }}>
                               <span className={`badge ${o.payment_status === 'RELEASED' ? 'badge-success' : o.payment_status === 'COD' ? 'badge-warning' : 'badge-primary'}`} style={{ fontSize: '0.55rem', display: 'inline-flex', alignItems: 'center', gap: '0.15rem' }}>
-                                {o.payment_status === 'HELD' ? <><Lock size={9} /> HELD</> : o.payment_status === 'RELEASED' ? '✓ RELEASED' : o.payment_status === 'COD' ? '💵 COD' : o.payment_status || 'N/A'}
+                                {o.payment_status === 'HELD' ? <><Lock size={9} /> HELD</> : o.payment_status === 'RELEASED' ? <><Check size={9} /> RELEASED</> : o.payment_status === 'COD' ? <><Banknote size={9} /> COD</> : o.payment_status || 'N/A'}
                               </span>
                               {(o.payment_status === 'HELD' || o.payment_status === 'COD') && o.status === 'DELIVERED' && !o.split_released && (
                                 <button className="btn btn-accent" style={{ padding: '0.15rem 0.35rem', fontSize: '0.6rem', display: 'flex', alignItems: 'center', gap: '0.15rem' }} onClick={() => handleReleaseSplit(o.id)}>
@@ -4323,7 +4325,7 @@ export default function App() {
                                 </button>
                               )}
                               {o.split_released && (
-                                <span style={{ fontSize: '0.6rem', color: 'var(--accent)' }}>✓ Released</span>
+                                <span style={{ fontSize: '0.6rem', color: 'var(--accent)' }}><Check size={9} style={{ display: 'inline' }} /> Released</span>
                               )}
                             </div>
                           </td>
