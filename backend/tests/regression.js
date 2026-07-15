@@ -425,6 +425,29 @@ async function main() {
   assert(updatedAnomaly2.status === 'DISMISSED', 'Anomaly status updated to DISMISSED');
   assert(updatedAnomaly2.dismiss_reason === 'Legitimate regular customer', 'Dismiss reason saved');
 
+  // 19. Ledger Credit on DELIVERED only
+  console.log('\n--- 19. Ledger Credit on DELIVERED only ---');
+  const balanceBefore = (await get('http://localhost:3001/api/ledger/balance/u-cust1')).body.balance;
+  
+  const orderForPoints = await post('http://localhost:3001/api/orders', {
+    customerId: 'u-cust1',
+    stockistId: 's1',
+    fulfillmentType: 'PICKUP',
+    pickupSlot: 'Morning (8AM–12PM)',
+    items: [{ productId: 'p1', quantity: 1 }]
+  });
+  assert(orderForPoints.status === 200, 'Order created successfully');
+  const pointsToEarn = orderForPoints.body.pointsCredited; // 3.6
+  
+  const balanceDuringPending = (await get('http://localhost:3001/api/ledger/balance/u-cust1')).body.balance;
+  assert(balanceDuringPending === balanceBefore, 'Ledger unchanged until DELIVERED');
+
+  const delRes = await patch(`http://localhost:3001/api/orders/${orderForPoints.body.orderId}/status`, { status: 'DELIVERED' });
+  assert(delRes.status === 200, 'Order delivered successfully');
+
+  const balanceAfter = (await get('http://localhost:3001/api/ledger/balance/u-cust1')).body.balance;
+  assert(Math.abs(balanceAfter - balanceBefore - pointsToEarn) < 0.01, `Ledger increased by exactly that amount: ${balanceAfter - balanceBefore} === ${pointsToEarn}`);
+
   console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);
 }
