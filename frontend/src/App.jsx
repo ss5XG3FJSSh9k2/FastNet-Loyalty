@@ -41,7 +41,14 @@ import {
   Languages,
   ChevronDown,
   ChevronUp,
-  FileText
+  FileText,
+  UserPlus,
+  CreditCard,
+  Timer,
+  ShieldOff,
+  CheckCheck,
+  Ban,
+  Banknote
 } from 'lucide-react';
 import {
   BarChart,
@@ -93,6 +100,32 @@ export default function App() {
   const [feedbackRating, setFeedbackRating] = useState(5);
   const [feedbackReason, setFeedbackReason] = useState('');
   const [reportFlag, setReportFlag] = useState(false);
+
+  // Slot picker state (compulsory before checkout)
+  const [cartPickupSlots, setCartPickupSlots] = useState({}); // stockistId -> slot
+  const [slotError, setSlotError] = useState(false);
+
+  // No-show alert state
+  const [noShowAlert, setNoShowAlert] = useState(null); // { orderId, canReschedule }
+  const [rescheduleSlot, setRescheduleSlot] = useState('');
+
+  // One-way delivery switch confirmation
+  const [deliverySwitchConfirm, setDeliverySwitchConfirm] = useState(null); // orderId
+
+  // Admin: anomaly dismiss reason
+  const [dismissReason, setDismissReason] = useState({});
+
+  // Admin: payment ledger / transactions
+  const [adminPaymentLedger, setAdminPaymentLedger] = useState([]);
+  const [adminCodCommission, setAdminCodCommission] = useState([]);
+
+  // Customer signup flow (separate from stockist signup)
+  const [showCustomerSignup, setShowCustomerSignup] = useState(false);
+  const [showStockistSignup, setShowStockistSignup] = useState(false);
+  const [regShopName, setRegShopName] = useState('');
+  const [regKycType2, setRegKycType2] = useState('Aadhaar');
+  const [regKycNumber2, setRegKycNumber2] = useState('');
+  const [stockistPendingUser, setStockistPendingUser] = useState(null);
   
   // Rate config form (per-stockist overrides)
   const [selectedStockistForCommission, setSelectedStockistForCommission] = useState('');
@@ -911,52 +944,239 @@ export default function App() {
       groups[item.stockistId].push(item);
     });
 
-    try {
-      const ordersPlaced = [];
-      let totalPoints = 0;
-
-      for (const stockistId of Object.keys(groups)) {
-        const payload = {
-          customerId: currentUser.id,
-          stockistId: stockistId,
-          fulfillmentType: cartFulfillment,
-          items: groups[stockistId].map(item => ({
-            productId: item.product.id,
-            quantity: item.quantity
-          }))
-        };
-
-        const res = await fetch(`${API_BASE}/orders`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-        const data = await res.json();
-        logApi('POST', '/orders', payload, res.status, data);
-
-        if (res.ok) {
-          ordersPlaced.push(data.order || data);
-          totalPoints += data.pointsCredited;
-        } else {
-          showToast(data.error || 'Failed to place order', 'error');
-          return;
-        }
+    // §E13: pickup orders require slot per store
+    if (cartFulfillment === 'PICKUP') {
+      const missingSlot = Object.keys(groups).find(sid => !cartPickupSlots[sid]);
+      if (missingSlot) {
+        setSlotError(true);
+        showToast(t('Please select a pickup time slot before placing order', 'कृपया ऑर्डर देने से पहले पिकअप समय स्लॉट चुनें', 'অর্ডার দেওয়ার আগে পিকআপ সময় স্লট নির্বাচন করুন'), 'error');
+        return;
       }
+    }
+    setSlotError(false);
 
-      setCheckoutResult({
-        success: true,
-        orders: ordersPlaced,
-        totalPointsCredited: totalPoints
+    try {
+      // New multi-store format with slots
+      const stores = Object.keys(groups).map(stockistId => ({
+        stockistId,
+        items: groups[stockistId].map(item => ({
+          productId: item.product.id,
+          quantity: item.quantity
+        })),
+        pickupSlot: cartFulfillment === 'PICKUP' ? cartPickupSlots[stockistId] : null
+      }));
+
+      const payload = {
+        customerId: currentUser.id,
+        stores,
+        fulfillmentType: cartFulfillment,
+        paymentMethod: cartFulfillment === 'PICKUP' ? 'UPI' : 'COD'
+      };
+
+      const res = await fetch(`${API_BASE}/orders`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
       });
-      setCustomerCart([]);
-      loadCustomerData();
-      showToast(`Order placed successfully! Credited ${totalPoints} pts in rewards.`);
-      if (tourStep === 1) {
-        setTourStep(2);
+      const data = await res.json();
+      logApi('POST', '/orders', payload, res.status, data);
+
+      if (res.ok) {
+        const ordersPlaced = data.orders || [data.order];
+        const totalPoints = data.totalPointsCredited || 0;
+        setCheckoutResult({
+          success: true,
+          orders: ordersPlaced,
+          totalPointsCredited: totalPoints
+        });
+        setCustomerCart([]);
+        setCartPickupSlots({});
+        loadCustomerData();
+        const msg = cartFulfillment === 'PICKUP'
+          ? t('Order placed! Payment held securely until pickup.', 'ऑर्डर दिया! पिकअप तक भुगतान सुरक्षित।', 'অর্ডার দেওয়া হয়েছে! পিকআপ পর্যন্ত পেমেন্ট নিরাপদ।')
+          : t('Order placed! Cash on delivery.', 'ऑर्डर दिया! कैश ऑन डिलीवरी।', 'অর্ডার দেওয়া হয়েছে! ক্যাশ অন ডেলিভারি।');
+        showToast(msg);
+        if (tourStep === 1) setTourStep(2);
+      } else {
+        showToast(data.error || 'Failed to place order', 'error');
       }
     } catch (err) {
       showToast('Checkout service error', 'error');
     }
+  };
+
+  // §F16: Cancel order (only within cancel window)
+  const handleCancelOrder = async (orderId) => {
+    try {
+      const res = await fetch(`${API_BASE}/orders/${orderId}/cancel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast(t('Order cancelled. Refund initiated (minus platform fee).', 'ऑर्डर रद्द। रिफंड शुरू (प्लेटफ़ॉर्म फीस घटाकर)।', 'অর্ডার বাতিল। ফেরত শুরু (প্ল্যাটফর্ম ফি বাদে)।'), 'success');
+        loadCustomerData();
+        if (checkoutResult) {
+          setCheckoutResult(prev => ({ ...prev, orders: prev.orders.map(o => o.id === orderId ? { ...o, status: 'CANCELLED' } : o) }));
+        }
+      } else {
+        showToast(data.error || 'Cancellation failed', 'error');
+      }
+    } catch (err) {
+      showToast('Cancel request error', 'error');
+    }
+  };
+
+  // §F19-20: No-show action
+  const handleNoShowAction = async (orderId, action, slot = null) => {
+    try {
+      const body = { action };
+      if (action === 'RESCHEDULE' && slot) body.newSlot = slot;
+      const res = await fetch(`${API_BASE}/orders/${orderId}/noshw-action`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast(action === 'RESCHEDULE'
+          ? t('Slot rescheduled! One reschedule used.', 'स्लॉट पुनः निर्धारित!', 'স্লট পুনর্নির্ধারিত হয়েছে!')
+          : t('Cancelled with refund. No-show recorded.', 'रिफंड के साथ रद्द।', 'রিফান্ডসহ বাতিল।'), action === 'RESCHEDULE' ? 'success' : 'warning');
+        setNoShowAlert(null);
+        setRescheduleSlot('');
+        loadCustomerData();
+      } else {
+        showToast(data.error || 'Action failed', 'error');
+      }
+    } catch (err) {
+      showToast('No-show action error', 'error');
+    }
+  };
+
+  // §H: One-way delivery switch confirmed
+  const handleSwitchToDeliveryConfirmed = async (orderId) => {
+    try {
+      const res = await fetch(`${API_BASE}/orders/${orderId}/fulfillment`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fulfillmentType: 'DELIVERY' })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast(t('Switched to delivery! Cannot return to pickup.', 'डिलिवरी पर स्विच! वापस नहीं।', 'ডেলিভারিতে পরিবর্তিত। ফেরা সম্ভব নয়।'));
+        if (checkoutResult) {
+          setCheckoutResult(prev => ({ ...prev, orders: prev.orders.map(o => o.id === orderId ? data.order : o) }));
+        }
+        loadCustomerData();
+      } else {
+        showToast(data.error || 'Switch failed', 'error');
+      }
+      setDeliverySwitchConfirm(null);
+    } catch (err) {
+      showToast('Fulfillment service error', 'error');
+      setDeliverySwitchConfirm(null);
+    }
+  };
+
+  // §G25: Admin release split
+  const handleReleaseSplit = async (orderId) => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/release-split/${orderId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast('Split released! Stockist payout recorded.');
+        fetchDbState();
+      } else {
+        showToast(data.error || 'Release failed', 'error');
+      }
+    } catch (err) {
+      showToast('Release split error', 'error');
+    }
+  };
+
+  // §I29: Admin dismiss anomaly
+  const handleDismissAnomaly = async (anomalyId) => {
+    const reason = dismissReason[anomalyId] || 'No reason provided';
+    try {
+      const res = await fetch(`${API_BASE}/admin/anomalies/${anomalyId}/dismiss`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast('Flag dismissed and moved to audit history.');
+        setDismissReason(prev => { const n = { ...prev }; delete n[anomalyId]; return n; });
+        fetchDbState();
+      } else {
+        showToast(data.error || 'Dismiss failed', 'error');
+      }
+    } catch (err) {
+      showToast('Dismiss error', 'error');
+    }
+  };
+
+  // §I29: Mark investigated
+  const handleInvestigateAnomaly = async (anomalyId) => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/anomalies/${anomalyId}/investigate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast('Anomaly marked as investigated.');
+        fetchDbState();
+      } else {
+        showToast(data.error || 'Update failed', 'error');
+      }
+    } catch (err) {
+      showToast('Investigate error', 'error');
+    }
+  };
+
+  // Customer registration
+  const handleCustomerRegister = async () => {
+    if (!regName || !loginPhone) { showToast('Name and phone required', 'error'); return; }
+    try {
+      const payload = { phone: loginPhone, name: regName, regionId: regRegion, address: regAddress };
+      const res = await fetch(`${API_BASE}/auth/register-customer`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      const data = await res.json();
+      logApi('POST', '/auth/register-customer', payload, res.status, data);
+      if (res.ok) {
+        setCurrentUser(data.user);
+        setSelectedRegionId(data.user.region_id);
+        showToast(t(`Welcome, ${data.user.name}!`, `स्वागत, ${data.user.name}!`, `স্বাগতম, ${data.user.name}!`));
+        setShowCustomerSignup(false);
+        setRegName(''); setRegAddress(''); setOtpSent(false);
+      } else {
+        showToast(data.error || 'Registration failed', 'error');
+      }
+    } catch (err) { showToast('Registration error', 'error'); }
+  };
+
+  // Stockist registration
+  const handleStockistRegister = async () => {
+    if (!regName || !loginPhone || !regShopName || !regKycNumber2 || !regAddress) {
+      showToast('All fields required', 'error'); return;
+    }
+    try {
+      const payload = { phone: loginPhone, name: regName, shopName: regShopName, regionId: regRegion, idType: regKycType2, idNumber: regKycNumber2, address: regAddress };
+      const res = await fetch(`${API_BASE}/auth/register-stockist`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      const data = await res.json();
+      logApi('POST', '/auth/register-stockist', payload, res.status, data);
+      if (res.ok) {
+        setStockistPendingUser(data.user);
+        showToast(t('Registration submitted! Awaiting admin approval.', 'पंजीकरण सबमिट!', 'নিবন্ধন জমা হয়েছে!'), 'warning');
+        setShowStockistSignup(false);
+        setRegName(''); setRegShopName(''); setRegKycNumber2(''); setRegAddress(''); setOtpSent(false);
+      } else {
+        showToast(data.error || 'Registration failed', 'error');
+      }
+    } catch (err) { showToast('Registration error', 'error'); }
   };
 
   const handleRedeemPoints = async () => {
@@ -1637,6 +1857,91 @@ export default function App() {
               <div>• 7654321098 (Stockist Garia)</div>
               <div>• 6543210987 (Stockist Bishnupur)</div>
             </div>
+
+            {/* New account? signup links on pre-OTP screen too */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', borderTop: '1px solid var(--border-color)', paddingTop: '1rem' }}>
+              <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textAlign: 'center' }}>New to FastNet?</p>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <button className="btn btn-secondary" style={{ flex: 1, fontSize: '0.7rem', padding: '0.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.3rem' }}
+                  onClick={() => { handleSendOtp(); setShowCustomerSignup(true); setShowStockistSignup(false); }}>
+                  <UserPlus size={12} /> {t("Customer Sign Up", "ग्राहक पंजीकरण", "ক্রেতা নিবন্ধন")}
+                </button>
+                <button className="btn btn-secondary" style={{ flex: 1, fontSize: '0.7rem', padding: '0.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.3rem' }}
+                  onClick={() => { handleSendOtp(); setShowStockistSignup(true); setShowCustomerSignup(false); }}>
+                  <Store size={12} /> {t("Open a Shop", "दुकान खोलें", "দোকান খুলুন")}
+                </button>
+              </div>
+            </div>
+          </>
+        ) : showCustomerSignup ? (
+          /* Customer Sign Up Flow */
+          <>
+            <div style={{ background: 'rgba(99,102,241,0.08)', padding: '0.75rem', borderRadius: '6px', border: '1px solid rgba(99,102,241,0.2)', fontSize: '0.75rem', textAlign: 'center' }}>
+              <UserPlus size={14} style={{ color: 'var(--primary)', marginRight: '0.35rem', verticalAlign: 'middle' }} />
+              {t('New Customer Registration', 'नया ग्राहक पंजीकरण', 'নতুন ক্রেতা নিবন্ধন')} — {loginPhone}
+            </div>
+            <div className="input-group">
+              <label className="input-label">{t('Full Name', 'पूरा नाम', 'পুরো নাম')}</label>
+              <input type="text" placeholder="e.g. Joy Dev" className="text-input" value={regName} onChange={e => setRegName(e.target.value)} />
+            </div>
+            <div className="input-group">
+              <label className="input-label">{t('Select Region', 'क्षेत्र चुनें', 'অঞ্চল নির্বাচন করুন')}</label>
+              <select className="text-input" value={regRegion} onChange={e => setRegRegion(e.target.value)}>
+                <option value="r1">Kolkata South (Garia)</option>
+                <option value="r2">Rural West Bengal (Bishnupur)</option>
+              </select>
+            </div>
+            <div className="input-group">
+              <label className="input-label">{t('Delivery Address (Optional)', 'डिलीवरी पता', 'ডেলিভারি ঠিকানা')}</label>
+              <input type="text" placeholder="e.g. 12 Main Road, Garia" className="text-input" value={regAddress} onChange={e => setRegAddress(e.target.value)} />
+            </div>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => { setShowCustomerSignup(false); setOtpSent(false); }}>← {t('Back', 'वापस', 'ফিরে')}</button>
+              <button className="btn btn-accent" style={{ flex: 2 }} onClick={handleCustomerRegister}>{t('Create Account', 'खाता बनाएं', 'অ্যাকাউন্ট তৈরি')}</button>
+            </div>
+          </>
+        ) : showStockistSignup ? (
+          /* Stockist Sign Up Flow */
+          <>
+            <div style={{ background: 'rgba(245,158,11,0.08)', padding: '0.75rem', borderRadius: '6px', border: '1px solid rgba(245,158,11,0.2)', fontSize: '0.75rem', textAlign: 'center' }}>
+              <Store size={14} style={{ color: 'var(--warning)', marginRight: '0.35rem', verticalAlign: 'middle' }} />
+              {t('Register Local Shop (KYC Required)', 'स्थानीय दुकान पंजीकरण (KYC आवश्यक)', 'স্থানীয় দোকান নিবন্ধন (KYC প্রয়োজন)')} — {loginPhone}
+            </div>
+            <div className="input-group">
+              <label className="input-label">{t('Owner Name', 'मालिक का नाम', 'মালিকের নাম')}</label>
+              <input type="text" placeholder="e.g. Rafiq Ahmed" className="text-input" value={regName} onChange={e => setRegName(e.target.value)} />
+            </div>
+            <div className="input-group">
+              <label className="input-label">{t('Shop Name', 'दुकान का नाम', 'দোকানের নাম')}</label>
+              <input type="text" placeholder="e.g. Ahmed General Store" className="text-input" value={regShopName} onChange={e => setRegShopName(e.target.value)} />
+            </div>
+            <div className="input-group">
+              <label className="input-label">{t('Region', 'क्षेत्र', 'অঞ্চল')}</label>
+              <select className="text-input" value={regRegion} onChange={e => setRegRegion(e.target.value)}>
+                <option value="r1">Kolkata South (Garia)</option>
+                <option value="r2">Rural West Bengal (Bishnupur)</option>
+              </select>
+            </div>
+            <div className="input-group">
+              <label className="input-label">{t('KYC Document Type', 'KYC दस्तावेज़ प्रकार', 'KYC ডকুমেন্ট ধরন')}</label>
+              <select className="text-input" value={regKycType2} onChange={e => setRegKycType2(e.target.value)}>
+                <option value="Aadhaar">Aadhaar Card</option>
+                <option value="Voter ID">Voter ID</option>
+                <option value="Trade License">Trade License</option>
+              </select>
+            </div>
+            <div className="input-group">
+              <label className="input-label">{t('Document ID Number', 'दस्तावेज़ नंबर', 'ডকুমেন্ট নম্বর')}</label>
+              <input type="text" placeholder="e.g. 1234-5678-9012" className="text-input" value={regKycNumber2} onChange={e => setRegKycNumber2(e.target.value)} />
+            </div>
+            <div className="input-group">
+              <label className="input-label">{t('Shop Address', 'दुकान का पता', 'দোকানের ঠিকানা')}</label>
+              <input type="text" placeholder="e.g. Shop 5, Market Road" className="text-input" value={regAddress} onChange={e => setRegAddress(e.target.value)} />
+            </div>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => { setShowStockistSignup(false); setOtpSent(false); }}>← {t('Back', 'वापस', 'ফিরে')}</button>
+              <button className="btn btn-accent" style={{ flex: 2 }} onClick={handleStockistRegister}>{t('Submit for KYC Review', 'KYC समीक्षा सबमिट', 'KYC পর্যালোচনায় জমা')}</button>
+            </div>
           </>
         ) : (
           <>
@@ -1657,82 +1962,24 @@ export default function App() {
             </div>
             <div style={{ display: 'flex', gap: '0.5rem' }}>
               <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setOtpSent(false)}>Back</button>
-              <button className="btn" style={{ flex: 2 }} onClick={handleVerifyOtp}>Verify & Login</button>
+              <button className="btn" style={{ flex: 2 }} onClick={handleVerifyOtp}>Verify &amp; Login</button>
             </div>
 
-            {/* Registration fields if it fails or if new */}
-            <div style={{ borderTop: '1px solid var(--border-color)', paddingT: '1rem', marginTop: '1rem' }}>
-              <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textAlign: 'center', marginBottom: '0.75rem' }}>
-                Don't have an account? Sign up below:
+            {/* Don't have an account? */}
+            <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '1rem', marginTop: '0.5rem' }}>
+              <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textAlign: 'center', marginBottom: '0.5rem' }}>
+                {t("Don't have an account?", "खाता नहीं है?", "অ্যাকাউন্ট নেই?")}
               </p>
-              
-              <div className="input-group">
-                <label className="input-label">Full Name</label>
-                <input 
-                  type="text" 
-                  placeholder="e.g. Joy Dev" 
-                  className="text-input"
-                  value={regName}
-                  onChange={e => setRegName(e.target.value)}
-                />
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <button className="btn btn-secondary" style={{ flex: 1, fontSize: '0.7rem', padding: '0.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.3rem' }}
+                  onClick={() => setShowCustomerSignup(true)}>
+                  <UserPlus size={12} /> {t("Sign Up (Customer)", "साइन अप (ग्राहक)", "সাইন আপ (ক্রেতা)")}
+                </button>
+                <button className="btn btn-secondary" style={{ flex: 1, fontSize: '0.7rem', padding: '0.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.3rem' }}
+                  onClick={() => setShowStockistSignup(true)}>
+                  <Store size={12} /> {t("Open a Shop", "दुकान खोलें", "দোকান খুলুন")}
+                </button>
               </div>
-
-              <div className="input-group">
-                <label className="input-label">Select Region</label>
-                <select className="text-input" value={regRegion} onChange={e => setRegRegion(e.target.value)}>
-                  <option value="r1">Kolkata South (Garia)</option>
-                  <option value="r2">Rural West Bengal (Bishnupur)</option>
-                </select>
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
-                <input 
-                  type="checkbox" 
-                  id="regStockist" 
-                  checked={regIsStockist} 
-                  onChange={e => setRegIsStockist(e.target.checked)} 
-                />
-                <label htmlFor="regStockist" style={{ fontSize: '0.8rem', color: 'var(--text-main)', cursor: 'pointer' }}>
-                  Register as Stockist (Requires KYC)
-                </label>
-              </div>
-
-              {regIsStockist && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', background: 'rgba(255,255,255,0.01)', padding: '0.75rem', borderRadius: '6px', border: '1px solid var(--border-color)', marginBottom: '1rem' }}>
-                  <div className="input-group">
-                    <label className="input-label">ID Document Type</label>
-                    <select className="text-input" value={regKycType} onChange={e => setRegKycType(e.target.value)}>
-                      <option value="Aadhaar">Aadhaar Card</option>
-                      <option value="Voter ID">Voter ID</option>
-                      <option value="Trade License">Trade License</option>
-                    </select>
-                  </div>
-                  <div className="input-group">
-                    <label className="input-label">Document ID Number</label>
-                    <input 
-                      type="text" 
-                      placeholder="e.g. 1234-5678-9012" 
-                      className="text-input" 
-                      value={regKycNumber}
-                      onChange={e => setRegKycNumber(e.target.value)}
-                    />
-                  </div>
-                  <div className="input-group">
-                    <label className="input-label">Shop Address</label>
-                    <input 
-                      type="text" 
-                      placeholder="Enter detailed shop address" 
-                      className="text-input" 
-                      value={regAddress}
-                      onChange={e => setRegAddress(e.target.value)}
-                    />
-                  </div>
-                </div>
-              )}
-
-              <button className="btn btn-accent" style={{ width: '100%' }} onClick={handleRegister}>
-                Register & Verify
-              </button>
             </div>
           </>
         )}
@@ -1973,138 +2220,7 @@ export default function App() {
                   <span><Signal size={12} style={{ display: 'inline', marginRight: '0.2rem' }} /><Battery size={12} style={{ display: 'inline', marginRight: '0.2rem' }} /> 19:43</span>
                 </div>
                 {/* Localized Auth Form */}
-                <div style={{ padding: '2rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '1.5rem', justifyContent: 'center', height: '100%' }}>
-                  <div style={{ textAlign: 'center', marginBottom: '1rem' }}>
-                    <div style={{ display: 'inline-flex', padding: '0.75rem', borderRadius: '50%', background: 'var(--primary-glow)', color: 'var(--primary)', marginBottom: '0.75rem' }}>
-                      <Smartphone size={32} />
-                    </div>
-                    <h2 style={{ fontSize: '1.4rem', fontWeight: 'bold' }}>{t('Phone OTP Login', 'फ़ोन ओटीपी लॉगिन', 'ফোন ওটিপি লগইন')}</h2>
-                    <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>FastNet Hyperlocal Storefront Access</p>
-                  </div>
-
-                  {!otpSent ? (
-                    <>
-                      <div className="input-group">
-                        <label className="input-label">{t('Phone Number', 'फ़ोन नंबर', 'মোবাইল নম্বর')}</label>
-                        <input 
-                          type="tel" 
-                          placeholder="Enter 10-digit mobile number" 
-                          className="text-input" 
-                          value={loginPhone}
-                          onChange={e => setLoginPhone(e.target.value.replace(/\D/g,'').substring(0,10))}
-                        />
-                      </div>
-                      <button className="btn" onClick={handleSendOtp}>{t('Send Code', 'ओटीपी भेजें', 'কোড পাঠান')}</button>
-                      
-                      <div style={{ background: 'rgba(255,255,255,0.02)', padding: '0.75rem', borderRadius: '6px', fontSize: '0.7rem', border: '1px dashed var(--border-color)', color: 'var(--text-muted)' }}>
-                        <strong>Demo Accounts:</strong>
-                        <div style={{ marginTop: '0.25rem' }}>• 9876543210 (Amit - Customer Garia)</div>
-                        <div>• 8765432109 (Radha - Customer Bishnupur)</div>
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <div className="input-group" style={{ background: 'rgba(99, 102, 241, 0.05)', padding: '0.75rem', borderRadius: '6px', border: '1px solid rgba(99, 102, 241, 0.2)', fontSize: '0.75rem', textAlign: 'center' }}>
-                        OTP sent to <strong>{loginPhone}</strong>. Use demo code <strong>123456</strong>.
-                      </div>
-                      <div className="input-group">
-                        <label className="input-label">{t('Enter 6-Digit OTP', 'ओटीपी कोड दर्ज करें', 'ওটিপি কোড লিখুন')}</label>
-                        <input 
-                          type="text" 
-                          placeholder="123456" 
-                          maxLength={6}
-                          className="text-input" 
-                          value={loginOtp}
-                          onChange={e => setLoginOtp(e.target.value.replace(/\D/g,''))}
-                          style={{ textAlign: 'center', letterSpacing: '0.5em', fontSize: '1.2rem', fontWeight: 'bold' }}
-                        />
-                      </div>
-                      <div style={{ display: 'flex', gap: '0.5rem' }}>
-                        <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setOtpSent(false)}>Back</button>
-                        <button className="btn" style={{ flex: 2 }} onClick={handleVerifyOtp}>{t('Verify & Login', 'सत्यापित करें और लॉगिन करें', 'যাচাই করুন এবং লগইন')}</button>
-                      </div>
-
-                      {/* Registration section */}
-                      <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '1rem', marginTop: '1rem' }}>
-                        <p style={{ fontSize: '0.725rem', color: 'var(--text-muted)', textAlign: 'center', marginBottom: '0.75rem' }}>
-                          Create a new customer account:
-                        </p>
-                        
-                        <div className="input-group">
-                          <label className="input-label">{t('Your Name', 'आपका नाम', 'আপনার নাম')}</label>
-                          <input 
-                            type="text" 
-                            placeholder="e.g. Joy Dev" 
-                            className="text-input"
-                            value={regName}
-                            onChange={e => setRegName(e.target.value)}
-                          />
-                        </div>
-
-                        <div className="input-group">
-                          <label className="input-label">{t('Select Region', 'क्षेत्र चुनें', 'অঞ্চল নির্বাচন করুন')}</label>
-                          <select className="text-input" value={regRegion} onChange={e => setRegRegion(e.target.value)}>
-                            <option value="r1">Kolkata South (Garia)</option>
-                            <option value="r2">Rural West Bengal (Bishnupur)</option>
-                          </select>
-                        </div>
-
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1.25rem' }}>
-                          <input 
-                            type="checkbox" 
-                            id="regStockist" 
-                            checked={regIsStockist} 
-                            onChange={e => setRegIsStockist(e.target.checked)} 
-                          />
-                          <label htmlFor="regStockist" style={{ fontSize: '0.8rem', color: 'var(--text-main)', cursor: 'pointer' }}>
-                            Register as local Shopkeeper
-                          </label>
-                        </div>
-
-                        {regIsStockist && (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', background: 'rgba(255,255,255,0.01)', padding: '0.75rem', borderRadius: '6px', border: '1px solid var(--border-color)', marginBottom: '1rem' }}>
-                            <div className="input-group">
-                              <label className="input-label">ID Document Type</label>
-                              <select className="text-input" value={regKycType} onChange={e => setRegKycType(e.target.value)}>
-                                <option value="Aadhaar">Aadhaar Card</option>
-                                <option value="Voter ID">Voter ID</option>
-                                <option value="Trade License">Trade License</option>
-                              </select>
-                            </div>
-                            <div className="input-group">
-                              <label className="input-label">ID Number</label>
-                              <input 
-                                type="text" 
-                                placeholder="e.g. 1234-5678-9012" 
-                                className="text-input" 
-                                value={regKycNumber}
-                                onChange={e => setRegKycNumber(e.target.value)}
-                              />
-                            </div>
-                            <div className="input-group">
-                              <label className="input-label">Shop Address</label>
-                              <input 
-                                type="text" 
-                                placeholder="Enter detailed shop address" 
-                                className="text-input" 
-                                value={regAddress}
-                                onChange={e => setRegAddress(e.target.value)}
-                              />
-                            </div>
-                          </div>
-                        )}
-
-                        <button className="btn btn-accent" style={{ width: '100%', marginTop: '1rem' }} onClick={handleRegister}>
-                          {t('Sign Up & Login', 'साइन अप और लॉगिन', 'সাইন আপ ও লগইন')}
-                        </button>
-                      </div>
-                    </>
-                  )}
-
-                  <div style={{ textAlign: 'center', marginTop: '1rem' }}>
-                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Demo customer: <strong>9876543210</strong> (Code: 123456)</span>
-                  </div>
-                </div>
+                {renderAuthForm()}
               </>
             ) : (
               <>
@@ -2322,6 +2438,66 @@ export default function App() {
                   </div>
                 )}
 
+                {/* §H: One-way delivery switch confirmation overlay */}
+                {deliverySwitchConfirm && (
+                  <div style={{ position: 'absolute', inset: 0, background: 'rgba(11,14,20,0.96)', zIndex: 120, display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '2rem' }}>
+                    <div className="glass-card" style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--warning)' }}>
+                        <AlertTriangle size={20} />
+                        <h3 style={{ fontSize: '1rem', color: 'white', margin: 0 }}>{t('Switch to Home Delivery?', 'होम डिलीवरी पर स्विच?', 'হোম ডেলিভারিতে যাবেন?')}</h3>
+                      </div>
+                      <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                        {t('This is a one-way switch. Once switched to delivery, you cannot return to store pickup. Delivery fee will be added to your order.',
+                           'यह एकतरफा बदलाव है। एक बार डिलीवरी में स्विच करने पर पिकअप पर वापस नहीं जा सकते। डिलीवरी शुल्क जुड़ जाएगा।',
+                           'এটি একমুখী পরিবর্তন। একবার ডেলিভারিতে গেলে পিকআপে ফেরা যাবে না। ডেলিভারি চার্জ যোগ হবে।')}
+                      </p>
+                      <div style={{ display: 'flex', gap: '0.5rem' }}>
+                        <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setDeliverySwitchConfirm(null)}>
+                          {t('Cancel', 'रद्द करें', 'বাতিল')}
+                        </button>
+                        <button className="btn btn-accent" style={{ flex: 1 }} onClick={() => handleSwitchToDeliveryConfirmed(deliverySwitchConfirm)}>
+                          <Truck size={14} /> {t('Confirm Switch', 'स्विच की पुष्टि करें', 'পরিবর্তন নিশ্চিত করুন')}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* §F19: No-show Alert overlay */}
+                {noShowAlert && (
+                  <div style={{ position: 'absolute', inset: 0, background: 'rgba(11,14,20,0.96)', zIndex: 120, display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '2rem' }}>
+                    <div className="glass-card" style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--warning)' }}>
+                        <AlertTriangle size={20} />
+                        <h3 style={{ fontSize: '1rem', color: 'white', margin: 0 }}>{t('Missed Pickup?', 'पिकअप छूट गया?', 'পিকআপ মিস হয়েছে?')}</h3>
+                      </div>
+                      <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                        {t('If you missed your pickup slot, you can reschedule once (free) or cancel for a refund.',
+                           'यदि आप अपना पिकअप स्लॉट चूक गए, तो आप एक बार पुनः निर्धारण कर सकते हैं (निःशुल्क) या रिफंड के लिए रद्द कर सकते हैं।',
+                           'যদি পিকআপ স্লট মিস করেন, একবার বিনামূল্যে পুনর্নির্ধারণ করতে পারবেন অথবা ফেরতের জন্য বাতিল করুন।')}
+                      </p>
+                      <div className="input-group">
+                        <label className="input-label">{t('New Pickup Slot', 'नया पिकअप समय', 'নতুন পিকআপ সময়')}</label>
+                        <select className="text-input" value={rescheduleSlot} onChange={e => setRescheduleSlot(e.target.value)}>
+                          <option value="">{t('-- Select slot --', '-- स्लॉट चुनें --', '-- স্লট বেছে নিন --')}</option>
+                          {['09:00–10:00','10:00–11:00','11:00–12:00','12:00–13:00','14:00–15:00','15:00–16:00','16:00–17:00','17:00–18:00'].map(s => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                        <button className="btn btn-accent" onClick={() => { if (!rescheduleSlot) { showToast('Pick a slot first', 'error'); return; } handleNoShowAction(noShowAlert.orderId, 'RESCHEDULE', rescheduleSlot); }}>
+                          <RefreshCw size={14} /> {t('Reschedule Pickup (once free)', 'पिकअप पुनः निर्धारित करें (एक बार मुफ्त)', 'পুনরায় পিকআপ (একবার বিনামূল্যে)')}
+                        </button>
+                        <button className="btn btn-danger" onClick={() => handleNoShowAction(noShowAlert.orderId, 'CANCEL')}>
+                          <Ban size={14} /> {t('Cancel & Get Refund', 'रद्द करें और रिफंड पाएं', 'বাতিল করুন ও ফেরত পান')}
+                        </button>
+                        <button className="btn btn-secondary" onClick={() => setNoShowAlert(null)}>
+                          {t('Dismiss', 'बंद करें', 'বন্ধ করুন')}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* Inner Content based on App Tab */}
                 <div style={{ flex: 1, padding: '1rem', display: 'flex', flexDirection: 'column', gap: '1rem', overflowY: 'auto' }}>
                   
@@ -2452,28 +2628,38 @@ export default function App() {
                               <Key size={14} />
                               {t('Store Pickup', 'स्टोर पिकअप', 'দোকান থেকে পিকআপ')}
                             </button>
-                            <button
-                              type="button"
-                              onClick={() => setCartFulfillment('DELIVERY')}
-                              style={{
-                                flex: 1,
-                                padding: '0.5rem',
-                                fontSize: '0.75rem',
-                                fontWeight: 'bold',
-                                borderRadius: '6px',
-                                border: 'none',
-                                cursor: 'pointer',
-                                background: cartFulfillment === 'DELIVERY' ? 'var(--primary)' : 'transparent',
-                                color: 'white',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                gap: '0.25rem'
-                              }}
-                            >
-                              <Truck size={14} />
-                              {t('Home Delivery', 'होम डिलीवरी', 'হোম ডেলিভারি')}
-                            </button>
+                            {(() => {
+                              const storeCount = new Set(customerCart.map(i => i.stockistId)).size;
+                              const multiStore = storeCount > 1;
+                              return (
+                                <button
+                                  type="button"
+                                  disabled={multiStore}
+                                  onClick={() => !multiStore && setCartFulfillment('DELIVERY')}
+                                  title={multiStore ? t('Multi-store orders: pickup only', 'मल्टी-स्टोर: केवल पिकअप', 'একাধিক দোকান: শুধুমাত্র পিকআপ') : ''}
+                                  style={{
+                                    flex: 1,
+                                    padding: '0.5rem',
+                                    fontSize: '0.75rem',
+                                    fontWeight: 'bold',
+                                    borderRadius: '6px',
+                                    border: 'none',
+                                    cursor: multiStore ? 'not-allowed' : 'pointer',
+                                    opacity: multiStore ? 0.4 : 1,
+                                    background: cartFulfillment === 'DELIVERY' ? 'var(--primary)' : 'transparent',
+                                    color: 'white',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: '0.25rem'
+                                  }}
+                                >
+                                  <Truck size={14} />
+                                  {t('Home Delivery', 'होम डिलीवरी', 'হোম ডেলিভারি')}
+                                  {multiStore && <span style={{ fontSize: '0.5rem', display: 'block' }}>(multi-store: pickup only)</span>}
+                                </button>
+                              );
+                            })()}
                           </div>
 
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -2505,8 +2691,41 @@ export default function App() {
                               </div>
                             ))}
                           </div>
-                          <button className="btn" style={{ width: '100%', fontSize: '0.8rem' }} onClick={handleCheckout}>
-                            {t('Place Order', 'ऑर्डर दें', 'বাজারের অর্ডার দিন')}
+                          {/* §E13: Compulsory Pickup Slot Picker (PICKUP only, per store) */}
+                          {cartFulfillment === 'PICKUP' && (() => {
+                            const groups = {};
+                            customerCart.forEach(item => {
+                              if (!groups[item.stockistId]) groups[item.stockistId] = item.stockistName;
+                            });
+                            const SLOTS = ['09:00–10:00', '10:00–11:00', '11:00–12:00', '12:00–13:00', '14:00–15:00', '15:00–16:00', '16:00–17:00', '17:00–18:00'];
+                            return (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', borderTop: '1px dashed rgba(255,255,255,0.08)', paddingTop: '0.5rem' }}>
+                                <div style={{ fontSize: '0.65rem', color: slotError ? 'var(--danger)' : 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.25rem', fontWeight: slotError ? 'bold' : 'normal' }}>
+                                  <Clock size={10} /> {t('Select Pickup Slot (Required)', 'पिकअप समय चुनें (आवश्यक)', 'পিকআপ সময় নির্বাচন করুন (প্রয়োজনীয়)')}
+                                </div>
+                                {Object.entries(groups).map(([sid, sName]) => (
+                                  <div key={sid} style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                                    <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)' }}>{sName}:</div>
+                                    <select
+                                      className="text-input"
+                                      style={{ fontSize: '0.7rem', padding: '0.3rem 0.5rem', border: slotError && !cartPickupSlots[sid] ? '1px solid var(--danger)' : '1px solid var(--border-color)' }}
+                                      value={cartPickupSlots[sid] || ''}
+                                      onChange={e => { setCartPickupSlots(prev => ({ ...prev, [sid]: e.target.value })); setSlotError(false); }}
+                                    >
+                                      <option value="">{t('-- Pick a time slot --', '-- समय स्लॉट चुनें --', '-- সময় স্লট বেছে নিন --')}</option>
+                                      {SLOTS.map(slot => <option key={slot} value={slot}>{slot}</option>)}
+                                    </select>
+                                  </div>
+                                ))}
+                              </div>
+                            );
+                          })()}
+                          
+                          <button className="btn" style={{ width: '100%', fontSize: '0.8rem', border: slotError ? '2px solid var(--danger)' : undefined }} onClick={handleCheckout}>
+                            {cartFulfillment === 'PICKUP'
+                              ? <><Key size={14} style={{ marginRight: '0.25rem' }} />{t('Place Pickup Order', 'पिकअप ऑर्डर दें', 'পিকআপ অর্ডার দিন')}</>
+                              : <><Truck size={14} style={{ marginRight: '0.25rem' }} />{t('Place Delivery Order (COD)', 'डिलीवरी ऑर्डर (COD)', 'ডেলিভারি অর্ডার (COD)')}</>
+                            }
                           </button>
                         </div>
                       )}
@@ -2659,7 +2878,16 @@ export default function App() {
                             <div key={o.id} className="glass-card" style={{ padding: '0.65rem', fontSize: '0.7rem', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
                               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                                 <span style={{ fontWeight: 'bold' }}>{t('Order', 'ऑर्डर', 'অর্ডার')} #{o.id.substring(2).toUpperCase()}</span>
-                                <span key={o.status} className={`badge ${o.status === 'DELIVERED' ? 'badge-success' : 'badge-warning'} status-badge-glow`}>{o.status}</span>
+                                 <div style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
+                                   <span key={o.status} className={`badge ${o.status === 'DELIVERED' ? 'badge-success' : o.status === 'CANCELLED' ? 'badge-danger' : o.status === 'CONFIRMING' ? 'badge-primary' : 'badge-warning'} status-badge-glow`}>
+                                     {o.status === 'CONFIRMING' ? t('Confirming (3 min cancel window)', 'पुष्टि हो रही है (3 मिनट रद्द विंडो)', 'নিশ্চিত হচ্ছে (৩ মিনিট বাতিল সুযোগ)') : o.status}
+                                   </span>
+                                   {o.payment_status && (
+                                     <span className={`badge ${o.payment_status === 'RELEASED' ? 'badge-success' : o.payment_status === 'COD' ? 'badge-warning' : 'badge-primary'}`} style={{ fontSize: '0.55rem', padding: '0.1rem 0.3rem' }}>
+                                       {o.payment_status === 'HELD' ? '🔒 HELD' : o.payment_status === 'RELEASED' ? '✓ RELEASED' : '💵 COD'}
+                                     </span>
+                                   )}
+                                 </div>
                               </div>
                               <div style={{ color: 'var(--text-muted)' }}>{t('Store', 'दुकान', 'दुकान')}: {o.stockist_name}</div>
                               <div style={{ color: 'var(--text-muted)', fontSize: '0.625rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
@@ -2712,6 +2940,50 @@ export default function App() {
                                   <span>{t('Pickup PIN:', 'पिकअप पिन:', 'পিকআপ কোড:')} <strong style={{ color: 'white', letterSpacing: '0.05em' }}>{o.pickup_pin || '1234'}</strong></span>
                                 </div>
                               )}
+
+                              {/* §F16: Cancel window (button disappears after deadline) */}
+                              {o.status === 'CONFIRMING' && o.cancel_deadline && new Date() < new Date(o.cancel_deadline) && (
+                                <button
+                                  className="btn btn-danger"
+                                  style={{ width: '100%', padding: '0.35rem', fontSize: '0.65rem', marginTop: '0.2rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.25rem' }}
+                                  onClick={() => { if (window.confirm(t('Cancel this order? Refund minus platform fee.', 'ऑर्डर रद्द करें? प्लेटफ़ॉर्म फीस घटाकर रिफंड।', 'অর্ডার বাতিল? প্ল্যাটফর্ম ফি বাদে ফেরত।'))) handleCancelOrder(o.id); }}
+                                >
+                                  <Ban size={12} /> {t('Cancel Order (within window)', 'ऑर्डर रद्द (विंडो में)', 'অর্ডার বাতিল (সময়সীমার মধ্যে)')}
+                                  <span style={{ fontSize: '0.55rem', marginLeft: '0.25rem', color: 'rgba(255,255,255,0.6)' }}>
+                                    ({t('3 min window', '3 मिनट', '৩ মিনিট')})
+                                  </span>
+                                </button>
+                              )}
+
+                              {/* §F19: No-show alert for SHIPPED/missed pickup */}
+                              {o.status === 'SHIPPED' && o.fulfillment_type === 'PICKUP' && (
+                                <button
+                                  className="btn btn-secondary"
+                                  style={{ width: '100%', padding: '0.35rem', fontSize: '0.65rem', marginTop: '0.2rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.25rem', background: 'rgba(245,158,11,0.1)', color: 'var(--warning)', border: '1px solid var(--warning)' }}
+                                  onClick={() => setNoShowAlert({ orderId: o.id, canReschedule: !o.reschedule_used })}
+                                >
+                                  <AlertTriangle size={12} /> {t('Missed Pickup? Report & Reschedule', 'पिकअप छूट गया? रिशेड्यूल', 'পিকআপ মিস? পুনরায় নির্ধারণ')}
+                                </button>
+                              )}
+
+                              {/* §H: One-way delivery switch */}
+                              {o.fulfillment_type === 'PICKUP' && o.status !== 'DELIVERED' && o.status !== 'CANCELLED' && o.status !== 'CONFIRMING' ? (
+                                <div>
+                                  <button 
+                                    className="btn btn-secondary" 
+                                    style={{ width: '100%', padding: '0.35rem', fontSize: '0.65rem', marginTop: '0.35rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}
+                                    onClick={() => setDeliverySwitchConfirm(o.id)}
+                                  >
+                                    <Truck size={12} /> {t('Switch to Delivery (One-way)', 'डिलिवरी पर स्विच (एकतरफा)', 'ডেলিভারিতে পরিবর্তন (একমুখী)')}
+                                  </button>
+                                </div>
+                              ) : o.fulfillment_type === 'DELIVERY' ? (
+                                <div>
+                                  <span style={{ fontSize: '0.65rem', color: 'var(--secondary)', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                                    <Truck size={12} /> {t('Mode: DELIVERY', 'डिलिवरी मोड', 'ডেলিভারি মোড')}
+                                  </span>
+                                </div>
+                              ) : null}
 
                               <div style={{ borderTop: '1px solid rgba(255,255,255,0.03)', paddingTop: '0.4rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.3rem' }}>
                                 <span>{t('Paid', 'भुगतान', 'পরিশোধ')}: ₹{o.total_price.toFixed(2)}</span>
@@ -2937,15 +3209,44 @@ export default function App() {
                   
                   {stockistActiveTab === 'orders' && (
                     <>
-                      {/* Today's Earnings Summary Widget */}
-                      <div style={{ background: 'linear-gradient(135deg, var(--primary) 0%, var(--primary-glow) 100%)', borderRadius: '12px', padding: '0.85rem 1rem', color: 'white', display: 'flex', flexDirection: 'column', gap: '0.15rem', boxShadow: '0 4px 12px rgba(99, 102, 241, 0.2)', border: '1px solid rgba(255,255,255,0.1)' }}>
-                        <span style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'rgba(255,255,255,0.7)', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                          <Store size={12} /> Today's Earnings (আজকের আয়)
-                        </span>
-                        <span style={{ fontSize: '1.7rem', fontWeight: 'bold', fontFamily: 'var(--font-display)' }}>
-                          ₹{todaysEarnings.toFixed(2)}
-                        </span>
-                        <span style={{ fontSize: '0.55rem', color: 'rgba(255,255,255,0.75)' }}>Settlement share credited to bank</span>
+                      {/* §J: Stockist language selector */}
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '0.35rem', fontSize: '0.65rem', marginBottom: '-0.35rem' }}>
+                        <Languages size={12} style={{ color: 'var(--text-muted)' }} />
+                        <select
+                          className="text-input"
+                          style={{ fontSize: '0.65rem', padding: '0.2rem 0.4rem', width: 'auto', background: 'var(--bg-surface)', border: '1px solid var(--border-color)' }}
+                          value={lang}
+                          onChange={e => setLang(e.target.value)}
+                        >
+                          <option value="en">English</option>
+                          <option value="hi">हिंदी</option>
+                          <option value="bn">বাংলা</option>
+                        </select>
+                      </div>
+
+                      {/* Grid layout for Today's Earnings & COD Commission */}
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.65rem' }}>
+                        {/* Today's Earnings Summary Widget */}
+                        <div style={{ background: 'linear-gradient(135deg, var(--primary) 0%, var(--primary-glow) 100%)', borderRadius: '12px', padding: '0.85rem 1rem', color: 'white', display: 'flex', flexDirection: 'column', gap: '0.15rem', boxShadow: '0 4px 12px rgba(99, 102, 241, 0.2)', border: '1px solid rgba(255,255,255,0.1)' }}>
+                          <span style={{ fontSize: '0.6rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'rgba(255,255,255,0.7)', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
+                            <Store size={10} /> {t("Today's Earnings", "आज की कमाई", "আজকের আয়")}
+                          </span>
+                          <span style={{ fontSize: '1.4rem', fontWeight: 'bold', fontFamily: 'var(--font-display)' }}>
+                            ₹{todaysEarnings.toFixed(2)}
+                          </span>
+                          <span style={{ fontSize: '0.5rem', color: 'rgba(255,255,255,0.75)' }}>Settlement to bank</span>
+                        </div>
+
+                        {/* COD Commission Owed Widget */}
+                        <div style={{ background: 'linear-gradient(135deg, var(--bg-surface-elevated) 0%, rgba(255,255,255,0.02) 100%)', borderRadius: '12px', padding: '0.85rem 1rem', color: 'white', display: 'flex', flexDirection: 'column', gap: '0.15rem', border: '1px solid var(--border-color)', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
+                          <span style={{ fontSize: '0.6rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
+                            <AlertCircle size={10} style={{ color: 'var(--warning)' }} /> {t("COD Commission Owed", "COD कमीशन देय", "COD কমিশন বকেয়া")}
+                          </span>
+                          <span style={{ fontSize: '1.4rem', fontWeight: 'bold', fontFamily: 'var(--font-display)', color: 'var(--warning)' }}>
+                            ₹{stockistAnalytics?.cod_commission_outstanding !== undefined ? stockistAnalytics.cod_commission_outstanding.toFixed(2) : '0.00'}
+                          </span>
+                          <span style={{ fontSize: '0.5rem', color: 'var(--text-muted)' }}>Owed to FastNet</span>
+                        </div>
                       </div>
 
                       {/* Sync bar if offline queue has items */}
@@ -3010,9 +3311,16 @@ export default function App() {
                                       NEW
                                     </span>
                                   )}
-                                  <span className={`badge ${o.status === 'DELIVERED' ? 'badge-success' : 'badge-warning'}`} style={{ fontSize: '0.6rem' }}>
-                                    {o.status}
+                                  <span className={`badge ${o.status === 'DELIVERED' ? 'badge-success' : o.status === 'CANCELLED' ? 'badge-danger' : o.status === 'CONFIRMING' ? 'badge-primary' : 'badge-warning'}`} style={{ fontSize: '0.6rem' }}>
+                                    {o.status === 'CONFIRMING' ? '⏳ CONFIRMING' : o.status}
                                   </span>
+                                  {/* Pickup slot badge */}
+                                  {o.pickup_slot && (
+                                    <span className="badge" style={{ fontSize: '0.55rem', background: 'rgba(16,185,129,0.15)', color: 'var(--accent)', border: '1px solid rgba(16,185,129,0.3)' }}>
+                                      <Clock size={8} style={{ marginRight: '0.15rem', verticalAlign: 'middle' }} />
+                                      {o.pickup_slot}
+                                    </span>
+                                  )}
                                 </div>
                               </div>
 
@@ -3748,15 +4056,43 @@ export default function App() {
                           <td><span className="badge badge-danger">{an.frequency_metric}</span></td>
                           <td style={{ color: 'var(--warning)', fontSize: '0.8rem' }}>{an.reason}</td>
                           <td>
-                            {an.status === 'FLAGGED' ? (
-                              <span style={{ color: 'var(--danger)', fontWeight: 'bold', fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
-                                <AlertTriangle size={12} /> Flagged for Investigation
-                              </span>
-                            ) : (
-                              <button className="btn btn-secondary" style={{ padding: '0.25rem 0.5rem', fontSize: '0.7rem' }} onClick={() => handleFlagAnomaly(an.id)}>
-                                Flag for Review (তদন্ত করুন)
-                              </button>
-                            )}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                              {an.status === 'FLAGGED' ? (
+                                <span style={{ color: 'var(--danger)', fontWeight: 'bold', fontSize: '0.7rem', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
+                                  <AlertTriangle size={12} /> Flagged for Investigation
+                                </span>
+                              ) : an.status === 'INVESTIGATED' ? (
+                                <span style={{ color: 'var(--accent)', fontWeight: 'bold', fontSize: '0.7rem', display: 'inline-flex', alignItems: 'center', gap: '0.2rem' }}>
+                                  <CheckCheck size={10} /> Investigated
+                                </span>
+                              ) : an.status === 'DISMISSED' ? (
+                                <span style={{ color: 'var(--text-muted)', fontSize: '0.7rem' }}>Dismissed</span>
+                              ) : (
+                                <button className="btn btn-secondary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem' }} onClick={() => handleFlagAnomaly(an.id)}>
+                                  Flag for Review (তদন্ত করুন)
+                                </button>
+                              )}
+                              {an.status !== 'DISMISSED' && an.status !== 'INVESTIGATED' && (
+                                <>
+                                  <button className="btn btn-accent" style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.25rem' }} onClick={() => handleInvestigateAnomaly(an.id)}>
+                                    <CheckCheck size={10} /> Mark Investigated
+                                  </button>
+                                  <div style={{ display: 'flex', gap: '0.2rem' }}>
+                                    <input
+                                      type="text"
+                                      className="text-input"
+                                      style={{ fontSize: '0.6rem', padding: '0.2rem 0.3rem', flex: 1 }}
+                                      placeholder="Dismiss reason..."
+                                      value={dismissReason[an.id] || ''}
+                                      onChange={e => setDismissReason(prev => ({ ...prev, [an.id]: e.target.value }))}
+                                    />
+                                    <button className="btn btn-secondary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.6rem' }} onClick={() => handleDismissAnomaly(an.id)} title="Dismiss Flag">
+                                      <ShieldOff size={10} />
+                                    </button>
+                                  </div>
+                                </>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -3937,6 +4273,7 @@ export default function App() {
                         <th>Shop Share</th>
                         <th>ISP Share</th>
                         <th>Points</th>
+                        <th>Payment / Release</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -3950,11 +4287,26 @@ export default function App() {
                           <td style={{ color: 'var(--accent)' }}>₹{(o.stockist_amount || 0).toFixed(2)}</td>
                           <td style={{ color: 'var(--primary)' }}>₹{(o.platform_amount || 0).toFixed(2)}</td>
                           <td>{formatPoints(o.points_credited || 0)}</td>
+                          <td>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', alignItems: 'flex-start' }}>
+                              <span className={`badge ${o.payment_status === 'RELEASED' ? 'badge-success' : o.payment_status === 'COD' ? 'badge-warning' : 'badge-primary'}`} style={{ fontSize: '0.55rem' }}>
+                                {o.payment_status === 'HELD' ? '🔒 HELD' : o.payment_status === 'RELEASED' ? '✓ RELEASED' : o.payment_status === 'COD' ? '💵 COD' : o.payment_status || 'N/A'}
+                              </span>
+                              {(o.payment_status === 'HELD' || o.payment_status === 'COD') && o.status === 'DELIVERED' && !o.split_released && (
+                                <button className="btn btn-accent" style={{ padding: '0.15rem 0.35rem', fontSize: '0.6rem', display: 'flex', alignItems: 'center', gap: '0.15rem' }} onClick={() => handleReleaseSplit(o.id)}>
+                                  <Banknote size={10} /> Release Split
+                                </button>
+                              )}
+                              {o.split_released && (
+                                <span style={{ fontSize: '0.6rem', color: 'var(--accent)' }}>✓ Released</span>
+                              )}
+                            </div>
+                          </td>
                         </tr>
                       ))}
                       {(!dbState?.orders || dbState.orders.length === 0) && (
                         <tr>
-                          <td colSpan="8" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
+                          <td colSpan="9" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
                             No transactions recorded.
                           </td>
                         </tr>

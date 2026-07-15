@@ -93,6 +93,7 @@ async function main() {
   const orderRes = await post('http://localhost:3001/api/orders', {
     customerId: 'u-cust1',
     stockistId: 's1',
+    pickupSlot: 'Morning (8AM–12PM)',
     items: [
       { productId: 'p1', quantity: 2 }, // Alu, price: 30, cost: 22. Subtotal: 60. profit: 16
       { productId: 'p3', quantity: 1 }  // Dal, price: 60, cost: 48. Subtotal: 60. profit: 12
@@ -161,6 +162,7 @@ async function main() {
 
   // 6. Points reversal on cancellation
   console.log('\n--- 6. Points Reversal on Cancellation ---');
+  await patch(`http://localhost:3001/api/orders/${orderId}/status`, { status: 'DELIVERED' });
   const balBefore = (await get('http://localhost:3001/api/ledger/balance/u-cust1')).body.balance;
   await patch(`http://localhost:3001/api/orders/${orderId}/status`, { status: 'CANCELLED' });
   const balAfter = (await get('http://localhost:3001/api/ledger/balance/u-cust1')).body.balance;
@@ -174,11 +176,13 @@ async function main() {
   await post('http://localhost:3001/api/orders', {
     customerId: 'u-cust1',
     stockistId: 's1',
+    pickupSlot: 'Morning (8AM–12PM)',
     items: [{ productId: 'p1', quantity: 1 }]
   });
   await post('http://localhost:3001/api/orders', {
     customerId: 'u-cust1',
     stockistId: 's1',
+    pickupSlot: 'Morning (8AM–12PM)',
     items: [{ productId: 'p1', quantity: 1 }]
   });
 
@@ -225,6 +229,7 @@ async function main() {
     customerId: 'u-cust1',
     stockistId: 's1',
     fulfillmentType: 'PICKUP',
+    pickupSlot: 'Morning (8AM–12PM)',
     items: [{ productId: 'p1', quantity: 1 }]
   });
   assert(orderPickRes.status === 200, 'Order with PICKUP fulfillment created successfully');
@@ -273,6 +278,152 @@ async function main() {
   assert(targetFb.target_role === 'CUSTOMER', `Target role is CUSTOMER: ${targetFb.target_role}`);
   assert(targetFb.report_flag === true, `Report flag is set to true: ${targetFb.report_flag}`);
   assert(targetFb.reason === 'Customer did not show up to pick up order.', 'Reason matches submitted text');
+
+  // 12. Slot Enforcement
+  console.log('\n--- 12. Slot Enforcement ---');
+  const slotRes = await post('http://localhost:3001/api/orders', {
+    customerId: 'u-cust1',
+    stockistId: 's1',
+    fulfillmentType: 'PICKUP',
+    items: [{ productId: 'p1', quantity: 1 }]
+  });
+  assert(slotRes.status === 400, 'Order without slot is rejected with 400');
+
+  // 13. Cancel Window Enforcement
+  console.log('\n--- 13. Cancel Window Enforcement ---');
+  const testOrder = await post('http://localhost:3001/api/orders', {
+    customerId: 'u-cust1',
+    stockistId: 's1',
+    fulfillmentType: 'PICKUP',
+    pickupSlot: 'Morning (8AM–12PM)',
+    items: [{ productId: 'p1', quantity: 1 }]
+  });
+  assert(testOrder.status === 200, 'Order created within cancel window');
+  
+  // Backdate cancel deadline in the JSON db manually to simulate time elapsed
+  const dbModule = require('../db.js');
+  const ordersList = dbModule.getTable('orders');
+  const targetOrder = ordersList.find(o => o.id === testOrder.body.orderId);
+  targetOrder.cancel_deadline = new Date(Date.now() - 10000).toISOString();
+  targetOrder.status = 'PENDING'; // cancel deadline doesn't apply to CONFIRMING status
+  dbModule.saveTable('orders', ordersList);
+  
+  const cancelRes = await post(`http://localhost:3001/api/orders/${testOrder.body.orderId}/cancel`);
+  assert(cancelRes.status === 400, 'Cancellation blocked after deadline/window closed');
+
+  // 14. No-show flow (Reschedule or Cancel)
+  console.log('\n--- 14. No-Show flow ---');
+  // Order status needs to be SHIPPED/READY to simulate missed pickup
+  targetOrder.status = 'SHIPPED';
+  dbModule.saveTable('orders', ordersList);
+  
+  const rescheduleRes1 = await post(`http://localhost:3001/api/orders/${testOrder.body.orderId}/noshw-action`, {
+    action: 'RESCHEDULE',
+    newSlot: 'Afternoon (12PM–4PM)'
+  });
+  assert(rescheduleRes1.status === 200, 'Rescheduling first time is allowed');
+  
+  const rescheduleRes2 = await post(`http://localhost:3001/api/orders/${testOrder.body.orderId}/noshw-action`, {
+    action: 'RESCHEDULE',
+    newSlot: 'Evening (4PM–8PM)'
+  });
+  assert(rescheduleRes2.status === 400, 'Second reschedule is blocked');
+
+  // Cancel missed pickup (refund minus platform fee)
+  const cancelMissedRes = await post(`http://localhost:3001/api/orders/${testOrder.body.orderId}/noshw-action`, {
+    action: 'CANCEL'
+  });
+  assert(cancelMissedRes.status === 200, 'Missed pickup order cancelled successfully');
+  assert(cancelMissedRes.body.order.payment_status === 'REFUNDED', 'Payment marked as refunded');
+
+  // Check prepaid pickup restriction
+  const usersList = dbModule.getTable('users');
+  const customerUser = usersList.find(u => u.id === 'u-cust1');
+  customerUser.no_show_count = 3;
+  customerUser.prepaid_pickup_restricted = true;
+  dbModule.saveTable('users', usersList);
+
+  const restrictedRes = await post('http://localhost:3001/api/orders', {
+    customerId: 'u-cust1',
+    stockistId: 's1',
+    fulfillmentType: 'PICKUP',
+    pickupSlot: 'Morning (8AM–12PM)',
+    items: [{ productId: 'p1', quantity: 1 }]
+  });
+  assert(restrictedRes.status === 400, 'Prepaid pickup is restricted after 3 no-shows');
+
+  // Reset no-shows
+  customerUser.no_show_count = 0;
+  customerUser.prepaid_pickup_restricted = false;
+  dbModule.saveTable('users', usersList);
+
+  // 15. Multi-store checkout
+  console.log('\n--- 15. Multi-Store Checkout ---');
+  const multiStoreFailing = await post('http://localhost:3001/api/orders', {
+    customerId: 'u-cust1',
+    fulfillmentType: 'DELIVERY',
+    stores: [
+      { stockistId: 's1', pickupSlot: 'Morning (8AM–12PM)', items: [{ productId: 'p1', quantity: 1 }] },
+      { stockistId: 's3', pickupSlot: 'Morning (8AM–12PM)', items: [{ productId: 'p2', quantity: 1 }] }
+    ]
+  });
+  assert(multiStoreFailing.status === 400, 'Multi-store DELIVERY checkout is blocked');
+
+  const multiStoreSuccess = await post('http://localhost:3001/api/orders', {
+    customerId: 'u-cust1',
+    fulfillmentType: 'PICKUP',
+    stores: [
+      { stockistId: 's1', pickupSlot: 'Morning (8AM–12PM)', items: [{ productId: 'p1', quantity: 1 }] },
+      { stockistId: 's3', pickupSlot: 'Afternoon (12PM–4PM)', items: [{ productId: 'p2', quantity: 1 }] }
+    ]
+  });
+  assert(multiStoreSuccess.status === 200, 'Multi-store PICKUP checkout is successful');
+  assert(multiStoreSuccess.body.orders.length === 2, 'Two separate orders created');
+  assert(multiStoreSuccess.body.orders[0].payment_status === 'HELD', 'Payment status is HELD');
+  
+  const multiOrderId = multiStoreSuccess.body.orders[0].id;
+
+  // 16. Release Split
+  console.log('\n--- 16. Release Split ---');
+  // Deliver the order to allow releasing split
+  const multiOrders = dbModule.getTable('orders');
+  const multiO = multiOrders.find(o => o.id === multiOrderId);
+  multiO.status = 'DELIVERED';
+  dbModule.saveTable('orders', multiOrders);
+
+  const releaseRes = await post(`http://localhost:3001/api/admin/release-split/${multiOrderId}`);
+  assert(releaseRes.status === 200, 'Split released successfully');
+
+  // 17. COD Commission Ledger
+  console.log('\n--- 17. COD Commission ---');
+  const codOrder = await post('http://localhost:3001/api/orders', {
+    customerId: 'u-cust1',
+    stockistId: 's1',
+    fulfillmentType: 'DELIVERY',
+    paymentMethod: 'COD',
+    items: [{ productId: 'p1', quantity: 1 }]
+  });
+  assert(codOrder.status === 200, 'COD order created successfully');
+  assert(codOrder.body.order.payment_status === 'COD', 'COD payment status is COD');
+  
+  const codLedger = dbModule.getTable('cod_commission_ledger');
+  const codEntry = codLedger.find(e => e.order_id === codOrder.body.orderId);
+  assert(codEntry !== undefined, 'COD commission entry added to ledger');
+
+  // 18. Fraud Flag Dismissals
+  console.log('\n--- 18. Fraud Flag Dismissals ---');
+  const anomaliesList = dbModule.getTable('anomaly_logs');
+  const targetAnomaly2 = anomaliesList[0];
+  
+  const dismissRes = await post(`http://localhost:3001/api/admin/anomalies/${targetAnomaly2.id}/dismiss`, {
+    reason: 'Legitimate regular customer'
+  });
+  assert(dismissRes.status === 200, 'Anomaly flag dismissed');
+  
+  const auditAnomalies = dbModule.getTable('anomaly_logs');
+  const updatedAnomaly2 = auditAnomalies.find(a => a.id === targetAnomaly2.id);
+  assert(updatedAnomaly2.status === 'DISMISSED', 'Anomaly status updated to DISMISSED');
+  assert(updatedAnomaly2.dismiss_reason === 'Legitimate regular customer', 'Dismiss reason saved');
 
   console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);
