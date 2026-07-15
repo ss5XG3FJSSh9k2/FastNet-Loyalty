@@ -3,6 +3,7 @@
 
 module.exports = {
   // §F16 — Customer can cancel freely for this many minutes after order placement
+  // DEMO_MODE Option: Set CANCEL_WINDOW_MINUTES to 0.5 for faster checkout-to-stockist transitions during live demos (default stays 3).
   CANCEL_WINDOW_MINUTES: 3,
 
   // §F17 — New orders sit in CONFIRMING state (not visible to stockist) for this many minutes

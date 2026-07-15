@@ -48,7 +48,8 @@ import {
   ShieldOff,
   CheckCheck,
   Ban,
-  Banknote
+  Banknote,
+  Lock
 } from 'lucide-react';
 import {
   BarChart,
@@ -259,6 +260,32 @@ export default function App() {
     const num = parseFloat(value) || 0;
     const formatted = num % 1 === 0 ? num.toFixed(0) : num.toFixed(1);
     return `${formatted} pts`;
+  };
+
+  const formatOrderStatusDisplay = (status, fulfillmentType) => {
+    const isPickup = fulfillmentType === 'PICKUP';
+    if (status === 'CONFIRMING') {
+      return t('Confirming', 'पुष्टि हो रही है', 'নিশ্চিত হচ্ছে');
+    }
+    if (status === 'PENDING') {
+      return t('Pending', 'लंबित', 'অপেক্ষারত');
+    }
+    if (status === 'ACCEPTED') {
+      return t('Accepted', 'स्वीकृत', 'স্বীকৃত');
+    }
+    if (status === 'PREPARING') {
+      return t('Preparing', 'तैयार किया जा रहा है', 'প্রস্তুত করা হচ্ছে');
+    }
+    if (status === 'SHIPPED') {
+      return isPickup ? t('Ready for Pickup', 'पिकअप के लिए तैयार', 'পিকআপের জন্য প্রস্তুত') : t('Out for Delivery', 'वितरण के लिए बाहर', 'ডেলিভারির জন্য পাঠানো হয়েছে');
+    }
+    if (status === 'DELIVERED') {
+      return isPickup ? t('Picked Up', 'पिकअप किया गया', 'পিকআপ সম্পন্ন') : t('Delivered', 'वितरित', 'ডেলিভারি সম্পন্ন');
+    }
+    if (status === 'CANCELLED') {
+      return t('Cancelled', 'रद्द', 'বাতিল');
+    }
+    return status;
   };
 
   // ----------------------------------------------------
@@ -891,10 +918,7 @@ export default function App() {
   const addToCart = (product) => {
     if (!selectedStockist) return;
     setCustomerCart(prev => {
-      if (prev.length > 0 && prev[0].stockistId !== selectedStockist.id) {
-        showToast(`Cleared previous items to start a new order at ${selectedStockist.name}`, 'info');
-        return [{ product, quantity: 1, stockistId: selectedStockist.id, stockistName: selectedStockist.name }];
-      }
+
       const existing = prev.find(item => item.product.id === product.id && item.stockistId === selectedStockist.id);
       if (existing) {
         return prev.map(item => 
@@ -2069,7 +2093,7 @@ export default function App() {
 
                 <div className="input-group">
                   <div style={{ display: 'flex', justifyContent: 'between' }}>
-                    <span className="input-label">Avg. Monthly Broadband Bill</span>
+                    <span className="input-label">Avg. {t('Monthly', 'मासिक', 'মাসিক')} Broadband Bill</span>
                     <span style={{ fontSize: '0.8rem', color: 'var(--primary)', fontWeight: 'bold', marginLeft: 'auto' }}>₹{calcBill}</span>
                   </div>
                   <input type="range" min={300} max={1500} step={50} value={calcBill} onChange={e => setCalcBill(parseInt(e.target.value))} />
@@ -2880,7 +2904,7 @@ export default function App() {
                                 <span style={{ fontWeight: 'bold' }}>{t('Order', 'ऑर्डर', 'অর্ডার')} #{o.id.substring(2).toUpperCase()}</span>
                                  <div style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
                                    <span key={o.status} className={`badge ${o.status === 'DELIVERED' ? 'badge-success' : o.status === 'CANCELLED' ? 'badge-danger' : o.status === 'CONFIRMING' ? 'badge-primary' : 'badge-warning'} status-badge-glow`}>
-                                     {o.status === 'CONFIRMING' ? t('Confirming (3 min cancel window)', 'पुष्टि हो रही है (3 मिनट रद्द विंडो)', 'নিশ্চিত হচ্ছে (৩ মিনিট বাতিল সুযোগ)') : o.status}
+                                     {o.status === 'CONFIRMING' ? t('Confirming (3 min cancel window)', 'पुष्टि हो रही है (3 मिनट रद्द विंडो)', 'নিশ্চিত হচ্ছে (৩ মিনিট বাতিল সুযোগ)') : formatOrderStatusDisplay(o.status, o.fulfillment_type)}
                                    </span>
                                    {o.payment_status && (
                                      <span className={`badge ${o.payment_status === 'RELEASED' ? 'badge-success' : o.payment_status === 'COD' ? 'badge-warning' : 'badge-primary'}`} style={{ fontSize: '0.55rem', padding: '0.1rem 0.3rem' }}>
@@ -3126,13 +3150,14 @@ export default function App() {
       .filter(o => o.status === 'DELIVERED')
       .reduce((sum, o) => sum + (parseFloat(o.stockist_amount) || 0), 0);
 
-    const renderOrderProgressBar = (status) => {
+    const renderOrderProgressBar = (status, fulfillmentType = 'DELIVERY') => {
+      const isPickup = fulfillmentType === 'PICKUP';
       const steps = [
-        { key: 'PENDING', label: 'Received' },
-        { key: 'ACCEPTED', label: 'Accepted' },
-        { key: 'PREPARING', label: 'Packing' },
-        { key: 'SHIPPED', label: 'On Way' },
-        { key: 'DELIVERED', label: 'Completed' }
+        { key: 'PENDING', label: t('Received', 'प्राप्त', 'গৃহীত') },
+        { key: 'ACCEPTED', label: t('Accepted', 'स्वीकृत', 'স্বীকৃত') },
+        { key: 'PREPARING', label: t('Packing', 'पैकिंग', 'প্যাকিং') },
+        { key: 'SHIPPED', label: isPickup ? t('Ready for Pickup', 'पिकअप के लिए तैयार', 'পিকআপের জন্য প্রস্তুত') : t('Out for Delivery', 'वितरण के लिए बाहर', 'ডেলিভারির জন্য পাঠানো হয়েছে') },
+        { key: 'DELIVERED', label: isPickup ? t('Picked Up', 'पिकअप किया गया', 'পিকআপ সম্পন্ন') : t('Delivered', 'वितरित', 'ডেলিভারি সম্পন্ন') }
       ];
 
       const currentIndex = steps.findIndex(s => s.key === status);
@@ -3234,7 +3259,7 @@ export default function App() {
                           <span style={{ fontSize: '1.4rem', fontWeight: 'bold', fontFamily: 'var(--font-display)' }}>
                             ₹{todaysEarnings.toFixed(2)}
                           </span>
-                          <span style={{ fontSize: '0.5rem', color: 'rgba(255,255,255,0.75)' }}>Settlement to bank</span>
+                          <span style={{ fontSize: '0.5rem', color: 'rgba(255,255,255,0.75)' }}>{t("Settlement to bank", "बैंक में निपटान", "ব্যাংক সেটেলমেন্ট")}</span>
                         </div>
 
                         {/* COD Commission Owed Widget */}
@@ -3245,17 +3270,17 @@ export default function App() {
                           <span style={{ fontSize: '1.4rem', fontWeight: 'bold', fontFamily: 'var(--font-display)', color: 'var(--warning)' }}>
                             ₹{stockistAnalytics?.cod_commission_outstanding !== undefined ? stockistAnalytics.cod_commission_outstanding.toFixed(2) : '0.00'}
                           </span>
-                          <span style={{ fontSize: '0.5rem', color: 'var(--text-muted)' }}>Owed to FastNet</span>
+                          <span style={{ fontSize: '0.5rem', color: 'var(--text-muted)' }}>{t("Owed to FastNet", "फास्टनेट का देय", "ফাস্টনেট এর বকেয়া")}</span>
                         </div>
                       </div>
 
                       {/* Sync bar if offline queue has items */}
                       {offlineQueue.length > 0 && (
                         <div style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid var(--warning)', borderRadius: '6px', padding: '0.5rem 0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.75rem' }}>
-                          <span><strong>{offlineQueue.length}</strong> updates pending sync</span>
+                          <span><strong>{offlineQueue.length}</strong> {t("updates pending sync", "अपडेट सिंक लंबित", "আপডেট সিঙ্ক পেন্ডিং")}</span>
                           {!offlineMode && (
                             <button className="badge badge-warning" style={{ border: 'none', cursor: 'pointer' }} onClick={handleSyncOfflineQueue}>
-                              Sync Now
+                              {t("Sync Now", "अभी सिंक करें", "এখনই সিঙ্ক করুন")}
                             </button>
                           )}
                         </div>
@@ -3265,23 +3290,23 @@ export default function App() {
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-surface)', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
                         <div>
                           <h4 style={{ fontSize: '0.8rem', color: 'white', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                            <Signal size={14} /> Network Signal
+                            <Signal size={14} /> {t("Network Signal", "नेटवर्क सिग्नल", "নেটওয়ার্ক সিগন্যাল")}
                           </h4>
-                          <p style={{ color: 'var(--text-muted)', fontSize: '0.65rem' }}>Test offline rural store state</p>
+                          <p style={{ color: 'var(--text-muted)', fontSize: '0.65rem' }}>{t("Test offline rural store state", "ऑफ़लाइन ग्रामीण स्टोर स्थिति का परीक्षण करें", "অফলাইন গ্রামীণ স্টোর পরীক্ষা")}</p>
                         </div>
                         <button 
                           onClick={toggleOfflineMode} 
                           className={`badge ${offlineMode ? 'badge-danger' : 'badge-success'}`}
                           style={{ border: 'none', cursor: 'pointer', padding: '0.4rem 0.6rem', textTransform: 'uppercase' }}
                         >
-                          {offlineMode ? 'Connect' : 'Disconnect'}
+                          {offlineMode ? t('Connect', 'कनेक्ट करें', 'কানেক্ট করুন') : t('Disconnect', 'डिस्कनेक्ट करें', 'ডিসকানেক্ট করুন')}
                         </button>
                       </div>
 
                       {/* Active Orders Queue */}
                       <h3 style={{ fontSize: '0.9rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.4rem', marginTop: '0.25rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
                         <ArrowRightLeft size={14} style={{ color: 'var(--primary)' }} />
-                        New Orders (নতুন অর্ডার)
+                        {t("New Orders", "नए ऑर्डर", "নতুন অর্ডার")}
                       </h3>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                         {stockistOrders.map(o => {
@@ -3312,7 +3337,7 @@ export default function App() {
                                     </span>
                                   )}
                                   <span className={`badge ${o.status === 'DELIVERED' ? 'badge-success' : o.status === 'CANCELLED' ? 'badge-danger' : o.status === 'CONFIRMING' ? 'badge-primary' : 'badge-warning'}`} style={{ fontSize: '0.6rem' }}>
-                                    {o.status === 'CONFIRMING' ? '⏳ CONFIRMING' : o.status}
+                                    {o.status === 'CONFIRMING' ? '⏳ CONFIRMING' : formatOrderStatusDisplay(o.status, o.fulfillment_type)}
                                   </span>
                                   {/* Pickup slot badge */}
                                   {o.pickup_slot && (
@@ -3340,11 +3365,11 @@ export default function App() {
                               </div>
 
                               {/* Visual Step Progress Bar */}
-                              {renderOrderProgressBar(o.status)}
+                              {renderOrderProgressBar(o.status, o.fulfillment_type)}
 
                               {/* Order Items List */}
                               <div style={{ background: 'rgba(0,0,0,0.15)', padding: '0.4rem 0.5rem', borderRadius: '4px' }}>
-                                <div style={{ fontWeight: '600', color: 'var(--text-muted)', fontSize: '0.65rem', marginBottom: '0.25rem', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '0.2rem' }}>ITEMS TO PACK:</div>
+                                <div style={{ fontWeight: '600', color: 'var(--text-muted)', fontSize: '0.65rem', marginBottom: '0.25rem', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '0.2rem' }}>{t("ITEMS TO PACK:", "पैकिंग के लिए आइटम:", "প্যাকিং এর জিনিসপত্র:")}</div>
                                 {o.items && o.items.map(item => (
                                   <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-main)', fontSize: '0.7rem' }}>
                                     <span>• {item.name} x {item.quantity}</span>
@@ -3360,19 +3385,19 @@ export default function App() {
                                 </div>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', fontWeight: 'bold' }}>
                                   <span style={{ color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                                    <Store size={12} /> Payout to You:
+                                    <Store size={12} /> {t("Payout to You:", "आपका भुगतान:", "আপনার পাওনা:")}
                                   </span>
                                   <span style={{ color: 'var(--accent)' }}>₹{parseFloat(o.stockist_amount || 0).toFixed(2)}</span>
                                 </div>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem', color: 'var(--text-muted)' }}>
-                                  <span>Commission Split:</span>
+                                  <span>{t("Commission Split:", "कमीशन विभाजन:", "কমিশন স্প্লিট:")}</span>
                                   <span>₹{parseFloat(o.platform_amount || 0).toFixed(2)}</span>
                                 </div>
                               </div>
 
                               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem', color: 'var(--text-muted)', padding: '0 0.1rem' }}>
-                                <span>Basket Subtotal: ₹{o.subtotal}</span>
-                                <span>Total Price: ₹{o.total_price}</span>
+                                <span>{t("Basket Subtotal", "बास्केट उप-योग", "ঝুড়ির উপ-মোট")}: ₹{o.subtotal}</span>
+                                <span>{t("Total Price", "कुल मूल्य", "মোট মূল্য")}: ₹{o.total_price}</span>
                               </div>
 
                               {/* Action Buttons */}
@@ -3380,17 +3405,17 @@ export default function App() {
                                 <div style={{ display: 'flex', gap: '0.25rem' }}>
                                   {o.status === 'PENDING' && (
                                     <button className="btn" style={{ flex: 1, padding: '0.35rem 0', fontSize: '0.7rem' }} onClick={() => handleUpdateOrderStatus(o.id, 'ACCEPTED')}>
-                                      Accept
+                                      {t('Accept', 'स्वीकार करें', 'গ্রহণ করুন')}
                                     </button>
                                   )}
                                   {o.status === 'ACCEPTED' && (
                                     <button className="btn btn-accent" style={{ flex: 1, padding: '0.35rem 0', fontSize: '0.7rem' }} onClick={() => handleUpdateOrderStatus(o.id, 'PREPARING')}>
-                                      Prepare
+                                      {t('Prepare', 'तैयार करें', 'প্যাক করুন')}
                                     </button>
                                   )}
                                   {o.status === 'PREPARING' && (
                                     <button className="btn btn-accent" style={{ flex: 1, padding: '0.35rem 0', fontSize: '0.7rem' }} onClick={() => handleUpdateOrderStatus(o.id, 'SHIPPED')}>
-                                      {o.fulfillment_type === 'PICKUP' ? 'Mark Ready' : 'Deliver'}
+                                      {o.fulfillment_type === 'PICKUP' ? t('Mark Ready', 'तैयार चिह्नित करें', 'রেডি চিহ্নিত করুন') : t('Deliver', 'वितरण करें', 'ডেলিভারি করুন')}
                                     </button>
                                   )}
                                   {o.status === 'SHIPPED' && (
@@ -3398,7 +3423,7 @@ export default function App() {
                                       <div style={{ display: 'flex', gap: '0.25rem', width: '100%' }}>
                                         <input 
                                           type="text" 
-                                          placeholder="Enter PIN" 
+                                          placeholder={t("Enter PIN", "पिन दर्ज करें", "পিন লিখুন")} 
                                           maxLength="4"
                                           style={{ flex: 1, padding: '0.25rem', fontSize: '0.7rem', background: 'var(--bg-surface-elevated)', border: '1px solid var(--border-color)', color: 'white', borderRadius: '4px', textAlign: 'center' }}
                                           value={enteredPins[o.id] || ''}
@@ -3414,12 +3439,12 @@ export default function App() {
                                       </div>
                                     ) : (
                                       <button className="btn" style={{ flex: 1, padding: '0.35rem 0', fontSize: '0.7rem', background: 'var(--accent)' }} onClick={() => handleUpdateOrderStatus(o.id, 'DELIVERED')}>
-                                        Complete & Pay
+                                        {t('Complete & Pay', 'पूरा करें और भुगतान करें', 'সম্পন্ন ও পেমেন্ট করুন')}
                                       </button>
                                     )
                                   )}
                                   {o.status !== 'DELIVERED' && o.status !== 'CANCELLED' && (
-                                    <button className="btn btn-danger" style={{ padding: '0.35rem 0.5rem', fontSize: '0.7rem' }} onClick={() => handleUpdateOrderStatus(o.id, 'CANCELLED')}>Cancel</button>
+                                    <button className="btn btn-danger" style={{ padding: '0.35rem 0.5rem', fontSize: '0.7rem' }} onClick={() => handleUpdateOrderStatus(o.id, 'CANCELLED')}>{t('Cancel', 'रद्द करें', 'বাতিল করুন')}</button>
                                   )}
                                 </div>
                                 
@@ -3453,14 +3478,14 @@ export default function App() {
                       {/* Inventory Restock Panel */}
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.4rem' }}>
                         <h3 style={{ fontSize: '0.9rem', margin: 0, display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                          <Package size={14} style={{ color: 'var(--primary)' }} /> Inventory SKU list
+                          <Package size={14} style={{ color: 'var(--primary)' }} /> {t("Inventory SKU list", "इन्वेंट्री SKU सूची", "ইনভেন্টরি SKU তালিকা")}
                         </h3>
                         <button 
                           className="btn btn-accent" 
                           style={{ padding: '0.25rem 0.5rem', fontSize: '0.65rem', height: '28px', minHeight: '28px' }} 
                           onClick={() => setShowAddProductModal(true)}
                         >
-                          + Add SKU
+                          {t("+ Add SKU", "+ SKU जोड़ें", "+ SKU যোগ করুন")}
                         </button>
                       </div>
 
@@ -3468,7 +3493,7 @@ export default function App() {
                       <div style={{ position: 'relative' }}>
                         <input 
                           type="text" 
-                          placeholder="Search stock inventory..."
+                          placeholder={t("Search stock inventory...", "स्टॉक इन्वेंट्री खोजें...", "ইনভেন্টরি খুঁজুন...")}
                           className="text-input" 
                           style={{ width: '100%', paddingLeft: '2.25rem', height: '36px', minHeight: '36px', fontSize: '0.75rem' }}
                           value={stockistProductSearch}
@@ -3486,7 +3511,7 @@ export default function App() {
                       </div>
 
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.02)', padding: '0.4rem 0.6rem', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.05)' }}>
-                        <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Low Stock Threshold:</span>
+                        <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>{t("Low Stock Threshold:", "कम स्टॉक सीमा:", "কম স্টক থ্রেশহোল্ড:")}</span>
                         <input 
                           type="number" 
                           min="0" 
@@ -3508,7 +3533,7 @@ export default function App() {
                             <option key={v.id} value={v.id}>{v.name}</option>
                           ))}
                           {stockistApprovedVendors.length === 0 && (
-                            <option value="">No Approved Wholesalers</option>
+                            <option value="">{t("No Approved Wholesalers", "कोई स्वीकृत थोक विक्रेता नहीं", "কোনো অনুমোদিত পাইকারি বিক্রেতা নেই")}</option>
                           )}
                         </select>
                       </div>
@@ -3523,11 +3548,11 @@ export default function App() {
                                 <div style={{ flex: 1 }}>
                                   <div style={{ fontWeight: '600', color: 'white' }}>{p.name}</div>
                                   <div style={{ color: 'var(--text-muted)', fontSize: '0.65rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                                    <span>Stock qty:</span>
+                                    <span>{t("Stock qty:", "स्टॉक मात्रा:", "স্টক পরিমাণ:")}</span>
                                     <strong style={{ color: p.stock_qty > 0 ? 'var(--accent)' : 'var(--danger)' }}>{p.stock_qty}</strong>
                                     {isLowStock && (
                                       <span style={{ color: 'var(--warning)', display: 'inline-flex', alignItems: 'center', gap: '0.15rem', fontWeight: 'bold' }}>
-                                        <AlertTriangle size={10} /> Low Stock
+                                        <AlertTriangle size={10} /> {t("Low Stock", "कम स्टॉक", "কম স্টক")}
                                       </span>
                                     )}
                                   </div>
@@ -3545,14 +3570,14 @@ export default function App() {
                                     style={{ padding: '0.25rem 0.5rem', fontSize: '0.7rem', minHeight: '28px', height: '28px' }}
                                     onClick={() => handlePurchaseStock(p.id, restockQuantities[p.id] || 20, selectedRestockVendorId)}
                                   >
-                                    Buy
+                                    {t('Buy', 'खरीदें', 'কিনুন')}
                                   </button>
                                 </div>
                               </div>
                             );
                           })}
                         {stockistProducts.filter(p => p.name.toLowerCase().includes(stockistProductSearch.toLowerCase())).length === 0 && (
-                          <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem', textAlign: 'center', padding: '1rem' }}>No matching inventory products.</p>
+                          <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem', textAlign: 'center', padding: '1rem' }}>{t("No matching inventory products.", "कोई मिलान वाले इन्वेंट्री उत्पाद नहीं।", "কোনো মিলতি ইনভেন্টরি পণ্য নেই।")}</p>
                         )}
                       </div>
                     </>
@@ -3562,28 +3587,28 @@ export default function App() {
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
                       <h3 style={{ fontSize: '0.9rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.4rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
                         <BarChart2 size={14} style={{ color: 'var(--primary)' }} />
-                        Performance Analytics (#15)
+                        {t("Performance Analytics", "प्रदर्शन विश्लेषण", "পারফরম্যান্স অ্যানালিটিক্স")}
                       </h3>
 
                       {stockistAnalytics ? (
                         <>
                           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.65rem' }}>
                             <div className="glass-card" style={{ padding: '0.75rem', textAlign: 'center' }}>
-                              <span style={{ fontSize: '0.55rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Today's Sales</span>
+                              <span style={{ fontSize: '0.55rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{t("Today's Sales", "आज की बिक्री", "আজকের বিক্রি")}</span>
                               <h3 style={{ fontSize: '1.2rem', color: 'white', margin: '0.15rem 0' }}>₹{stockistAnalytics.today_earnings.toFixed(2)}</h3>
                               <span style={{ fontSize: '0.55rem', color: 'var(--accent)', fontWeight: 'bold' }}>{stockistAnalytics.today_order_count} orders</span>
                             </div>
                             <div className="glass-card" style={{ padding: '0.75rem', textAlign: 'center' }}>
-                              <span style={{ fontSize: '0.55rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Avg Order Value</span>
+                              <span style={{ fontSize: '0.55rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{t("Avg Order Value", "औसत ऑर्डर मूल्य", "গড় অর্ডার মূল্য")}</span>
                               <h3 style={{ fontSize: '1.2rem', color: 'white', margin: '0.15rem 0' }}>₹{stockistAnalytics.avg_order_value.toFixed(2)}</h3>
-                              <span style={{ fontSize: '0.55rem', color: 'var(--text-muted)' }}>fulfilled orders</span>
+                              <span style={{ fontSize: '0.55rem', color: 'var(--text-muted)' }}>{t("fulfilled orders", "पूरे किए गए ऑर्डर", "সম্পন্ন অর্ডার")}</span>
                             </div>
                           </div>
 
                           <div className="glass-card" style={{ padding: '0.75rem' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
                               <span style={{ fontSize: '0.55rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                                {analyticsRange === 'weekly' ? '7-Day Sales Trend (₹)' : '4-Week Sales Trend (₹)'}
+                                {analyticsRange === 'weekly' ? t('7-Day Sales Trend (₹)', '7-दिवसीय बिक्री रुझान (₹)', '৭-দিনের সেলস ট্রেন্ড (₹)') : t('4-Week Sales Trend (₹)', '4-सप्ताह बिक्री रुझान (₹)', '৪-সप्ताहের সেলस ट्रेंड (₹)')}
                               </span>
                               <div style={{ display: 'flex', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', padding: '0.1rem' }}>
                                 <button
@@ -3600,7 +3625,7 @@ export default function App() {
                                     fontWeight: 'bold'
                                   }}
                                 >
-                                  Weekly
+                                  {t('Weekly', 'साप्ताहिक', 'সাপ্তাহিক')}
                                 </button>
                                 <button
                                   type="button"
@@ -3616,7 +3641,7 @@ export default function App() {
                                     fontWeight: 'bold'
                                   }}
                                 >
-                                  Monthly
+                                  {t('Monthly', 'मासिक', 'মাসিক')}
                                 </button>
                               </div>
                             </div>
@@ -3744,15 +3769,15 @@ export default function App() {
                 <div className="phone-footer">
                   <button className={`phone-nav-btn ${stockistActiveTab === 'orders' ? 'active' : ''}`} onClick={() => setStockistActiveTab('orders')}>
                     <ArrowRightLeft size={18} />
-                    Orders
+                    {t("Orders", "ऑर्डर", "অর্ডার")}
                   </button>
                   <button className={`phone-nav-btn ${stockistActiveTab === 'inventory' ? 'active' : ''}`} onClick={() => setStockistActiveTab('inventory')}>
                     <Package size={18} />
-                    Inventory
+                    {t("Inventory", "इन्वेंट्री", "ইনভেন্টরি")}
                   </button>
                   <button className={`phone-nav-btn ${stockistActiveTab === 'analytics' ? 'active' : ''}`} onClick={() => { setStockistActiveTab('analytics'); loadStockistData(); }}>
                     <BarChart2 size={18} />
-                    Analytics
+                    {t("Analytics", "विश्लेषण", "অ্যানালিটিক্স")}
                   </button>
                 </div>
               </>
@@ -4289,8 +4314,8 @@ export default function App() {
                           <td>{formatPoints(o.points_credited || 0)}</td>
                           <td>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', alignItems: 'flex-start' }}>
-                              <span className={`badge ${o.payment_status === 'RELEASED' ? 'badge-success' : o.payment_status === 'COD' ? 'badge-warning' : 'badge-primary'}`} style={{ fontSize: '0.55rem' }}>
-                                {o.payment_status === 'HELD' ? '🔒 HELD' : o.payment_status === 'RELEASED' ? '✓ RELEASED' : o.payment_status === 'COD' ? '💵 COD' : o.payment_status || 'N/A'}
+                              <span className={`badge ${o.payment_status === 'RELEASED' ? 'badge-success' : o.payment_status === 'COD' ? 'badge-warning' : 'badge-primary'}`} style={{ fontSize: '0.55rem', display: 'inline-flex', alignItems: 'center', gap: '0.15rem' }}>
+                                {o.payment_status === 'HELD' ? <><Lock size={9} /> HELD</> : o.payment_status === 'RELEASED' ? '✓ RELEASED' : o.payment_status === 'COD' ? '💵 COD' : o.payment_status || 'N/A'}
                               </span>
                               {(o.payment_status === 'HELD' || o.payment_status === 'COD') && o.status === 'DELIVERED' && !o.split_released && (
                                 <button className="btn btn-accent" style={{ padding: '0.15rem 0.35rem', fontSize: '0.6rem', display: 'flex', alignItems: 'center', gap: '0.15rem' }} onClick={() => handleReleaseSplit(o.id)}>
