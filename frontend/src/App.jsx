@@ -462,7 +462,7 @@ export default function App() {
     const stepsInfo = {
       1: {
         title: "Step 1: Place Grocery Order (ক্রেতা বাজার করুন)",
-        desc: "Role: Customer App. Put fresh groceries in the cart, pick your pickup slot or delivery preference, and checkout. Watch loyalty points credit immediately on item profit margins.",
+        desc: "Role: Customer App. Put fresh groceries in the cart, pick your pickup slot or delivery preference, and checkout. Loyalty points, based on item profit margins, credit when you collect your order.",
         actionBtn: "Auto-Fill basket",
         role: "customer"
       },
@@ -2266,7 +2266,7 @@ export default function App() {
                         <CheckCircle2 size={36} />
                       </div>
                       <h3 style={{ fontSize: '1.25rem', color: 'white' }}>{t('Order Placed', 'ऑर्डर सफल हुआ', 'অর্ডার সফল হয়েছে')}</h3>
-                      <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>{t('Points credited when you collect your order. Configure fulfillment below.', 'ऑर्डर लेने पर अंक मिलेंगे। नीचे फ़ुलफ़िलमेंट सेट करें।', 'রিওয়ার্ডস সরাসরি যুক্ত হবে, নিচে আপনার ফুলফিলমেন্ট সেটিংস পরিবর্তন করুন।')}</p>
+                      <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>{t('Points credited when you collect your order. Configure fulfillment below.', 'ऑर्डर लेने पर अंक मिलेंगे। नीचे फ़ुलफ़िलमेंट सेट करें।', 'অর্ডার সংগ্রহের সময় পয়েন্ট যুক্ত হবে, নিচে আপনার ফুলফিলমেন্ট সেটিংস পরিবর্তন করুন।')}</p>
                     </div>
 
                     <div className="points-glow-box" style={{ padding: '0.75rem', borderRadius: '8px', textAlign: 'center', marginBottom: '1rem' }}>
