@@ -2772,7 +2772,7 @@ export default function App() {
                                 })}
                               </div>
                             );
-                          })()}}
+                          })()}
                           
                           <button className="btn" style={{ width: '100%', fontSize: '0.8rem', border: slotError ? '2px solid var(--danger)' : undefined }} onClick={handleCheckout}>
                             {cartFulfillment === 'PICKUP'
