@@ -1972,7 +1972,7 @@ export default function App() {
         ) : (
           <>
             <div className="input-group" style={{ background: 'rgba(99, 102, 241, 0.05)', padding: '0.75rem', borderRadius: '6px', border: '1px solid rgba(99, 102, 241, 0.2)', fontSize: '0.75rem', textAlign: 'center' }}>
-              We sent a mock OTP to <strong>{loginPhone}</strong>. Use code <strong>123456</strong> to verify.
+              OTP sent to <strong>{loginPhone}</strong> — demo code: <strong>123456</strong>
             </div>
             <div className="input-group">
               <label className="input-label">Enter 6-Digit OTP</label>
@@ -2270,7 +2270,17 @@ export default function App() {
                     </div>
 
                     <div className="points-glow-box" style={{ padding: '0.75rem', borderRadius: '8px', textAlign: 'center', marginBottom: '1rem' }}>
-                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{t('Points earned — credited on collection', 'अंक — लेने पर जमा होंगे', 'মোট সঞ্চিত রিওয়ার্ড')}</span>
+                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                        {checkoutResult.orders.length > 1 ? (
+                          t(
+                            `Points earned across ${checkoutResult.orders.length} shops — credited on collection`,
+                            `अंक ${checkoutResult.orders.length} दुकानों से अर्जित — संग्रह करने पर जमा होंगे`,
+                            `${checkoutResult.orders.length}টি দোকান থেকে পয়েন্ট অর্জিত হয়েছে — সংগ্রহের সময় যোগ হবে`
+                          )
+                        ) : (
+                          t('Points earned — credited on collection', 'अंक — लेने पर जमा होंगे', 'মোট সঞ্চিত রিওয়ার্ড')
+                        )}
+                      </span>
                       <h2 style={{ fontSize: '1.8rem', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', margin: '0.25rem 0' }}>
                         <Sparkles size={20} style={{ color: 'var(--warning)' }} />
                         +{formatPoints(checkoutResult.totalPointsCredited)}
@@ -2371,9 +2381,9 @@ export default function App() {
                                   </div>
                                   <div style={{ marginTop: '0.2rem', color: 'var(--text-muted)' }}>
                                     {t(
-                                      `You earned ${o.pointsCredited || o.points_credited || 0} pts because this order's margin was ₹${o.margin || (o.subtotal * 0.25).toFixed(1)} and your reward rate is ${o.earnRatePercent || 40}%.`,
-                                      `आपने ${o.pointsCredited || o.points_credited || 0} pts कमाए हैं क्योंकि मुनाफा ₹${o.margin || (o.subtotal * 0.25).toFixed(1)} व दर ${o.earnRatePercent || 40}% है।`,
-                                      `আপনি ${o.pointsCredited || o.points_credited || 0} pts পেয়েছেন কারণ লাভ ছিল ₹${o.margin || (o.subtotal * 0.25).toFixed(1)} ও হার ${o.earnRatePercent || 40}%।`
+                                      `You earned ${o.pointsCredited || o.points_credited || 0} pts from ${o.stockist_name || 'Store'} — this order's margin was ₹${o.margin || (o.subtotal * 0.25).toFixed(1)} at your ${o.earnRatePercent || 40}% rate.`,
+                                      `आपने ${o.stockist_name || 'Store'} से ${o.pointsCredited || o.points_credited || 0} pts कमाए हैं — इस ऑर्डर का मुनाफा ₹${o.margin || (o.subtotal * 0.25).toFixed(1)} व आपकी दर ${o.earnRatePercent || 40}% थी।`,
+                                      `আপনি ${o.stockist_name || 'Store'} থেকে ${o.pointsCredited || o.points_credited || 0} pts পেয়েছেন — এই অর্ডারে লাভ ছিল ₹${o.margin || (o.subtotal * 0.25).toFixed(1)} ও আপনার হার ${o.earnRatePercent || 40}% ছিল।`
                                     )}
                                   </div>
                                 </div>
