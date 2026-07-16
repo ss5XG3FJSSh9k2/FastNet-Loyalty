@@ -182,7 +182,7 @@ export default function App() {
     for (let h = opH; h < clH; h++) {
       const slotStartStr = String(h).padStart(2, '0') + ':00';
       const slotEndStr = String(h + 1).padStart(2, '0') + ':00';
-      const slotVal = slotStartStr + '\xe2\x80\x93' + slotEndStr;
+      const slotVal = slotStartStr + '–' + slotEndStr;
 
       if (h > minH || (h === minH && 0 >= minM)) {
         slots.push(slotVal);
@@ -193,7 +193,7 @@ export default function App() {
       for (let h = opH; h < Math.min(opH + 4, clH); h++) {
         const slotStartStr = String(h).padStart(2, '0') + ':00';
         const slotEndStr = String(h + 1).padStart(2, '0') + ':00';
-        slots.push(slotStartStr + '\xe2\x80\x93' + slotEndStr);
+        slots.push(slotStartStr + '–' + slotEndStr);
       }
     }
     return slots;
@@ -2339,11 +2339,11 @@ export default function App() {
                             {o.fulfillment_type === 'PICKUP' ? (
                               <div>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.25rem' }}>
-                                  <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>{t('Status: Take Away (Pickup)', '\xe0\xa4\xb8\xe0\xa5\x8d\xe0\xa4\xa5\xe0\xa4\xbf\xe0\xa4\xa4\xe0\xa4\xbf\x3a\x20\xe0\xa4\x9f\xe0\xa5\x87\xe0\xa4\x95\x20\xe0\xa4\x85\xe0\xa4\xb5\xe0\xa5\x87\x20\x28\xe0\xa4\xaa\xe0\xa4\xbf\xe0\xa4\x95\xe0\xa4\x85\xe0\xa4\xaa\x29', '\xe0\xa6\x85\xe0\xa6\xac\xe0\xa6\xb8\xe0\xa7\x8d\xe0\xa6\xa5\xe0\xa6\xbe\x3a\x20\xe0\xa6\x9f\xe0\xa7\x87\xe0\xa6\x95\x20\xe0\xa6\x85\xe0\xa7\x8d\xe0\xa6\xaf\xe0\xa6\x93\xe0\xa7\x9f\xe0\xa7\x87\x20\x28\xe0\xa6\xaa\xe0\xa6\xbf\xe0\xa6\x95\xe0\xa6\x86\xe0\xa6\xaa\x29')}</span>
+                                  <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>{t('Status: Take Away (Pickup)', 'स्थिति: टेक अवे (पिकअप)', 'অবস্থা: টেক অ্যাওয়ে (পিকআপ)')}</span>
                                 </div>
                                 <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.5rem', borderRadius: '6px', fontSize: '0.7rem', border: '1px solid rgba(255,255,255,0.05)', marginTop: '0.25rem', marginBottom: '0.25rem' }}>
-                                  <span style={{ color: 'var(--text-muted)' }}>{t('Scheduled Pickup Slot:', '\xe0\xa4\xa8\xe0\xa4\xbf\xe0\xa4\xb0\xe0\xa5\x8d\xe0\xa4\xa7\xe0\xa4\xbe\xe0\xa4\xb0\xe0\xa4\xbf\xe0\xa4\xa4\x20\xe0\xa4\xaa\xe0\xa4\xbf\xe0\xa4\x95\xe0\xa4\x85\xe0\xa4\xaa\x20\xe0\xa4\xb8\xe0\xa5\x8d\xe0\xa4\xb2\xe0\xa5\x89\xe0\xa4\x9f\x3a', '\xe0\xa6\xa8\xe0\xa6\xbf\xe0\xa6\xb0\xe0\xa7\x8d\xe0\xa6\xa7\xe0\xa6\xbe\xe0\xa6\xb0\xe0\xa6\xbf\xe0\xa6\xa4\x20\xe0\xa6\xaa\xe0\xa6\xbf\xe0\xa6\x95\xe0\xa6\x86\xe0\xa6\xaa\x20\xe0\xa6\xb8\xe0\xa7\x8d\xe0\xa6\xb2\xe0\xa6\x9f\x3a')} </span>
-                                  <strong style={{ color: 'white' }}>{o.pickup_slot || t('Not set', '\xe0\xa4\xa8\xe0\xa4\xbf\xe0\xa4\xb0\xe0\xa5\x8d\xe0\xa4\xa7\xe0\xa4\xbe\xe0\xa4\xb0\xe0\xa4\xbf\xe0\xa4\xa4\x20\xe0\xa4\xa8\xe0\xa4\xb9\xe0\xa5\x80\xe0\xa4\x82', '\xe0\xa6\xa8\xe0\xa6\xbf\xe0\xa6\xb0\xe0\xa7\x8d\xe0\xa6\xa7\xe0\xa6\xbe\xe0\xa6\xb0\xe0\xa6\xbf\xe0\xa6\xa4\x20\xe0\xa6\xa8\xe0\xa7\x87\xe0\xa6�')}</strong>
+                                  <span style={{ color: 'var(--text-muted)' }}>{t('Scheduled Pickup Slot:', 'निर्धारित पिकअप स्लॉट:', 'নির্ধারিত পিকআপ স্লট:')} </span>
+                                  <strong style={{ color: 'white' }}>{o.pickup_slot || t('Not set', 'निर्धारित नहीं', 'নির্ধারিত নেই')}</strong>
                                 </div>
                                 <div style={{ background: 'rgba(99, 102, 241, 0.08)', border: '1px dashed var(--primary)', borderRadius: '6px', padding: '0.4rem', marginTop: '0.4rem', textAlign: 'center' }}>
                                   <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}><Key size={10} style={{ display: 'inline', marginRight: '0.2rem', verticalAlign: 'middle' }} /> {t('Verification PIN:', 'सत्यापन पिन:', 'পিকআপ কোড:')}</span>
@@ -2389,15 +2389,15 @@ export default function App() {
                                   <div style={{ marginTop: '0.2rem', color: 'var(--text-muted)' }}>
                                     {o.margin && o.earnRatePercent ? (
                                       t(
-                                        `You earned ${o.pointsCredited || o.points_credited || 0} pts from ${o.stockist_name || 'Store'} \xe2\x80\x94 this order's margin was \xe2\x82\xb9${o.margin} at your ${o.earnRatePercent}% rate.`,
-                                        `\xe0\xa4\x86\xe0\xa4\xaa\xe0\xa4\xa8\xe0\xa5\x87 ${o.stockist_name || 'Store'} \xe0\xa4\xb8\xe0\xa5\x87 ${o.pointsCredited || o.points_credited || 0} pts \xe0\xa4\x95\xe0\xa4\xae\xe0\xa4\xbe\xe0\xa4\x8f \xe0\xa4\xb9\xe0\xa5\x88\xe0\xa4\x82 \xe2\x80\x94 \xe0\xa4\x87\xe0\xa4\xb8 \xe0\xa4\x91\xe0\xa5\x8d\xe0\xa4\xb0\xe0\xa5\x8d\xe0\xa4\xa1\xe0\xa4\xb0 \xe0\xa4\x95\xe0\xa4\xbe \xe0\xa4\xae\xe0\xa5\x81\xe0\xa4\xb8\xe0\xa4\xbe\xe0\xa4\xab\xe0\xa4\xbe \xe2\x82\xb9${o.margin} \xe0\xa4\xb5 \xe0\xa4\x86\xe0\xa4\xaa\xe0\xa4\x95\xe0\xa5\x80 \xe0\xa4\xa6\xe0\xa4\xb0 ${o.earnRatePercent}% \xe0\xa4\xac\xe0\xa5\x80\xe0\xa5\xa4`,
-                                        `\xe0\xa6\x86\xe0\xa6\xaa\xe0\xa6\xa8\xe0\xa6\xbf ${o.stockist_name || 'Store'} \xe0\xa6\xa5\xe0\xa6\xac\xe0\xa6\xbe\xe0\xa6\xb0 \xe0\xa6\x9a\xe0\xa6\xbf\xe0\xa6\xb2 \xe2\x82\xb9${o.margin} \xe0\xa6\x93 \xe0\xa6\x86\xe0\xa6\xaa\xe0\xa6\xa8\xe0\xa6\xbe\xe0\xa6\xb0 \xe0\xa6\xb9\xe0\xa6\xbe\xe0\xa6\xb0 ${o.earnRatePercent}% \xe0\xa6\x9b\xe0\xa6\xb2\xe0\xa5\xa4`
+                                        `You earned ${o.pointsCredited || o.points_credited || 0} pts from ${o.stockist_name || 'Store'} — this order's margin was ₹${o.margin} at your ${o.earnRatePercent}% rate.`,
+                                        `आपने ${o.stockist_name || 'Store'} से ${o.pointsCredited || o.points_credited || 0} pts कमाए हैं — इस ऑर्डर का मुनाफा ₹${o.margin} व आपकी दर ${o.earnRatePercent}% थी।`,
+                                        `আপনি ${o.stockist_name || 'Store'} থেকে ${o.pointsCredited || o.points_credited || 0} pts পেয়েছেন — এই অর্ডারে লাভ ছিল ₹${o.margin} ও আপনার হার ${o.earnRatePercent}% ছিল।`
                                       )
                                     ) : (
                                       t(
                                         `You earned ${o.pointsCredited || o.points_credited || 0} pts from ${o.stockist_name || 'Store'}.`,
-                                        `\xe0\xa4\x86\xe0\xa4\xaa\xe0\xa4\xa8\xe0\xa5\x87 ${o.stockist_name || 'Store'} \xe0\xa4\xb8\xe0\xa5\x87 ${o.pointsCredited || o.points_credited || 0} pts \xe0\xa4\x95\xe0\xa4\xae\xe0\xa4\xbe\xe0\xa4\x8f \xe0\xa4\xb9\xe0\xa5\x88\xe0\xa4\x82\xe0\xa5\xa4`,
-                                        `\xe0\xa6\x86\xe0\xa6\xaa\xe0\xa6\xa8\xe0\xa6\xbf ${o.stockist_name || 'Store'} \xe0\xa6\xa5\xe0\xa6\xac\xe0\xa6\xbe\xe0\xa6\xb0 \xe0\xa6\x9a\xe0\xa6\xbf\xe0\xa6\xb2\xe0\xa5\xa4`
+                                        `आपने ${o.stockist_name || 'Store'} से ${o.pointsCredited || o.points_credited || 0} pts कमाए हैं।`,
+                                        `আপনি ${o.stockist_name || 'Store'} থেকে ${o.pointsCredited || o.points_credited || 0} pts পেয়েছেন।`
                                       )
                                     )}</div>
                                 </div>
@@ -2750,7 +2750,7 @@ export default function App() {
                             return (
                               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', borderTop: '1px dashed rgba(255,255,255,0.08)', paddingTop: '0.5rem' }}>
                                 <div style={{ fontSize: '0.65rem', color: slotError ? 'var(--danger)' : 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.25rem', fontWeight: slotError ? 'bold' : 'normal' }}>
-                                  <Clock size={10} /> {t('Select Pickup Slot (Required)', '\xe0\xa4\xaa\xe0\xa4\xbf\xe0\xa4\x95\xe0\xa4\x85\xe0\xa4\xaa\x20\xe0\xa4\xb8\xe0\xa4\xae\xe0\xa4\xaf\x20\xe0\xa4\x9a\xe0\xa5\x81\xe0\xa4\xa8\xe0\xa5\x87\xe0\xa4\x82\x20\x28\xe0\xa4\x86\xe0\xa4\xb5\xe0\xa4\xb6\xe0\xa5\x8d\xe0\xa4\xaf\xe0\xa4\x95\x29', '\xe0\xa6\xaa\xe0\xa6\xbf\xe0\xa6\x95\xe0\xa6\x86\xe0\xa6\xaa\x20\xe0\xa6\xb8\xe0\xa6\xae\xe0\xa6\xaf\xe0\xa6\xbc\x20\xe0\xa6\xa8\xe0\xa6\xbf\xe0\xa6\xb0\xe0\xa7\x8d\xe0\xa6\xac\xe0\xa6\xbe\xe0\xa6\x9a\xe0\xa6\xa8\x20\xe0\xa6\x95\xe0\xa6\xb0\xe0\xa7\x81\xe0\xa6\xa8\x20\x28\xe0\xa6\xaa\xe0\xa7\x8d\xe0\xa6\xb0\xe0\xa6\xaf\xe0\xa6\xbc\xe0\xa7\x8b\xe0\xa6\x9c\xe0\xa6\xa8\xe0\xa7\x80\xe0\xa6\xaf\xe0\xa6\xbc\x29')}
+                                  <Clock size={10} /> {t('Select Pickup Slot (Required)', 'पिकअप समय चुनें (आवश्यक)', 'পিকআপ সময় নির্বাচন করুন (প্রয়োজনীয়)')}
                                 </div>
                                 {Object.entries(groups).map(([sid, sName]) => {
                                   const stockist = customerStockists.find(s => s.id === sid) || { id: sid, opening_time: '08:00', closing_time: '20:00', prep_eta_minutes: 10 };
@@ -2764,7 +2764,7 @@ export default function App() {
                                         value={cartPickupSlots[sid] || ''}
                                         onChange={e => { setCartPickupSlots(prev => ({ ...prev, [sid]: e.target.value })); setSlotError(false); }}
                                       >
-                                        <option value="">{t('-- Pick a time slot --', '\x2d\x2d\x20\xe0\xa4\xb8\xe0\xa4\xae\xe0\xa4\xaf\x20\xe0\xa4\xb8\xe0\xa5\x8d\xe0\xa4\xb2\xe0\xa5\x89\xe0\xa4\x9f\x20\xe0\xa4\x9a\xe0\xa5\x81\xe0\xa4\xa8\xe0\xa5\x87\xe0\xa4\x82\x20\x2d\x2d', '\x2d\x2d\x20\xe0\xa6\xb8\xe0\xa6\xae\xe0\xa6\xaf\xe0\xa6\xbc\x20\xe0\xa6\xb8\xe0\xa7\x8d\xe0\xa6\xb2\xe0\xa6\x9f\x20\xe0\xa6\xac\xe0\xa7\x87\xe0\xa6\x9b\xe0\xa7\x87\x20\xe0\xa6\xa8\xe0\xa6\xbf\xe0\xa6\xa8\x20\x2d\x2d')}</option>
+                                        <option value="">{t('-- Pick a time slot --', '-- समय स्लॉट चुनें --', '-- সময় স্লট বেছে নিন --')}</option>
                                         {SLOTS.map(slot => <option key={slot} value={slot}>{slot}</option>)}
                                       </select>
                                     </div>
@@ -2962,7 +2962,7 @@ export default function App() {
                                 <div style={{ border: '1px dashed var(--border-color)', borderRadius: '6px', padding: '0.5rem', marginTop: '0.25rem', background: 'rgba(255,255,255,0.01)', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
                                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                     <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>
-                                      {t('Selected Slot:', '\xe0\xa4\x9a\xe0\xa5\x81\xe0\xa4\xa8\xe0\xa4\xbe\x20\xe0\xa4\x97\xe0\xa4\xaf\xe0\xa4\xbe\x20\xe0\xa4\xb8\xe0\xa5\x8d\xe0\xa4\xb2\xe0\xa5\x89\xe0\xa4\x9f\x3a', '\xe0\xa6\xa8\xe0\xa6\xbf\xe0\xa6\xb0\xe0\xa7\x8d\xe0\xa6\xa7\xe0\xa6\xbe\xe0\xa6\xb0\xe0\xa6\xbf\xe0\xa6\xa4\x20\xe0\xa6\xb8\xe0\xa7\x8d\xe0\xa6\xb2\xe0\xa6\x9f\x3a')} <strong style={{ color: 'white' }}>{o.pickup_slot || t('None', '\xe0\xa4\x95\xe0\xa5\x8b\xe0\xa4\x88\x20\xe0\xa4\xa8\xe0\xa4\xb9\xe0\xa5\x80\xe0\xa4\x82', '\xe0\xa6\x95\xe0\xa7\x8b\xe0\xa6\xa8\xe0\xa7\x8b\xe0\xa6\x9f\xe0\xa6\xbf\x20\xe0\xa6\xa8\xe0\xa6\xbe')}</strong>
+                                      {t('Selected Slot:', 'चुना गया स्लॉट:', 'নির্ধারিত স্লট:')} <strong style={{ color: 'white' }}>{o.pickup_slot || t('None', 'कोई नहीं', 'কোনোটি না')}</strong>
                                     </span>
                                     
                                     {!['READY_FOR_PICKUP', 'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED'].includes(o.status) && (
@@ -2971,7 +2971,7 @@ export default function App() {
                                         style={{ padding: '0.1rem 0.35rem', fontSize: '0.55rem', minHeight: '20px', height: '20px' }}
                                         onClick={() => setChangingSlotOrderId(changingSlotOrderId === o.id ? null : o.id)}
                                       >
-                                        {t('Change Slot', '\xe0\xa4\xb8\xe0\xa5\x8d\xe0\xa4\xb2\xe0\xa5\x89\xe0\xa4\x9f\x20\xe0\xa4\xac\xe0\xa4\xa6\xe0\xa4\xb2\xe0\xa5\x87\xe0\xa4\x82', '\xe0\xa6\xb8\xe0\xa7\x8d\xe0\xa6\xb2\xe0\xa6\x9f\x20\xe0\xa6\xaa\xe0\xa6\xb0\xe0\xa6\xbf\xe0\xa6\xac\xe0\xa6\xb0\xe0\xa7\x8d\xe0\xa6\xa4\xe0\xa6\xa8')}
+                                        {t('Change Slot', 'स्लॉट बदलें', 'স্লট পরিবর্তন')}
                                       </button>
                                     )}
                                   </div>
@@ -2990,7 +2990,7 @@ export default function App() {
                                             setChangingSlotOrderId(null);
                                           }}
                                         >
-                                          <option value="">{t('-- Choose Pickup Slot --', '\x2d\x2d\x20\xe0\xa4\xaa\xe0\xa4\xbf\xe0\xa4\x95\xe0\xa4\x85\xe0\xa4\xaa\x20\xe0\xa4\xb8\xe0\xa5\x8d\xe0\xa4\xb2\xe0\xa5\x89\xe0\xa4\x9f\x20\xe0\xa4\x9a\xe0\xa5\x81\xe0\xa4\xa8\xe0\xa5\x87\xe0\xa4\x82\x20\x2d\x2d', '\x2d\x2d\x20\xe0\xa6\xaa\xe0\xa6\xbf\xe0\xa6\x95\xe0\xa6\x86\xe0\xa6\xaa\x20\xe0\xa6\xb8\xe0\xa7\x8d\xe0\xa6\xb2\xe0\xa6\x9f\x20\xe0\xa6\xa8\xe0\xa6\xbf\xe0\xa6\xac\xe0\xa6\xbe\xe0\xa6\xbbf\xe0\xa6\xa4\x20\xe0\xa6\x95\xe0\xa6\xb0\xe0\xa7\x81\xe0\xa6\xa8\x20\x2d\x2d')}  </option>
+                                          <option value="">{t('-- Choose Pickup Slot --', '-- पिकअप स्लॉट चुनें --', '-- পিকআপ স্লট নির্বাচন করুন --')}</option>
                                           {SLOTS.map(slot => (
                                             <option key={slot} value={slot}>{slot}</option>
                                           ))}
