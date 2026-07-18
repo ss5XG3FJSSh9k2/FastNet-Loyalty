@@ -3982,7 +3982,7 @@ export default function App() {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.75rem', width: '100%' }}>
         <div className="perspective-banner">
-          <span><Settings size={14} style={{ display: 'inline', marginRight: '0.25rem', verticalAlign: 'middle' }} /> OPERATOR PORTAL (অ্যাডমিন মোড): FastNet Operations Dashboard</span>
+          <span><Settings size={14} style={{ display: 'inline', marginRight: '0.25rem', verticalAlign: 'middle' }} /> OPERATOR PORTAL: FastNet Operations Dashboard</span>
         </div>
 
         <div className="admin-container">
@@ -3993,7 +3993,7 @@ export default function App() {
             </div>
             <div style={{ display: 'flex', gap: '0.5rem' }}>
               <button className="btn btn-danger" onClick={handleResetDb} style={{ fontSize: '0.8rem' }}>
-                <RotateCcw size={14} /> Reset Database (রিসেট করুন)
+                <RotateCcw size={14} /> Reset Database
               </button>
             </div>
           </div>
@@ -4058,7 +4058,7 @@ export default function App() {
                           <td>{u.kyc_details?.shop_address}</td>
                           <td>
                             <button className="btn btn-accent" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }} onClick={() => handleApproveKyc(u.id)}>
-                              Approve Shop (অনুমোদন করুন)
+                              Approve Shop
                             </button>
                           </td>
                         </tr>
@@ -4077,7 +4077,7 @@ export default function App() {
 
               {adminTab === 'rates' && (
                 <div>
-                  <h2 style={{ fontSize: '1.4rem', marginBottom: '1rem' }}>ISP Commission & Customer Points Config (কমিশন ও পয়েন্ট নীতি)</h2>
+                  <h2 style={{ fontSize: '1.4rem', marginBottom: '1rem' }}>ISP Commission & Customer Points Config</h2>
                   <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
                     Set regional percentage charges or override rates per shop, and independently configure customer point earn rates.
                   </p>
@@ -4248,7 +4248,7 @@ export default function App() {
 
               {adminTab === 'anomalies' && (
                 <div>
-                  <h2 style={{ fontSize: '1.4rem', marginBottom: '1rem' }}>Suspicious Activity Flags (তদন্তের অর্ডার)</h2>
+                  <h2 style={{ fontSize: '1.4rem', marginBottom: '1rem' }}>Suspicious Activity Flags</h2>
                   <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
                     Platform security engine automatically flags repeat order loops between unique customer-stockist pairs (helps prevent point farming collusion).
                   </p>
@@ -4286,7 +4286,7 @@ export default function App() {
                                 <span style={{ color: 'var(--text-muted)', fontSize: '0.7rem' }}>Dismissed</span>
                               ) : (
                                 <button className="btn btn-secondary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem' }} onClick={() => handleFlagAnomaly(an.id)}>
-                                  Flag for Review (তদন্ত করুন)
+                                  Flag for Review
                                 </button>
                               )}
                               {an.status !== 'DISMISSED' && an.status !== 'INVESTIGATED' && (
@@ -4329,7 +4329,7 @@ export default function App() {
                 <div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
                     <div>
-                      <h2 style={{ fontSize: '1.4rem' }}>Subscriber Bill Discounts (বিল ডিসকাউন্ট)</h2>
+                      <h2 style={{ fontSize: '1.4rem' }}>Subscriber Bill Discounts</h2>
                       <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
                         Approve and synchronize redeemed bill discounts with FastNet billing system.
                       </p>
@@ -4393,7 +4393,7 @@ export default function App() {
 
               {adminTab === 'vendors' && (
                 <div>
-                  <h2 style={{ fontSize: '1.4rem', marginBottom: '1rem' }}>Approved Wholesalers List (পাইকারি বিক্রেতা)</h2>
+                  <h2 style={{ fontSize: '1.4rem', marginBottom: '1rem' }}>Approved Wholesalers List</h2>
                   <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
                     Configure wholesalers and approve them for local shopkeepers to buy stock from.
                   </p>
@@ -4484,6 +4484,7 @@ export default function App() {
                       <tr>
                         <th>Order ID</th>
                         <th>Store</th>
+                        <th>Fulfillment - Payment</th>
                         <th>Total Amount</th>
                         <th>Subtotal</th>
                         <th>Delivery Fee</th>
@@ -4498,6 +4499,7 @@ export default function App() {
                         <tr key={o.id}>
                           <td style={{ fontFamily: 'monospace' }}>#{o.id.substring(2).toUpperCase()}</td>
                           <td>{o.stockist_name}</td>
+                          <td style={{ fontSize: '0.75rem' }}>{o.fulfillment_type || 'N/A'} - {o.payment_method || 'N/A'}</td>
                           <td style={{ fontWeight: 'bold' }}>₹{o.total_price.toFixed(2)}</td>
                           <td>₹{o.subtotal.toFixed(2)}</td>
                           <td>₹{o.delivery_fee.toFixed(2)}</td>
