@@ -4107,7 +4107,7 @@ export default function App() {
                       </div>
 
                       <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                        <h4>Configure Shop Commission Override (§9)</h4>
+                        <h4>Configure Shop Commission Override</h4>
                         <p style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: '-0.5rem' }}>* Overrides the regional commission rate. This is the portion retained by the platform from this shop's sales.</p>
                         <div className="input-group">
                           <label className="input-label">Select Shop</label>
@@ -4131,7 +4131,7 @@ export default function App() {
                     {/* RIGHT COLUMN: POINTS CONFIGURATION & VIEWS */}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
                       <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                        <h4>Configure Customer Points Earn Rate (§10)</h4>
+                        <h4>Configure Customer Points Earn Rate</h4>
                         <div className="input-group">
                           <label className="input-label">Region (Default Scope)</label>
                           <select className="text-input" value={earnRateRegion} onChange={e => setEarnRateRegion(e.target.value)}>
@@ -4188,7 +4188,7 @@ export default function App() {
 
               {adminTab === 'feedback' && (
                 <div>
-                  <h2 style={{ fontSize: '1.4rem', marginBottom: '1rem' }}>Feedback & Incident Queue (§11)</h2>
+                  <h2 style={{ fontSize: '1.4rem', marginBottom: '1rem' }}>Feedback & Incident Queue</h2>
                   <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
                     View service ratings, wrong items, no-shows, or customer behavioral reports filed by user roles.
                   </p>
@@ -4423,7 +4423,7 @@ export default function App() {
                       </div>
 
                       <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                        <h4>Approve Wholesaler for Store (§12)</h4>
+                        <h4>Approve Wholesaler for Store</h4>
                         <div className="input-group">
                           <label className="input-label">Select Shop</label>
                           <select className="text-input" value={vendorAdminStockistId} onChange={e => setVendorAdminStockistId(e.target.value)}>
@@ -4474,7 +4474,7 @@ export default function App() {
 
               {adminTab === 'transactions' && (
                 <div>
-                  <h2 style={{ fontSize: '1.4rem', marginBottom: '1rem' }}>All Marketplace Transactions (§13)</h2>
+                  <h2 style={{ fontSize: '1.4rem', marginBottom: '1rem' }}>All Marketplace Transactions</h2>
                   <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
                     Full visibility into orders, split commissions, and points generated across Garia & Bishnupur regions.
                   </p>
