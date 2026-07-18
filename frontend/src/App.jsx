@@ -199,6 +199,21 @@ export default function App() {
 
   const [changingSlotOrderId, setChangingSlotOrderId] = useState(null);
 
+  const [confirmModal, setConfirmModal] = useState(null);
+  const triggerConfirmModal = (title, message, onConfirm, danger, yesLabel, noLabel) => {
+    setConfirmModal({ title, message, onConfirm, danger, yesLabel, noLabel });
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        setConfirmModal(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   const getAvailableSlots = (stockist) => {
     if (!stockist) return [];
     const opening = stockist.opening_time || '08:00';
@@ -4820,7 +4835,68 @@ export default function App() {
           <span>{toast.message}</span>
         </div>
       )}
-
+      {/* Global Confirm Modal */}
+      {confirmModal && (
+        <div 
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            width: '100vw',
+            height: '100vh',
+            background: 'rgba(0, 0, 0, 0.7)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+          }}
+          onClick={() => setConfirmModal(null)}
+        >
+          <div 
+            className="glass-card" 
+            style={{
+              width: '90%',
+              maxWidth: '450px',
+              padding: '1.5rem',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '1rem',
+              background: '#1a1f2c',
+              border: '1px solid rgba(255, 255, 255, 0.08)',
+              borderRadius: '12px',
+              boxShadow: '0 8px 32px 0 rgba(0, 0, 0, 0.57)',
+              color: 'var(--text-main)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 style={{ fontSize: '1.2rem', color: 'white', margin: 0 }}>
+              {confirmModal.title}
+            </h3>
+            <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', margin: 0, lineHeight: '1.4' }}>
+              {confirmModal.message}
+            </p>
+            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+              <button 
+                className="btn btn-secondary" 
+                style={{ padding: '0.5rem 1rem', fontSize: '0.8rem' }}
+                onClick={() => setConfirmModal(null)}
+              >
+                {confirmModal.noLabel || t('No', 'नहीं', 'না')}
+              </button>
+              <button 
+                className={confirmModal.danger ? 'btn btn-danger' : 'btn btn-accent'} 
+                style={{ padding: '0.5rem 1rem', fontSize: '0.8rem' }}
+                onClick={() => {
+                  confirmModal.onConfirm();
+                  setConfirmModal(null);
+                }}
+              >
+                {confirmModal.yesLabel || t('Yes', 'हाँ', 'হ্যাঁ')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* Guided Walkthrough Tour Banner */}
       {renderTourBanner()}
 
