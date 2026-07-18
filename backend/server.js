@@ -950,15 +950,9 @@ app.get('/api/orders', (req, res) => {
   if (customerId) filtered = filtered.filter(o => o.customer_id === customerId);
   if (stockistId) filtered = filtered.filter(o => o.stockist_id === stockistId);
 
-  // For stockist view: hide CONFIRMING orders (§F17)
+  // For stockist view: transition CONFIRMING→PENDING in DB if window has closed
   if (stockistId && !customerId) {
     const now = new Date();
-    filtered = filtered.filter(o => {
-      if (o.status === 'CONFIRMING') {
-        return new Date(o.cancel_deadline) <= now; // only show after window closed
-      }
-      return true;
-    });
     // Transition CONFIRMING→PENDING in DB if window has closed
     const allOrders = db.getTable('orders');
     let changed = false;

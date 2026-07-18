@@ -3516,7 +3516,7 @@ export default function App() {
                       </h3>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                         {stockistOrders.map(o => {
-                          const isNew = o.status === 'PENDING';
+                          const isNew = ['PENDING', 'CONFIRMING'].includes(o.status);
                           return (
                             <div 
                               key={o.id} 
@@ -3609,7 +3609,7 @@ export default function App() {
                               {/* Action Buttons */}
                               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', marginTop: '0.25rem' }}>
                                 <div style={{ display: 'flex', gap: '0.25rem' }}>
-                                  {o.status === 'PENDING' && (
+                                  {['PENDING', 'CONFIRMING'].includes(o.status) && (
                                     <button className="btn" style={{ flex: 1, padding: '0.35rem 0', fontSize: '0.7rem' }} onClick={() => handleUpdateOrderStatus(o.id, 'ACCEPTED')}>
                                       {t('Accept', 'स्वीकार करें', 'গ্রহণ করুন')}
                                     </button>
