@@ -270,12 +270,15 @@ export default function App() {
   const [selectedVendorId, setSelectedVendorId] = useState('');
 
   // Admin Dashboard State
-  const [adminTab, setAdminTab] = useState('kyc'); // kyc, rates, anomalies, redemptions, vendors
+  const [adminTab, setAdminTab] = useState('kyc'); // kyc, rates, anomalies, redemptions, vendors, leads
   const [pendingKyc, setPendingKyc] = useState([]);
   const [commissionRates, setCommissionRates] = useState([]);
   const [anomalies, setAnomalies] = useState([]);
   const [pendingRedemptions, setPendingRedemptions] = useState([]);
   const [adminNewVendor, setAdminNewVendor] = useState('');
+  const [partnerLeads, setPartnerLeads] = useState([]);
+  const [partnerName, setPartnerName] = useState('');
+  const [partnerPhone, setPartnerPhone] = useState('');
   
   // Rate config form
   const [configCategory, setConfigCategory] = useState('groceries');
@@ -704,6 +707,7 @@ export default function App() {
         const scrRes = await fetch(`${API_BASE}/admin/stockist-commission-rates`);
         const pecRes = await fetch(`${API_BASE}/admin/points-earn-config`);
         const fbRes = await fetch(`${API_BASE}/admin/feedback`);
+        const leadsRes = await fetch(`${API_BASE}/admin/partner-leads`);
         
         const orders = await ordersRes.json();
         const pendingKyc = await kycRes.json();
@@ -716,12 +720,14 @@ export default function App() {
         const stockistCommissionRates = await scrRes.json();
         const pointsEarnConfigs = await pecRes.json();
         const feedbackReports = await fbRes.json();
+        const leads = await leadsRes.json();
 
         setPendingKyc(pendingKyc);
         setCommissionRates(rates);
         setAnomalies(anomalies);
         setPendingRedemptions(redemptions);
         setVendors(vendorsList);
+        setPartnerLeads(leads);
         
         setAllStockistCommissionRates(stockistCommissionRates);
         setAllPointsEarnConfigs(pointsEarnConfigs);
@@ -748,7 +754,8 @@ export default function App() {
           vendors: vendorsList,
           stockist_commission_rates: stockistCommissionRates,
           points_earn_config: pointsEarnConfigs,
-          feedback_reports: feedbackReports
+          feedback_reports: feedbackReports,
+          partner_leads: leads
         });
       }
     } catch (e) {
@@ -786,6 +793,9 @@ export default function App() {
       const fbRes = await fetch(`${API_BASE}/admin/feedback`);
       const fbs = await fbRes.json();
 
+      const leadsRes = await fetch(`${API_BASE}/admin/partner-leads`);
+      const leads = await leadsRes.json();
+
       setDbState({
         orders: list,
         commission_rates: rates,
@@ -795,7 +805,8 @@ export default function App() {
         vendors: vens,
         stockist_commission_rates: scrs,
         points_earn_config: pecs,
-        feedback_reports: fbs
+        feedback_reports: fbs,
+        partner_leads: leads
       });
     } catch (err) {
       console.log('Error syncing inspector:', err);
@@ -2146,6 +2157,31 @@ export default function App() {
     );
   };
 
+  const handlePartnerSubmit = async () => {
+    if (!partnerName.trim() || !partnerPhone.trim()) {
+      showToast('Name and phone are required', 'error');
+      return;
+    }
+    try {
+      const res = await fetch(`${API_BASE}/partner-leads`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: partnerName, phone: partnerPhone })
+      });
+      if (res.ok) {
+        showToast("Thanks — we'll contact you soon.", "success");
+        setPartnerName('');
+        setPartnerPhone('');
+        fetchDbState();
+      } else {
+        const errData = await res.json();
+        showToast(errData.error || 'Failed to submit details', 'error');
+      }
+    } catch (e) {
+      showToast('Network error submitting details', 'error');
+    }
+  };
+
   // ----------------------------------------------------
   // 1. MARKETING / ONBOARDING LANDING PAGE
   // ----------------------------------------------------
@@ -2261,13 +2297,26 @@ export default function App() {
         </div>
 
         <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-color)', borderRadius: '1rem', padding: '2rem', textAlign: 'center' }}>
-          <h2 style={{ marginBottom: '1rem' }}>Onboard a Pilot Tenant</h2>
+          <h2 style={{ marginBottom: '1rem' }}>Are you a cable/internet operator?</h2>
           <p style={{ color: 'var(--text-muted)', maxWidth: '600px', margin: '0 auto 1.5rem', fontSize: '0.9rem' }}>
-            Deploy a new region or operator. Instantly creates separate data structures under `tenant_id` and `region_id`.
+            Partner with FastNet Hyperlocal and turn your subscriber base into a local marketplace. Leave your details and we'll get in touch.
           </p>
-          <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', maxWidth: '400px', margin: '0 auto' }}>
-            <input type="text" placeholder="Operator Name (e.g. Alliance Broadband)" className="text-input" style={{ flex: 1 }} />
-            <button className="btn" onClick={() => showToast('Tenant request queued for Admin approval.')}>Request Demo</button>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxWidth: '400px', margin: '0 auto' }}>
+            <input 
+              type="text" 
+              placeholder="Operator/Company name" 
+              className="text-input" 
+              value={partnerName}
+              onChange={(e) => setPartnerName(e.target.value)}
+            />
+            <input 
+              type="text" 
+              placeholder="Phone" 
+              className="text-input" 
+              value={partnerPhone}
+              onChange={(e) => setPartnerPhone(e.target.value)}
+            />
+            <button className="btn" onClick={handlePartnerSubmit}>Get in touch</button>
           </div>
         </div>
       </div>
@@ -3989,6 +4038,9 @@ export default function App() {
               <button className={`admin-nav-item ${adminTab === 'transactions' ? 'active' : ''}`} onClick={() => setAdminTab('transactions')}>
                 <ArrowRightLeft size={16} /> All Transactions
               </button>
+              <button className={`admin-nav-item ${adminTab === 'leads' ? 'active' : ''}`} onClick={() => setAdminTab('leads')}>
+                <UserCheck size={16} /> Partner Leads ({partnerLeads.length})
+              </button>
             </div>
 
             <div className="admin-content">
@@ -4490,6 +4542,47 @@ export default function App() {
                         <tr>
                           <td colSpan="9" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
                             No transactions recorded.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {adminTab === 'leads' && (
+                <div>
+                  <h2 style={{ fontSize: '1.4rem', marginBottom: '1rem' }}>Partner Leads</h2>
+                  <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
+                    Leads from cable and internet operators interested in partnering with FastNet Hyperlocal.
+                  </p>
+
+                  <table className="admin-table">
+                    <thead>
+                      <tr>
+                        <th>Operator/Company Name</th>
+                        <th>Phone</th>
+                        <th>Date Submitted</th>
+                        <th>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {partnerLeads.map(l => (
+                        <tr key={l.id}>
+                          <td style={{ fontWeight: 'bold' }}>{l.name}</td>
+                          <td>{l.phone}</td>
+                          <td>{new Date(l.created_at).toLocaleString()}</td>
+                          <td>
+                            <span className="badge badge-primary" style={{ fontSize: '0.6rem' }}>
+                              {l.status}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                      {partnerLeads.length === 0 && (
+                        <tr>
+                          <td colSpan="4" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
+                            No partner leads submitted yet.
                           </td>
                         </tr>
                       )}

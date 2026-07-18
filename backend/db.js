@@ -103,7 +103,8 @@ const DEFAULT_DB = {
     { stockist_id: 's2', vendor_id: 'v2', approved_at: new Date().toISOString() },
     { stockist_id: 's3', vendor_id: 'v1', approved_at: new Date().toISOString() }
   ],
-  anomaly_logs: []
+  anomaly_logs: [],
+  partner_leads: []
 };
 
 // Seed r2 products
@@ -128,9 +129,9 @@ function read() {
     }
     const raw = fs.readFileSync(DB_PATH, 'utf8');
     const parsed = JSON.parse(raw);
-    // Backfill new tables that may not exist in an older db.json
     if (!parsed.payment_ledger) parsed.payment_ledger = [];
     if (!parsed.cod_commission_ledger) parsed.cod_commission_ledger = [];
+    if (!parsed.partner_leads) parsed.partner_leads = [];
     return parsed;
   } catch (err) {
     console.error('Failed to read database file, returning default memory db:', err);

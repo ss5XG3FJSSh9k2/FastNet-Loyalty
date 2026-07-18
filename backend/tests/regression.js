@@ -514,6 +514,29 @@ async function main() {
   assert(cancelFailRes.status === 400, 'Cancel blocked after deadline');
   assert(cancelFailRes.body.code === 'CANCEL_WINDOW_CLOSED', 'Cancellation response contains CANCEL_WINDOW_CLOSED code');
 
+  // 22. Partner Leads
+  console.log('\n--- 22. Partner Leads ---');
+  // Validate non-empty payload check
+  const leadFailRes = await post('http://localhost:3001/api/partner-leads', {});
+  assert(leadFailRes.status === 400, 'Posting empty lead is rejected with 400');
+
+  // POST valid lead
+  const leadSuccessRes = await post('http://localhost:3001/api/partner-leads', {
+    name: 'CableNet Garia',
+    phone: '9876543219'
+  });
+  assert(leadSuccessRes.status === 200, 'POST lead succeeds');
+  assert(leadSuccessRes.body.success === true, 'Response contains success flag');
+  assert(leadSuccessRes.body.lead.name === 'CableNet Garia', 'Lead name matches');
+  assert(leadSuccessRes.body.lead.phone === '9876543219', 'Lead phone matches');
+  assert(leadSuccessRes.body.lead.status === 'NEW', 'Initial lead status is NEW');
+
+  // GET leads list to verify persistence
+  const getLeadsRes = await get('http://localhost:3001/api/admin/partner-leads');
+  assert(getLeadsRes.status === 200, 'GET admin partner leads succeeds');
+  const targetLead = getLeadsRes.body.find(l => l.id === leadSuccessRes.body.lead.id);
+  assert(targetLead !== undefined, 'Posted lead exists in admin partner leads list');
+
   console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);
 }

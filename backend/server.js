@@ -1547,6 +1547,29 @@ app.post('/api/admin/vendors', (req, res) => {
   return res.json({ success: true, vendor: newVendor });
 });
 
+// Partner Leads Routes
+app.post('/api/partner-leads', (req, res) => {
+  const { name, phone } = req.body;
+  if (!name || !phone) {
+    return res.status(400).json({ error: 'Name and phone are required' });
+  }
+  const leads = db.getTable('partner_leads');
+  const newLead = {
+    id: 'lead-' + generateId(),
+    name,
+    phone,
+    created_at: new Date().toISOString(),
+    status: 'NEW'
+  };
+  leads.push(newLead);
+  db.saveTable('partner_leads', leads);
+  return res.json({ success: true, lead: newLead });
+});
+
+app.get('/api/admin/partner-leads', (req, res) => {
+  return res.json(db.getTable('partner_leads'));
+});
+
 // Reset DB
 app.post('/api/admin/reset-db', (req, res) => {
   const path = require('path');
