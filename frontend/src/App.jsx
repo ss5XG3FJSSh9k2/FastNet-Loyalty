@@ -70,6 +70,14 @@ export default function App() {
   const [regions, setRegions] = useState([]);
   const [selectedRegionId, setSelectedRegionId] = useState('r1');
   const [currentUser, setCurrentUser] = useState(null);
+  const [timeTick, setTimeTick] = useState(Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setTimeTick(Date.now());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
   
   // Guided Walkthrough Tour State
   const [tourStep, setTourStep] = useState(1);
@@ -315,16 +323,70 @@ export default function App() {
     if (status === 'PREPARING') {
       return t('Preparing', 'तैयार किया जा रहा है', 'প্রস্তুত করা হচ্ছে');
     }
-    if (status === 'SHIPPED') {
-      return isPickup ? t('Ready for Pickup', 'पिकअप के लिए तैयार', 'পিকআপের জন্য প্রস্তুত') : t('Out for Delivery', 'वितरण के लिए बाहर', 'ডেলিভারির জন্য পাঠানো হয়েছে');
+    if (status === 'READY_FOR_PICKUP') {
+      return t('Ready for Pickup', 'पिकअप के लिए तैयार', 'পিকআপের জন্য প্রস্তুত');
+    }
+    if (status === 'OUT_FOR_DELIVERY') {
+      return t('Out for Delivery', 'वितरण के लिए बाहर', 'ডেলিভারির জন্য পাঠানো হয়েছে');
     }
     if (status === 'DELIVERED') {
-      return isPickup ? t('Picked Up', 'पिकअप किया गया', 'পিকআপ সম্পন্ন') : t('Delivered', 'वितरित', 'ডেলিভারি সম্পন্ন');
+      return isPickup ? t('Picked Up', 'পিকআপ করা হয়েছে', 'পিকআপ সম্পন্ন') : t('Delivered', 'वितरित', 'ডেলিভারি সম্পন্ন');
     }
     if (status === 'CANCELLED') {
       return t('Cancelled', 'रद्द', 'বাতিল');
     }
     return status;
+  };
+
+  const renderCancelButtonOrClosed = (o) => {
+    const isConfirming = o.status === 'CONFIRMING';
+    const hasDeadline = !!o.cancel_deadline;
+    const deadlineMs = hasDeadline ? new Date(o.cancel_deadline).getTime() : 0;
+    const nowMs = Date.now();
+    const isWithinWindow = isConfirming && hasDeadline && nowMs < deadlineMs;
+
+    if (isWithinWindow) {
+      const diffSecs = Math.max(0, Math.floor((deadlineMs - nowMs) / 1000));
+      const mins = Math.floor(diffSecs / 60);
+      const secs = diffSecs % 60;
+      const mmss = `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+      
+      const label = t(
+        `Cancel Order \u2014 ${mmss} left`,
+        `ऑर्डर रद्द करें \u2014 ${mmss} बचे हैं`,
+        `অর্ডার বাতিল করুন \u2014 ${mmss} বাকি`
+      );
+      
+      return (
+        <button
+          className="btn btn-danger"
+          style={{ width: '100%', padding: '0.35rem', fontSize: '0.65rem', marginTop: '0.2rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.25rem' }}
+          onClick={() => {
+            if (window.confirm(t(
+              'Cancel this order? Refund minus platform fee.',
+              'ऑर्डर रद्द करें? प्लेटफ़ॉर्म फीस घटाकर रिफंड।',
+              'অর্ডার বাতিল? প্ল্যাটফর্ম ফি বাদে ফেরত।'
+            ))) {
+              handleCancelOrder(o.id);
+            }
+          }}
+        >
+          <Ban size={12} /> {label}
+        </button>
+      );
+    } else if (o.status !== 'CANCELLED') {
+      const closedText = t(
+        'Cancellation window closed',
+        'रद्दीकरण विंडो बंद हो गई है',
+        'বাতিলের সময়সীমা শেষ হয়েছে'
+      );
+      return (
+        <div style={{ color: 'var(--text-muted)', fontSize: '0.6rem', marginTop: '0.2rem', textAlign: 'center', fontStyle: 'italic' }}>
+          {closedText}
+        </div>
+      );
+    }
+    return null;
   };
 
   // ----------------------------------------------------
@@ -390,7 +452,7 @@ export default function App() {
             setStockistOrders(oData);
             
             // Cycle latest order straight to DELIVERED
-            const pendingOrder = oData.find(o => o.status === 'PENDING' || o.status === 'ACCEPTED' || o.status === 'PREPARING' || o.status === 'SHIPPED');
+            const pendingOrder = oData.find(o => o.status === 'PENDING' || o.status === 'ACCEPTED' || o.status === 'PREPARING' || o.status === 'READY_FOR_PICKUP' || o.status === 'OUT_FOR_DELIVERY');
             if (pendingOrder) {
               await fetch(`${API_BASE}/orders/${pendingOrder.id}/status`, {
                 method: 'PATCH',
@@ -2105,7 +2167,7 @@ export default function App() {
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
               <Calculator size={22} style={{ color: 'var(--primary)' }} />
               <div style={{ textAlign: 'left' }}>
-                <h3 style={{ fontSize: '1.15rem', color: 'white', margin: 0 }}>Business Retention Calculator (অপারেটর হিসাব)</h3>
+                <h3 style={{ fontSize: '1.15rem', color: 'white', margin: 0 }}>Business Retention Calculator</h3>
                 <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem', margin: 0 }}>Churn reduction & commission estimate tool for ISP Operators</p>
               </div>
             </div>
@@ -2366,6 +2428,8 @@ export default function App() {
                                 <p style={{ fontSize: '0.6rem', color: 'var(--text-muted)', marginTop: '0.1rem' }}>{t('Shipping charges applied. Cannot switch back to pickup.', 'डिलिवरी शुल्क लागू। अब पिकअप पर वापस नहीं जा सकते।', 'ডেলিভারি চার্জ যুক্ত হয়েছে। পিকআপে ফিরে যাওয়া সম্ভব নয়।')}</p>
                               </div>
                             )}
+
+                            {renderCancelButtonOrClosed(o)}
 
                             {/* Transparent Points Breakdown Receipt */}
                             <div style={{ marginTop: '0.4rem', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
@@ -2933,7 +2997,7 @@ export default function App() {
                                 <span style={{ fontWeight: 'bold' }}>{t('Order', 'ऑर्डर', 'অর্ডার')} #{o.id.substring(2).toUpperCase()}</span>
                                  <div style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
                                    <span key={o.status} className={`badge ${o.status === 'DELIVERED' ? 'badge-success' : o.status === 'CANCELLED' ? 'badge-danger' : o.status === 'CONFIRMING' ? 'badge-primary' : 'badge-warning'} status-badge-glow`}>
-                                     {o.status === 'CONFIRMING' ? t('Confirming (3 min cancel window)', 'पुष्टि हो रही है (3 मिनट रद्द विंडो)', 'নিশ্চিত হচ্ছে (৩ মিনিট বাতিল সুযোগ)') : formatOrderStatusDisplay(o.status, o.fulfillment_type)}
+                                     {o.status === 'CONFIRMING' ? t('Confirming (1 min cancel window)', 'पुष्टि हो रही है (1 मिनट रद्द विंडो)', 'নিশ্চিত হচ্ছে (১ মিনিট বাতিল সুযোগ)') : formatOrderStatusDisplay(o.status, o.fulfillment_type)}
                                    </span>
                                    {o.payment_status && (
                                      <span className={`badge ${o.payment_status === 'RELEASED' ? 'badge-success' : o.payment_status === 'COD' ? 'badge-warning' : 'badge-primary'}`} style={{ fontSize: '0.55rem', padding: '0.1rem 0.3rem' }}>
@@ -3008,22 +3072,10 @@ export default function App() {
                                 </div>
                               )}
 
-                              {/* §F16: Cancel window (button disappears after deadline) */}
-                              {o.status === 'CONFIRMING' && o.cancel_deadline && new Date() < new Date(o.cancel_deadline) && (
-                                <button
-                                  className="btn btn-danger"
-                                  style={{ width: '100%', padding: '0.35rem', fontSize: '0.65rem', marginTop: '0.2rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.25rem' }}
-                                  onClick={() => { if (window.confirm(t('Cancel this order? Refund minus platform fee.', 'ऑर्डर रद्द करें? प्लेटफ़ॉर्म फीस घटाकर रिफंड।', 'অর্ডার বাতিল? প্ল্যাটফর্ম ফি বাদে ফেরত।'))) handleCancelOrder(o.id); }}
-                                >
-                                  <Ban size={12} /> {t('Cancel Order (within window)', 'ऑर्डर रद्द (विंडो में)', 'অর্ডার বাতিল (সময়সীমার মধ্যে)')}
-                                  <span style={{ fontSize: '0.55rem', marginLeft: '0.25rem', color: 'rgba(255,255,255,0.6)' }}>
-                                    ({t('3 min window', '3 मिनट', '৩ মিনিট')})
-                                  </span>
-                                </button>
-                              )}
+                              {renderCancelButtonOrClosed(o)}
 
-                              {/* §F19: No-show alert for SHIPPED/missed pickup */}
-                              {o.status === 'SHIPPED' && o.fulfillment_type === 'PICKUP' && (
+                              {/* §F19: No-show alert for missed pickup */}
+                              {o.status === 'READY_FOR_PICKUP' && o.fulfillment_type === 'PICKUP' && (
                                 <button
                                   className="btn btn-secondary"
                                   style={{ width: '100%', padding: '0.35rem', fontSize: '0.65rem', marginTop: '0.2rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.25rem', background: 'rgba(245,158,11,0.1)', color: 'var(--warning)', border: '1px solid var(--warning)' }}
@@ -3199,8 +3251,10 @@ export default function App() {
         { key: 'PENDING', label: t('Received', 'प्राप्त', 'গৃহীত') },
         { key: 'ACCEPTED', label: t('Accepted', 'स्वीकृत', 'স্বীকৃত') },
         { key: 'PREPARING', label: t('Packing', 'पैकिंग', 'প্যাকিং') },
-        { key: 'SHIPPED', label: isPickup ? t('Ready for Pickup', 'पिकअप के लिए तैयार', 'পিকআপের জন্য প্রস্তুত') : t('Out for Delivery', 'वितरण के लिए बाहर', 'ডেলিভারির জন্য পাঠানো হয়েছে') },
-        { key: 'DELIVERED', label: isPickup ? t('Picked Up', 'पिकअप किया गया', 'পিকআপ সম্পন্ন') : t('Delivered', 'वितरित', 'ডেলিভারি সম্পন্ন') }
+        isPickup 
+          ? { key: 'READY_FOR_PICKUP', label: t('Ready for Pickup', 'पिकअप के लिए तैयार', 'পিকআপের জন্য প্রস্তুত') }
+          : { key: 'OUT_FOR_DELIVERY', label: t('Out for Delivery', 'वितरण के लिए बाहर', 'ডেলিভারির জন্য পাঠানো হয়েছে') },
+        { key: 'DELIVERED', label: isPickup ? t('Picked Up', 'পিকআপ করা হয়েছে', 'পিকআপ সম্পন্ন') : t('Delivered', 'वितरित', 'ডেলিভারি সম্পন্ন') }
       ];
 
       const currentIndex = steps.findIndex(s => s.key === status);
@@ -3457,11 +3511,11 @@ export default function App() {
                                     </button>
                                   )}
                                   {o.status === 'PREPARING' && (
-                                    <button className="btn btn-accent" style={{ flex: 1, padding: '0.35rem 0', fontSize: '0.7rem' }} onClick={() => handleUpdateOrderStatus(o.id, 'SHIPPED')}>
+                                    <button className="btn btn-accent" style={{ flex: 1, padding: '0.35rem 0', fontSize: '0.7rem' }} onClick={() => handleUpdateOrderStatus(o.id, o.fulfillment_type === 'PICKUP' ? 'READY_FOR_PICKUP' : 'OUT_FOR_DELIVERY')}>
                                       {o.fulfillment_type === 'PICKUP' ? t('Mark Ready', 'तैयार चिह्नित करें', 'রেডি চিহ্নিত করুন') : t('Deliver', 'वितरण करें', 'ডেলিভারি করুন')}
                                     </button>
                                   )}
-                                  {o.status === 'SHIPPED' && (
+                                  {['READY_FOR_PICKUP', 'OUT_FOR_DELIVERY'].includes(o.status) && (
                                     o.fulfillment_type === 'PICKUP' ? (
                                       <div style={{ display: 'flex', gap: '0.25rem', width: '100%' }}>
                                         <input 

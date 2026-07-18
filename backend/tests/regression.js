@@ -448,6 +448,72 @@ async function main() {
   const balanceAfter = (await get('http://localhost:3001/api/ledger/balance/u-cust1')).body.balance;
   assert(Math.abs(balanceAfter - balanceBefore - pointsToEarn) < 0.01, `Ledger increased by exactly that amount: ${balanceAfter - balanceBefore} === ${pointsToEarn}`);
 
+  // 20. Legacy SHIPPED status safety mapping
+  console.log('\n--- 20. Legacy SHIPPED status safety mapping ---');
+  // PICKUP order mapping
+  const pickupOrderForShipped = await post('http://localhost:3001/api/orders', {
+    customerId: 'u-cust1',
+    stockistId: 's1',
+    fulfillmentType: 'PICKUP',
+    pickupSlot: 'Morning (8AM–12PM)',
+    items: [{ productId: 'p1', quantity: 1 }]
+  });
+  assert(pickupOrderForShipped.status === 200, 'Pickup order created');
+  const patchPickupShipped = await patch(`http://localhost:3001/api/orders/${pickupOrderForShipped.body.orderId}/status`, { status: 'SHIPPED' });
+  assert(patchPickupShipped.status === 200, 'PATCH legacy SHIPPED on PICKUP order succeeds');
+  
+  const pickupOrderDetails = (await get(`http://localhost:3001/api/orders`)).body.find(o => o.id === pickupOrderForShipped.body.orderId);
+  assert(pickupOrderDetails.status === 'READY_FOR_PICKUP', 'Legacy SHIPPED correctly translated to READY_FOR_PICKUP');
+
+  // DELIVERY order mapping
+  const deliveryOrderForShipped = await post('http://localhost:3001/api/orders', {
+    customerId: 'u-cust1',
+    stockistId: 's1',
+    fulfillmentType: 'DELIVERY',
+    items: [{ productId: 'p1', quantity: 1 }]
+  });
+  assert(deliveryOrderForShipped.status === 200, 'Delivery order created');
+  const patchDeliveryShipped = await patch(`http://localhost:3001/api/orders/${deliveryOrderForShipped.body.orderId}/status`, { status: 'SHIPPED' });
+  assert(patchDeliveryShipped.status === 200, 'PATCH legacy SHIPPED on DELIVERY order succeeds');
+  
+  const deliveryOrderDetails = (await get(`http://localhost:3001/api/orders`)).body.find(o => o.id === deliveryOrderForShipped.body.orderId);
+  assert(deliveryOrderDetails.status === 'OUT_FOR_DELIVERY', 'Legacy SHIPPED correctly translated to OUT_FOR_DELIVERY');
+
+  // 21. Cancel window success / failure
+  console.log('\n--- 21. Cancel window success / failure ---');
+  // Success before deadline
+  const orderToCancelSuccess = await post('http://localhost:3001/api/orders', {
+    customerId: 'u-cust1',
+    stockistId: 's1',
+    fulfillmentType: 'PICKUP',
+    pickupSlot: 'Morning (8AM–12PM)',
+    items: [{ productId: 'p1', quantity: 1 }]
+  });
+  assert(orderToCancelSuccess.status === 200, 'Order to cancel created');
+  const cancelSuccessRes = await post(`http://localhost:3001/api/orders/${orderToCancelSuccess.body.orderId}/cancel`);
+  assert(cancelSuccessRes.status === 200, 'Cancel succeeds before deadline');
+
+  // Failure after deadline (returns CANCEL_WINDOW_CLOSED)
+  const orderToCancelFail = await post('http://localhost:3001/api/orders', {
+    customerId: 'u-cust1',
+    stockistId: 's1',
+    fulfillmentType: 'PICKUP',
+    pickupSlot: 'Morning (8AM–12PM)',
+    items: [{ productId: 'p1', quantity: 1 }]
+  });
+  assert(orderToCancelFail.status === 200, 'Order to cancel fail created');
+  
+  // Backdate deadline & set status to PENDING
+  const ordersList2 = dbModule.getTable('orders');
+  const targetOrder2 = ordersList2.find(o => o.id === orderToCancelFail.body.orderId);
+  targetOrder2.cancel_deadline = new Date(Date.now() - 10000).toISOString();
+  targetOrder2.status = 'PENDING';
+  dbModule.saveTable('orders', ordersList2);
+
+  const cancelFailRes = await post(`http://localhost:3001/api/orders/${orderToCancelFail.body.orderId}/cancel`);
+  assert(cancelFailRes.status === 400, 'Cancel blocked after deadline');
+  assert(cancelFailRes.body.code === 'CANCEL_WINDOW_CLOSED', 'Cancellation response contains CANCEL_WINDOW_CLOSED code');
+
   console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);
 }

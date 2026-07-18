@@ -978,16 +978,21 @@ app.get('/api/orders', (req, res) => {
 // Update Order Status
 app.patch('/api/orders/:id/status', (req, res) => {
   const { id } = req.params;
-  const { status } = req.body;
+  let { status } = req.body;
+
+  const orders = db.getTable('orders');
+  const order = orders.find(o => o.id === id);
+  if (!order) return res.status(404).json({ error: 'Order not found' });
+
+  if (status === 'SHIPPED') {
+    status = order.fulfillment_type === 'PICKUP' ? 'READY_FOR_PICKUP' : 'OUT_FOR_DELIVERY';
+  }
+
   const validStatuses = ['CONFIRMING', 'PENDING', 'ACCEPTED', 'PREPARING', 'READY_FOR_PICKUP', 'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED'];
 
   if (!status || !validStatuses.includes(status)) {
     return res.status(400).json({ error: 'Invalid order status' });
   }
-
-  const orders = db.getTable('orders');
-  const order = orders.find(o => o.id === id);
-  if (!order) return res.status(404).json({ error: 'Order not found' });
 
   order.status = status;
   db.saveTable('orders', orders);
@@ -1093,9 +1098,13 @@ app.post('/api/orders/sync', (req, res) => {
   updates.forEach(upd => {
     const order = orders.find(o => o.id === upd.orderId);
     if (order) {
-      order.status = upd.status;
+      let statusToSet = upd.status;
+      if (statusToSet === 'SHIPPED') {
+        statusToSet = order.fulfillment_type === 'PICKUP' ? 'READY_FOR_PICKUP' : 'OUT_FOR_DELIVERY';
+      }
+      order.status = statusToSet;
       syncCount++;
-      if (upd.status === 'CANCELLED') reverseOrderPoints(upd.orderId);
+      if (statusToSet === 'CANCELLED') reverseOrderPoints(upd.orderId);
     }
   });
 
