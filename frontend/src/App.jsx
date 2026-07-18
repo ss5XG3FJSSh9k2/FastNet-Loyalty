@@ -337,7 +337,7 @@ export default function App() {
   const formatOrderStatusDisplay = (status, fulfillmentType) => {
     const isPickup = fulfillmentType === 'PICKUP';
     if (status === 'CONFIRMING') {
-      return t('Confirming', 'पुष्टि हो रही है', 'নিশ্চিত হচ্ছে');
+      return t('Received', 'प्राप्त', 'গৃহীত');
     }
     if (status === 'PENDING') {
       return t('Pending', 'लंबित', 'অপেক্ষারত');
@@ -3093,7 +3093,7 @@ export default function App() {
                                 <span style={{ fontWeight: 'bold' }}>{t('Order', 'ऑर्डर', 'অর্ডার')} #{o.id.substring(2).toUpperCase()}</span>
                                  <div style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
                                    <span key={o.status} className={`badge ${o.status === 'DELIVERED' ? 'badge-success' : o.status === 'CANCELLED' ? 'badge-danger' : o.status === 'CONFIRMING' ? 'badge-primary' : 'badge-warning'} status-badge-glow`}>
-                                     {o.status === 'CONFIRMING' ? t('Confirming (1 min cancel window)', 'पुष्टि हो रही है (1 मिनट रद्द विंडो)', 'নিশ্চিত হচ্ছে (১ মিনিট বাতিল সুযোগ)') : formatOrderStatusDisplay(o.status, o.fulfillment_type)}
+                                     {o.status === 'CONFIRMING' ? t('Received (1 min cancel window)', 'प्राप्त (1 मिनट रद्द विंडो)', 'গৃহীত (১ মিনিট বাতিল সুযোগ)') : formatOrderStatusDisplay(o.status, o.fulfillment_type)}
                                    </span>
                                    {o.payment_status && (
                                      <span className={`badge ${o.payment_status === 'RELEASED' ? 'badge-success' : o.payment_status === 'COD' ? 'badge-warning' : 'badge-primary'}`} style={{ fontSize: '0.55rem', padding: '0.1rem 0.3rem' }}>
@@ -3543,7 +3543,7 @@ export default function App() {
                                     </span>
                                   )}
                                   <span className={`badge ${o.status === 'DELIVERED' ? 'badge-success' : o.status === 'CANCELLED' ? 'badge-danger' : o.status === 'CONFIRMING' ? 'badge-primary' : 'badge-warning'}`} style={{ fontSize: '0.6rem' }}>
-                                    {o.status === 'CONFIRMING' ? '⏳ CONFIRMING' : formatOrderStatusDisplay(o.status, o.fulfillment_type)}
+                                    {o.status === 'CONFIRMING' ? '⏳ RECEIVED' : formatOrderStatusDisplay(o.status, o.fulfillment_type)}
                                   </span>
                                   {/* Pickup slot badge */}
                                   {o.pickup_slot && (
