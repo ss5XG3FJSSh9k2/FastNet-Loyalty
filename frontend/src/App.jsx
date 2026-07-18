@@ -70,14 +70,36 @@ export default function App() {
   const [regions, setRegions] = useState([]);
   const [selectedRegionId, setSelectedRegionId] = useState('r1');
   const [currentUser, setCurrentUser] = useState(null);
-  const [timeTick, setTimeTick] = useState(Date.now());
+  const [nowTick, setNowTick] = useState(Date.now());
+  const [confirmCancelOrderId, setConfirmCancelOrderId] = useState(null);
+  const [confirmDeliverySwitchOrderId, setConfirmDeliverySwitchOrderId] = useState(null);
+
+  const cancelTimeoutRef = useRef(null);
+  const deliverySwitchTimeoutRef = useRef(null);
 
   useEffect(() => {
+    if (activeRole !== 'customer') return;
     const timer = setInterval(() => {
-      setTimeTick(Date.now());
+      setNowTick(Date.now());
     }, 1000);
     return () => clearInterval(timer);
-  }, []);
+  }, [activeRole]);
+
+  const triggerCancelConfirm = (orderId) => {
+    if (cancelTimeoutRef.current) clearTimeout(cancelTimeoutRef.current);
+    setConfirmCancelOrderId(orderId);
+    cancelTimeoutRef.current = setTimeout(() => {
+      setConfirmCancelOrderId(null);
+    }, 3000);
+  };
+
+  const triggerDeliverySwitchConfirm = (orderId) => {
+    if (deliverySwitchTimeoutRef.current) clearTimeout(deliverySwitchTimeoutRef.current);
+    setConfirmDeliverySwitchOrderId(orderId);
+    deliverySwitchTimeoutRef.current = setTimeout(() => {
+      setConfirmDeliverySwitchOrderId(null);
+    }, 3000);
+  };
   
   // Guided Walkthrough Tour State
   const [tourStep, setTourStep] = useState(1);
@@ -342,7 +364,7 @@ export default function App() {
     const isConfirming = o.status === 'CONFIRMING';
     const hasDeadline = !!o.cancel_deadline;
     const deadlineMs = hasDeadline ? new Date(o.cancel_deadline).getTime() : 0;
-    const nowMs = Date.now();
+    const nowMs = nowTick;
     const isWithinWindow = isConfirming && hasDeadline && nowMs < deadlineMs;
 
     if (isWithinWindow) {
@@ -351,6 +373,27 @@ export default function App() {
       const secs = diffSecs % 60;
       const mmss = `${mins}:${secs < 10 ? '0' : ''}${secs}`;
       
+      const isConfirmed = confirmCancelOrderId === o.id;
+
+      if (isConfirmed) {
+        return (
+          <button
+            className="btn btn-danger"
+            style={{ width: '100%', padding: '0.35rem', fontSize: '0.65rem', marginTop: '0.2rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.25rem' }}
+            onClick={() => {
+              handleCancelOrder(o.id);
+              setConfirmCancelOrderId(null);
+            }}
+          >
+            <Ban size={12} /> {t(
+              'Tap again to confirm cancel',
+              'ऑर्डर रद्द करने की पुष्टि के लिए फिर से टैপ करें',
+              'অর্ডার বাতিল নিশ্চিত করতে আবার ট্যাপ করুন'
+            )}
+          </button>
+        );
+      }
+
       const label = t(
         `Cancel Order \u2014 ${mmss} left`,
         `ऑर्डर रद्द करें \u2014 ${mmss} बचे हैं`,
@@ -361,15 +404,7 @@ export default function App() {
         <button
           className="btn btn-danger"
           style={{ width: '100%', padding: '0.35rem', fontSize: '0.65rem', marginTop: '0.2rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.25rem' }}
-          onClick={() => {
-            if (window.confirm(t(
-              'Cancel this order? Refund minus platform fee.',
-              'ऑर्डर रद्द करें? प्लेटफ़ॉर्म फीस घटाकर रिफंड।',
-              'অর্ডার বাতিল? প্ল্যাটফর্ম ফি বাদে ফেরত।'
-            ))) {
-              handleCancelOrder(o.id);
-            }
-          }}
+          onClick={() => triggerCancelConfirm(o.id)}
         >
           <Ban size={12} /> {label}
         </button>
@@ -530,7 +565,6 @@ export default function App() {
   };
 
   const performReset = async (askConfirm = false) => {
-    if (askConfirm && !window.confirm('Are you sure you want to reset all demo data and start fresh? All custom orders and KYC logs will be deleted.')) return;
     try {
       const res = await fetch(`${API_BASE}/admin/reset-db`, { method: 'POST' });
       if (res.ok) {
@@ -2412,13 +2446,26 @@ export default function App() {
                                   <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: 'var(--primary)', letterSpacing: '0.15em' }}>{o.pickup_pin || '1234'}</div>
                                 </div>
 
-                                <button 
-                                  className="btn" 
-                                  style={{ width: '100%', padding: '0.3rem', fontSize: '0.65rem', marginTop: '0.5rem', background: 'rgba(236,72,153,0.1)', color: 'var(--secondary)', border: '1px solid var(--secondary)' }}
-                                  onClick={() => handleSwitchToDelivery(o.id)}
-                                >
-                                  {t('Switch to Delivery', 'डिलिवरी पर स्विच करें', 'ডেলিভারি মোডে যান')} (+₹{o.region_id === 'r2' ? 30 : 40})
-                                </button>
+                                {confirmDeliverySwitchOrderId === o.id ? (
+                                  <button 
+                                    className="btn btn-danger" 
+                                    style={{ width: '100%', padding: '0.3rem', fontSize: '0.65rem', marginTop: '0.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.25rem' }}
+                                    onClick={() => {
+                                      handleSwitchToDelivery(o.id);
+                                      setConfirmDeliverySwitchOrderId(null);
+                                    }}
+                                  >
+                                    <Truck size={12} /> {t('Tap again to confirm switch', 'स्विच की पुष्टि के लिए फिर से दबाएं', 'নিশ্চিত করতে আবার ট্যাপ করুন')}
+                                  </button>
+                                ) : (
+                                  <button 
+                                    className="btn" 
+                                    style={{ width: '100%', padding: '0.3rem', fontSize: '0.65rem', marginTop: '0.5rem', background: 'rgba(236,72,153,0.1)', color: 'var(--secondary)', border: '1px solid var(--secondary)' }}
+                                    onClick={() => triggerDeliverySwitchConfirm(o.id)}
+                                  >
+                                    {t('Switch to Delivery', 'डिलिवरी पर स्विच करें', 'ডেলিভারি মোডে যান')} (+₹{o.region_id === 'r2' ? 30 : 40})
+                                  </button>
+                                )}
                               </div>
                             ) : (
                               <div>
@@ -3088,13 +3135,26 @@ export default function App() {
                               {/* §H: One-way delivery switch */}
                               {o.fulfillment_type === 'PICKUP' && o.status !== 'DELIVERED' && o.status !== 'CANCELLED' && o.status !== 'CONFIRMING' ? (
                                 <div>
-                                  <button 
-                                    className="btn btn-secondary" 
-                                    style={{ width: '100%', padding: '0.35rem', fontSize: '0.65rem', marginTop: '0.35rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}
-                                    onClick={() => setDeliverySwitchConfirm(o.id)}
-                                  >
-                                    <Truck size={12} /> {t('Switch to Delivery (One-way)', 'डिलिवरी पर स्विच (एकतरफा)', 'ডেলিভারিতে পরিবর্তন (একমুখী)')}
-                                  </button>
+                                  {confirmDeliverySwitchOrderId === o.id ? (
+                                    <button 
+                                      className="btn btn-danger" 
+                                      style={{ width: '100%', padding: '0.35rem', fontSize: '0.65rem', marginTop: '0.35rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.25rem' }}
+                                      onClick={() => {
+                                        handleSwitchToDeliveryConfirmed(o.id);
+                                        setConfirmDeliverySwitchOrderId(null);
+                                      }}
+                                    >
+                                      <Truck size={12} /> {t('Tap again to confirm switch', 'स्विच की पुष्टि के लिए फिर से दबाएं', 'নিশ্চিত করতে আবার ট্যাপ করুন')}
+                                    </button>
+                                  ) : (
+                                    <button 
+                                      className="btn btn-secondary" 
+                                      style={{ width: '100%', padding: '0.35rem', fontSize: '0.65rem', marginTop: '0.35rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.25rem' }}
+                                      onClick={() => triggerDeliverySwitchConfirm(o.id)}
+                                    >
+                                      <Truck size={12} /> {t('Switch to Delivery (One-way)', 'डिलिवरी पर स्विच (एकतरफा)', 'ডেলিভারিতে পরিবর্তন (একমুখী)')}
+                                    </button>
+                                  )}
                                 </div>
                               ) : o.fulfillment_type === 'DELIVERY' ? (
                                 <div>
