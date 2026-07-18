@@ -1,4 +1,5 @@
 const http = require('http');
+const dbModule = require('../db.js');
 
 function post(url, body) {
   return new Promise((resolve, reject) => {
@@ -164,6 +165,13 @@ async function main() {
   console.log('\n--- 6. Points Reversal on Cancellation ---');
   await patch(`http://localhost:3001/api/orders/${orderId}/status`, { status: 'DELIVERED' });
   const balBefore = (await get('http://localhost:3001/api/ledger/balance/u-cust1')).body.balance;
+
+  // Bypass stockist cancel restriction on DELIVERED status by manually setting to PENDING in DB
+  const ordersListReversal = dbModule.getTable('orders');
+  const ord = ordersListReversal.find(o => o.id === orderId);
+  ord.status = 'PENDING';
+  dbModule.saveTable('orders', ordersListReversal);
+
   await patch(`http://localhost:3001/api/orders/${orderId}/status`, { status: 'CANCELLED' });
   const balAfter = (await get('http://localhost:3001/api/ledger/balance/u-cust1')).body.balance;
   
@@ -301,7 +309,6 @@ async function main() {
   assert(testOrder.status === 200, 'Order created within cancel window');
   
   // Backdate cancel deadline in the JSON db manually to simulate time elapsed
-  const dbModule = require('../db.js');
   const ordersList = dbModule.getTable('orders');
   const targetOrder = ordersList.find(o => o.id === testOrder.body.orderId);
   targetOrder.cancel_deadline = new Date(Date.now() - 10000).toISOString();
@@ -329,12 +336,17 @@ async function main() {
   });
   assert(rescheduleRes2.status === 400, 'Second reschedule is blocked');
 
-  // Cancel missed pickup (refund minus platform fee)
+  // Cancel missed pickup (refund status goes to REFUND_DUE)
   const cancelMissedRes = await post(`http://localhost:3001/api/orders/${testOrder.body.orderId}/noshw-action`, {
     action: 'CANCEL'
   });
   assert(cancelMissedRes.status === 200, 'Missed pickup order cancelled successfully');
-  assert(cancelMissedRes.body.order.payment_status === 'REFUNDED', 'Payment marked as refunded');
+  assert(cancelMissedRes.body.order.payment_status === 'REFUND_DUE', 'Payment marked as REFUND_DUE');
+
+  // Trigger admin refund
+  const adminRefundRes = await post(`http://localhost:3001/api/admin/orders/${testOrder.body.orderId}/refund`);
+  assert(adminRefundRes.status === 200, 'Admin refund succeeds');
+  assert(adminRefundRes.body.order.payment_status === 'REFUNDED', 'Payment marked as REFUNDED');
 
   // Check prepaid pickup restriction
   const usersList = dbModule.getTable('users');
@@ -536,6 +548,131 @@ async function main() {
   assert(getLeadsRes.status === 200, 'GET admin partner leads succeeds');
   const targetLead = getLeadsRes.body.find(l => l.id === leadSuccessRes.body.lead.id);
   assert(targetLead !== undefined, 'Posted lead exists in admin partner leads list');
+
+  // 23. REDO ROUND Tests
+  console.log('\n--- 23. REDO ROUND Tests ---');
+
+  // Test A: Add SKU POST creates product visible in stockist list
+  const addSkuRes = await post('http://localhost:3001/api/products', {
+    name: 'Garia Fresh Butter',
+    price: 150,
+    costPrice: 120,
+    category: 'groceries',
+    initialStock: 15,
+    stockistId: 's1',
+    regionId: 'r1'
+  });
+  assert(addSkuRes.status === 200, 'POST creates product successfully');
+  
+  const getProductsRes = await get('http://localhost:3001/api/products?stockistId=s1');
+  const targetProduct = getProductsRes.body.find(p => p.id === addSkuRes.body.product.id);
+  assert(targetProduct !== undefined, 'Created product is visible in stockist list');
+  assert(targetProduct.stock_qty === 15, 'Initial stock matches');
+
+  // Test B: Product edit persists
+  const editProductRes = await patch(`http://localhost:3001/api/products/${targetProduct.id}`, {
+    name: 'Garia Salted Butter',
+    price: 160,
+    costPrice: 130,
+    stockistId: 's1'
+  });
+  assert(editProductRes.status === 200, 'Product edit succeeds');
+  assert(editProductRes.body.product.name === 'Garia Salted Butter', 'Edited name persists');
+  assert(editProductRes.body.product.price === 160, 'Edited price persists');
+  assert(editProductRes.body.product.cost_price === 130, 'Edited cost price persists');
+
+  // Cross-stockist edit -> 403
+  const crossEditRes = await patch(`http://localhost:3001/api/products/${targetProduct.id}`, {
+    name: 'Hack Name',
+    stockistId: 's2'
+  });
+  assert(crossEditRes.status === 403, 'Cross-stockist edit is rejected with 403');
+
+  // costPrice > price -> 400
+  const costTooHighRes = await patch(`http://localhost:3001/api/products/${targetProduct.id}`, {
+    costPrice: 200,
+    stockistId: 's1'
+  });
+  assert(costTooHighRes.status === 400, 'Cost price > price is rejected with 400');
+
+  // Test E: Rewrite cancel conditions
+  // Create a new order to test cancellation
+  const cancelTestOrder = await post('http://localhost:3001/api/orders', {
+    customerId: 'u-cust1',
+    stockistId: 's1',
+    fulfillmentType: 'PICKUP',
+    pickupSlot: 'Morning (8AM–12PM)',
+    items: [{ productId: 'p1', quantity: 1 }]
+  });
+  assert(cancelTestOrder.status === 200, 'Cancel test order created');
+
+  // Set status to READY_FOR_PICKUP to test cancellation lock (even within timer)
+  const ordersList3 = dbModule.getTable('orders');
+  const cancelOrd = ordersList3.find(o => o.id === cancelTestOrder.body.orderId);
+  cancelOrd.status = 'READY_FOR_PICKUP';
+  dbModule.saveTable('orders', ordersList3);
+
+  const cancelReadyRes = await post(`http://localhost:3001/api/orders/${cancelTestOrder.body.orderId}/cancel`);
+  assert(cancelReadyRes.status === 400, 'Cancel at READY is blocked');
+  assert(cancelReadyRes.body.code === 'CANCEL_LOCKED_READY', 'Returns CANCEL_LOCKED_READY code');
+
+  // Reset status to PREPARING to test success cancel within timer -> REFUND_DUE
+  const ordersList4 = dbModule.getTable('orders');
+  const cancelOrd2 = ordersList4.find(o => o.id === cancelTestOrder.body.orderId);
+  cancelOrd2.status = 'PREPARING';
+  dbModule.saveTable('orders', ordersList4);
+
+  const cancelPrepRes = await post(`http://localhost:3001/api/orders/${cancelTestOrder.body.orderId}/cancel`);
+  assert(cancelPrepRes.status === 200, 'Cancel at PREPARING within timer succeeds');
+  assert(cancelPrepRes.body.order.payment_status === 'REFUND_DUE', 'Payment status is REFUND_DUE');
+
+  // Test F: Admin refund
+  const adminRefundRes2 = await post(`http://localhost:3001/api/admin/orders/${cancelTestOrder.body.orderId}/refund`);
+  assert(adminRefundRes2.status === 200, 'Admin refund succeeds');
+  assert(adminRefundRes2.body.order.payment_status === 'REFUNDED', 'Payment status is REFUNDED');
+
+  // Double refund -> no_op
+  const doubleRefundRes = await post(`http://localhost:3001/api/admin/orders/${cancelTestOrder.body.orderId}/refund`);
+  assert(doubleRefundRes.status === 200, 'Double refund is a no-op');
+
+  // Stockist cancel permissions:
+  // Create another order
+  const stockistCancelTestOrder = await post('http://localhost:3001/api/orders', {
+    customerId: 'u-cust1',
+    stockistId: 's1',
+    fulfillmentType: 'PICKUP',
+    pickupSlot: 'Morning (8AM–12PM)',
+    items: [{ productId: 'p1', quantity: 1 }]
+  });
+  assert(stockistCancelTestOrder.status === 200, 'Stockist cancel test order created');
+
+  // Stockist cancel at PENDING -> OK
+  const ordersList5 = dbModule.getTable('orders');
+  const targetOrd5 = ordersList5.find(o => o.id === stockistCancelTestOrder.body.orderId);
+  targetOrd5.status = 'PENDING';
+  dbModule.saveTable('orders', ordersList5);
+
+  const stockistCancelPendingRes = await patch(`http://localhost:3001/api/orders/${stockistCancelTestOrder.body.orderId}/status`, { status: 'CANCELLED' });
+  assert(stockistCancelPendingRes.status === 200, 'Stockist CANCELLED at PENDING succeeds');
+
+  // Stockist cancel at PREPARING -> 403
+  const stockistCancelTestOrder2 = await post('http://localhost:3001/api/orders', {
+    customerId: 'u-cust1',
+    stockistId: 's1',
+    fulfillmentType: 'PICKUP',
+    pickupSlot: 'Morning (8AM–12PM)',
+    items: [{ productId: 'p1', quantity: 1 }]
+  });
+  assert(stockistCancelTestOrder2.status === 200, 'Stockist cancel test order 2 created');
+
+  const ordersList6 = dbModule.getTable('orders');
+  const targetOrd6 = ordersList6.find(o => o.id === stockistCancelTestOrder2.body.orderId);
+  targetOrd6.status = 'PREPARING';
+  dbModule.saveTable('orders', ordersList6);
+
+  const stockistCancelPreparingRes = await patch(`http://localhost:3001/api/orders/${stockistCancelTestOrder2.body.orderId}/status`, { status: 'CANCELLED' });
+  assert(stockistCancelPreparingRes.status === 403, 'Stockist CANCELLED at PREPARING is blocked with 403');
+  assert(stockistCancelPreparingRes.body.code === 'STOCKIST_CANCEL_LOCKED', 'Returns STOCKIST_CANCEL_LOCKED code');
 
   console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);

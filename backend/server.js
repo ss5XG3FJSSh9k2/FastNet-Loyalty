@@ -207,6 +207,47 @@ app.post('/api/products', (req, res) => {
   return res.json({ success: true, product: newProduct });
 });
 
+app.patch('/api/products/:id', (req, res) => {
+  const { id } = req.params;
+  const { name, price, costPrice, stockistId } = req.body;
+
+  if (!stockistId) {
+    return res.status(400).json({ error: 'Missing stockistId' });
+  }
+
+  // Ownership: only the owning stockist (exists in stockist_inventory)
+  const inventory = db.getTable('stockist_inventory');
+  const inv = inventory.find(i => i.product_id === id && i.stockist_id === stockistId);
+  if (!inv) {
+    return res.status(403).json({ error: 'Not the owning stockist' });
+  }
+
+  const products = db.getTable('products');
+  const product = products.find(p => p.id === id);
+  if (!product) {
+    return res.status(404).json({ error: 'Product not found' });
+  }
+
+  const finalPrice = price !== undefined ? parseFloat(price) : product.price;
+  const finalCostPrice = costPrice !== undefined ? parseFloat(costPrice) : product.cost_price;
+
+  // Validate: price > 0, 0 <= costPrice <= price
+  if (finalPrice <= 0) {
+    return res.status(400).json({ error: 'Price must be greater than 0' });
+  }
+  if (finalCostPrice < 0 || finalCostPrice > finalPrice) {
+    return res.status(400).json({ error: 'Cost price must be between 0 and selling price' });
+  }
+
+  if (name !== undefined) product.name = name;
+  product.price = finalPrice;
+  product.cost_price = finalCostPrice;
+
+  db.saveTable('products', products);
+
+  return res.json({ success: true, product });
+});
+
 app.get('/api/products/search-alternatives', (req, res) => {
   const { name, regionId, excludeStockistId } = req.query;
   if (!name || !regionId) {
@@ -437,6 +478,24 @@ function reverseOrderPoints(orderId) {
       });
       db.saveTable('points_ledger', ledger);
     }
+  }
+}
+
+function processOrderCancellation(order) {
+  order.status = 'CANCELLED';
+  reverseOrderPoints(order.id);
+
+  if (order.payment_status === 'HELD') {
+    const splitPayouts = db.getTable('split_payouts');
+    const payout = splitPayouts.find(sp => sp.order_id === order.id);
+    const platformCommission = payout ? parseFloat(payout.platform_amount) : 0;
+    const refundAmount = order.total_price - platformCommission;
+
+    order.payment_status = 'REFUND_DUE';
+    appendPaymentEvent(order.id, 'REFUND_DUE', refundAmount, {
+      reason: 'Order cancellation',
+      commission_retained: platformCommission
+    });
   }
 }
 
@@ -783,31 +842,27 @@ app.post('/api/orders/:id/cancel', (req, res) => {
     return res.status(400).json({ error: 'Order is already completed or cancelled' });
   }
 
+  if (['READY_FOR_PICKUP', 'OUT_FOR_DELIVERY'].includes(order.status)) {
+    return res.status(400).json({
+      error: 'Order is ready or out for delivery, cancellation locked',
+      code: 'CANCEL_LOCKED_READY'
+    });
+  }
+
   const now = new Date();
   const deadline = new Date(order.cancel_deadline || order.created_at);
-  if (now > deadline && order.status !== 'CONFIRMING') {
+  if (now > deadline) {
     return res.status(400).json({
       error: 'Cancellation window has closed. You can no longer cancel this order.',
       code: 'CANCEL_WINDOW_CLOSED'
     });
   }
 
-  order.status = 'CANCELLED';
-
-  // Refund flow — never credits points
-  if (order.payment_status === 'HELD') {
-    const splitPayouts = db.getTable('split_payouts');
-    const payout = splitPayouts.find(sp => sp.order_id === id);
-    const platformCommission = payout ? parseFloat(payout.platform_amount) : 0;
-    const refundAmount = order.total_price - platformCommission;
-
-    order.payment_status = 'REFUND_INITIATED';
-    appendPaymentEvent(id, 'REFUND_INITIATED', refundAmount, { reason: 'Customer cancellation', commission_retained: platformCommission });
-
-    // Simulate immediate refund completion
-    order.payment_status = 'REFUNDED';
-    appendPaymentEvent(id, 'REFUNDED', refundAmount, { net_refund: refundAmount });
+  if (!['CONFIRMING', 'PENDING', 'ACCEPTED', 'PREPARING'].includes(order.status)) {
+    return res.status(400).json({ error: 'Order status does not allow cancellation' });
   }
+
+  processOrderCancellation(order);
 
   // Record no-show / late cancel on customer profile
   const users = db.getTable('users');
@@ -853,19 +908,7 @@ app.post('/api/orders/:id/noshw-action', (req, res) => {
   }
 
   if (action === 'CANCEL') {
-    order.status = 'CANCELLED';
-
-    // Refund minus commission
-    if (order.payment_status === 'HELD') {
-      const splitPayouts = db.getTable('split_payouts');
-      const payout = splitPayouts.find(sp => sp.order_id === id);
-      const platformCommission = payout ? parseFloat(payout.platform_amount) : 0;
-      const refundAmount = order.total_price - platformCommission;
-
-      order.payment_status = 'REFUNDED';
-      appendPaymentEvent(id, 'REFUND_INITIATED', refundAmount, { reason: 'No-show auto-cancel', commission_retained: platformCommission });
-      appendPaymentEvent(id, 'REFUNDED', refundAmount, {});
-    }
+    processOrderCancellation(order);
 
     // Record no-show on customer profile
     const users = db.getTable('users');
@@ -988,7 +1031,17 @@ app.patch('/api/orders/:id/status', (req, res) => {
     return res.status(400).json({ error: 'Invalid order status' });
   }
 
-  order.status = status;
+  if (status === 'CANCELLED') {
+    if (!['CONFIRMING', 'PENDING'].includes(order.status)) {
+      return res.status(403).json({
+        error: 'Cancellation locked. Stockists can only cancel orders in CONFIRMING or PENDING states.',
+        code: 'STOCKIST_CANCEL_LOCKED'
+      });
+    }
+    processOrderCancellation(order);
+  } else {
+    order.status = status;
+  }
   db.saveTable('orders', orders);
 
   if (status === 'DELIVERED') {
@@ -1011,10 +1064,6 @@ app.patch('/api/orders/:id/status', (req, res) => {
     if (order.payment_status === 'HELD' && !order.split_released) {
       // Auto-release on delivery (can also be done manually by admin)
     }
-  }
-
-  if (status === 'CANCELLED') {
-    reverseOrderPoints(id);
   }
 
   return res.json({ success: true, order: enrichOrder(order) });
@@ -1153,6 +1202,33 @@ app.post('/api/admin/release-split/:orderId', (req, res) => {
     }
   });
   db.saveTable('cod_commission_ledger', codLedger);
+
+  return res.json({ success: true, order: enrichOrder(order) });
+});
+
+app.post('/api/admin/orders/:id/refund', (req, res) => {
+  const { id } = req.params;
+  const orders = db.getTable('orders');
+  const order = orders.find(o => o.id === id);
+  if (!order) return res.status(404).json({ error: 'Order not found' });
+
+  if (order.payment_status === 'REFUNDED') {
+    return res.json({ success: true, order: enrichOrder(order) });
+  }
+
+  if (order.payment_status !== 'REFUND_DUE') {
+    return res.status(400).json({ error: 'Order is not in REFUND_DUE state' });
+  }
+
+  const splitPayouts = db.getTable('split_payouts');
+  const payout = splitPayouts.find(sp => sp.order_id === id);
+  const platformCommission = payout ? parseFloat(payout.platform_amount) : 0;
+  const refundAmount = order.total_price - platformCommission;
+
+  order.payment_status = 'REFUNDED';
+  db.saveTable('orders', orders);
+
+  appendPaymentEvent(id, 'REFUNDED', refundAmount, { net_refund: refundAmount });
 
   return res.json({ success: true, order: enrichOrder(order) });
 });

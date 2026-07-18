@@ -51,7 +51,8 @@ import {
   Banknote,
   Lock,
   Check,
-  ArrowRight
+  ArrowRight,
+  Edit
 } from 'lucide-react';
 import {
   BarChart,
@@ -187,6 +188,10 @@ export default function App() {
   const [newProdCategory, setNewProdCategory] = useState('groceries');
   const [newProdInitialStock, setNewProdInitialStock] = useState('10');
   const [lowStockThreshold, setLowStockThreshold] = useState('15');
+  const [editingProduct, setEditingProduct] = useState(null);
+  const [editProdName, setEditProdName] = useState('');
+  const [editProdPrice, setEditProdPrice] = useState('');
+  const [editProdCostPrice, setEditProdCostPrice] = useState('');
 
   // Multi-lingual & Simulation States
   const [lang, setLang] = useState('en');
@@ -1253,6 +1258,24 @@ export default function App() {
     }
   };
 
+  const handleAdminRefund = async (orderId) => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/orders/${orderId}/refund`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast('Refund processed successfully!', 'success');
+        fetchDbState();
+      } else {
+        showToast(data.error || 'Refund failed', 'error');
+      }
+    } catch (err) {
+      showToast('Network error processing refund', 'error');
+    }
+  };
+
   // §I29: Admin dismiss anomaly
   const handleDismissAnomaly = async (anomalyId) => {
     const reason = dismissReason[anomalyId] || 'No reason provided';
@@ -1911,6 +1934,55 @@ export default function App() {
       }
     } catch (err) {
       showToast('Error adding product', 'error');
+    }
+  };
+
+  const handleStartEditProduct = (prod) => {
+    setEditingProduct(prod);
+    setEditProdName(prod.name);
+    setEditProdPrice(prod.price.toString());
+    setEditProdCostPrice((prod.cost_price !== undefined && prod.cost_price !== null ? prod.cost_price : prod.price * 0.75).toString());
+  };
+
+  const handleSaveEditProduct = async () => {
+    if (!editProdName.trim() || !editProdPrice.trim() || !editProdCostPrice.trim()) {
+      showToast('All fields are required', 'error');
+      return;
+    }
+    const priceNum = parseFloat(editProdPrice);
+    const costNum = parseFloat(editProdCostPrice);
+    if (priceNum <= 0) {
+      showToast('Price must be greater than 0', 'error');
+      return;
+    }
+    if (costNum < 0 || costNum > priceNum) {
+      showToast('Cost price must be between 0 and selling price', 'error');
+      return;
+    }
+
+    try {
+      const payload = {
+        name: editProdName,
+        price: priceNum,
+        costPrice: costNum,
+        stockistId: stockistProfile.id
+      };
+      const res = await fetch(`${API_BASE}/products/${editingProduct.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast('Product updated successfully!', 'success');
+        setEditingProduct(null);
+        loadStockistData();
+        fetchDbState();
+      } else {
+        showToast(data.error || 'Failed to update product', 'error');
+      }
+    } catch (err) {
+      showToast('Network error updating product', 'error');
     }
   };
 
@@ -3735,7 +3807,14 @@ export default function App() {
                             return (
                               <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-surface)', padding: '0.5rem 0.75rem', borderRadius: '6px', border: isLowStock ? '1px dashed var(--warning)' : '1px solid var(--border-color)', fontSize: '0.75rem' }}>
                                 <div style={{ flex: 1 }}>
-                                  <div style={{ fontWeight: '600', color: 'white' }}>{p.name}</div>
+                                  <div style={{ fontWeight: '600', color: 'white', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                                    {p.name}
+                                    <Edit 
+                                      size={12} 
+                                      style={{ color: 'var(--text-muted)', cursor: 'pointer', verticalAlign: 'middle' }} 
+                                      onClick={() => handleStartEditProduct(p)}
+                                    />
+                                  </div>
                                   <div style={{ color: 'var(--text-muted)', fontSize: '0.65rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
                                     <span>{t("Stock qty:", "स्टॉक मात्रा:", "স্টক পরিমাণ:")}</span>
                                     <strong style={{ color: p.stock_qty > 0 ? 'var(--accent)' : 'var(--danger)' }}>{p.stock_qty}</strong>
@@ -3953,6 +4032,97 @@ export default function App() {
                     </div>
                   )}
 
+                  {showAddProductModal && (
+                    <div style={{ position: 'absolute', inset: 0, background: 'rgba(11,14,20,0.96)', zIndex: 110, display: 'flex', flexDirection: 'column', padding: '1.5rem', justifyContent: 'center' }}>
+                      <div className="glass-card" style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                        <h3 style={{ fontSize: '1.1rem', color: 'white', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                          <Package size={16} style={{ color: 'var(--accent)' }} />
+                          {t('Add New SKU', 'नया SKU जोड़ें', 'নতুন SKU যোগ করুন')}
+                        </h3>
+                        
+                        <div className="input-group">
+                          <label className="input-label">{t('Product Name', 'उत्पाद का नाम', 'পণ্যের নাম')}</label>
+                          <input type="text" className="text-input" value={newProdName} onChange={e => setNewProdName(e.target.value)} />
+                        </div>
+                        
+                        <div className="input-group">
+                          <label className="input-label">{t('Selling Price (₹)', 'विक्रय मूल्य (₹)', 'বিক্রয় মূল্য (₹)')}</label>
+                          <input type="number" className="text-input" value={newProdPrice} onChange={e => setNewProdPrice(e.target.value)} />
+                        </div>
+                        
+                        <div className="input-group">
+                          <label className="input-label">{t('Cost Price (₹)', 'लागत मूल्य (₹)', 'ক্রয় মূল্য (₹)')}</label>
+                          <input type="number" className="text-input" value={newProdCostPrice} onChange={e => setNewProdCostPrice(e.target.value)} />
+                          <small style={{ color: 'var(--text-muted)', fontSize: '0.65rem', display: 'block', marginTop: '0.2rem' }}>
+                            {t('Points customers earn are based on your margin', 'ग्राहकों द्वारा अर्जित अंक आपके मार्जिन पर आधारित होते हैं', 'গ্রাহকদের অর্জিত পয়েন্ট আপনার মার্জিনের ওপর ভিত্তি করে নির্ধারিত হয়')}
+                          </small>
+                        </div>
+                        
+                        <div className="input-group">
+                          <label className="input-label">{t('Category', 'श्रेणी', 'বিভাগ')}</label>
+                          <select className="text-input" value={newProdCategory} onChange={e => setNewProdCategory(e.target.value)}>
+                            <option value="groceries">{t('Groceries', 'किराना', 'মুদিখানা')}</option>
+                            <option value="broadband">{t('Broadband', 'ब्रॉडबैंड', 'ব্রডব্যান্ড')}</option>
+                            <option value="electronics">{t('Electronics', 'इलेक्ट्रॉनिक्स', 'ইলেকট্রনিক্স')}</option>
+                            <option value="utilities">{t('Utilities', 'उपयोगिताएँ', 'ইউটিলিটি')}</option>
+                          </select>
+                        </div>
+                        
+                        <div className="input-group">
+                          <label className="input-label">{t('Initial Stock', 'प्रारंभिक स्टॉक', 'প্রাথমিক স্টক')}</label>
+                          <input type="number" className="text-input" value={newProdInitialStock} onChange={e => setNewProdInitialStock(e.target.value)} />
+                        </div>
+                        
+                        <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
+                          <button className="btn btn-accent" style={{ flex: 1 }} onClick={handleAddNewProduct}>
+                            {t('Add Product', 'उत्पाद जोड़ें', 'পণ্য যোগ করুন')}
+                          </button>
+                          <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setShowAddProductModal(false)}>
+                            {t('Cancel', 'रद्द करें', 'বাতিল করুন')}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {editingProduct && (
+                    <div style={{ position: 'absolute', inset: 0, background: 'rgba(11,14,20,0.96)', zIndex: 110, display: 'flex', flexDirection: 'column', padding: '1.5rem', justifyContent: 'center' }}>
+                      <div className="glass-card" style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                        <h3 style={{ fontSize: '1.1rem', color: 'white', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                          <Edit size={16} style={{ color: 'var(--accent)' }} />
+                          {t('Edit SKU details', 'SKU विवरण संपादित करें', 'SKU বিবরণ সংশোধন করুন')}
+                        </h3>
+                        
+                        <div className="input-group">
+                          <label className="input-label">{t('Product Name', 'उत्पाद का नाम', 'পণ্যের নাম')}</label>
+                          <input type="text" className="text-input" value={editProdName} onChange={e => setEditProdName(e.target.value)} />
+                        </div>
+                        
+                        <div className="input-group">
+                          <label className="input-label">{t('Selling Price (₹)', 'विक्रय मूल्य (₹)', 'বিক্রয় মূল্য (₹)')}</label>
+                          <input type="number" className="text-input" value={editProdPrice} onChange={e => setEditProdPrice(e.target.value)} />
+                        </div>
+                        
+                        <div className="input-group">
+                          <label className="input-label">{t('Cost Price (₹)', 'लागत मूल्य (₹)', 'ক্রয় মূল্য (₹)')}</label>
+                          <input type="number" className="text-input" value={editProdCostPrice} onChange={e => setEditProdCostPrice(e.target.value)} />
+                          <small style={{ color: 'var(--text-muted)', fontSize: '0.65rem', display: 'block', marginTop: '0.2rem' }}>
+                            {t('Points customers earn are based on your margin', 'ग्राहकों द्वारा अर्जित अंक आपके मार्जिन पर आधारित होते हैं', 'গ্রাহকদের অর্জিত পয়েন্ট আপনার মার্জিনের ওপর ভিত্তি করে নির্ধারিত হয়')}
+                          </small>
+                        </div>
+                        
+                        <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
+                          <button className="btn btn-accent" style={{ flex: 1 }} onClick={handleSaveEditProduct}>
+                            {t('Save Changes', 'परिवर्तन सहेजें', 'পরিবর্তন সংরক্ষণ করুন')}
+                          </button>
+                          <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setEditingProduct(null)}>
+                            {t('Cancel', 'रद्द करें', 'বাতিল করুন')}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                 </div>
 
                 <div className="phone-footer">
@@ -3979,6 +4149,7 @@ export default function App() {
   };
 
   const renderAdminView = () => {
+    const refundDueCount = dbState?.orders?.filter(o => o.payment_status === 'REFUND_DUE').length || 0;
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.75rem', width: '100%' }}>
         <div className="perspective-banner">
@@ -4019,7 +4190,7 @@ export default function App() {
                 <ShoppingBag size={16} /> Wholesalers ({vendors.length})
               </button>
               <button className={`admin-nav-item ${adminTab === 'transactions' ? 'active' : ''}`} onClick={() => setAdminTab('transactions')}>
-                <ArrowRightLeft size={16} /> All Transactions
+                <ArrowRightLeft size={16} /> All Transactions {refundDueCount > 0 && <span className="badge badge-danger" style={{ marginLeft: '0.25rem', fontSize: '0.65rem' }}>{refundDueCount}</span>}
               </button>
               <button className={`admin-nav-item ${adminTab === 'leads' ? 'active' : ''}`} onClick={() => setAdminTab('leads')}>
                 <UserCheck size={16} /> Partner Leads ({partnerLeads.length})
@@ -4495,34 +4666,53 @@ export default function App() {
                       </tr>
                     </thead>
                     <tbody>
-                      {dbState?.orders?.map(o => (
-                        <tr key={o.id}>
-                          <td style={{ fontFamily: 'monospace' }}>#{o.id.substring(2).toUpperCase()}</td>
-                          <td>{o.stockist_name}</td>
-                          <td style={{ fontSize: '0.75rem' }}>{o.fulfillment_type || 'N/A'} - {o.payment_method || 'N/A'}</td>
-                          <td style={{ fontWeight: 'bold' }}>₹{o.total_price.toFixed(2)}</td>
-                          <td>₹{o.subtotal.toFixed(2)}</td>
-                          <td>₹{o.delivery_fee.toFixed(2)}</td>
-                          <td style={{ color: 'var(--accent)' }}>₹{(o.stockist_amount || 0).toFixed(2)}</td>
-                          <td style={{ color: 'var(--primary)' }}>₹{(o.platform_amount || 0).toFixed(2)}</td>
-                          <td>{formatPoints(o.points_credited || 0)}</td>
-                          <td>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', alignItems: 'flex-start' }}>
-                              <span className={`badge ${o.payment_status === 'RELEASED' ? 'badge-success' : o.payment_status === 'COD' ? 'badge-warning' : 'badge-primary'}`} style={{ fontSize: '0.55rem', display: 'inline-flex', alignItems: 'center', gap: '0.15rem' }}>
-                                {o.payment_status === 'HELD' ? <><Lock size={9} /> HELD</> : o.payment_status === 'RELEASED' ? <><Check size={9} /> RELEASED</> : o.payment_status === 'COD' ? <><Banknote size={9} /> COD</> : o.payment_status || 'N/A'}
-                              </span>
-                              {(o.payment_status === 'HELD' || o.payment_status === 'COD') && o.status === 'DELIVERED' && !o.split_released && (
-                                <button className="btn btn-accent" style={{ padding: '0.15rem 0.35rem', fontSize: '0.6rem', display: 'flex', alignItems: 'center', gap: '0.15rem' }} onClick={() => handleReleaseSplit(o.id)}>
-                                  <Banknote size={10} /> Release Split
-                                </button>
-                              )}
-                              {o.split_released && (
-                                <span style={{ fontSize: '0.6rem', color: 'var(--accent)' }}><Check size={9} style={{ display: 'inline' }} /> Released</span>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
+                      {dbState?.orders?.map(o => {
+                        const isRefundDue = o.payment_status === 'REFUND_DUE';
+                        const platformCommission = o.platform_amount || 0;
+                        const netRefundAmount = o.total_price - platformCommission;
+
+                        return (
+                          <tr key={o.id} style={isRefundDue ? { background: 'rgba(239, 68, 68, 0.08)', borderLeft: '3px solid var(--danger)' } : {}}>
+                            <td style={{ fontFamily: 'monospace' }}>#{o.id.substring(2).toUpperCase()}</td>
+                            <td>{o.stockist_name}</td>
+                            <td style={{ fontSize: '0.75rem' }}>{o.fulfillment_type || 'N/A'} - {o.payment_method || 'N/A'}</td>
+                            <td style={{ fontWeight: 'bold' }}>₹{o.total_price.toFixed(2)}</td>
+                            <td>₹{o.subtotal.toFixed(2)}</td>
+                            <td>₹{o.delivery_fee.toFixed(2)}</td>
+                            <td style={{ color: 'var(--accent)' }}>₹{(o.stockist_amount || 0).toFixed(2)}</td>
+                            <td style={{ color: 'var(--primary)' }}>₹{(o.platform_amount || 0).toFixed(2)}</td>
+                            <td>{formatPoints(o.points_credited || 0)}</td>
+                            <td>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', alignItems: 'flex-start' }}>
+                                <span className={`badge ${o.payment_status === 'RELEASED' ? 'badge-success' : o.payment_status === 'COD' ? 'badge-warning' : o.payment_status === 'REFUNDED' ? 'badge-secondary' : o.payment_status === 'REFUND_DUE' ? 'badge-danger' : 'badge-primary'}`} style={{ fontSize: '0.55rem', display: 'inline-flex', alignItems: 'center', gap: '0.15rem' }}>
+                                  {o.payment_status === 'HELD' ? <><Lock size={9} /> HELD</> : 
+                                   o.payment_status === 'RELEASED' ? <><Check size={9} /> RELEASED</> : 
+                                   o.payment_status === 'COD' ? <><Banknote size={9} /> COD</> : 
+                                   o.payment_status === 'REFUND_DUE' ? 'REFUND DUE' :
+                                   o.payment_status || 'N/A'}
+                                </span>
+                                {isRefundDue && (
+                                  <button 
+                                    className="btn btn-danger" 
+                                    style={{ padding: '0.15rem 0.35rem', fontSize: '0.6rem', display: 'flex', alignItems: 'center', gap: '0.15rem', marginTop: '0.25rem' }} 
+                                    onClick={() => handleAdminRefund(o.id)}
+                                  >
+                                    Refund Customer (₹{netRefundAmount.toFixed(2)})
+                                  </button>
+                                )}
+                                {(o.payment_status === 'HELD' || o.payment_status === 'COD') && o.status === 'DELIVERED' && !o.split_released && (
+                                  <button className="btn btn-accent" style={{ padding: '0.15rem 0.35rem', fontSize: '0.6rem', display: 'flex', alignItems: 'center', gap: '0.15rem' }} onClick={() => handleReleaseSplit(o.id)}>
+                                    <Banknote size={10} /> Release Split
+                                  </button>
+                                )}
+                                {o.split_released && (
+                                  <span style={{ fontSize: '0.6rem', color: 'var(--accent)' }}><Check size={9} style={{ display: 'inline' }} /> Released</span>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
                       {(!dbState?.orders || dbState.orders.length === 0) && (
                         <tr>
                           <td colSpan="9" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
