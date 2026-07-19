@@ -674,6 +674,26 @@ async function main() {
   assert(stockistCancelPreparingRes.status === 403, 'Stockist CANCELLED at PREPARING is blocked with 403');
   assert(stockistCancelPreparingRes.body.code === 'STOCKIST_CANCEL_LOCKED', 'Returns STOCKIST_CANCEL_LOCKED code');
 
+  // 24. Customer Delivered Review Feedback
+  console.log('\n--- 24. Customer Delivered Review Feedback ---');
+  const custReviewRes = await post('http://localhost:3001/api/feedback', {
+    reporterId: 'u-cust1',
+    reporterRole: 'CUSTOMER',
+    targetId: 's1',
+    targetRole: 'STOCKIST',
+    orderId: 'ord-delivered-test',
+    rating: 5,
+    reason: 'Great delivery and service!',
+    reportFlag: false
+  });
+  assert(custReviewRes.status === 200, 'Delivered review feedback submitted successfully');
+
+  const adminFbFetch = await get('http://localhost:3001/api/admin/feedback');
+  assert(adminFbFetch.status === 200, 'Admin feedback fetch succeeds');
+  const reviewInAdmin = adminFbFetch.body.find(f => f.order_id === 'ord-delivered-test');
+  assert(reviewInAdmin !== undefined, 'Delivered review feedback appears in admin fetch');
+  assert(reviewInAdmin.rating === 5, 'Review rating matches submitted rating');
+
   console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);
 }

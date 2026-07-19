@@ -52,7 +52,8 @@ import {
   Lock,
   Check,
   ArrowRight,
-  Edit
+  Edit,
+  Star
 } from 'lucide-react';
 import {
   BarChart,
@@ -203,6 +204,49 @@ export default function App() {
   const [confirmModal, setConfirmModal] = useState(null);
   const [deliveredModalOrder, setDeliveredModalOrder] = useState(null);
   const [shownDeliveredIds, setShownDeliveredIds] = useState(new Set());
+  const [deliveredRating, setDeliveredRating] = useState(5);
+  const [deliveredComment, setDeliveredComment] = useState('');
+
+  const handleDeliveredSubmitReview = async () => {
+    if (!deliveredModalOrder) return;
+    try {
+      const payload = {
+        reporterRole: 'CUSTOMER',
+        reporterId: currentUser?.id || deliveredModalOrder.customer_id,
+        reporterName: currentUser?.name || 'Customer',
+        targetRole: 'STOCKIST',
+        targetId: deliveredModalOrder.stockist_id,
+        targetName: deliveredModalOrder.stockist_name || 'Stockist',
+        orderId: deliveredModalOrder.id,
+        rating: deliveredRating,
+        reason: deliveredComment,
+        reportFlag: false
+      };
+      const res = await fetch(`${API_BASE}/feedback`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      logApi('POST', '/feedback', payload, res.status, data);
+      if (res.ok) {
+        showToast(t('Review submitted!', 'समीक्षा प्रस्तुत की गई!', 'পর্যালোচনা জমা দেওয়া হয়েছে!'));
+        loadCustomerData();
+        fetchDbState();
+      }
+    } catch (err) {
+      showToast('Network error submitting feedback', 'error');
+    }
+    setDeliveredModalOrder(null);
+    setDeliveredRating(5);
+    setDeliveredComment('');
+  };
+
+  const handleDeliveredSkipReview = () => {
+    setDeliveredModalOrder(null);
+    setDeliveredRating(5);
+    setDeliveredComment('');
+  };
 
   useEffect(() => {
     if (!dbState?.orders || !currentUser?.id) return;
@@ -4949,16 +4993,55 @@ export default function App() {
               </span>
               <h2 style={{ fontSize: '1.8rem', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', margin: '0.25rem 0' }}>
                 <Sparkles size={20} style={{ color: 'var(--warning)' }} />
-                +{formatPoints(deliveredModalOrder.points_credited || 0)} pts
+                +{formatPoints(deliveredModalOrder.points_credited || 0)}
               </h2>
             </div>
-            <button 
-              className="btn btn-accent" 
-              style={{ width: '100%', padding: '0.6rem', fontSize: '0.85rem', fontWeight: 'bold' }}
-              onClick={() => setDeliveredModalOrder(null)}
-            >
-              {t('Dismiss', 'खारिज करें', 'বন্ধ করুন')}
-            </button>
+
+            <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '0.65rem', marginTop: '0.25rem' }}>
+              <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                {t('Rate your experience', 'अपना अनुभव रेट करें', 'আপনার অভিজ্ঞতা রেট করুন')}
+              </span>
+              <div style={{ display: 'flex', justifyContent: 'center', gap: '0.5rem' }}>
+                {[1, 2, 3, 4, 5].map((star) => (
+                  <button
+                    key={star}
+                    type="button"
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0.2rem' }}
+                    onClick={() => setDeliveredRating(star)}
+                  >
+                    <Star
+                      size={24}
+                      fill={star <= deliveredRating ? '#F59E0B' : 'transparent'}
+                      style={{ color: star <= deliveredRating ? '#F59E0B' : 'var(--text-muted)' }}
+                    />
+                  </button>
+                ))}
+              </div>
+              <textarea
+                className="text-input"
+                rows="2"
+                placeholder={t('Optional comment...', 'वैकल्पिक टिप्पणी...', 'ঐচ্ছিক মন্তব্য...')}
+                value={deliveredComment}
+                onChange={(e) => setDeliveredComment(e.target.value)}
+                style={{ width: '100%', fontSize: '0.75rem', padding: '0.5rem', borderRadius: '8px', resize: 'none' }}
+              />
+              <div style={{ display: 'flex', gap: '0.5rem', width: '100%' }}>
+                <button 
+                  className="btn btn-accent" 
+                  style={{ flex: 1, padding: '0.6rem', fontSize: '0.85rem', fontWeight: 'bold' }}
+                  onClick={handleDeliveredSubmitReview}
+                >
+                  {t('Submit Review', 'समीक्षा भेजें', 'রিভিউ জমা দিন')}
+                </button>
+                <button 
+                  className="btn btn-secondary" 
+                  style={{ flex: 1, padding: '0.6rem', fontSize: '0.85rem', fontWeight: 'bold' }}
+                  onClick={handleDeliveredSkipReview}
+                >
+                  {t('Skip', 'छोड़ें', 'এড়িয়ে যান')}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
