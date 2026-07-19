@@ -68,6 +68,7 @@ const API_BASE = 'http://localhost:3001/api';
 
 export default function App() {
   const [activeRole, setActiveRole] = useState('marketing');
+  const [dbState, setDbState] = useState(null);
   const [regions, setRegions] = useState([]);
   const [selectedRegionId, setSelectedRegionId] = useState('r1');
   const [currentUser, setCurrentUser] = useState(null);
@@ -322,7 +323,6 @@ export default function App() {
   const [configRegion, setConfigRegion] = useState('r1');
 
   // Simulator Shell State
-  const [dbState, setDbState] = useState(null);
   const [dbTab, setDbTab] = useState('points_ledger');
   const [apiLogs, setApiLogs] = useState([]);
   const [toast, setToast] = useState(null);
