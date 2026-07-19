@@ -200,6 +200,22 @@ export default function App() {
   const [changingSlotOrderId, setChangingSlotOrderId] = useState(null);
 
   const [confirmModal, setConfirmModal] = useState(null);
+  const [deliveredModalOrder, setDeliveredModalOrder] = useState(null);
+  const [shownDeliveredIds, setShownDeliveredIds] = useState(new Set());
+
+  useEffect(() => {
+    if (!dbState?.orders || !currentUser?.id) return;
+    const myDelivered = dbState.orders.filter(
+      o => o.customer_id === currentUser.id && o.status === 'DELIVERED'
+    );
+    for (const ord of myDelivered) {
+      if (!shownDeliveredIds.has(ord.id)) {
+        setShownDeliveredIds(prev => new Set([...prev, ord.id]));
+        setDeliveredModalOrder(ord);
+        break;
+      }
+    }
+  }, [dbState?.orders, currentUser?.id]);
   const triggerConfirmModal = (title, message, onConfirm, danger, yesLabel, noLabel) => {
     setConfirmModal({ title, message, onConfirm, danger, yesLabel, noLabel });
   };
@@ -2107,6 +2123,7 @@ export default function App() {
               <div style={{ marginTop: '0.25rem' }}>• 9876543210 (Customer Garia)</div>
               <div>• 8765432109 (Customer Bishnupur)</div>
               <div>• 7654321098 (Stockist Garia)</div>
+              <div>• 4321098765 (Stockist Garia — Banerjee Corner)</div>
               <div>• 6543210987 (Stockist Bishnupur)</div>
             </div>
 
@@ -2530,25 +2547,6 @@ export default function App() {
                         <CheckCircle2 size={36} />
                       </div>
                       <h3 style={{ fontSize: '1.25rem', color: 'white' }}>{t('Order Placed', 'ऑर्डर सफल हुआ', 'অর্ডার সফল হয়েছে')}</h3>
-                      <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>{t('Points credited when you collect your order. Configure fulfillment below.', 'ऑर्डर लेने पर अंक मिलेंगे। नीचे फ़ुलफ़िलमेंट सेट करें।', 'অর্ডার সংগ্রহের সময় পয়েন্ট যুক্ত হবে, নিচে আপনার ফুলফিলমেন্ট সেটিংস পরিবর্তন করুন।')}</p>
-                    </div>
-
-                    <div className="points-glow-box" style={{ padding: '0.75rem', borderRadius: '8px', textAlign: 'center', marginBottom: '1rem' }}>
-                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                        {checkoutResult.orders.length > 1 ? (
-                          t(
-                            `Points earned across ${checkoutResult.orders.length} shops — credited on collection`,
-                            `अंक ${checkoutResult.orders.length} दुकानों से अर्जित — संग्रह करने पर जमा होंगे`,
-                            `${checkoutResult.orders.length}টি দোকান থেকে পয়েন্ট অর্জিত হয়েছে — সংগ্রহের সময় যোগ হবে`
-                          )
-                        ) : (
-                          t('Points earned — credited on collection', 'अंक — लेने पर जमा होंगे', 'মোট সঞ্চিত রিওয়ার্ড')
-                        )}
-                      </span>
-                      <h2 style={{ fontSize: '1.8rem', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', margin: '0.25rem 0' }}>
-                        <Sparkles size={20} style={{ color: 'var(--warning)' }} />
-                        +{formatPoints(checkoutResult.totalPointsCredited)}
-                      </h2>
                     </div>
 
                     {/* Fulfillment Setup Block for placed orders */}
@@ -3719,8 +3717,8 @@ export default function App() {
                                       </button>
                                     )
                                   )}
-                                  {o.status !== 'DELIVERED' && o.status !== 'CANCELLED' && (
-                                    <button className="btn btn-danger" style={{ padding: '0.35rem 0.5rem', fontSize: '0.7rem' }} onClick={() => handleUpdateOrderStatus(o.id, 'CANCELLED')}>{t('Cancel', 'रद्द करें', 'বাতিল করুন')}</button>
+                                  {['PENDING', 'CONFIRMING'].includes(o.status) && (
+                                    <button className="btn btn-danger" style={{ flex: 1, padding: '0.35rem 0', fontSize: '0.7rem' }} onClick={() => handleUpdateOrderStatus(o.id, 'CANCELLED')}>{t('Cancel', 'रद्द करें', 'বাতিল करें')}</button>
                                   )}
                                 </div>
                                 
@@ -4670,6 +4668,7 @@ export default function App() {
                       <tr>
                         <th>Order ID</th>
                         <th>Store</th>
+                        <th>Order Status</th>
                         <th>Fulfillment - Payment</th>
                         <th>Total Amount</th>
                         <th>Subtotal</th>
@@ -4690,6 +4689,7 @@ export default function App() {
                           <tr key={o.id} style={isRefundDue ? { background: 'rgba(239, 68, 68, 0.08)', borderLeft: '3px solid var(--danger)' } : {}}>
                             <td style={{ fontFamily: 'monospace' }}>#{o.id.substring(2).toUpperCase()}</td>
                             <td>{o.stockist_name}</td>
+                            <td><span className="badge badge-primary" style={{ fontSize: '0.65rem' }}>{formatOrderStatusDisplay(o.status, o.fulfillment_type)}</span></td>
                             <td style={{ fontSize: '0.75rem' }}>{o.fulfillment_type || 'N/A'} - {o.payment_method || 'N/A'}</td>
                             <td style={{ fontWeight: 'bold' }}>₹{o.total_price.toFixed(2)}</td>
                             <td>₹{o.subtotal.toFixed(2)}</td>
@@ -4894,6 +4894,71 @@ export default function App() {
                 {confirmModal.yesLabel || t('Yes', 'हाँ', 'হ্যাঁ')}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delivered Celebratory Popup (Swiggy Pattern) */}
+      {deliveredModalOrder && (
+        <div 
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            width: '100vw',
+            height: '100vh',
+            background: 'rgba(0, 0, 0, 0.75)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+          }}
+          onClick={() => setDeliveredModalOrder(null)}
+        >
+          <div 
+            className="glass-card" 
+            style={{
+              width: '90%',
+              maxWidth: '400px',
+              padding: '1.5rem',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              textAlign: 'center',
+              gap: '1rem',
+              background: '#1a1f2c',
+              border: '1px solid var(--accent)',
+              borderRadius: '16px',
+              boxShadow: '0 8px 32px 0 rgba(0, 0, 0, 0.6)',
+              color: 'var(--text-main)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ padding: '0.75rem', borderRadius: '50%', background: 'rgba(16, 185, 129, 0.15)', color: 'var(--accent)' }}>
+              <CheckCircle2 size={48} />
+            </div>
+            <h3 style={{ fontSize: '1.3rem', color: 'white', margin: 0 }}>
+              {t('Order Delivered!', 'ऑर्डर डिलीवर हो गया!', 'অর্ডার ডেলিভারড হয়েছে!')}
+            </h3>
+            <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', margin: 0 }}>
+              Order #{deliveredModalOrder.id.substring(2).toUpperCase()}
+            </p>
+            <div className="points-glow-box" style={{ padding: '0.75rem 1.5rem', borderRadius: '8px', width: '100%', margin: '0.25rem 0' }}>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                {t('Reward Points Earned', 'अर्जित रिवॉर्ड अंक', 'অর্জিত রিওয়ার্ড পয়েন্ট')}
+              </span>
+              <h2 style={{ fontSize: '1.8rem', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', margin: '0.25rem 0' }}>
+                <Sparkles size={20} style={{ color: 'var(--warning)' }} />
+                +{formatPoints(deliveredModalOrder.points_credited || 0)} pts
+              </h2>
+            </div>
+            <button 
+              className="btn btn-accent" 
+              style={{ width: '100%', padding: '0.6rem', fontSize: '0.85rem', fontWeight: 'bold' }}
+              onClick={() => setDeliveredModalOrder(null)}
+            >
+              {t('Dismiss', 'खारिज करें', 'বন্ধ করুন')}
+            </button>
           </div>
         </div>
       )}
