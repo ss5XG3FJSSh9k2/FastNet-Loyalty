@@ -694,6 +694,48 @@ async function main() {
   assert(reviewInAdmin !== undefined, 'Delivered review feedback appears in admin fetch');
   assert(reviewInAdmin.rating === 5, 'Review rating matches submitted rating');
 
+  // 25. PIN-verified delivery handoff
+  console.log('\n--- 25. PIN-verified delivery handoff ---');
+  const delOrderOnline = await post('http://localhost:3001/api/orders', {
+    customerId: 'u-cust1',
+    stockistId: 's1',
+    fulfillmentType: 'DELIVERY',
+    paymentMethod: 'ONLINE',
+    items: [{ productId: 'p1', quantity: 1 }]
+  });
+  assert(delOrderOnline.status === 200, 'Online DELIVERY order created successfully');
+  const delOnlineId = delOrderOnline.body.orderId;
+
+  const directDelPatch = await patch(`http://localhost:3001/api/orders/${delOnlineId}/status`, { status: 'DELIVERED' });
+  assert(directDelPatch.status === 400, 'Direct PATCH to DELIVERED on DELIVERY order is blocked with 400');
+  assert(directDelPatch.body.code === 'PIN_REQUIRED', 'Response contains PIN_REQUIRED code');
+
+  const fetchDelOnline = await get(`http://localhost:3001/api/orders?customerId=u-cust1`);
+  const onlineOrdObj = fetchDelOnline.body.find(o => o.id === delOnlineId);
+  assert(onlineOrdObj !== undefined, 'Online delivery order found');
+
+  const verifyOnlinePin = await post(`http://localhost:3001/api/orders/${delOnlineId}/verify-pickup`, { pin: onlineOrdObj.pickup_pin });
+  assert(verifyOnlinePin.status === 200, 'Correct PIN via verify-pickup succeeds for ONLINE delivery');
+  assert(verifyOnlinePin.body.order.status === 'DELIVERED', 'ONLINE delivery order status updated to DELIVERED');
+
+  const delOrderCod = await post('http://localhost:3001/api/orders', {
+    customerId: 'u-cust1',
+    stockistId: 's1',
+    fulfillmentType: 'DELIVERY',
+    paymentMethod: 'COD',
+    items: [{ productId: 'p1', quantity: 1 }]
+  });
+  assert(delOrderCod.status === 200, 'COD DELIVERY order created successfully');
+  const delCodId = delOrderCod.body.orderId;
+
+  const fetchDelCod = await get(`http://localhost:3001/api/orders?customerId=u-cust1`);
+  const codOrdObj = fetchDelCod.body.find(o => o.id === delCodId);
+  assert(codOrdObj !== undefined, 'COD delivery order found');
+
+  const verifyCodPin = await post(`http://localhost:3001/api/orders/${delCodId}/verify-pickup`, { pin: codOrdObj.pickup_pin });
+  assert(verifyCodPin.status === 200, 'Correct PIN via verify-pickup succeeds for COD delivery');
+  assert(verifyCodPin.body.order.status === 'DELIVERED', 'COD delivery order status updated to DELIVERED');
+
   console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);
 }

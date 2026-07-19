@@ -1031,6 +1031,13 @@ app.patch('/api/orders/:id/status', (req, res) => {
     return res.status(400).json({ error: 'Invalid order status' });
   }
 
+  if (status === 'DELIVERED' && order.fulfillment_type === 'DELIVERY') {
+    return res.status(400).json({
+      error: 'Direct delivery transition blocked. PIN verification required for handoff completion.',
+      code: 'PIN_REQUIRED'
+    });
+  }
+
   if (status === 'CANCELLED') {
     if (!['CONFIRMING', 'PENDING'].includes(order.status)) {
       return res.status(403).json({

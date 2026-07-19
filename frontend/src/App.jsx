@@ -3279,10 +3279,10 @@ export default function App() {
                                 </div>
                               )}
 
-                              {o.fulfillment_type === 'PICKUP' && o.status !== 'DELIVERED' && (
+                              {o.status !== 'DELIVERED' && o.status !== 'CANCELLED' && (
                                 <div style={{ background: 'rgba(255,255,255,0.02)', padding: '0.35rem', borderRadius: '4px', border: '1px dashed rgba(255,255,255,0.05)', fontSize: '0.65rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
                                   <Key size={12} style={{ color: 'var(--primary)' }} />
-                                  <span>{t('Pickup PIN:', 'पिकअप पिन:', 'পিকআপ কোড:')} <strong style={{ color: 'white', letterSpacing: '0.05em' }}>{o.pickup_pin || '1234'}</strong></span>
+                                  <span>{o.fulfillment_type === 'DELIVERY' ? t('Delivery PIN:', 'डिलीवरी पिन:', 'ডেলিভারি পিন:') : t('Pickup PIN:', 'पिकअप पिन:', 'পিকআপ কোড:')} <strong style={{ color: 'white', letterSpacing: '0.05em' }}>{o.pickup_pin || '1234'}</strong></span>
                                 </div>
                               )}
 
@@ -3737,29 +3737,24 @@ export default function App() {
                                     </button>
                                   )}
                                   {['READY_FOR_PICKUP', 'OUT_FOR_DELIVERY'].includes(o.status) && (
-                                    o.fulfillment_type === 'PICKUP' ? (
-                                      <div style={{ display: 'flex', gap: '0.25rem', width: '100%' }}>
-                                        <input 
-                                          type="text" 
-                                          placeholder={t("Enter PIN", "पिन दर्ज करें", "পিন লিখুন")} 
-                                          maxLength="4"
-                                          style={{ flex: 1, padding: '0.25rem', fontSize: '0.7rem', background: 'var(--bg-surface-elevated)', border: '1px solid var(--border-color)', color: 'white', borderRadius: '4px', textAlign: 'center' }}
-                                          value={enteredPins[o.id] || ''}
-                                          onChange={e => setEnteredPins(prev => ({ ...prev, [o.id]: e.target.value }))}
-                                        />
-                                        <button 
-                                          className="btn btn-accent" 
-                                          style={{ padding: '0.25rem 0.5rem', fontSize: '0.7rem' }}
-                                          onClick={() => handleVerifyPickupPIN(o.id)}
-                                        >
-                                          Verify
-                                        </button>
-                                      </div>
-                                    ) : (
-                                      <button className="btn" style={{ flex: 1, padding: '0.35rem 0', fontSize: '0.7rem', background: 'var(--accent)' }} onClick={() => handleUpdateOrderStatus(o.id, 'DELIVERED')}>
-                                        {t('Complete & Pay', 'पूरा करें और भुगतान करें', 'সম্পন্ন ও পেমেন্ট করুন')}
+                                    <div style={{ display: 'flex', gap: '0.25rem', width: '100%' }}>
+                                      <input 
+                                        type="text" 
+                                        placeholder={o.fulfillment_type === 'DELIVERY' ? t("Enter Delivery PIN", "डिलीवरी पिन दर्ज करें", "ডেলিভারি পিন লিখুন") : t("Enter PIN", "पिन दर्ज करें", "পিন লিখুন")} 
+                                        title={t("Enter customer's PIN to confirm handoff", "हैंडऑफ की पुष्टि के लिए ग्राहक का पिन दर्ज करें", "হ্যান্ডঅফ নিশ্চিত করতে গ্রাহকের পিন লিখুন")}
+                                        maxLength="4"
+                                        style={{ flex: 1, padding: '0.25rem', fontSize: '0.7rem', background: 'var(--bg-surface-elevated)', border: '1px solid var(--border-color)', color: 'white', borderRadius: '4px', textAlign: 'center' }}
+                                        value={enteredPins[o.id] || ''}
+                                        onChange={e => setEnteredPins(prev => ({ ...prev, [o.id]: e.target.value }))}
+                                      />
+                                      <button 
+                                        className="btn btn-accent" 
+                                        style={{ padding: '0.25rem 0.5rem', fontSize: '0.7rem' }}
+                                        onClick={() => handleVerifyPickupPIN(o.id)}
+                                      >
+                                        Verify
                                       </button>
-                                    )
+                                    </div>
                                   )}
                                   {['PENDING', 'CONFIRMING'].includes(o.status) && (
                                     <button className="btn btn-danger" style={{ flex: 1, padding: '0.35rem 0', fontSize: '0.7rem' }} onClick={() => handleUpdateOrderStatus(o.id, 'CANCELLED')}>{t('Cancel', 'रद्द करें', 'বাতিল करें')}</button>
@@ -4759,10 +4754,13 @@ export default function App() {
                                     Refund Customer (₹{netRefundAmount.toFixed(2)})
                                   </button>
                                 )}
-                                {(o.payment_status === 'HELD' || o.payment_status === 'COD') && o.status === 'DELIVERED' && !o.split_released && (
+                                {o.payment_status === 'HELD' && o.status === 'DELIVERED' && !o.split_released && (
                                   <button className="btn btn-accent" style={{ padding: '0.15rem 0.35rem', fontSize: '0.6rem', display: 'flex', alignItems: 'center', gap: '0.15rem' }} onClick={() => handleReleaseSplit(o.id)}>
                                     <Banknote size={10} /> Release Split
                                   </button>
+                                )}
+                                {o.payment_status === 'COD' && o.status === 'DELIVERED' && (
+                                  <span style={{ fontSize: '0.6rem', color: 'var(--text-muted)' }}>COD — commission via ledger</span>
                                 )}
                                 {o.split_released && (
                                   <span style={{ fontSize: '0.6rem', color: 'var(--accent)' }}><Check size={9} style={{ display: 'inline' }} /> Released</span>
