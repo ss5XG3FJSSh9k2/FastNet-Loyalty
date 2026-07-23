@@ -163,6 +163,14 @@ async function flush() {
   }
 }
 
+async function reloadCache() {
+  await Promise.allSettled(pendingWrites.slice());
+  // Wait 150ms to allow server-side background write-throughs to settle to DB
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  await syncCache();
+  return cache;
+}
+
 // For tests: wipe and re-seed to a known state (replaces deleting db.json).
 async function resetForTest() {
   await ensureSchema();
@@ -172,7 +180,7 @@ async function resetForTest() {
   for (const name of Object.keys(cache)) {
     await persistTable(name, cache[name]);
   }
-  await flush();
+  await reloadCache();
   return cache;
 }
 
@@ -208,6 +216,7 @@ module.exports = {
   // new async lifecycle
   init,
   flush,
+  reloadCache,
   resetForTest,
   close,
   pool,

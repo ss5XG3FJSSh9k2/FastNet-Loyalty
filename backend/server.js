@@ -1663,6 +1663,20 @@ app.post('/api/admin/reset-db', async (req, res) => {
   }
 });
 
+// Reload Cache
+app.post('/api/admin/reload-cache', async (req, res) => {
+  if (process.env.NODE_ENV === 'production') {
+    return res.status(403).json({ error: 'Cache reload is blocked in production.' });
+  }
+  try {
+    await db.reloadCache();
+    return res.json({ success: true });
+  } catch (err) {
+    console.error('Cache reload failed:', err);
+    return res.status(500).json({ error: 'Cache reload failed.' });
+  }
+});
+
 // Start Server
 const PORT = process.env.PORT || 3001;
 db.init()
