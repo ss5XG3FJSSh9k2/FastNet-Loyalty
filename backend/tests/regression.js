@@ -1,3 +1,5 @@
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '../.env') });
 const http = require('http');
 const dbModule = require('../db.js');
 
@@ -87,6 +89,7 @@ async function main() {
 
   // Reset database to starting state
   console.log('\nResetting database...');
+  await dbModule.resetForTest();
   await post('http://localhost:3001/api/admin/reset-db');
 
   // 1. Payment split math
@@ -167,6 +170,7 @@ async function main() {
   const balBefore = (await get('http://localhost:3001/api/ledger/balance/u-cust1')).body.balance;
 
   // Bypass stockist cancel restriction on DELIVERED status by manually setting to PENDING in DB
+  await dbModule.flush();
   const ordersListReversal = dbModule.getTable('orders');
   const ord = ordersListReversal.find(o => o.id === orderId);
   ord.status = 'PENDING';
@@ -309,6 +313,7 @@ async function main() {
   assert(testOrder.status === 200, 'Order created within cancel window');
   
   // Backdate cancel deadline in the JSON db manually to simulate time elapsed
+  await dbModule.flush();
   const ordersList = dbModule.getTable('orders');
   const targetOrder = ordersList.find(o => o.id === testOrder.body.orderId);
   targetOrder.cancel_deadline = new Date(Date.now() - 10000).toISOString();
@@ -349,6 +354,7 @@ async function main() {
   assert(adminRefundRes.body.order.payment_status === 'REFUNDED', 'Payment marked as REFUNDED');
 
   // Check prepaid pickup restriction
+  await dbModule.flush();
   const usersList = dbModule.getTable('users');
   const customerUser = usersList.find(u => u.id === 'u-cust1');
   customerUser.no_show_count = 3;
@@ -398,6 +404,7 @@ async function main() {
   // 16. Release Split
   console.log('\n--- 16. Release Split ---');
   // Deliver the order to allow releasing split
+  await dbModule.flush();
   const multiOrders = dbModule.getTable('orders');
   const multiO = multiOrders.find(o => o.id === multiOrderId);
   multiO.status = 'DELIVERED';
@@ -418,12 +425,14 @@ async function main() {
   assert(codOrder.status === 200, 'COD order created successfully');
   assert(codOrder.body.order.payment_status === 'COD', 'COD payment status is COD');
   
+  await dbModule.flush();
   const codLedger = dbModule.getTable('cod_commission_ledger');
   const codEntry = codLedger.find(e => e.order_id === codOrder.body.orderId);
   assert(codEntry !== undefined, 'COD commission entry added to ledger');
 
   // 18. Fraud Flag Dismissals
   console.log('\n--- 18. Fraud Flag Dismissals ---');
+  await dbModule.flush();
   const anomaliesList = dbModule.getTable('anomaly_logs');
   const targetAnomaly2 = anomaliesList[0];
   
@@ -432,6 +441,7 @@ async function main() {
   });
   assert(dismissRes.status === 200, 'Anomaly flag dismissed');
   
+  await dbModule.flush();
   const auditAnomalies = dbModule.getTable('anomaly_logs');
   const updatedAnomaly2 = auditAnomalies.find(a => a.id === targetAnomaly2.id);
   assert(updatedAnomaly2.status === 'DISMISSED', 'Anomaly status updated to DISMISSED');
@@ -516,6 +526,7 @@ async function main() {
   assert(orderToCancelFail.status === 200, 'Order to cancel fail created');
   
   // Backdate deadline & set status to PENDING
+  await dbModule.flush();
   const ordersList2 = dbModule.getTable('orders');
   const targetOrder2 = ordersList2.find(o => o.id === orderToCancelFail.body.orderId);
   targetOrder2.cancel_deadline = new Date(Date.now() - 10000).toISOString();
@@ -607,6 +618,7 @@ async function main() {
   assert(cancelTestOrder.status === 200, 'Cancel test order created');
 
   // Set status to READY_FOR_PICKUP to test cancellation lock (even within timer)
+  await dbModule.flush();
   const ordersList3 = dbModule.getTable('orders');
   const cancelOrd = ordersList3.find(o => o.id === cancelTestOrder.body.orderId);
   cancelOrd.status = 'READY_FOR_PICKUP';
@@ -617,6 +629,7 @@ async function main() {
   assert(cancelReadyRes.body.code === 'CANCEL_LOCKED_READY', 'Returns CANCEL_LOCKED_READY code');
 
   // Reset status to PREPARING to test success cancel within timer -> REFUND_DUE
+  await dbModule.flush();
   const ordersList4 = dbModule.getTable('orders');
   const cancelOrd2 = ordersList4.find(o => o.id === cancelTestOrder.body.orderId);
   cancelOrd2.status = 'PREPARING';
@@ -647,6 +660,7 @@ async function main() {
   assert(stockistCancelTestOrder.status === 200, 'Stockist cancel test order created');
 
   // Stockist cancel at PENDING -> OK
+  await dbModule.flush();
   const ordersList5 = dbModule.getTable('orders');
   const targetOrd5 = ordersList5.find(o => o.id === stockistCancelTestOrder.body.orderId);
   targetOrd5.status = 'PENDING';
@@ -665,6 +679,7 @@ async function main() {
   });
   assert(stockistCancelTestOrder2.status === 200, 'Stockist cancel test order 2 created');
 
+  await dbModule.flush();
   const ordersList6 = dbModule.getTable('orders');
   const targetOrd6 = ordersList6.find(o => o.id === stockistCancelTestOrder2.body.orderId);
   targetOrd6.status = 'PREPARING';

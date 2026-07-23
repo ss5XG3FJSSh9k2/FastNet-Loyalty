@@ -1,3 +1,5 @@
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '.env') });
 const express = require('express');
 const cors = require('cors');
 const db = require('./db');
@@ -1648,17 +1650,28 @@ app.get('/api/admin/partner-leads', (req, res) => {
 });
 
 // Reset DB
-app.post('/api/admin/reset-db', (req, res) => {
-  const path = require('path');
-  const fs = require('fs');
-  const DB_PATH = path.join(__dirname, 'db.json');
-  if (fs.existsSync(DB_PATH)) fs.unlinkSync(DB_PATH);
-  const fresh = db.read();
-  return res.json({ success: true, message: 'Database reset successfully.', state: fresh });
+app.post('/api/admin/reset-db', async (req, res) => {
+  if (process.env.NODE_ENV === 'production') {
+    return res.status(403).json({ error: 'Database reset is blocked in production.' });
+  }
+  try {
+    const fresh = await db.resetForTest();
+    return res.json({ success: true, message: 'Database reset successfully.', state: fresh });
+  } catch (err) {
+    console.error('Database reset failed:', err);
+    return res.status(500).json({ error: 'Database reset failed.' });
+  }
 });
 
 // Start Server
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => {
-  console.log(`[Backend Server] ISP-Commerce Loyalty API listening on port ${PORT}`);
-});
+db.init()
+  .then(() => {
+    app.listen(PORT, () => {
+      console.log(`[Backend Server] ISP-Commerce Loyalty API listening on port ${PORT}`);
+    });
+  })
+  .catch((err) => {
+    console.error('DB init failed, server not started:', err);
+    process.exit(1);
+  });

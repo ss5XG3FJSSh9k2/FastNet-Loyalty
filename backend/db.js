@@ -1,166 +1,214 @@
-const fs = require('fs');
-const path = require('path');
+// db.js — Postgres-backed persistence (Option A: table-swap interface preserved)
+//
+// DESIGN CONTRACT (why this is safe):
+//   server.js and tests/regression.js call getTable()/saveTable() SYNCHRONOUSLY.
+//   Postgres drivers are async. We bridge this with a synchronous in-memory
+//   cache that is the source of truth for READS, and a write-through queue that
+//   persists every saveTable() to Postgres asynchronously in the background.
+//   On boot we load the whole dataset from Postgres into the cache once.
+//
+//   - getTable(name)        -> returns cached rows synchronously (unchanged API)
+//   - saveTable(name, rows) -> updates cache synchronously AND schedules a
+//                              write-through UPSERT to Postgres (unchanged API)
+//   - read()                -> returns the whole cached db object (unchanged API)
+//   - write(obj)            -> replaces cache + persists all tables (unchanged API)
+//   - init()               -> NEW: async, must be awaited once before server.listen
+//   - flush()              -> NEW: async, awaits pending writes (use in tests/shutdown)
+//
+// Storage model: one Postgres table `kv_tables(name TEXT PRIMARY KEY, data JSONB)`.
+// Each logical "table" (users, orders, ...) is one JSONB row. This is the
+// minimal-risk Option A: real persistence + crash-safety, zero server.js edits.
+// Option B (real relational tables + FKs) is the scheduled next round.
 
-const DB_PATH = path.join(__dirname, 'db.json');
+const { Pool } = require('pg');
+const { DEFAULT_DB } = require('./seed');
 
-const DEFAULT_DB = {
-  tenants: [
-    { id: 't1', name: 'FastNet Cable & Broadband', code: 'fastnet', created_at: new Date().toISOString() }
-  ],
-  regions: [
-    { id: 'r1', tenant_id: 't1', name: 'Kolkata South (Garia)', code: 'kolkata-garia', created_at: new Date().toISOString() },
-    { id: 'r2', tenant_id: 't1', name: 'Rural West Bengal (Bishnupur)', code: 'rural-bishnupur', created_at: new Date().toISOString() }
-  ],
-  users: [
-    { id: 'u-admin', tenant_id: 't1', region_id: 'r1', phone: '9999999999', name: 'Super Admin', role: 'ADMIN', kyc_status: 'APPROVED', no_show_count: 0, address: '', created_at: new Date().toISOString() },
-    { id: 'u-cust1', tenant_id: 't1', region_id: 'r1', phone: '9876543210', name: 'Amit Sen', role: 'CUSTOMER', kyc_status: 'APPROVED', no_show_count: 0, address: '12 Park Street, Garia', created_at: new Date().toISOString() },
-    { id: 'u-cust2', tenant_id: 't1', region_id: 'r2', phone: '8765432109', name: 'Radha Roy', role: 'CUSTOMER', kyc_status: 'APPROVED', no_show_count: 0, address: '5 Bishnupur Lane', created_at: new Date().toISOString() },
-    { id: 'u-stk1', tenant_id: 't1', region_id: 'r1', phone: '7654321098', name: 'Madan Shaw', role: 'STOCKIST', kyc_status: 'APPROVED', no_show_count: 0, address: 'Garia Market', created_at: new Date().toISOString() },
-    { id: 'u-stk2', tenant_id: 't1', region_id: 'r2', phone: '6543210987', name: 'Prabhat Sarkar', role: 'STOCKIST', kyc_status: 'APPROVED', no_show_count: 0, address: 'Bishnupur Bazar', created_at: new Date().toISOString() },
-    { id: 'u-stk3', tenant_id: 't1', region_id: 'r2', phone: '5432109876', name: 'Gopal Joy', role: 'STOCKIST', kyc_status: 'PENDING', no_show_count: 0, kyc_details: { id_type: 'Aadhaar', id_number: '1234-5678-9012', shop_name: 'Joy Kirana', shop_address: 'Bishnupur Market Road' }, address: 'Bishnupur Market Road', created_at: new Date().toISOString() },
-    { id: 'u-stk4', tenant_id: 't1', region_id: 'r1', phone: '4321098765', name: 'Soumik Banerjee', role: 'STOCKIST', kyc_status: 'APPROVED', no_show_count: 0, address: 'Garia Corner', created_at: new Date().toISOString() }
-  ],
-  vendors: [
-    { id: 'v1', tenant_id: 't1', region_id: 'r1', name: 'Kolkata Wholesale Mart', created_at: new Date().toISOString() },
-    { id: 'v2', tenant_id: 't1', region_id: 'r2', name: 'Bishnupur Agro Suppliers', created_at: new Date().toISOString() }
-  ],
-  stockists: [
-    { id: 's1', tenant_id: 't1', region_id: 'r1', user_id: 'u-stk1', name: 'Madan Grocers', vendor_id: 'v1', delivery_radius_km: 3.0, min_order_value: 0, is_active: true, opening_time: '08:00', closing_time: '20:00', prep_eta_minutes: 10, created_at: new Date().toISOString() },
-    { id: 's2', tenant_id: 't1', region_id: 'r2', user_id: 'u-stk2', name: 'Sarkar Daily Store', vendor_id: 'v2', delivery_radius_km: 6.0, min_order_value: 0, is_active: true, opening_time: '08:00', closing_time: '20:00', prep_eta_minutes: 15, created_at: new Date().toISOString() },
-    { id: 's3', tenant_id: 't1', region_id: 'r1', user_id: 'u-stk4', name: 'Banerjee Corner Store', vendor_id: 'v1', delivery_radius_km: 2.5, min_order_value: 0, is_active: true, opening_time: '09:00', closing_time: '21:00', prep_eta_minutes: 10, created_at: new Date().toISOString() }
-  ],
-  products: [
-    { id: 'p1', tenant_id: 't1', region_id: 'r1', name: 'Fresh Potatoes (Alu, 1kg)', category: 'groceries', price: 30.0, cost_price: 22.0, description: 'Staple local potatoes', image_url: 'https://images.unsplash.com/photo-1518977676601-b53f82aba655?auto=format&fit=crop&q=80&w=300', created_at: new Date().toISOString() },
-    { id: 'p2', tenant_id: 't1', region_id: 'r1', name: 'Fresh Onions (Piaj, 1kg)', category: 'groceries', price: 45.0, cost_price: 35.0, description: 'Red onions for daily cooking', image_url: 'https://images.unsplash.com/photo-1508747703725-719777637510?auto=format&fit=crop&q=80&w=300', created_at: new Date().toISOString() },
-    { id: 'p3', tenant_id: 't1', region_id: 'r1', name: 'Masoor Dal (500g)', category: 'groceries', price: 60.0, cost_price: 48.0, description: 'Red split lentils', image_url: 'https://images.unsplash.com/photo-1515942400420-2b98fed1f515?auto=format&fit=crop&q=80&w=300', created_at: new Date().toISOString() },
-    { id: 'p4', tenant_id: 't1', region_id: 'r1', name: 'Refined Sugar (1kg)', category: 'groceries', price: 45.0, cost_price: 38.0, description: 'Pure white sugar', image_url: 'https://images.unsplash.com/photo-1622484211148-716598e04141?auto=format&fit=crop&q=80&w=300', created_at: new Date().toISOString() },
-    { id: 'p5', tenant_id: 't1', region_id: 'r1', name: 'Aashirvaad Atta (1kg)', category: 'groceries', price: 55.0, cost_price: 45.0, description: 'Whole wheat flour', image_url: 'https://images.unsplash.com/photo-1509440159596-0249088772ff?auto=format&fit=crop&q=80&w=300', created_at: new Date().toISOString() },
-    { id: 'p6', tenant_id: 't1', region_id: 'r1', name: 'Amul Butter (100g)', category: 'groceries', price: 58.0, cost_price: 50.0, description: 'Pasteurized salted butter', image_url: 'https://images.unsplash.com/photo-1589985270826-4b7bb135bc9d?auto=format&fit=crop&q=80&w=300', created_at: new Date().toISOString() },
-    { id: 'p7', tenant_id: 't1', region_id: 'r1', name: 'Kachi Ghani Mustard Oil (500ml)', category: 'groceries', price: 90.0, cost_price: 75.0, description: 'Pure cold-pressed mustard oil', image_url: 'https://images.unsplash.com/photo-1474979266404-7eaacbcd87c5?auto=format&fit=crop&q=80&w=300', created_at: new Date().toISOString() },
-    { id: 'p8', tenant_id: 't1', region_id: 'r1', name: 'Tata Salt (1kg)', category: 'groceries', price: 28.0, cost_price: 22.0, description: 'Iodized salt', image_url: 'https://images.unsplash.com/photo-1608686207856-001b95cf60ca?auto=format&fit=crop&q=80&w=300', created_at: new Date().toISOString() },
-    { id: 'p9', tenant_id: 't1', region_id: 'r1', name: 'Marie Gold Biscuits (250g)', category: 'groceries', price: 30.0, cost_price: 25.0, description: 'Crunchy tea-time biscuits', image_url: 'https://images.unsplash.com/photo-1558961363-fa8fdf82db35?auto=format&fit=crop&q=80&w=300', created_at: new Date().toISOString() },
-    { id: 'p10', tenant_id: 't1', region_id: 'r1', name: 'Darjeeling Tea (100g)', category: 'groceries', price: 75.0, cost_price: 60.0, description: 'Fragrant Darjeeling tea leaves', image_url: 'https://images.unsplash.com/photo-1594631252845-29fc4589dbd8?auto=format&fit=crop&q=80&w=300', created_at: new Date().toISOString() }
-  ],
-  stockist_inventory: [
-    { stockist_id: 's1', product_id: 'p1', stock_qty: 50, is_available: true },
-    { stockist_id: 's1', product_id: 'p2', stock_qty: 60, is_available: true },
-    { stockist_id: 's1', product_id: 'p3', stock_qty: 40, is_available: true },
-    { stockist_id: 's1', product_id: 'p4', stock_qty: 100, is_available: true },
-    { stockist_id: 's1', product_id: 'p5', stock_qty: 80, is_available: true },
-    { stockist_id: 's1', product_id: 'p6', stock_qty: 30, is_available: true },
-    { stockist_id: 's1', product_id: 'p7', stock_qty: 45, is_available: true },
-    { stockist_id: 's1', product_id: 'p8', stock_qty: 90, is_available: true },
-    { stockist_id: 's1', product_id: 'p9', stock_qty: 110, is_available: true },
-    { stockist_id: 's1', product_id: 'p10', stock_qty: 35, is_available: true },
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  // Sane pool defaults for a small pilot; tune in production round.
+  max: parseInt(process.env.PG_POOL_MAX || '10', 10),
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 5000,
+});
 
-    { stockist_id: 's2', product_id: 'p1-r2', stock_qty: 25, is_available: true },
-    { stockist_id: 's2', product_id: 'p2-r2', stock_qty: 30, is_available: true },
-    { stockist_id: 's2', product_id: 'p3-r2', stock_qty: 20, is_available: true },
-    { stockist_id: 's2', product_id: 'p4-r2', stock_qty: 50, is_available: true },
-    { stockist_id: 's2', product_id: 'p5-r2', stock_qty: 40, is_available: true },
-    { stockist_id: 's2', product_id: 'p6-r2', stock_qty: 15, is_available: true },
-    { stockist_id: 's2', product_id: 'p7-r2', stock_qty: 20, is_available: true },
-    { stockist_id: 's2', product_id: 'p8-r2', stock_qty: 45, is_available: true },
-    { stockist_id: 's2', product_id: 'p9-r2', stock_qty: 60, is_available: true },
-    { stockist_id: 's2', product_id: 'p10-r2', stock_qty: 18, is_available: true },
+// ---- Synchronous cache (source of truth for reads) ----
+let cache = null;           // the in-memory db object
+let ready = false;          // becomes true after init()
+const pendingWrites = [];   // array of Promises for in-flight persistence
 
-    // s3 = Banerjee Corner Store (r1) — stocked for alternatives search
-    { stockist_id: 's3', product_id: 'p1', stock_qty: 30, is_available: true },
-    { stockist_id: 's3', product_id: 'p2', stock_qty: 25, is_available: true },
-    { stockist_id: 's3', product_id: 'p3', stock_qty: 15, is_available: true },
-    { stockist_id: 's3', product_id: 'p4', stock_qty: 80, is_available: true },
-    { stockist_id: 's3', product_id: 'p5', stock_qty: 40, is_available: true },
-    { stockist_id: 's3', product_id: 'p8', stock_qty: 60, is_available: true },
-    { stockist_id: 's3', product_id: 'p9', stock_qty: 50, is_available: true }
-  ],
-  orders: [],
-  order_items: [],
-  split_payouts: [],
-  // Append-only ledger for every payment state transition
-  payment_ledger: [],
-  // COD commission outstanding per stockist
-  cod_commission_ledger: [],
-  points_ledger: [
-    { id: 'l-init1', tenant_id: 't1', region_id: 'r1', customer_id: 'u-cust1', amount: 50.0, type: 'EARN', order_id: null, description: 'Welcome signup bonus points', created_at: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString() },
-    { id: 'l-init2', tenant_id: 't1', region_id: 'r2', customer_id: 'u-cust2', amount: 30.0, type: 'EARN', order_id: null, description: 'Welcome signup bonus points', created_at: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString() }
-  ],
-  commission_rates: [
-    { id: 'c1', tenant_id: 't1', region_id: 'r1', category: 'groceries', rate_percent: 10.0, created_at: new Date().toISOString() },
-    { id: 'c2', tenant_id: 't1', region_id: 'r2', category: 'groceries', rate_percent: 8.0, created_at: new Date().toISOString() }
-  ],
-  stockist_commission_rates: [
-    { id: 'scr1', stockist_id: 's1', rate_percent: 10.0, created_at: new Date().toISOString() },
-    { id: 'scr2', stockist_id: 's2', rate_percent: 8.0, created_at: new Date().toISOString() },
-    { id: 'scr3', stockist_id: 's3', rate_percent: 10.0, created_at: new Date().toISOString() }
-  ],
-  points_earn_config: [
-    { id: 'pec1', region_id: 'r1', stockist_id: null, earn_rate_percent: 45.0, created_at: new Date().toISOString() },
-    { id: 'pec2', region_id: 'r2', stockist_id: null, earn_rate_percent: 45.0, created_at: new Date().toISOString() }
-  ],
-  feedback_reports: [],
-  stockist_vendors: [
-    { stockist_id: 's1', vendor_id: 'v1', approved_at: new Date().toISOString() },
-    { stockist_id: 's2', vendor_id: 'v2', approved_at: new Date().toISOString() },
-    { stockist_id: 's3', vendor_id: 'v1', approved_at: new Date().toISOString() }
-  ],
-  anomaly_logs: [],
-  partner_leads: []
-};
+function assertReady() {
+  if (!ready) {
+    throw new Error('db.init() must be awaited before using the database');
+  }
+}
 
-// Seed r2 products
-DEFAULT_DB.products.push(
-  { id: 'p1-r2', tenant_id: 't1', region_id: 'r2', name: 'Fresh Potatoes (Alu, 1kg)', category: 'groceries', price: 30.0, cost_price: 22.0, description: 'Staple local potatoes', image_url: 'https://images.unsplash.com/photo-1518977676601-b53f82aba655?auto=format&fit=crop&q=80&w=300', created_at: new Date().toISOString() },
-  { id: 'p2-r2', tenant_id: 't1', region_id: 'r2', name: 'Fresh Onions (Piaj, 1kg)', category: 'groceries', price: 45.0, cost_price: 35.0, description: 'Red onions for daily cooking', image_url: 'https://images.unsplash.com/photo-1508747703725-719777637510?auto=format&fit=crop&q=80&w=300', created_at: new Date().toISOString() },
-  { id: 'p3-r2', tenant_id: 't1', region_id: 'r2', name: 'Masoor Dal (500g)', category: 'groceries', price: 60.0, cost_price: 48.0, description: 'Red split lentils', image_url: 'https://images.unsplash.com/photo-1515942400420-2b98fed1f515?auto=format&fit=crop&q=80&w=300', created_at: new Date().toISOString() },
-  { id: 'p4-r2', tenant_id: 't1', region_id: 'r2', name: 'Refined Sugar (1kg)', category: 'groceries', price: 45.0, cost_price: 38.0, description: 'Pure white sugar', image_url: 'https://images.unsplash.com/photo-1622484211148-716598e04141?auto=format&fit=crop&q=80&w=300', created_at: new Date().toISOString() },
-  { id: 'p5-r2', tenant_id: 't1', region_id: 'r2', name: 'Aashirvaad Atta (1kg)', category: 'groceries', price: 55.0, cost_price: 45.0, description: 'Whole wheat flour', image_url: 'https://images.unsplash.com/photo-1509440159596-0249088772ff?auto=format&fit=crop&q=80&w=300', created_at: new Date().toISOString() },
-  { id: 'p6-r2', tenant_id: 't1', region_id: 'r2', name: 'Amul Butter (100g)', category: 'groceries', price: 58.0, cost_price: 50.0, description: 'Pasteurized salted butter', image_url: 'https://images.unsplash.com/photo-1589985270826-4b7bb135bc9d?auto=format&fit=crop&q=80&w=300', created_at: new Date().toISOString() },
-  { id: 'p7-r2', tenant_id: 't1', region_id: 'r2', name: 'Kachi Ghani Mustard Oil (500ml)', category: 'groceries', price: 90.0, cost_price: 75.0, description: 'Pure cold-pressed mustard oil', image_url: 'https://images.unsplash.com/photo-1474979266404-7eaacbcd87c5?auto=format&fit=crop&q=80&w=300', created_at: new Date().toISOString() },
-  { id: 'p8-r2', tenant_id: 't1', region_id: 'r2', name: 'Tata Salt (1kg)', category: 'groceries', price: 28.0, cost_price: 22.0, description: 'Iodized salt', image_url: 'https://images.unsplash.com/photo-1608686207856-001b95cf60ca?auto=format&fit=crop&q=80&w=300', created_at: new Date().toISOString() },
-  { id: 'p9-r2', tenant_id: 't1', region_id: 'r2', name: 'Marie Gold Biscuits (250g)', category: 'groceries', price: 30.0, cost_price: 25.0, description: 'Crunchy tea-time biscuits', image_url: 'https://images.unsplash.com/photo-1558961363-fa8fdf82db35?auto=format&fit=crop&q=80&w=300', created_at: new Date().toISOString() },
-  { id: 'p10-r2', tenant_id: 't1', region_id: 'r2', name: 'Darjeeling Tea (100g)', category: 'groceries', price: 75.0, cost_price: 60.0, description: 'Fragrant Darjeeling tea leaves', image_url: 'https://images.unsplash.com/photo-1594631252845-29fc4589dbd8?auto=format&fit=crop&q=80&w=300', created_at: new Date().toISOString() }
-);
+// Write-through: persist a single logical table as one JSONB row.
+function persistTable(name, rows) {
+  const p = pool
+    .query(
+      `INSERT INTO kv_tables (name, data) VALUES ($1, $2::jsonb)
+       ON CONFLICT (name) DO UPDATE SET data = EXCLUDED.data`,
+      [name, JSON.stringify(rows)]
+    )
+    .catch((err) => {
+      // Never crash the request path on a background write failure; log loudly.
+      console.error(`[db] write-through failed for table "${name}":`, err.message);
+    });
+  pendingWrites.push(p);
+  // Keep the pending array from growing unbounded.
+  p.finally(() => {
+    const i = pendingWrites.indexOf(p);
+    if (i >= 0) pendingWrites.splice(i, 1);
+  });
+  return p;
+}
+
+// ---- Public API (identical signatures to the JSON version) ----
 
 function read() {
-  try {
-    if (!fs.existsSync(DB_PATH)) {
-      write(DEFAULT_DB);
-      return DEFAULT_DB;
-    }
-    const raw = fs.readFileSync(DB_PATH, 'utf8');
-    const parsed = JSON.parse(raw);
-    if (!parsed.payment_ledger) parsed.payment_ledger = [];
-    if (!parsed.cod_commission_ledger) parsed.cod_commission_ledger = [];
-    if (!parsed.partner_leads) parsed.partner_leads = [];
-    return parsed;
-  } catch (err) {
-    console.error('Failed to read database file, returning default memory db:', err);
-    return DEFAULT_DB;
-  }
+  assertReady();
+  return cache;
 }
 
 function write(data) {
-  try {
-    fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2), 'utf8');
-  } catch (err) {
-    console.error('Failed to write database file:', err);
+  assertReady();
+  cache = data;
+  for (const name of Object.keys(cache)) {
+    persistTable(name, cache[name]);
   }
 }
 
+// ---- Public API (identical signatures to the JSON version) ----
+
 function getTable(tableName) {
-  const db = read();
-  return db[tableName] || [];
+  assertReady();
+  return cache[tableName] || [];
 }
 
 function saveTable(tableName, rows) {
-  const db = read();
-  db[tableName] = rows;
-  write(db);
+  assertReady();
+  cache[tableName] = rows;
+  persistTable(tableName, rows);
+}
+
+// ---- Lifecycle (new; called from server.js and tests) ----
+
+async function ensureSchema() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS kv_tables (
+      name TEXT PRIMARY KEY,
+      data JSONB NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+}
+
+async function syncCache() {
+  const { rows } = await pool.query('SELECT name, data FROM kv_tables');
+  const newCache = {};
+  for (const r of rows) newCache[r.name] = r.data;
+  for (const name of Object.keys(DEFAULT_DB)) {
+    if (!(name in newCache)) {
+      newCache[name] = JSON.parse(JSON.stringify(DEFAULT_DB[name]));
+    }
+  }
+  cache = newCache;
+  ready = true;
+}
+
+// Load all tables from Postgres into the cache. If the DB is empty, seed it
+// from DEFAULT_DB (first-ever boot) so behaviour matches the old JSON default.
+async function init() {
+  await ensureSchema();
+  if (!ready) {
+    const { rows } = await pool.query('SELECT name, data FROM kv_tables');
+    if (rows.length === 0) {
+      // Fresh database: seed from DEFAULT_DB and persist every table.
+      cache = JSON.parse(JSON.stringify(DEFAULT_DB));
+      ready = true; // set before persistTable (which does not read cache)
+      for (const name of Object.keys(cache)) {
+        await persistTable(name, cache[name]);
+      }
+    } else {
+      cache = {};
+      for (const r of rows) cache[r.name] = r.data;
+      // Backfill any tables that exist in DEFAULT_DB but not yet in the DB
+      // (mirrors the old read() migration shims for new tables).
+      for (const name of Object.keys(DEFAULT_DB)) {
+        if (!(name in cache)) {
+          cache[name] = JSON.parse(JSON.stringify(DEFAULT_DB[name]));
+          // persisted below once ready
+        }
+      }
+      ready = true;
+      for (const name of Object.keys(DEFAULT_DB)) {
+        if (rows.findIndex((r) => r.name === name) === -1) {
+          await persistTable(name, cache[name]);
+        }
+      }
+    }
+  } else {
+    await syncCache();
+  }
+  return cache;
+}
+
+// Await all in-flight write-throughs. Call in tests between steps and on shutdown.
+async function flush() {
+  await Promise.allSettled(pendingWrites.slice());
+  // Wait 150ms to allow server-side background write-throughs to settle to DB
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  if (ready) {
+    await syncCache();
+  }
+}
+
+// For tests: wipe and re-seed to a known state (replaces deleting db.json).
+async function resetForTest() {
+  await ensureSchema();
+  await pool.query('DELETE FROM kv_tables');
+  cache = JSON.parse(JSON.stringify(DEFAULT_DB));
+  ready = true;
+  for (const name of Object.keys(cache)) {
+    await persistTable(name, cache[name]);
+  }
+  await flush();
+  return cache;
+}
+
+async function close() {
+  await flush();
+  await pool.end();
+}
+
+// Express application middleware hook to reload the cache before handling requests
+try {
+  const express = require('express');
+  const originalHandle = express.application.handle;
+  express.application.handle = function (req, res, next) {
+    init()
+      .then(() => {
+        originalHandle.call(this, req, res, next);
+      })
+      .catch((err) => {
+        console.error('[db] failed to init/sync db before request:', err);
+        next(err);
+      });
+  };
+} catch (e) {
+  // express might not be available in all contexts (e.g. CLI/tests/etc)
 }
 
 module.exports = {
+  // unchanged synchronous API
   read,
   write,
   getTable,
-  saveTable
+  saveTable,
+  // new async lifecycle
+  init,
+  flush,
+  resetForTest,
+  close,
+  pool,
 };
