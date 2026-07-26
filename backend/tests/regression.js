@@ -68,6 +68,27 @@ function get(url) {
   });
 }
 
+function del(url) {
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(url);
+    const req = http.request({
+      hostname: parsed.hostname,
+      port: parsed.port,
+      path: parsed.pathname,
+      method: 'DELETE'
+    }, (res) => {
+      let raw = '';
+      res.on('data', chunk => raw += chunk);
+      res.on('end', () => {
+        try { resolve({ status: res.statusCode, body: JSON.parse(raw) }); }
+        catch(e) { resolve({ status: res.statusCode, body: raw }); }
+      });
+    });
+    req.on('error', reject);
+    req.end();
+  });
+}
+
 let testCount = 0;
 let passedCount = 0;
 
@@ -735,6 +756,136 @@ async function main() {
   const verifyCodPin = await post(`http://localhost:3001/api/orders/${delCodId}/verify-pickup`, { pin: codOrdObj.pickup_pin });
   assert(verifyCodPin.status === 200, 'Correct PIN via verify-pickup succeeds for COD delivery');
   assert(verifyCodPin.body.order.status === 'DELIVERED', 'COD delivery order status updated to DELIVERED');
+
+  // 26. Customer Fraud Reports (R4)
+  console.log('\n--- 26. Customer Fraud Reports (R4) ---');
+  const shortFraudRes = await post('http://localhost:3001/api/customer/fraud-reports', {
+    customerId: 'u-cust1',
+    subject: 'Stockist issue',
+    description: 'Too short'
+  });
+  assert(shortFraudRes.status === 400, 'Fraud report with <20 chars description is rejected with 400');
+
+  const validFraudRes = await post('http://localhost:3001/api/customer/fraud-reports', {
+    customerId: 'u-cust1',
+    subject: 'Stockist issue',
+    description: 'The stockist refused to honor the pickup item quantity on my order.',
+    linkedEntityType: 'order',
+    linkedEntityId: delOnlineId
+  });
+  assert(validFraudRes.status === 200, 'Valid fraud report submitted successfully');
+  const fraudReportId = validFraudRes.body.report.id;
+
+  const adminFraudFetch = await get('http://localhost:3001/api/admin/fraud-reports');
+  assert(adminFraudFetch.status === 200, 'Admin fraud reports fetch succeeds');
+  const foundReport = adminFraudFetch.body.find(r => r.id === fraudReportId);
+  assert(foundReport !== undefined && foundReport.status === 'NEW', 'Submitted fraud report exists in NEW status');
+
+  const triageFraud = await post(`http://localhost:3001/api/admin/fraud-reports/${fraudReportId}/status`, {
+    status: 'TRIAGING'
+  });
+  assert(triageFraud.status === 200, 'Fraud report status updated to TRIAGING');
+
+  const shortNoteResolve = await post(`http://localhost:3001/api/admin/fraud-reports/${fraudReportId}/status`, {
+    status: 'RESOLVED',
+    adminNotes: 'Short'
+  });
+  assert(shortNoteResolve.status === 400, 'Resolving fraud report with <10 chars note is rejected with 400');
+
+  const validResolve = await post(`http://localhost:3001/api/admin/fraud-reports/${fraudReportId}/status`, {
+    status: 'RESOLVED',
+    adminNotes: 'Investigated with stockist and issued apology credit.'
+  });
+  assert(validResolve.status === 200, 'Resolving fraud report with valid notes succeeds');
+
+  // 27. Customers Management & Audit Log (R5 & Part 3)
+  console.log('\n--- 27. Customers Management & Audit Log (R5 & Part 3) ---');
+  const adminCustList = await get('http://localhost:3001/api/admin/customers');
+  assert(adminCustList.status === 200, 'GET /api/admin/customers succeeds');
+  const cust1InList = adminCustList.body.find(c => c.id === 'u-cust1');
+  assert(cust1InList !== undefined && cust1InList.points_balance !== undefined, 'Customer list includes points balance and order count');
+
+  const adminCustDetail = await get('http://localhost:3001/api/admin/customers/u-cust1');
+  assert(adminCustDetail.status === 200, 'GET /api/admin/customers/u-cust1 succeeds');
+  assert(Array.isArray(adminCustDetail.body.orders) && Array.isArray(adminCustDetail.body.ledger), 'Customer detail includes orders and ledger');
+
+  const editCustRes = await post('http://localhost:3001/api/admin/customers/u-cust1', {
+    name: 'Customer One Updated',
+    email: 'cust1updated@example.com'
+  });
+  assert(editCustRes.status === 200, 'Admin update customer contact succeeds');
+
+  const phoneChangeRes = await post('http://localhost:3001/api/admin/customers/u-cust1/phone-change', {
+    currentPhoneOtp: '123456',
+    newPhone: '9830099999',
+    newPhoneOtp: '123456'
+  });
+  assert(phoneChangeRes.status === 200, 'Admin phone change succeeds');
+
+  const creditPtsRes = await post('http://localhost:3001/api/admin/customers/u-cust1/points-credit', {
+    amount: 50,
+    reason: 'Support compensation for delivery delay'
+  });
+  assert(creditPtsRes.status === 200, 'Admin manual points credit succeeds');
+
+  const deactCustRes = await post('http://localhost:3001/api/admin/customers/u-cust1/deactivate', {});
+  assert(deactCustRes.status === 200, 'Admin customer deactivation succeeds');
+
+  const loginDeact = await post('http://localhost:3001/api/auth/verify-otp', { phone: '9830099999', otp: '123456' });
+  assert(loginDeact.status === 403, 'Deactivated user login attempt is blocked with 403');
+
+  const reactCustRes = await post('http://localhost:3001/api/admin/customers/u-cust1/reactivate', {});
+  assert(reactCustRes.status === 200, 'Admin customer reactivation succeeds');
+
+  // 28. Stockists Management (R6)
+  console.log('\n--- 28. Stockists Management (R6) ---');
+  const adminStkList = await get('http://localhost:3001/api/admin/stockists');
+  assert(adminStkList.status === 200, 'GET /api/admin/stockists succeeds');
+  const s1InList = adminStkList.body.find(s => s.id === 's1');
+  assert(s1InList !== undefined && s1InList.gmv_30d !== undefined, 'Stockist list includes gmv_30d preview');
+
+  const createStkRes = await post('http://localhost:3001/api/admin/stockists', {
+    name: 'New Test Stockist Shop',
+    phone: '9831122334',
+    region_id: 'r1',
+    vendor_id: 'v1',
+    commission_rate: 12.5
+  });
+  assert(createStkRes.status === 200, 'Admin create stockist succeeds');
+  const newStkId = createStkRes.body.stockist.id;
+
+  const ratePreviewRes = await post(`http://localhost:3001/api/admin/stockists/${s1InList.id}/commission-rate`, {
+    rate_percent: 15.0
+  });
+  assert(ratePreviewRes.status === 200 && ratePreviewRes.body.preview === true, 'Commission rate request without CONFIRM returns preview calculation');
+
+  const rateApplyRes = await post(`http://localhost:3001/api/admin/stockists/${s1InList.id}/commission-rate`, {
+    rate_percent: 15.0,
+    confirmationText: 'CONFIRM'
+  });
+  assert(rateApplyRes.status === 200, 'Commission rate update with CONFIRM succeeds');
+
+  const deleteStkWithOrders = await del(`http://localhost:3001/api/admin/stockists/${s1InList.id}`);
+  assert(deleteStkWithOrders.status === 400, 'Deleting stockist with order history is blocked with 400');
+
+  // 29. Partner Leads & Audit Log Verification (R7 & Audit)
+  console.log('\n--- 29. Partner Leads & Audit Log Verification (R7 & Audit) ---');
+  const leadPostRes = await post('http://localhost:3001/api/partner-leads', {
+    name: 'Garia Cable Network',
+    phone: '9830088888',
+    region_id: 'r1'
+  });
+  assert(leadPostRes.status === 200, 'Partner lead created');
+  const leadId = leadPostRes.body.lead.id;
+
+  const leadStatusRes = await post(`http://localhost:3001/api/admin/partner-leads/${leadId}/status`, {
+    status: 'CONTACTED'
+  });
+  assert(leadStatusRes.status === 200, 'Lead status updated to CONTACTED');
+
+  const auditLogRes = await get('http://localhost:3001/api/admin/audit-log');
+  assert(auditLogRes.status === 200, 'GET /api/admin/audit-log succeeds');
+  assert(auditLogRes.body.length >= 5, 'Audit log contains entries for admin actions');
 
   console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);

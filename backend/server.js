@@ -34,6 +34,26 @@ function appendPaymentEvent(orderId, eventType, amount, metadata = {}) {
   db.saveTable('payment_ledger', ledger);
 }
 
+// Helper: append an admin audit log entry
+function appendAudit(req, action, entity_type, entity_id, before = null, after = null, reason = '') {
+  const admin_user_id = (req && req.headers && req.headers['x-admin-id']) || (req && req.body && req.body.admin_user_id) || 'u-admin';
+  const log = db.getTable('admin_audit_log');
+  const entry = {
+    id: 'audit-' + generateId(),
+    admin_user_id,
+    action,
+    entity_type,
+    entity_id,
+    before: before !== undefined ? before : null,
+    after: after !== undefined ? after : null,
+    reason: reason || '',
+    created_at: new Date().toISOString()
+  };
+  log.push(entry);
+  db.saveTable('admin_audit_log', log);
+  return entry;
+}
+
 // ----------------------------------------------------
 // AUTH ENDPOINTS
 // ----------------------------------------------------
@@ -68,6 +88,10 @@ app.post('/api/auth/verify-otp', (req, res) => {
 
   if (!user) {
     return res.json({ requires_registration: true, phone });
+  }
+
+  if (user.is_active === false) {
+    return res.status(403).json({ error: 'Account is deactivated. Contact admin.' });
   }
 
   return res.json({ success: true, user });
@@ -1633,10 +1657,11 @@ app.post('/api/partner-leads', (req, res) => {
   const leads = db.getTable('partner_leads');
   const newLead = {
     id: 'lead-' + generateId(),
-    name,
-    phone,
+    name: name.trim(),
+    phone: phone.trim(),
     created_at: new Date().toISOString(),
-    status: 'NEW'
+    status: 'NEW',
+    notes: []
   };
   leads.push(newLead);
   db.saveTable('partner_leads', leads);
@@ -1644,7 +1669,663 @@ app.post('/api/partner-leads', (req, res) => {
 });
 
 app.get('/api/admin/partner-leads', (req, res) => {
-  return res.json(db.getTable('partner_leads'));
+  let leads = db.getTable('partner_leads');
+  const { status, region_id } = req.query;
+  if (status) leads = leads.filter(l => l.status === status);
+  if (region_id) leads = leads.filter(l => l.region_id === region_id);
+  const enriched = leads.map(l => ({
+    ...l,
+    notes: l.notes || [],
+    status: l.status || 'NEW'
+  })).reverse();
+  return res.json(enriched);
+});
+
+app.post('/api/admin/partner-leads/:id/status', (req, res) => {
+  const { id } = req.params;
+  const { status } = req.body;
+  const validStatuses = ['NEW', 'CONTACTED', 'NEGOTIATING', 'ONBOARDED', 'REJECTED'];
+  if (!status || !validStatuses.includes(status)) {
+    return res.status(400).json({ error: 'Invalid status' });
+  }
+  const leads = db.getTable('partner_leads');
+  const lead = leads.find(l => l.id === id);
+  if (!lead) return res.status(404).json({ error: 'Lead not found' });
+  const oldStatus = lead.status || 'NEW';
+  lead.status = status;
+  db.saveTable('partner_leads', leads);
+  appendAudit(req, 'UPDATE_LEAD_STATUS', 'partner_lead', id, { status: oldStatus }, { status });
+  return res.json({ success: true, lead });
+});
+
+app.post('/api/admin/partner-leads/:id/notes', (req, res) => {
+  const { id } = req.params;
+  const { text } = req.body;
+  if (!text || !text.trim()) return res.status(400).json({ error: 'Note text is required' });
+  const leads = db.getTable('partner_leads');
+  const lead = leads.find(l => l.id === id);
+  if (!lead) return res.status(404).json({ error: 'Lead not found' });
+  if (!lead.notes) lead.notes = [];
+  const noteObj = {
+    id: 'n-' + generateId(),
+    text: text.trim(),
+    admin_id: req.body.admin_id || 'u-admin',
+    created_at: new Date().toISOString()
+  };
+  lead.notes.push(noteObj);
+  db.saveTable('partner_leads', leads);
+  appendAudit(req, 'ADD_LEAD_NOTE', 'partner_lead', id, null, { note: text.trim() });
+  return res.json({ success: true, lead });
+});
+
+app.delete('/api/admin/partner-leads/:id', (req, res) => {
+  const { id } = req.params;
+  const leads = db.getTable('partner_leads');
+  const idx = leads.findIndex(l => l.id === id);
+  if (idx === -1) return res.status(404).json({ error: 'Lead not found' });
+  const oldLead = leads[idx];
+  leads.splice(idx, 1);
+  db.saveTable('partner_leads', leads);
+  appendAudit(req, 'DELETE_LEAD', 'partner_lead', id, oldLead, null);
+  return res.json({ success: true, message: 'Partner lead deleted' });
+});
+
+// Admin Audit Log GET
+app.get('/api/admin/audit-log', (req, res) => {
+  let log = db.getTable('admin_audit_log');
+  const { admin_id, entity_type, action, start_date, end_date } = req.query;
+  if (admin_id) log = log.filter(l => l.admin_user_id === admin_id);
+  if (entity_type) log = log.filter(l => l.entity_type === entity_type);
+  if (action) log = log.filter(l => l.action === action);
+  if (start_date) log = log.filter(l => new Date(l.created_at) >= new Date(start_date));
+  if (end_date) log = log.filter(l => new Date(l.created_at) <= new Date(end_date));
+  return res.json(log.slice().reverse());
+});
+
+// Customer Fraud Report Submission
+app.post('/api/customer/fraud-reports', (req, res) => {
+  const { customerId, subject, description, linkedEntityType, linkedEntityId } = req.body;
+  if (!subject || !subject.trim()) {
+    return res.status(400).json({ error: 'Subject is required' });
+  }
+  if (!description || description.trim().length < 20) {
+    return res.status(400).json({ error: 'Description must be at least 20 characters long' });
+  }
+  const reports = db.getTable('fraud_reports');
+  const report = {
+    id: 'fr-' + generateId(),
+    reporter_customer_id: customerId,
+    subject: subject.trim(),
+    description: description.trim(),
+    linked_entity_type: linkedEntityType || null,
+    linked_entity_id: linkedEntityId || null,
+    status: 'NEW',
+    admin_notes: '',
+    created_at: new Date().toISOString(),
+    resolved_at: null
+  };
+  reports.push(report);
+  db.saveTable('fraud_reports', reports);
+  return res.json({ success: true, report });
+});
+
+// Admin GET Fraud Reports
+app.get('/api/admin/fraud-reports', (req, res) => {
+  let reports = db.getTable('fraud_reports');
+  const users = db.getTable('users');
+  const { status, region_id } = req.query;
+  if (status) {
+    reports = reports.filter(r => r.status === status);
+  }
+  if (region_id) {
+    reports = reports.filter(r => {
+      const reporter = users.find(u => u.id === r.reporter_customer_id);
+      return reporter && reporter.region_id === region_id;
+    });
+  }
+  const enriched = reports.map(r => {
+    const reporter = users.find(u => u.id === r.reporter_customer_id);
+    return {
+      ...r,
+      reporter_name: reporter ? reporter.name : 'Unknown',
+      reporter_phone: reporter ? reporter.phone : '',
+      reporter_region_id: reporter ? reporter.region_id : null
+    };
+  }).reverse();
+  return res.json(enriched);
+});
+
+// Admin Update Fraud Report Status
+app.post('/api/admin/fraud-reports/:id/status', (req, res) => {
+  const { id } = req.params;
+  const { status, adminNotes } = req.body;
+  const validStatuses = ['NEW', 'TRIAGING', 'RESOLVED', 'DISMISSED'];
+  if (!status || !validStatuses.includes(status)) {
+    return res.status(400).json({ error: 'Invalid status' });
+  }
+  if (['RESOLVED', 'DISMISSED'].includes(status)) {
+    if (!adminNotes || adminNotes.trim().length < 10) {
+      return res.status(400).json({ error: 'Admin notes of at least 10 characters required when resolving or dismissing' });
+    }
+  }
+  const reports = db.getTable('fraud_reports');
+  const report = reports.find(r => r.id === id);
+  if (!report) return res.status(404).json({ error: 'Fraud report not found' });
+  const oldStatus = report.status;
+  report.status = status;
+  if (adminNotes) report.admin_notes = adminNotes.trim();
+  if (['RESOLVED', 'DISMISSED'].includes(status)) {
+    report.resolved_at = new Date().toISOString();
+  }
+  db.saveTable('fraud_reports', reports);
+  appendAudit(req, 'UPDATE_FRAUD_REPORT_STATUS', 'fraud_report', id, { status: oldStatus }, { status, admin_notes: report.admin_notes }, adminNotes);
+  return res.json({ success: true, report });
+});
+
+// Admin Customers Endpoints
+app.get('/api/admin/customers', (req, res) => {
+  const includeInactive = req.query.include_inactive === 'true';
+  const users = db.getTable('users').filter(u => u.role === 'CUSTOMER');
+  const pointsLedger = db.getTable('points_ledger');
+  const orders = db.getTable('orders');
+  
+  const filteredUsers = includeInactive ? users : users.filter(u => u.is_active !== false);
+  const result = filteredUsers.map(u => {
+    const custLedger = pointsLedger.filter(l => l.customer_id === u.id);
+    const balance = custLedger.reduce((sum, l) => sum + (parseFloat(l.amount) || 0), 0);
+    const custOrders = orders.filter(o => o.customer_id === u.id);
+    return {
+      id: u.id,
+      name: u.name,
+      phone: u.phone,
+      email: u.email || '',
+      region_id: u.region_id,
+      is_active: u.is_active !== false,
+      points_balance: balance,
+      total_orders: custOrders.length,
+      created_at: u.created_at,
+      role: u.role,
+      address: u.address || ''
+    };
+  });
+  return res.json(result);
+});
+
+app.get('/api/admin/customers/:id', (req, res) => {
+  const { id } = req.params;
+  const users = db.getTable('users');
+  const user = users.find(u => u.id === id && u.role === 'CUSTOMER');
+  if (!user) return res.status(404).json({ error: 'Customer not found' });
+  
+  const pointsLedger = db.getTable('points_ledger').filter(l => l.customer_id === id);
+  const balance = pointsLedger.reduce((sum, l) => sum + (parseFloat(l.amount) || 0), 0);
+  const orders = db.getTable('orders').filter(o => o.customer_id === id).map(o => enrichOrder(o));
+  const fraudReports = db.getTable('fraud_reports').filter(f => f.reporter_customer_id === id);
+  
+  return res.json({
+    customer: { ...user, is_active: user.is_active !== false, points_balance: balance },
+    orders,
+    ledger: pointsLedger.slice().reverse(),
+    fraud_reports: fraudReports.slice().reverse()
+  });
+});
+
+app.post('/api/admin/customers/:id', (req, res) => {
+  const { id } = req.params;
+  const { name, email } = req.body;
+  const users = db.getTable('users');
+  const user = users.find(u => u.id === id && u.role === 'CUSTOMER');
+  if (!user) return res.status(404).json({ error: 'Customer not found' });
+  const before = { name: user.name, email: user.email || '' };
+  if (name) user.name = name.trim();
+  if (email !== undefined) user.email = email.trim();
+  db.saveTable('users', users);
+  appendAudit(req, 'EDIT_CUSTOMER', 'customer', id, before, { name: user.name, email: user.email });
+  return res.json({ success: true, customer: user });
+});
+
+app.post('/api/admin/customers/:id/phone-change', (req, res) => {
+  const { id } = req.params;
+  const { currentPhoneOtp, newPhone, newPhoneOtp } = req.body;
+  const users = db.getTable('users');
+  const user = users.find(u => u.id === id && u.role === 'CUSTOMER');
+  if (!user) return res.status(404).json({ error: 'Customer not found' });
+  if (!newPhone || !newPhone.trim()) return res.status(400).json({ error: 'New phone is required' });
+  if (currentPhoneOtp && currentPhoneOtp !== '123456') {
+    return res.status(400).json({ error: 'Invalid OTP for current phone' });
+  }
+  if (newPhoneOtp && newPhoneOtp !== '123456') {
+    return res.status(400).json({ error: 'Invalid OTP for new phone' });
+  }
+  const oldPhone = user.phone;
+  user.phone = newPhone.trim();
+  db.saveTable('users', users);
+  appendAudit(req, 'CHANGE_PHONE', 'customer', id, { phone: oldPhone }, { phone: user.phone });
+  return res.json({ success: true, user });
+});
+
+app.post('/api/admin/customers/:id/points-credit', (req, res) => {
+  const { id } = req.params;
+  const { amount, reason } = req.body;
+  const numAmount = parseFloat(amount);
+  if (isNaN(numAmount) || numAmount <= 0) {
+    return res.status(400).json({ error: 'Amount must be a positive number' });
+  }
+  if (!reason || !reason.trim()) {
+    return res.status(400).json({ error: 'Reason is required' });
+  }
+  const users = db.getTable('users');
+  const user = users.find(u => u.id === id && u.role === 'CUSTOMER');
+  if (!user) return res.status(404).json({ error: 'Customer not found' });
+  
+  const ledger = db.getTable('points_ledger');
+  const entry = {
+    id: 'l-' + generateId(),
+    tenant_id: user.tenant_id || 't1',
+    region_id: user.region_id || 'r1',
+    customer_id: id,
+    amount: numAmount,
+    type: 'MANUAL_CREDIT',
+    source: 'ADMIN',
+    admin_id: req.body.admin_id || 'u-admin',
+    reason: reason.trim(),
+    order_id: null,
+    description: `Manual admin credit: ${reason.trim()}`,
+    created_at: new Date().toISOString()
+  };
+  ledger.push(entry);
+  db.saveTable('points_ledger', ledger);
+  
+  appendAudit(req, 'MANUAL_POINTS_CREDIT', 'customer', id, null, { amount: numAmount, reason: reason.trim() }, reason.trim());
+  
+  const updatedLedger = ledger.filter(l => l.customer_id === id);
+  const newBalance = updatedLedger.reduce((sum, l) => sum + (parseFloat(l.amount) || 0), 0);
+  return res.json({ success: true, new_balance: newBalance, entry });
+});
+
+app.post('/api/admin/customers/:id/deactivate', (req, res) => {
+  const { id } = req.params;
+  const users = db.getTable('users');
+  const user = users.find(u => u.id === id && u.role === 'CUSTOMER');
+  if (!user) return res.status(404).json({ error: 'Customer not found' });
+  user.is_active = false;
+  db.saveTable('users', users);
+  appendAudit(req, 'DEACTIVATE_CUSTOMER', 'customer', id, { is_active: true }, { is_active: false });
+  return res.json({ success: true, user });
+});
+
+app.post('/api/admin/customers/:id/reactivate', (req, res) => {
+  const { id } = req.params;
+  const users = db.getTable('users');
+  const user = users.find(u => u.id === id && u.role === 'CUSTOMER');
+  if (!user) return res.status(404).json({ error: 'Customer not found' });
+  user.is_active = true;
+  db.saveTable('users', users);
+  appendAudit(req, 'REACTIVATE_CUSTOMER', 'customer', id, { is_active: false }, { is_active: true });
+  return res.json({ success: true, user });
+});
+
+// Admin Stockists Endpoints
+app.get('/api/admin/stockists', (req, res) => {
+  const includeInactive = req.query.include_inactive === 'true';
+  const stockists = db.getTable('stockists');
+  const orders = db.getTable('orders');
+  const rates = db.getTable('stockist_commission_rates');
+  const users = db.getTable('users');
+  
+  const filtered = includeInactive ? stockists : stockists.filter(s => s.is_active !== false);
+  const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+  
+  const result = filtered.map(s => {
+    const stkOrders = orders.filter(o => o.stockist_id === s.id);
+    const delivered30d = stkOrders.filter(o => o.status === 'DELIVERED' && new Date(o.created_at).getTime() >= thirtyDaysAgo);
+    const gmv30d = delivered30d.reduce((sum, o) => sum + (parseFloat(o.total) || parseFloat(o.subtotal) || 0), 0);
+    const pendingCount = stkOrders.filter(o => ['CONFIRMING', 'PENDING', 'ACCEPTED', 'PREPARING'].includes(o.status)).length;
+    const stkRates = rates.filter(r => r.stockist_id === s.id);
+    const latestRate = stkRates.length > 0 ? stkRates[stkRates.length - 1].rate_percent : 10.0;
+    const user = users.find(u => u.id === s.user_id);
+    return {
+      ...s,
+      is_active: s.is_active !== false,
+      user_name: user ? user.name : s.name,
+      user_phone: user ? user.phone : '',
+      gmv_30d: gmv30d,
+      pending_orders_count: pendingCount,
+      commission_rate: latestRate
+    };
+  });
+  return res.json(result);
+});
+
+app.get('/api/admin/stockists/:id', (req, res) => {
+  const { id } = req.params;
+  const stockists = db.getTable('stockists');
+  const stockist = stockists.find(s => s.id === id);
+  if (!stockist) return res.status(404).json({ error: 'Stockist not found' });
+  const users = db.getTable('users');
+  const user = users.find(u => u.id === stockist.user_id);
+  const orders = db.getTable('orders').filter(o => o.stockist_id === id).map(o => enrichOrder(o));
+  const rates = db.getTable('stockist_commission_rates').filter(r => r.stockist_id === id);
+  const latestRate = rates.length > 0 ? rates[rates.length - 1].rate_percent : 10.0;
+  
+  const deliveredOrders = orders.filter(o => o.status === 'DELIVERED');
+  const totalCommissionEarned = deliveredOrders.reduce((sum, o) => sum + ((parseFloat(o.subtotal) || 0) * (latestRate / 100)), 0);
+  
+  const inventory = db.getTable('stockist_inventory').filter(si => si.stockist_id === id);
+
+  return res.json({
+    stockist: { ...stockist, is_active: stockist.is_active !== false, commission_rate: latestRate },
+    user,
+    orders,
+    commission_rates: rates,
+    total_commission_earned: totalCommissionEarned,
+    inventory
+  });
+});
+
+app.post('/api/admin/stockists', (req, res) => {
+  const { name, region_id, vendor_id, phone, delivery_radius_km, opening_time, closing_time, prep_eta_minutes, commission_rate } = req.body;
+  if (!name || !region_id || !phone) {
+    return res.status(400).json({ error: 'Name, region_id, and phone are required' });
+  }
+  const users = db.getTable('users');
+  const newUserId = 'u-stk-' + generateId();
+  const newUser = {
+    id: newUserId,
+    tenant_id: 't1',
+    region_id,
+    phone: phone.trim(),
+    name: name.trim(),
+    role: 'STOCKIST',
+    kyc_status: 'APPROVED',
+    no_show_count: 0,
+    is_active: true,
+    created_at: new Date().toISOString()
+  };
+  users.push(newUser);
+  db.saveTable('users', users);
+  
+  const stockists = db.getTable('stockists');
+  const newStockistId = 's-' + generateId();
+  const newStockist = {
+    id: newStockistId,
+    tenant_id: 't1',
+    region_id,
+    user_id: newUserId,
+    name: name.trim(),
+    vendor_id: vendor_id || 'v1',
+    delivery_radius_km: parseFloat(delivery_radius_km) || 3.0,
+    min_order_value: 0,
+    is_active: true,
+    opening_time: opening_time || '08:00',
+    closing_time: closing_time || '20:00',
+    prep_eta_minutes: parseInt(prep_eta_minutes) || 15,
+    created_at: new Date().toISOString()
+  };
+  stockists.push(newStockist);
+  db.saveTable('stockists', stockists);
+  
+  const rateVal = parseFloat(commission_rate) || 10.0;
+  const rates = db.getTable('stockist_commission_rates');
+  rates.push({ id: 'scr-' + generateId(), stockist_id: newStockistId, rate_percent: rateVal, created_at: new Date().toISOString() });
+  db.saveTable('stockist_commission_rates', rates);
+  
+  if (vendor_id) {
+    const sv = db.getTable('stockist_vendors');
+    sv.push({ stockist_id: newStockistId, vendor_id, approved_at: new Date().toISOString() });
+    db.saveTable('stockist_vendors', sv);
+  }
+  
+  appendAudit(req, 'CREATE_STOCKIST', 'stockist', newStockistId, null, newStockist);
+  return res.json({ success: true, stockist: newStockist, user: newUser });
+});
+
+app.post('/api/admin/stockists/:id', (req, res) => {
+  const { id } = req.params;
+  const { name, address, opening_time, closing_time, prep_eta_minutes, delivery_radius_km } = req.body;
+  const stockists = db.getTable('stockists');
+  const stockist = stockists.find(s => s.id === id);
+  if (!stockist) return res.status(404).json({ error: 'Stockist not found' });
+  const before = { name: stockist.name, opening_time: stockist.opening_time, closing_time: stockist.closing_time, prep_eta_minutes: stockist.prep_eta_minutes, delivery_radius_km: stockist.delivery_radius_km };
+  if (name) stockist.name = name.trim();
+  if (opening_time) stockist.opening_time = opening_time;
+  if (closing_time) stockist.closing_time = closing_time;
+  if (prep_eta_minutes !== undefined) stockist.prep_eta_minutes = parseInt(prep_eta_minutes);
+  if (delivery_radius_km !== undefined) stockist.delivery_radius_km = parseFloat(delivery_radius_km);
+  db.saveTable('stockists', stockists);
+  
+  if (address) {
+    const users = db.getTable('users');
+    const user = users.find(u => u.id === stockist.user_id);
+    if (user) { user.address = address.trim(); db.saveTable('users', users); }
+  }
+  
+  appendAudit(req, 'EDIT_STOCKIST', 'stockist', id, before, stockist);
+  return res.json({ success: true, stockist });
+});
+
+app.post('/api/admin/stockists/:id/commission-rate', (req, res) => {
+  const { id } = req.params;
+  const { rate_percent, confirmationText } = req.body;
+  const numRate = parseFloat(rate_percent);
+  if (isNaN(numRate) || numRate < 0 || numRate > 100) {
+    return res.status(400).json({ error: 'Valid commission rate percent required (0-100)' });
+  }
+  const stockists = db.getTable('stockists');
+  const stockist = stockists.find(s => s.id === id);
+  if (!stockist) return res.status(404).json({ error: 'Stockist not found' });
+  
+  const rates = db.getTable('stockist_commission_rates');
+  const stkRates = rates.filter(r => r.stockist_id === id);
+  const currentRate = stkRates.length > 0 ? stkRates[stkRates.length - 1].rate_percent : 10.0;
+  
+  const orders = db.getTable('orders');
+  const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+  const delivered30d = orders.filter(o => o.stockist_id === id && o.status === 'DELIVERED' && new Date(o.created_at).getTime() >= thirtyDaysAgo);
+  
+  const currentEarnings = delivered30d.reduce((sum, o) => sum + ((parseFloat(o.subtotal) || 0) * (currentRate / 100)), 0);
+  const newEarnings = delivered30d.reduce((sum, o) => sum + ((parseFloat(o.subtotal) || 0) * (numRate / 100)), 0);
+  
+  if (confirmationText !== 'CONFIRM') {
+    return res.json({
+      preview: true,
+      current_rate: currentRate,
+      new_rate: numRate,
+      current_earnings_30d: currentEarnings,
+      new_earnings_30d: newEarnings
+    });
+  }
+  
+  rates.push({ id: 'scr-' + generateId(), stockist_id: id, rate_percent: numRate, created_at: new Date().toISOString() });
+  db.saveTable('stockist_commission_rates', rates);
+  
+  appendAudit(req, 'CHANGE_COMMISSION_RATE', 'stockist', id, { rate_percent: currentRate }, { rate_percent: numRate });
+  return res.json({
+    success: true,
+    current_rate: currentRate,
+    new_rate: numRate,
+    current_earnings_30d: currentEarnings,
+    new_earnings_30d: newEarnings
+  });
+});
+
+app.post('/api/admin/stockists/:id/region', (req, res) => {
+  const { id } = req.params;
+  const { region_id } = req.body;
+  if (!region_id) return res.status(400).json({ error: 'region_id is required' });
+  const stockists = db.getTable('stockists');
+  const stockist = stockists.find(s => s.id === id);
+  if (!stockist) return res.status(404).json({ error: 'Stockist not found' });
+  
+  const orders = db.getTable('orders').filter(o => o.stockist_id === id);
+  const activeBindingsCount = new Set(orders.map(o => o.customer_id)).size;
+  
+  const oldRegion = stockist.region_id;
+  stockist.region_id = region_id;
+  db.saveTable('stockists', stockists);
+  
+  const users = db.getTable('users');
+  const user = users.find(u => u.id === stockist.user_id);
+  if (user) { user.region_id = region_id; db.saveTable('users', users); }
+  
+  appendAudit(req, 'CHANGE_STOCKIST_REGION', 'stockist', id, { region_id: oldRegion }, { region_id }, `Bound active customers count: ${activeBindingsCount}`);
+  return res.json({ success: true, active_customer_bindings_count: activeBindingsCount, stockist });
+});
+
+app.post('/api/admin/stockists/:id/deactivate', (req, res) => {
+  const { id } = req.params;
+  const stockists = db.getTable('stockists');
+  const stockist = stockists.find(s => s.id === id);
+  if (!stockist) return res.status(404).json({ error: 'Stockist not found' });
+  stockist.is_active = false;
+  db.saveTable('stockists', stockists);
+  appendAudit(req, 'DEACTIVATE_STOCKIST', 'stockist', id, { is_active: true }, { is_active: false });
+  return res.json({ success: true, stockist });
+});
+
+app.post('/api/admin/stockists/:id/reactivate', (req, res) => {
+  const { id } = req.params;
+  const stockists = db.getTable('stockists');
+  const stockist = stockists.find(s => s.id === id);
+  if (!stockist) return res.status(404).json({ error: 'Stockist not found' });
+  stockist.is_active = true;
+  db.saveTable('stockists', stockists);
+  appendAudit(req, 'REACTIVATE_STOCKIST', 'stockist', id, { is_active: false }, { is_active: true });
+  return res.json({ success: true, stockist });
+});
+
+app.delete('/api/admin/stockists/:id', (req, res) => {
+  const { id } = req.params;
+  const orders = db.getTable('orders');
+  const hasOrders = orders.some(o => o.stockist_id === id);
+  if (hasOrders) {
+    return res.status(400).json({ error: 'Cannot delete: stockist has order history. Deactivate instead.' });
+  }
+  const stockists = db.getTable('stockists');
+  const idx = stockists.findIndex(s => s.id === id);
+  if (idx === -1) return res.status(404).json({ error: 'Stockist not found' });
+  const oldStockist = stockists[idx];
+  stockists.splice(idx, 1);
+  db.saveTable('stockists', stockists);
+  
+  if (oldStockist.user_id) {
+    const users = db.getTable('users');
+    const uIdx = users.findIndex(u => u.id === oldStockist.user_id);
+    if (uIdx !== -1) { users.splice(uIdx, 1); db.saveTable('users', users); }
+  }
+  
+  appendAudit(req, 'DELETE_STOCKIST', 'stockist', id, oldStockist, null);
+  return res.json({ success: true, message: 'Stockist deleted successfully' });
+});
+
+// Customer Fraud Reports (R4)
+app.post('/api/customer/fraud-reports', (req, res) => {
+  const { customerId, subject, description, linkedEntityType, linkedEntityId } = req.body;
+  if (!customerId || !subject) {
+    return res.status(400).json({ error: 'customerId and subject are required' });
+  }
+  if (!description || description.trim().length < 20) {
+    return res.status(400).json({ error: 'description must be at least 20 characters' });
+  }
+  const reports = db.getTable('fraud_reports');
+  const newReport = {
+    id: 'fr-' + generateId(),
+    reporter_customer_id: customerId,
+    subject: subject.trim(),
+    description: description.trim(),
+    linked_entity_type: linkedEntityType || null,
+    linked_entity_id: linkedEntityId || null,
+    status: 'NEW',
+    admin_notes: '',
+    created_at: new Date().toISOString(),
+    resolved_at: null
+  };
+  reports.push(newReport);
+  db.saveTable('fraud_reports', reports);
+  return res.json({ success: true, report: newReport });
+});
+
+app.get('/api/admin/fraud-reports', (req, res) => {
+  const reports = db.getTable('fraud_reports');
+  return res.json(reports);
+});
+
+app.post('/api/admin/fraud-reports/:id/status', (req, res) => {
+  const { id } = req.params;
+  const { status, adminNotes } = req.body;
+  const allowedStatuses = ['NEW', 'TRIAGING', 'RESOLVED', 'DISMISSED'];
+  if (!status || !allowedStatuses.includes(status)) {
+    return res.status(400).json({ error: 'Valid status required (NEW, TRIAGING, RESOLVED, DISMISSED)' });
+  }
+  if (['RESOLVED', 'DISMISSED'].includes(status)) {
+    if (!adminNotes || adminNotes.trim().length < 10) {
+      return res.status(400).json({ error: 'adminNotes (at least 10 chars) are required for RESOLVED or DISMISSED status' });
+    }
+  }
+  const reports = db.getTable('fraud_reports');
+  const report = reports.find(r => r.id === id);
+  if (!report) return res.status(404).json({ error: 'Report not found' });
+  
+  const before = { status: report.status, admin_notes: report.admin_notes };
+  report.status = status;
+  if (adminNotes) report.admin_notes = adminNotes.trim();
+  if (['RESOLVED', 'DISMISSED'].includes(status)) {
+    report.resolved_at = new Date().toISOString();
+  }
+  db.saveTable('fraud_reports', reports);
+  appendAudit(req, 'UPDATE_FRAUD_REPORT_STATUS', 'fraud_report', id, before, { status: report.status, admin_notes: report.admin_notes }, adminNotes);
+  return res.json({ success: true, report });
+});
+
+// Partner Leads Admin Operations (R7)
+app.post('/api/admin/partner-leads/:id/status', (req, res) => {
+  const { id } = req.params;
+  const { status } = req.body;
+  const allowed = ['NEW', 'CONTACTED', 'NEGOTIATING', 'ONBOARDED', 'REJECTED'];
+  if (!status || !allowed.includes(status)) {
+    return res.status(400).json({ error: 'Valid status required' });
+  }
+  const leads = db.getTable('partner_leads');
+  const lead = leads.find(l => l.id === id);
+  if (!lead) return res.status(404).json({ error: 'Lead not found' });
+  const before = { status: lead.status };
+  lead.status = status;
+  db.saveTable('partner_leads', leads);
+  appendAudit(req, 'UPDATE_PARTNER_LEAD_STATUS', 'partner_lead', id, before, { status });
+  return res.json({ success: true, lead });
+});
+
+app.post('/api/admin/partner-leads/:id/notes', (req, res) => {
+  const { id } = req.params;
+  const { text } = req.body;
+  if (!text || !text.trim()) return res.status(400).json({ error: 'text is required' });
+  const leads = db.getTable('partner_leads');
+  const lead = leads.find(l => l.id === id);
+  if (!lead) return res.status(404).json({ error: 'Lead not found' });
+  if (!lead.notes) lead.notes = [];
+  const noteObj = { text: text.trim(), admin_user_id: req.headers['x-admin-id'] || 'u-admin', timestamp: new Date().toISOString() };
+  lead.notes.push(noteObj);
+  db.saveTable('partner_leads', leads);
+  appendAudit(req, 'ADD_PARTNER_LEAD_NOTE', 'partner_lead', id, null, noteObj);
+  return res.json({ success: true, lead });
+});
+
+app.delete('/api/admin/partner-leads/:id', (req, res) => {
+  const { id } = req.params;
+  const leads = db.getTable('partner_leads');
+  const idx = leads.findIndex(l => l.id === id);
+  if (idx === -1) return res.status(404).json({ error: 'Lead not found' });
+  const oldLead = leads[idx];
+  leads.splice(idx, 1);
+  db.saveTable('partner_leads', leads);
+  appendAudit(req, 'DELETE_PARTNER_LEAD', 'partner_lead', id, oldLead, null);
+  return res.json({ success: true, message: 'Lead deleted' });
+});
+
+// Admin Audit Log (Part 3)
+app.get('/api/admin/audit-log', (req, res) => {
+  const logs = db.getTable('admin_audit_log');
+  return res.json(logs);
 });
 
 // Reset DB

@@ -126,7 +126,79 @@ export default function App() {
   const [checkoutResult, setCheckoutResult] = useState(null);
   const [customerSearch, setCustomerSearch] = useState('');
 
-  // New expansion states
+  // New expansion states & Round R
+  const [previousCustomerTab, setPreviousCustomerTab] = useState('home');
+  const [showRedeemConfirmModal, setShowRedeemConfirmModal] = useState(false);
+  const [redeemSuccessModal, setRedeemSuccessModal] = useState(false);
+
+  const [showFraudReportModal, setShowFraudReportModal] = useState(false);
+  const [fraudSubject, setFraudSubject] = useState('Stockist issue');
+  const [fraudDescription, setFraudDescription] = useState('');
+  const [fraudLinkedEntityType, setFraudLinkedEntityType] = useState('');
+  const [fraudLinkedEntityId, setFraudLinkedEntityId] = useState('');
+
+  const [adminRegionFilter, setAdminRegionFilter] = useState('ALL');
+  const [adminTab, setAdminTab] = useState('kyc');
+
+  const [adminCustomers, setAdminCustomers] = useState([]);
+  const [adminCustomerSearch, setAdminCustomerSearch] = useState('');
+  const [adminIncludeInactiveCustomers, setAdminIncludeInactiveCustomers] = useState(false);
+  const [selectedCustomerDetail, setSelectedCustomerDetail] = useState(null);
+  const [showEditCustomerModal, setShowEditCustomerModal] = useState(false);
+  const [editCustomerName, setEditCustomerName] = useState('');
+  const [editCustomerEmail, setEditCustomerEmail] = useState('');
+  const [showChangePhoneModal, setShowChangePhoneModal] = useState(false);
+  const [changePhoneCurrentOtp, setChangePhoneCurrentOtp] = useState('');
+  const [changePhoneNewNumber, setChangePhoneNewNumber] = useState('');
+  const [changePhoneNewOtp, setChangePhoneNewOtp] = useState('');
+  const [showPointsCreditModal, setShowPointsCreditModal] = useState(false);
+  const [pointsCreditAmount, setPointsCreditAmount] = useState('');
+  const [pointsCreditReason, setPointsCreditReason] = useState('');
+
+  const [adminStockists, setAdminStockists] = useState([]);
+  const [adminIncludeInactiveStockists, setAdminIncludeInactiveStockists] = useState(false);
+  const [selectedStockistDetail, setSelectedStockistDetail] = useState(null);
+  const [showCreateStockistModal, setShowCreateStockistModal] = useState(false);
+  const [createStkName, setCreateStkName] = useState('');
+  const [createStkRegion, setCreateStkRegion] = useState('r1');
+  const [createStkVendor, setCreateStkVendor] = useState('v1');
+  const [createStkPhone, setCreateStkPhone] = useState('');
+  const [createStkRadius, setCreateStkRadius] = useState('3.0');
+  const [createStkOpen, setCreateStkOpen] = useState('08:00');
+  const [createStkClose, setCreateStkClose] = useState('20:00');
+  const [createStkEta, setCreateStkEta] = useState('15');
+  const [createStkRate, setCreateStkRate] = useState('10.0');
+  const [showEditStockistModal, setShowEditStockistModal] = useState(false);
+  const [editStkName, setEditStkName] = useState('');
+  const [editStkAddress, setEditStkAddress] = useState('');
+  const [editStkOpen, setEditStkOpen] = useState('08:00');
+  const [editStkClose, setEditStkClose] = useState('20:00');
+  const [editStkEta, setEditStkEta] = useState('15');
+  const [editStkRadius, setEditStkRadius] = useState('3.0');
+  const [showCommissionRateModal, setShowCommissionRateModal] = useState(false);
+  const [newCommissionRate, setNewCommissionRate] = useState('');
+  const [commissionRatePreview, setCommissionRatePreview] = useState(null);
+  const [commissionTypedConfirm, setCommissionTypedConfirm] = useState('');
+  const [showStockistRegionModal, setShowStockistRegionModal] = useState(false);
+  const [newStockistRegion, setNewStockistRegion] = useState('r1');
+  const [stockistBindingsCount, setStockistBindingsCount] = useState(0);
+
+  const [partnerLeads, setPartnerLeads] = useState([]);
+  const [leadStatusFilter, setLeadStatusFilter] = useState('ALL');
+  const [selectedLeadDetail, setSelectedLeadDetail] = useState(null);
+  const [showAddLeadNoteModal, setShowAddLeadNoteModal] = useState(false);
+  const [newLeadNoteText, setNewLeadNoteText] = useState('');
+
+  const [adminFraudReports, setAdminFraudReports] = useState([]);
+  const [fraudReportTab, setFraudReportTab] = useState('NEW');
+  const [selectedFraudReportDetail, setSelectedFraudReportDetail] = useState(null);
+  const [fraudReportAdminNotes, setFraudReportAdminNotes] = useState('');
+
+  const [adminAuditLogs, setAdminAuditLogs] = useState([]);
+  const [auditFilterAdmin, setAuditFilterAdmin] = useState('');
+  const [auditFilterEntityType, setAuditFilterEntityType] = useState('');
+  const [auditFilterAction, setAuditFilterAction] = useState('');
+
   const [activeFulfillmentOrder, setActiveFulfillmentOrder] = useState(null);
   const [selectedPickupSlot, setSelectedPickupSlot] = useState(null);
   const [allStockistCommissionRates, setAllStockistCommissionRates] = useState([]);
@@ -351,13 +423,11 @@ export default function App() {
   const [selectedVendorId, setSelectedVendorId] = useState('');
 
   // Admin Dashboard State
-  const [adminTab, setAdminTab] = useState('kyc'); // kyc, rates, anomalies, redemptions, vendors, leads
   const [pendingKyc, setPendingKyc] = useState([]);
   const [commissionRates, setCommissionRates] = useState([]);
   const [anomalies, setAnomalies] = useState([]);
   const [pendingRedemptions, setPendingRedemptions] = useState([]);
   const [adminNewVendor, setAdminNewVendor] = useState('');
-  const [partnerLeads, setPartnerLeads] = useState([]);
   const [partnerName, setPartnerName] = useState('');
   const [partnerPhone, setPartnerPhone] = useState('');
   
@@ -787,6 +857,16 @@ export default function App() {
         const pointsEarnConfigs = await pecRes.json();
         const feedbackReports = await fbRes.json();
         const leads = await leadsRes.json();
+
+        const custsRes = await fetch(`${API_BASE}/admin/customers?include_inactive=true`);
+        const stksRes = await fetch(`${API_BASE}/admin/stockists?include_inactive=true`);
+        const fraudRes = await fetch(`${API_BASE}/admin/fraud-reports`);
+        const auditRes = await fetch(`${API_BASE}/admin/audit-log`);
+
+        if (custsRes.ok) setAdminCustomers(await custsRes.json());
+        if (stksRes.ok) setAdminStockists(await stksRes.json());
+        if (fraudRes.ok) setAdminFraudReports(await fraudRes.json());
+        if (auditRes.ok) setAdminAuditLogs(await auditRes.json());
 
         setPendingKyc(pendingKyc);
         setCommissionRates(rates);
@@ -1442,7 +1522,11 @@ export default function App() {
       showToast('Insufficient points balance', 'error');
       return;
     }
+    setShowRedeemConfirmModal(true);
+  };
 
+  const executeRedeemPoints = async () => {
+    setShowRedeemConfirmModal(false);
     try {
       const payload = { 
         customerId: currentUser.id, 
@@ -1458,19 +1542,364 @@ export default function App() {
       logApi('POST', '/ledger/redeem', payload, res.status, data);
 
       if (res.ok) {
-        showToast(`Redeemed ${redeemAmount} points against ISP bill! (বিল ডিসকাউন্ট করা হয়েছে)`);
         setDiscountApplied(prev => prev + parseFloat(redeemAmount));
         setRedeemAmount('');
         loadCustomerData();
         if (tourStep === 3) {
           setTourStep(4);
         }
+        setRedeemSuccessModal(true);
       } else {
         showToast(data.error || 'Redemption failed', 'error');
       }
     } catch (err) {
       showToast('Redemption service error', 'error');
     }
+  };
+
+  const handleSubmitFraudReport = async () => {
+    if (!fraudSubject || !fraudSubject.trim()) {
+      showToast('Please select a subject', 'error');
+      return;
+    }
+    if (!fraudDescription || fraudDescription.trim().length < 20) {
+      showToast('Description must be at least 20 characters long', 'error');
+      return;
+    }
+    try {
+      const payload = {
+        customerId: currentUser.id,
+        subject: fraudSubject,
+        description: fraudDescription,
+        linkedEntityType: fraudLinkedEntityType || null,
+        linkedEntityId: fraudLinkedEntityId || null
+      };
+      const res = await fetch(`${API_BASE}/customer/fraud-reports`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast('Report submitted. Our team will review it.', 'success');
+        setShowFraudReportModal(false);
+        setFraudDescription('');
+        setFraudLinkedEntityType('');
+        setFraudLinkedEntityId('');
+        fetchDbState();
+      } else {
+        showToast(data.error || 'Report submission failed', 'error');
+      }
+    } catch (err) {
+      showToast('Error submitting report', 'error');
+    }
+  };
+
+  // Admin Handlers (R5 Customers)
+  const handleSaveEditCustomer = async () => {
+    if (!selectedCustomerDetail) return;
+    try {
+      const res = await fetch(`${API_BASE}/admin/customers/${selectedCustomerDetail.id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: editCustomerName, email: editCustomerEmail })
+      });
+      if (res.ok) {
+        showToast('Customer updated', 'success');
+        setShowEditCustomerModal(false);
+        fetchDbState();
+      } else {
+        const d = await res.json();
+        showToast(d.error || 'Update failed', 'error');
+      }
+    } catch (e) { showToast('Error updating customer', 'error'); }
+  };
+
+  const handleChangeCustomerPhone = async () => {
+    if (!selectedCustomerDetail) return;
+    try {
+      const res = await fetch(`${API_BASE}/admin/customers/${selectedCustomerDetail.id}/phone-change`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ currentPhoneOtp: changePhoneCurrentOtp || '123456', newPhone: changePhoneNewNumber, newPhoneOtp: changePhoneNewOtp || '123456' })
+      });
+      if (res.ok) {
+        showToast('Phone number updated successfully', 'success');
+        setShowChangePhoneModal(false);
+        setChangePhoneCurrentOtp(''); setChangePhoneNewNumber(''); setChangePhoneNewOtp('');
+        fetchDbState();
+      } else {
+        const d = await res.json();
+        showToast(d.error || 'Phone change failed', 'error');
+      }
+    } catch (e) { showToast('Error changing phone', 'error'); }
+  };
+
+  const handleIssuePointsCredit = async () => {
+    if (!selectedCustomerDetail) return;
+    if (!pointsCreditAmount || parseFloat(pointsCreditAmount) <= 0) {
+      showToast('Enter a positive points amount', 'error');
+      return;
+    }
+    if (!pointsCreditReason || !pointsCreditReason.trim()) {
+      showToast('Reason is required', 'error');
+      return;
+    }
+    try {
+      const res = await fetch(`${API_BASE}/admin/customers/${selectedCustomerDetail.id}/points-credit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount: pointsCreditAmount, reason: pointsCreditReason })
+      });
+      if (res.ok) {
+        showToast('Points credited successfully', 'success');
+        setShowPointsCreditModal(false);
+        setPointsCreditAmount(''); setPointsCreditReason('');
+        fetchDbState();
+      } else {
+        const d = await res.json();
+        showToast(d.error || 'Points credit failed', 'error');
+      }
+    } catch (e) { showToast('Error crediting points', 'error'); }
+  };
+
+  const handleToggleCustomerDeactivate = async (cust) => {
+    const endpoint = cust.is_active ? 'deactivate' : 'reactivate';
+    try {
+      const res = await fetch(`${API_BASE}/admin/customers/${cust.id}/${endpoint}`, { method: 'POST' });
+      if (res.ok) {
+        showToast(`Customer ${cust.is_active ? 'deactivated' : 'reactivated'}`, 'success');
+        fetchDbState();
+      } else {
+        const d = await res.json();
+        showToast(d.error || 'Action failed', 'error');
+      }
+    } catch (e) { showToast('Error updating customer status', 'error'); }
+  };
+
+  // Admin Handlers (R6 Stockists)
+  const handleCreateStockist = async () => {
+    if (!createStkName || !createStkPhone) {
+      showToast('Name and phone are required', 'error');
+      return;
+    }
+    try {
+      const payload = {
+        name: createStkName,
+        region_id: createStkRegion,
+        vendor_id: createStkVendor,
+        phone: createStkPhone,
+        delivery_radius_km: createStkRadius,
+        opening_time: createStkOpen,
+        closing_time: createStkClose,
+        prep_eta_minutes: createStkEta,
+        commission_rate: createStkRate
+      };
+      const res = await fetch(`${API_BASE}/admin/stockists`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) {
+        showToast('New stockist created successfully', 'success');
+        setShowCreateStockistModal(false);
+        setCreateStkName(''); setCreateStkPhone('');
+        fetchDbState();
+      } else {
+        const d = await res.json();
+        showToast(d.error || 'Failed to create stockist', 'error');
+      }
+    } catch (e) { showToast('Error creating stockist', 'error'); }
+  };
+
+  const handleEditStockist = async () => {
+    if (!selectedStockistDetail) return;
+    try {
+      const payload = {
+        name: editStkName,
+        address: editStkAddress,
+        opening_time: editStkOpen,
+        closing_time: editStkClose,
+        prep_eta_minutes: editStkEta,
+        delivery_radius_km: editStkRadius
+      };
+      const res = await fetch(`${API_BASE}/admin/stockists/${selectedStockistDetail.id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) {
+        showToast('Stockist details updated', 'success');
+        setShowEditStockistModal(false);
+        fetchDbState();
+      } else {
+        const d = await res.json();
+        showToast(d.error || 'Update failed', 'error');
+      }
+    } catch (e) { showToast('Error updating stockist', 'error'); }
+  };
+
+  const handlePreviewCommissionRate = async () => {
+    if (!selectedStockistDetail || !newCommissionRate) return;
+    try {
+      const res = await fetch(`${API_BASE}/admin/stockists/${selectedStockistDetail.id}/commission-rate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rate_percent: newCommissionRate })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setCommissionRatePreview(data);
+      } else {
+        showToast(data.error || 'Preview calculation failed', 'error');
+      }
+    } catch (e) { showToast('Error fetching rate preview', 'error'); }
+  };
+
+  const handleSubmitCommissionRate = async () => {
+    if (!selectedStockistDetail || !newCommissionRate) return;
+    if (commissionTypedConfirm !== 'CONFIRM') {
+      showToast('Type CONFIRM to apply commission rate change', 'error');
+      return;
+    }
+    try {
+      const res = await fetch(`${API_BASE}/admin/stockists/${selectedStockistDetail.id}/commission-rate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rate_percent: newCommissionRate, confirmationText: 'CONFIRM' })
+      });
+      if (res.ok) {
+        showToast('Commission rate updated successfully', 'success');
+        setShowCommissionRateModal(false);
+        setNewCommissionRate(''); setCommissionRatePreview(null); setCommissionTypedConfirm('');
+        fetchDbState();
+      } else {
+        const d = await res.json();
+        showToast(d.error || 'Update failed', 'error');
+      }
+    } catch (e) { showToast('Error updating commission rate', 'error'); }
+  };
+
+  const handleChangeStockistRegion = async () => {
+    if (!selectedStockistDetail) return;
+    try {
+      const res = await fetch(`${API_BASE}/admin/stockists/${selectedStockistDetail.id}/region`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ region_id: newStockistRegion })
+      });
+      if (res.ok) {
+        showToast('Stockist region changed successfully', 'success');
+        setShowStockistRegionModal(false);
+        fetchDbState();
+      } else {
+        const d = await res.json();
+        showToast(d.error || 'Region change failed', 'error');
+      }
+    } catch (e) { showToast('Error changing region', 'error'); }
+  };
+
+  const handleToggleStockistDeactivate = async (stk) => {
+    const endpoint = stk.is_active ? 'deactivate' : 'reactivate';
+    try {
+      const res = await fetch(`${API_BASE}/admin/stockists/${stk.id}/${endpoint}`, { method: 'POST' });
+      if (res.ok) {
+        showToast(`Stockist ${stk.is_active ? 'deactivated' : 'reactivated'}`, 'success');
+        fetchDbState();
+      } else {
+        const d = await res.json();
+        showToast(d.error || 'Action failed', 'error');
+      }
+    } catch (e) { showToast('Error updating stockist status', 'error'); }
+  };
+
+  const handleDeleteStockist = async (stk) => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/stockists/${stk.id}`, { method: 'DELETE' });
+      if (res.ok) {
+        showToast('Stockist deleted', 'success');
+        fetchDbState();
+      } else {
+        const d = await res.json();
+        showToast(d.error || 'Cannot delete: stockist has order history. Deactivate instead.', 'error');
+      }
+    } catch (e) { showToast('Error deleting stockist', 'error'); }
+  };
+
+  // Admin Handlers (R7 Partner Leads)
+  const handleUpdateLeadStatus = async (leadId, status) => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/partner-leads/${leadId}/status`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status })
+      });
+      if (res.ok) {
+        showToast(`Lead status updated to ${status}`, 'success');
+        fetchDbState();
+      } else {
+        const d = await res.json();
+        showToast(d.error || 'Status update failed', 'error');
+      }
+    } catch (e) { showToast('Error updating lead status', 'error'); }
+  };
+
+  const handleAddLeadNote = async () => {
+    if (!selectedLeadDetail || !newLeadNoteText || !newLeadNoteText.trim()) return;
+    try {
+      const res = await fetch(`${API_BASE}/admin/partner-leads/${selectedLeadDetail.id}/notes`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: newLeadNoteText })
+      });
+      if (res.ok) {
+        showToast('Note added', 'success');
+        setNewLeadNoteText('');
+        setShowAddLeadNoteModal(false);
+        fetchDbState();
+      } else {
+        const d = await res.json();
+        showToast(d.error || 'Failed to add note', 'error');
+      }
+    } catch (e) { showToast('Error adding note', 'error'); }
+  };
+
+  const handleDeleteLead = async (leadId) => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/partner-leads/${leadId}`, { method: 'DELETE' });
+      if (res.ok) {
+        showToast('Lead deleted', 'success');
+        setSelectedLeadDetail(null);
+        fetchDbState();
+      } else {
+        const d = await res.json();
+        showToast(d.error || 'Delete failed', 'error');
+      }
+    } catch (e) { showToast('Error deleting lead', 'error'); }
+  };
+
+  // Admin Handlers (R8 Fraud Reports)
+  const handleUpdateFraudReportStatus = async (reportId, status, notes = '') => {
+    if (['RESOLVED', 'DISMISSED'].includes(status) && (!notes || notes.trim().length < 10)) {
+      showToast('Admin notes (at least 10 chars) are required to resolve or dismiss', 'error');
+      return;
+    }
+    try {
+      const res = await fetch(`${API_BASE}/admin/fraud-reports/${reportId}/status`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status, adminNotes: notes })
+      });
+      if (res.ok) {
+        showToast(`Fraud report ${status.toLowerCase()}`, 'success');
+        setSelectedFraudReportDetail(null);
+        setFraudReportAdminNotes('');
+        fetchDbState();
+      } else {
+        const d = await res.json();
+        showToast(d.error || 'Status update failed', 'error');
+      }
+    } catch (e) { showToast('Error updating fraud report', 'error'); }
   };
 
   // ----------------------------------------------------
@@ -4221,8 +4650,40 @@ export default function App() {
             </div>
           </div>
 
+          {/* Shared Region Filter */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'var(--bg-surface)', padding: '0.5rem 1rem', borderRadius: '8px', border: '1px solid var(--border-color)', marginBottom: '1rem' }}>
+            <MapPin size={14} style={{ color: 'var(--primary)' }} />
+            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Region Filter:</span>
+            <select 
+              className="text-input" 
+              style={{ fontSize: '0.8rem', padding: '0.25rem 0.5rem', width: 'auto' }}
+              value={adminRegionFilter}
+              onChange={e => setAdminRegionFilter(e.target.value)}
+            >
+              <option value="ALL">All Regions</option>
+              {regions.map(r => (
+                <option key={r.id} value={r.id}>{r.name}</option>
+              ))}
+            </select>
+          </div>
+
           <div className="admin-grid">
             <div className="admin-sidebar">
+              <button className={`admin-nav-item ${adminTab === 'customers' ? 'active' : ''}`} onClick={() => setAdminTab('customers')}>
+                <UserCheck size={16} /> All Customers ({adminCustomers.length})
+              </button>
+              <button className={`admin-nav-item ${adminTab === 'stockists' ? 'active' : ''}`} onClick={() => setAdminTab('stockists')}>
+                <Store size={16} /> All Stockists ({adminStockists.length})
+              </button>
+              <button className={`admin-nav-item ${adminTab === 'leads' ? 'active' : ''}`} onClick={() => setAdminTab('leads')}>
+                <UserPlus size={16} /> All Partners ({partnerLeads.length})
+              </button>
+              <button className={`admin-nav-item ${adminTab === 'fraud_reports' ? 'active' : ''}`} onClick={() => setAdminTab('fraud_reports')}>
+                <AlertTriangle size={16} /> Fraud Reports {adminFraudReports.filter(r=>['NEW','TRIAGING'].includes(r.status)).length > 0 && <span className="badge badge-warning" style={{ marginLeft: '0.25rem', fontSize: '0.65rem' }}>{adminFraudReports.filter(r=>['NEW','TRIAGING'].includes(r.status)).length}</span>}
+              </button>
+              <button className={`admin-nav-item ${adminTab === 'audit_log' ? 'active' : ''}`} onClick={() => setAdminTab('audit_log')}>
+                <FileText size={16} /> Audit Log
+              </button>
               <button className={`admin-nav-item ${adminTab === 'kyc' ? 'active' : ''}`} onClick={() => setAdminTab('kyc')}>
                 <UserCheck size={16} /> Shop Approvals Queue ({pendingKyc.length})
               </button>
@@ -4244,13 +4705,345 @@ export default function App() {
               <button className={`admin-nav-item ${adminTab === 'transactions' ? 'active' : ''}`} onClick={() => setAdminTab('transactions')}>
                 <ArrowRightLeft size={16} /> All Transactions {refundDueCount > 0 && <span className="badge badge-danger" style={{ marginLeft: '0.25rem', fontSize: '0.65rem' }}>{refundDueCount}</span>}
               </button>
-              <button className={`admin-nav-item ${adminTab === 'leads' ? 'active' : ''}`} onClick={() => setAdminTab('leads')}>
-                <UserCheck size={16} /> Partner Leads ({partnerLeads.length})
-              </button>
             </div>
 
             <div className="admin-content">
               
+              {adminTab === 'customers' && (
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                    <h2 style={{ fontSize: '1.4rem', margin: 0 }}>All Customers</h2>
+                    <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+                      <input 
+                        type="text" 
+                        placeholder="Search by name or phone..." 
+                        className="text-input" 
+                        style={{ width: '220px', fontSize: '0.8rem', padding: '0.3rem 0.6rem' }} 
+                        value={adminCustomerSearch}
+                        onChange={e => setAdminCustomerSearch(e.target.value)}
+                      />
+                      <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.35rem', cursor: 'pointer' }}>
+                        <input 
+                          type="checkbox" 
+                          checked={adminIncludeInactiveCustomers} 
+                          onChange={e => setAdminIncludeInactiveCustomers(e.target.checked)} 
+                        />
+                        Show Deactivated
+                      </label>
+                    </div>
+                  </div>
+
+                  <table className="admin-table">
+                    <thead>
+                      <tr>
+                        <th>Name</th>
+                        <th>Phone</th>
+                        <th>Region</th>
+                        <th>Points Balance</th>
+                        <th>Total Orders</th>
+                        <th>Joined Date</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {adminCustomers
+                        .filter(c => adminRegionFilter === 'ALL' || c.region_id === adminRegionFilter)
+                        .filter(c => adminIncludeInactiveCustomers ? true : c.is_active !== false)
+                        .filter(c => (c.name || '').toLowerCase().includes(adminCustomerSearch.toLowerCase()) || (c.phone || '').includes(adminCustomerSearch))
+                        .map(c => (
+                          <tr key={c.id} style={c.is_active === false ? { opacity: 0.6, background: 'rgba(255,255,255,0.02)' } : {}}>
+                            <td style={{ fontWeight: 'bold' }}>{c.name}</td>
+                            <td>{c.phone}</td>
+                            <td>{regions.find(r => r.id === c.region_id)?.name || c.region_id}</td>
+                            <td style={{ color: 'var(--accent)', fontWeight: 'bold' }}>{formatPoints(c.points_balance || 0)}</td>
+                            <td>{c.total_orders || 0}</td>
+                            <td>{c.created_at ? new Date(c.created_at).toLocaleDateString() : 'N/A'}</td>
+                            <td>
+                              <span className={`badge ${c.is_active !== false ? 'badge-success' : 'badge-secondary'}`}>
+                                {c.is_active !== false ? 'Active' : 'Inactive'}
+                              </span>
+                            </td>
+                            <td>
+                              <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+                                <button className="btn btn-secondary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem' }} onClick={async () => {
+                                  const res = await fetch(`${API_BASE}/admin/customers/${c.id}`);
+                                  if (res.ok) setSelectedCustomerDetail(await res.json());
+                                }}>
+                                  Details
+                                </button>
+                                <button className="btn btn-secondary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem' }} onClick={() => {
+                                  setSelectedCustomerDetail(c); setEditCustomerName(c.name || ''); setEditCustomerEmail(c.email || ''); setShowEditCustomerModal(true);
+                                }}>
+                                  Edit
+                                </button>
+                                <button className="btn btn-secondary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem' }} onClick={() => {
+                                  setSelectedCustomerDetail(c); setChangePhoneNewNumber(c.phone || ''); setShowChangePhoneModal(true);
+                                }}>
+                                  Change Phone
+                                </button>
+                                <button className="btn btn-accent" style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem' }} onClick={() => {
+                                  setSelectedCustomerDetail(c); setPointsCreditAmount(''); setPointsCreditReason(''); setShowPointsCreditModal(true);
+                                }}>
+                                  + Points
+                                </button>
+                                <button className={`btn ${c.is_active !== false ? 'btn-danger' : 'btn-secondary'}`} style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem' }} onClick={() => handleToggleCustomerDeactivate(c)}>
+                                  {c.is_active !== false ? 'Deactivate' : 'Reactivate'}
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {adminTab === 'stockists' && (
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                    <h2 style={{ fontSize: '1.4rem', margin: 0 }}>All Stockists</h2>
+                    <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+                      <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.35rem', cursor: 'pointer' }}>
+                        <input 
+                          type="checkbox" 
+                          checked={adminIncludeInactiveStockists} 
+                          onChange={e => setAdminIncludeInactiveStockists(e.target.checked)} 
+                        />
+                        Show Inactive
+                      </label>
+                      <button className="btn btn-accent" style={{ fontSize: '0.8rem', padding: '0.35rem 0.75rem' }} onClick={() => setShowCreateStockistModal(true)}>
+                        + Add New Stockist
+                      </button>
+                    </div>
+                  </div>
+
+                  <table className="admin-table">
+                    <thead>
+                      <tr>
+                        <th>Name / Shop</th>
+                        <th>Region</th>
+                        <th>Vendor</th>
+                        <th>Commission Rate</th>
+                        <th>30d Earnings (GMV)</th>
+                        <th>Pending Orders</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {adminStockists
+                        .filter(s => adminRegionFilter === 'ALL' || s.region_id === adminRegionFilter)
+                        .filter(s => adminIncludeInactiveStockists ? true : s.is_active !== false)
+                        .map(s => {
+                          const vName = vendors.find(v => v.id === s.vendor_id)?.name || s.vendor_id || 'N/A';
+                          return (
+                            <tr key={s.id} style={s.is_active === false ? { opacity: 0.6, background: 'rgba(255,255,255,0.02)' } : {}}>
+                              <td style={{ fontWeight: 'bold' }}>{s.name}</td>
+                              <td>{regions.find(r => r.id === s.region_id)?.name || s.region_id}</td>
+                              <td>{vName}</td>
+                              <td style={{ color: 'var(--primary)', fontWeight: 'bold' }}>{s.commission_rate}%</td>
+                              <td style={{ color: 'var(--accent)', fontWeight: 'bold' }}>₹{(s.gmv_30d || 0).toFixed(2)}</td>
+                              <td>{s.pending_orders_count || 0}</td>
+                              <td>
+                                <span className={`badge ${s.is_active !== false ? 'badge-success' : 'badge-secondary'}`}>
+                                  {s.is_active !== false ? 'Active' : 'Inactive'}
+                                </span>
+                              </td>
+                              <td>
+                                <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+                                  <button className="btn btn-secondary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem' }} onClick={async () => {
+                                    const res = await fetch(`${API_BASE}/admin/stockists/${s.id}`);
+                                    if (res.ok) setSelectedStockistDetail(await res.json());
+                                  }}>
+                                    Details
+                                  </button>
+                                  <button className="btn btn-secondary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem' }} onClick={() => {
+                                    setSelectedStockistDetail(s); setEditStkName(s.name); setEditStkAddress(s.address || ''); setEditStkOpen(s.opening_time || '08:00'); setEditStkClose(s.closing_time || '20:00'); setEditStkEta(s.prep_eta_minutes || 15); setEditStkRadius(s.delivery_radius_km || 3.0); setShowEditStockistModal(true);
+                                  }}>
+                                    Edit
+                                  </button>
+                                  <button className="btn btn-secondary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem' }} onClick={() => {
+                                    setSelectedStockistDetail(s); setNewCommissionRate(s.commission_rate.toString()); setCommissionRatePreview(null); setCommissionTypedConfirm(''); setShowCommissionRateModal(true);
+                                  }}>
+                                    Commission
+                                  </button>
+                                  <button className="btn btn-secondary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem' }} onClick={async () => {
+                                    setSelectedStockistDetail(s); setNewStockistRegion(s.region_id);
+                                    const ordersRes = await fetch(`${API_BASE}/orders?stockistId=${s.id}`);
+                                    if (ordersRes.ok) {
+                                      const oList = await ordersRes.json();
+                                      setStockistBindingsCount(new Set(oList.map(ord => ord.customer_id)).size);
+                                    }
+                                    setShowStockistRegionModal(true);
+                                  }}>
+                                    Region
+                                  </button>
+                                  <button className={`btn ${s.is_active !== false ? 'btn-warning' : 'btn-secondary'}`} style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem' }} onClick={() => handleToggleStockistDeactivate(s)}>
+                                    {s.is_active !== false ? 'Deactivate' : 'Reactivate'}
+                                  </button>
+                                  {s.hasOrders ? (
+                                    <button className="btn btn-secondary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem', opacity: 0.4, cursor: 'not-allowed' }} title="Cannot delete: stockist has order history. Deactivate instead." disabled>
+                                      Delete
+                                    </button>
+                                  ) : (
+                                    <button className="btn btn-danger" style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem' }} onClick={() => handleDeleteStockist(s)}>
+                                      Delete
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {adminTab === 'fraud_reports' && (
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                    <h2 style={{ fontSize: '1.4rem', margin: 0 }}>Fraud Reports Queue</h2>
+                    <div style={{ display: 'flex', gap: '0.35rem' }}>
+                      {['NEW', 'TRIAGING', 'RESOLVED', 'DISMISSED'].map(st => {
+                        const cnt = adminFraudReports.filter(r => r.status === st).length;
+                        return (
+                          <button 
+                            key={st}
+                            className={`btn ${fraudReportTab === st ? 'btn-primary' : 'btn-secondary'}`}
+                            style={{ fontSize: '0.75rem', padding: '0.25rem 0.6rem' }}
+                            onClick={() => setFraudReportTab(st)}
+                          >
+                            {st} ({cnt})
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <table className="admin-table">
+                    <thead>
+                      <tr>
+                        <th>Submitted</th>
+                        <th>Reporter ID</th>
+                        <th>Subject</th>
+                        <th>Linked Entity</th>
+                        <th>Description Preview</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {adminFraudReports
+                        .filter(r => r.status === fraudReportTab)
+                        .map(r => (
+                          <tr key={r.id}>
+                            <td>{new Date(r.created_at).toLocaleString()}</td>
+                            <td style={{ fontFamily: 'monospace' }}>{r.reporter_customer_id}</td>
+                            <td style={{ fontWeight: 'bold' }}>{r.subject}</td>
+                            <td>{r.linked_entity_type ? `${r.linked_entity_type}:${r.linked_entity_id}` : 'None'}</td>
+                            <td style={{ fontSize: '0.75rem', color: 'var(--text-muted)', maxWidth: '220px', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                              {r.description}
+                            </td>
+                            <td>
+                              <span className={`badge ${r.status === 'NEW' ? 'badge-warning' : r.status === 'TRIAGING' ? 'badge-primary' : r.status === 'RESOLVED' ? 'badge-success' : 'badge-secondary'}`}>
+                                {r.status}
+                              </span>
+                            </td>
+                            <td>
+                              <button className="btn btn-secondary" style={{ padding: '0.2rem 0.5rem', fontSize: '0.65rem' }} onClick={() => {
+                                setSelectedFraudReportDetail(r); setFraudReportAdminNotes(r.admin_notes || '');
+                              }}>
+                                Review & Action
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      {adminFraudReports.filter(r => r.status === fraudReportTab).length === 0 && (
+                        <tr>
+                          <td colSpan="7" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
+                            No reports in {fraudReportTab} status.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {adminTab === 'audit_log' && (
+                <div>
+                  <h2 style={{ fontSize: '1.4rem', marginBottom: '1rem' }}>Admin Audit Log</h2>
+                  <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1rem' }}>
+                    <input 
+                      type="text" 
+                      placeholder="Filter by Admin ID..." 
+                      className="text-input" 
+                      style={{ width: '180px', fontSize: '0.75rem', padding: '0.25rem 0.5rem' }} 
+                      value={auditFilterAdmin} 
+                      onChange={e => setAuditFilterAdmin(e.target.value)} 
+                    />
+                    <input 
+                      type="text" 
+                      placeholder="Filter by Entity Type..." 
+                      className="text-input" 
+                      style={{ width: '180px', fontSize: '0.75rem', padding: '0.25rem 0.5rem' }} 
+                      value={auditFilterEntityType} 
+                      onChange={e => setAuditFilterEntityType(e.target.value)} 
+                    />
+                    <input 
+                      type="text" 
+                      placeholder="Filter by Action..." 
+                      className="text-input" 
+                      style={{ width: '180px', fontSize: '0.75rem', padding: '0.25rem 0.5rem' }} 
+                      value={auditFilterAction} 
+                      onChange={e => setAuditFilterAction(e.target.value)} 
+                    />
+                  </div>
+
+                  <table className="admin-table">
+                    <thead>
+                      <tr>
+                        <th>Timestamp</th>
+                        <th>Admin User</th>
+                        <th>Action</th>
+                        <th>Entity Type</th>
+                        <th>Entity ID</th>
+                        <th>Reason</th>
+                        <th>Details</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {adminAuditLogs
+                        .filter(log => !auditFilterAdmin || (log.admin_user_id || '').toLowerCase().includes(auditFilterAdmin.toLowerCase()))
+                        .filter(log => !auditFilterEntityType || (log.entity_type || '').toLowerCase().includes(auditFilterEntityType.toLowerCase()))
+                        .filter(log => !auditFilterAction || (log.action || '').toLowerCase().includes(auditFilterAction.toLowerCase()))
+                        .map(log => (
+                          <tr key={log.id}>
+                            <td style={{ fontSize: '0.7rem' }}>{new Date(log.created_at).toLocaleString()}</td>
+                            <td style={{ fontWeight: 'bold' }}>{log.admin_user_id}</td>
+                            <td><span className="badge badge-primary" style={{ fontSize: '0.65rem' }}>{log.action}</span></td>
+                            <td>{log.entity_type}</td>
+                            <td style={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>{log.entity_id}</td>
+                            <td style={{ fontSize: '0.75rem' }}>{log.reason || 'N/A'}</td>
+                            <td style={{ fontSize: '0.65rem', fontFamily: 'monospace', maxWidth: '250px', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                              {JSON.stringify({ before: log.before, after: log.after })}
+                            </td>
+                          </tr>
+                        ))}
+                      {adminAuditLogs.length === 0 && (
+                        <tr>
+                          <td colSpan="7" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
+                            No audit log entries recorded.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
               {adminTab === 'kyc' && (
                 <div>
                   <h2 style={{ fontSize: '1.4rem', marginBottom: '1rem' }}>Shopkeeper Registration Queue</h2>
@@ -4713,7 +5506,7 @@ export default function App() {
                         <th>Subtotal</th>
                         <th>Delivery Fee</th>
                         <th>Shop Share</th>
-                        <th>ISP Share</th>
+                        <th>Company Share</th>
                         <th>Points</th>
                         <th>Payment / Release</th>
                       </tr>
@@ -5140,6 +5933,502 @@ export default function App() {
           </aside>
         )}
       </div>
+
+      {/* R3 Confirmation Modal */}
+      {showRedeemConfirmModal && (
+        <div className="modal-overlay">
+          <div className="modal-content glass-card" style={{ maxWidth: '400px' }}>
+            <h3>Confirm Points Redemption</h3>
+            <p style={{ margin: '1rem 0', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+              Are you sure you want to redeem {redeemAmount} points for broadband bill discount?
+            </p>
+            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
+              <button className="btn btn-secondary" onClick={() => setShowRedeemConfirmModal(false)}>Cancel</button>
+              <button className="btn btn-accent" onClick={executeRedeemPoints}>Yes, Redeem</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* R3 Success Modal */}
+      {redeemSuccessModal && (
+        <div className="modal-overlay">
+          <div className="modal-content glass-card" style={{ maxWidth: '400px', textAlign: 'center' }}>
+            <div style={{ color: 'var(--accent)', marginBottom: '0.5rem' }}>
+              <CheckCircle2 size={40} style={{ margin: '0 auto' }} />
+            </div>
+            <h3>Redemption successful!</h3>
+            <p style={{ margin: '1rem 0', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+              Your local cable/internet provider will contact you soon to activate your reward.
+            </p>
+            <button 
+              className="btn btn-primary" 
+              style={{ width: '100%' }} 
+              onClick={() => {
+                setRedeemSuccessModal(false);
+                setCustomerAppTab('ledger');
+              }}
+            >
+              View my points
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* R4 Customer Fraud Report Modal */}
+      {showFraudReportModal && (
+        <div className="modal-overlay">
+          <div className="modal-content glass-card" style={{ maxWidth: '450px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h3 style={{ fontSize: '1.1rem', margin: 0 }}>Report a Problem</h3>
+              <button className="btn btn-secondary" style={{ padding: '0.2rem 0.5rem' }} onClick={() => setShowFraudReportModal(false)}><X size={14} /></button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+              <div className="input-group">
+                <label className="input-label">Subject</label>
+                <select className="text-input" value={fraudSubject} onChange={e => setFraudSubject(e.target.value)}>
+                  <option value="Stockist issue">Stockist issue</option>
+                  <option value="Redemption issue">Redemption issue</option>
+                  <option value="Points not credited">Points not credited</option>
+                  <option value="Suspicious activity">Suspicious activity</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+              <div className="input-group">
+                <label className="input-label">Description (min 20 chars)</label>
+                <textarea 
+                  className="text-input" 
+                  rows={4}
+                  placeholder="Provide details of the problem..." 
+                  value={fraudDescription} 
+                  onChange={e => setFraudDescription(e.target.value)} 
+                />
+                <small style={{ color: fraudDescription.trim().length >= 20 ? 'var(--accent)' : 'var(--text-muted)', fontSize: '0.65rem' }}>
+                  {fraudDescription.trim().length}/20 chars min
+                </small>
+              </div>
+              <div className="input-group">
+                <label className="input-label">Linked Order or Ledger Entry (Optional)</label>
+                <select className="text-input" value={fraudLinkedEntityId} onChange={e => {
+                  const val = e.target.value;
+                  setFraudLinkedEntityId(val);
+                  if (val.startsWith('o-') || val.startsWith('ord-')) setFraudLinkedEntityType('order');
+                  else if (val.startsWith('l-') || val.startsWith('pl-')) setFraudLinkedEntityType('ledger');
+                  else setFraudLinkedEntityType('');
+                }}>
+                  <option value="">-- None --</option>
+                  <optgroup label="Recent Orders">
+                    {customerOrders.slice(0, 10).map(o => (
+                      <option key={o.id} value={o.id}>Order #{o.id.substring(2).toUpperCase()} - ₹{o.total_price}</option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="Points Ledger Entries">
+                    {customerLedger.slice(0, 10).map(l => (
+                      <option key={l.id} value={l.id}>{l.type} - {l.amount} pts ({new Date(l.created_at).toLocaleDateString()})</option>
+                    ))}
+                  </optgroup>
+                </select>
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+                <button className="btn btn-secondary" onClick={() => setShowFraudReportModal(false)}>Cancel</button>
+                <button className="btn btn-accent" onClick={handleSubmitFraudReport}>Submit Report</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* R5 Edit Customer Contact Modal */}
+      {showEditCustomerModal && selectedCustomerDetail && (
+        <div className="modal-overlay">
+          <div className="modal-content glass-card" style={{ maxWidth: '400px' }}>
+            <h3>Edit Customer Contact</h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', margin: '1rem 0' }}>
+              <div className="input-group">
+                <label className="input-label">Name</label>
+                <input type="text" className="text-input" value={editCustomerName} onChange={e => setEditCustomerName(e.target.value)} />
+              </div>
+              <div className="input-group">
+                <label className="input-label">Email</label>
+                <input type="email" className="text-input" value={editCustomerEmail} onChange={e => setEditCustomerEmail(e.target.value)} />
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+              <button className="btn btn-secondary" onClick={() => setShowEditCustomerModal(false)}>Cancel</button>
+              <button className="btn btn-accent" onClick={handleSaveEditCustomer}>Save Changes</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* R5 Change Customer Phone Modal */}
+      {showChangePhoneModal && selectedCustomerDetail && (
+        <div className="modal-overlay">
+          <div className="modal-content glass-card" style={{ maxWidth: '400px' }}>
+            <h3>Change Customer Phone</h3>
+            <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Current Phone: {selectedCustomerDetail.phone}</p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', margin: '1rem 0' }}>
+              <div className="input-group">
+                <label className="input-label">Current Phone OTP (Demo: 123456)</label>
+                <input type="text" className="text-input" placeholder="123456" value={changePhoneCurrentOtp} onChange={e => setChangePhoneCurrentOtp(e.target.value)} />
+              </div>
+              <div className="input-group">
+                <label className="input-label">New Phone Number</label>
+                <input type="text" className="text-input" placeholder="9830099999" value={changePhoneNewNumber} onChange={e => setChangePhoneNewNumber(e.target.value)} />
+              </div>
+              <div className="input-group">
+                <label className="input-label">New Phone OTP (Demo: 123456)</label>
+                <input type="text" className="text-input" placeholder="123456" value={changePhoneNewOtp} onChange={e => setChangePhoneNewOtp(e.target.value)} />
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+              <button className="btn btn-secondary" onClick={() => setShowChangePhoneModal(false)}>Cancel</button>
+              <button className="btn btn-accent" onClick={handleChangeCustomerPhone}>Verify & Change Phone</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* R5 Manual Points Credit Modal */}
+      {showPointsCreditModal && selectedCustomerDetail && (
+        <div className="modal-overlay">
+          <div className="modal-content glass-card" style={{ maxWidth: '400px' }}>
+            <h3>Manual Points Credit</h3>
+            <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Customer: {selectedCustomerDetail.name} ({selectedCustomerDetail.phone})</p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', margin: '1rem 0' }}>
+              <div className="input-group">
+                <label className="input-label">Points Amount (positive integer)</label>
+                <input type="number" className="text-input" placeholder="100" value={pointsCreditAmount} onChange={e => setPointsCreditAmount(e.target.value)} />
+              </div>
+              <div className="input-group">
+                <label className="input-label">Reason (Required for audit log)</label>
+                <input type="text" className="text-input" placeholder="Goodwill credit / Support compensation" value={pointsCreditReason} onChange={e => setPointsCreditReason(e.target.value)} />
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+              <button className="btn btn-secondary" onClick={() => setShowPointsCreditModal(false)}>Cancel</button>
+              <button className="btn btn-accent" onClick={handleIssuePointsCredit}>Credit Points</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* R5 Customer Detail Modal */}
+      {selectedCustomerDetail && !showEditCustomerModal && !showChangePhoneModal && !showPointsCreditModal && (
+        <div className="modal-overlay">
+          <div className="modal-content glass-card" style={{ maxWidth: '600px', maxHeight: '80vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h3 style={{ fontSize: '1.2rem', margin: 0 }}>Customer Detail: {selectedCustomerDetail.name}</h3>
+              <button className="btn btn-secondary" style={{ padding: '0.2rem 0.5rem' }} onClick={() => setSelectedCustomerDetail(null)}><X size={14} /></button>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem', fontSize: '0.85rem' }}>
+              <div><strong>Phone:</strong> {selectedCustomerDetail.phone}</div>
+              <div><strong>Email:</strong> {selectedCustomerDetail.email || 'N/A'}</div>
+              <div><strong>Region:</strong> {selectedCustomerDetail.region_id}</div>
+              <div><strong>Status:</strong> {selectedCustomerDetail.is_active !== false ? 'Active' : 'Deactivated'}</div>
+              <div><strong>Points Balance:</strong> {selectedCustomerDetail.points_balance || 0} pts</div>
+              <div><strong>Joined:</strong> {new Date(selectedCustomerDetail.created_at).toLocaleDateString()}</div>
+            </div>
+
+            <h4 style={{ fontSize: '0.95rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.3rem', marginBottom: '0.5rem' }}>Order History ({selectedCustomerDetail.orders?.length || 0})</h4>
+            <div style={{ maxHeight: '150px', overflowY: 'auto', marginBottom: '1rem' }}>
+              {selectedCustomerDetail.orders?.map(o => (
+                <div key={o.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', padding: '0.3rem 0', borderBottom: '1px dashed rgba(255,255,255,0.05)' }}>
+                  <span>Order #{o.id.substring(2).toUpperCase()} ({o.stockist_name})</span>
+                  <span>₹{o.total_price} - <strong style={{ color: 'var(--accent)' }}>{o.status}</strong></span>
+                </div>
+              ))}
+              {(!selectedCustomerDetail.orders || selectedCustomerDetail.orders.length === 0) && <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>No orders placed.</p>}
+            </div>
+
+            <h4 style={{ fontSize: '0.95rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.3rem', marginBottom: '0.5rem' }}>Points Ledger ({selectedCustomerDetail.ledger?.length || 0})</h4>
+            <div style={{ maxHeight: '150px', overflowY: 'auto' }}>
+              {selectedCustomerDetail.ledger?.map(l => (
+                <div key={l.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', padding: '0.3rem 0', borderBottom: '1px dashed rgba(255,255,255,0.05)' }}>
+                  <span>{l.description} ({new Date(l.created_at).toLocaleDateString()})</span>
+                  <span style={{ color: l.type === 'EARN' ? 'var(--accent)' : 'var(--danger)', fontWeight: 'bold' }}>{l.amount > 0 ? '+' : ''}{l.amount}</span>
+                </div>
+              ))}
+              {(!selectedCustomerDetail.ledger || selectedCustomerDetail.ledger.length === 0) && <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>No points entries.</p>}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* R6 Create Stockist Modal */}
+      {showCreateStockistModal && (
+        <div className="modal-overlay">
+          <div className="modal-content glass-card" style={{ maxWidth: '450px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h3 style={{ fontSize: '1.1rem', margin: 0 }}>Create New Stockist</h3>
+              <button className="btn btn-secondary" style={{ padding: '0.2rem 0.5rem' }} onClick={() => setShowCreateStockistModal(false)}><X size={14} /></button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              <div className="input-group">
+                <label className="input-label">Stockist / Shop Name</label>
+                <input type="text" className="text-input" placeholder="e.g. Garia Super Mart" value={createStkName} onChange={e => setCreateStkName(e.target.value)} />
+              </div>
+              <div className="input-group">
+                <label className="input-label">Phone Number (Login user)</label>
+                <input type="text" className="text-input" placeholder="9830011223" value={createStkPhone} onChange={e => setCreateStkPhone(e.target.value)} />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                <div className="input-group">
+                  <label className="input-label">Region</label>
+                  <select className="text-input" value={createStkRegion} onChange={e => setCreateStkRegion(e.target.value)}>
+                    <option value="r1">Kolkata South (Garia)</option>
+                    <option value="r2">Rural Bishnupur</option>
+                  </select>
+                </div>
+                <div className="input-group">
+                  <label className="input-label">Assigned Wholesaler</label>
+                  <select className="text-input" value={createStkVendor} onChange={e => setCreateStkVendor(e.target.value)}>
+                    {vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                <div className="input-group">
+                  <label className="input-label">Commission Rate (%)</label>
+                  <input type="number" className="text-input" value={createStkRate} onChange={e => setCreateStkRate(e.target.value)} />
+                </div>
+                <div className="input-group">
+                  <label className="input-label">Delivery Radius (km)</label>
+                  <input type="number" step="0.5" className="text-input" value={createStkRadius} onChange={e => setCreateStkRadius(e.target.value)} />
+                </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.5rem' }}>
+                <div className="input-group">
+                  <label className="input-label">Open Time</label>
+                  <input type="text" className="text-input" value={createStkOpen} onChange={e => setCreateStkOpen(e.target.value)} />
+                </div>
+                <div className="input-group">
+                  <label className="input-label">Close Time</label>
+                  <input type="text" className="text-input" value={createStkClose} onChange={e => setCreateStkClose(e.target.value)} />
+                </div>
+                <div className="input-group">
+                  <label className="input-label">Prep ETA (m)</label>
+                  <input type="number" className="text-input" value={createStkEta} onChange={e => setCreateStkEta(e.target.value)} />
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+                <button className="btn btn-secondary" onClick={() => setShowCreateStockistModal(false)}>Cancel</button>
+                <button className="btn btn-accent" onClick={handleCreateStockist}>Create Stockist</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* R6 Edit Stockist Details Modal */}
+      {showEditStockistModal && selectedStockistDetail && (
+        <div className="modal-overlay">
+          <div className="modal-content glass-card" style={{ maxWidth: '450px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h3 style={{ fontSize: '1.1rem', margin: 0 }}>Edit Stockist Details</h3>
+              <button className="btn btn-secondary" style={{ padding: '0.2rem 0.5rem' }} onClick={() => setShowEditStockistModal(false)}><X size={14} /></button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              <div className="input-group">
+                <label className="input-label">Stockist Name</label>
+                <input type="text" className="text-input" value={editStkName} onChange={e => setEditStkName(e.target.value)} />
+              </div>
+              <div className="input-group">
+                <label className="input-label">Address</label>
+                <input type="text" className="text-input" value={editStkAddress} onChange={e => setEditStkAddress(e.target.value)} />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.5rem' }}>
+                <div className="input-group">
+                  <label className="input-label">Opening Time</label>
+                  <input type="text" className="text-input" value={editStkOpen} onChange={e => setEditStkOpen(e.target.value)} />
+                </div>
+                <div className="input-group">
+                  <label className="input-label">Closing Time</label>
+                  <input type="text" className="text-input" value={editStkClose} onChange={e => setEditStkClose(e.target.value)} />
+                </div>
+                <div className="input-group">
+                  <label className="input-label">Prep ETA (min)</label>
+                  <input type="number" className="text-input" value={editStkEta} onChange={e => setEditStkEta(e.target.value)} />
+                </div>
+              </div>
+              <div className="input-group">
+                <label className="input-label">Delivery Radius (km)</label>
+                <input type="number" step="0.5" className="text-input" value={editStkRadius} onChange={e => setEditStkRadius(e.target.value)} />
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+                <button className="btn btn-secondary" onClick={() => setShowEditStockistModal(false)}>Cancel</button>
+                <button className="btn btn-accent" onClick={handleEditStockist}>Save Changes</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* R6 Commission Rate Change Modal with 30d Preview & CONFIRM Requirement */}
+      {showCommissionRateModal && selectedStockistDetail && (
+        <div className="modal-overlay">
+          <div className="modal-content glass-card" style={{ maxWidth: '450px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h3 style={{ fontSize: '1.1rem', margin: 0 }}>Change Commission Rate</h3>
+              <button className="btn btn-secondary" style={{ padding: '0.2rem 0.5rem' }} onClick={() => setShowCommissionRateModal(false)}><X size={14} /></button>
+            </div>
+            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Stockist: <strong>{selectedStockistDetail.name}</strong> (Current: {selectedStockistDetail.commission_rate}%)</p>
+            
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', margin: '1rem 0' }}>
+              <div className="input-group">
+                <label className="input-label">New Commission Rate (%)</label>
+                <input type="number" step="0.1" className="text-input" value={newCommissionRate} onChange={e => setNewCommissionRate(e.target.value)} />
+              </div>
+              
+              <button className="btn btn-secondary" style={{ fontSize: '0.75rem' }} onClick={handlePreviewCommissionRate}>
+                Calculate 30-Day Earnings Preview
+              </button>
+
+              {commissionRatePreview && (
+                <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '0.75rem', fontSize: '0.8rem', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                  <div>30-Day Total Orders: <strong>{commissionRatePreview.ordersCount}</strong></div>
+                  <div>30-Day Gross GMV: <strong>₹{commissionRatePreview.grossGMV.toFixed(2)}</strong></div>
+                  <div>Earnings at Old Rate ({commissionRatePreview.oldRate}%): <strong>₹{commissionRatePreview.oldEarnings.toFixed(2)}</strong></div>
+                  <div>Earnings at New Rate ({commissionRatePreview.newRate}%): <strong style={{ color: 'var(--accent)' }}>₹{commissionRatePreview.newEarnings.toFixed(2)}</strong></div>
+                  <div>Difference: <strong style={{ color: commissionRatePreview.diff >= 0 ? 'var(--accent)' : 'var(--danger)' }}>₹{commissionRatePreview.diff.toFixed(2)}</strong></div>
+                </div>
+              )}
+
+              <div className="input-group">
+                <label className="input-label" style={{ color: 'var(--warning)' }}>Type "CONFIRM" to authorize this change</label>
+                <input type="text" className="text-input" placeholder="CONFIRM" value={commissionTypedConfirm} onChange={e => setCommissionTypedConfirm(e.target.value)} />
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+              <button className="btn btn-secondary" onClick={() => setShowCommissionRateModal(false)}>Cancel</button>
+              <button className="btn btn-accent" onClick={handleSubmitCommissionRate} disabled={commissionTypedConfirm !== 'CONFIRM'}>
+                Apply Rate Change
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* R6 Change Stockist Region Modal with Binding Count Warning */}
+      {showStockistRegionModal && selectedStockistDetail && (
+        <div className="modal-overlay">
+          <div className="modal-content glass-card" style={{ maxWidth: '420px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h3 style={{ fontSize: '1.1rem', margin: 0 }}>Change Stockist Region</h3>
+              <button className="btn btn-secondary" style={{ padding: '0.2rem 0.5rem' }} onClick={() => setShowStockistRegionModal(false)}><X size={14} /></button>
+            </div>
+            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Stockist: <strong>{selectedStockistDetail.name}</strong></p>
+
+            {stockistBindingsCount > 0 && (
+              <div style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid var(--warning)', borderRadius: '6px', padding: '0.65rem', margin: '0.75rem 0', fontSize: '0.75rem', color: 'var(--warning)' }}>
+                <AlertTriangle size={14} style={{ display: 'inline', marginRight: '0.35rem' }} />
+                <strong>Warning:</strong> Moving this stockist will affect <strong>{stockistBindingsCount}</strong> existing customer binding(s).
+              </div>
+            )}
+
+            <div className="input-group" style={{ margin: '1rem 0' }}>
+              <label className="input-label">Select Target Region</label>
+              <select className="text-input" value={newStockistRegion} onChange={e => setNewStockistRegion(e.target.value)}>
+                {regions.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+              </select>
+            </div>
+
+            <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+              <button className="btn btn-secondary" onClick={() => setShowStockistRegionModal(false)}>Cancel</button>
+              <button className="btn btn-accent" onClick={handleChangeStockistRegion}>Confirm Region Move</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* R7 Partner Lead Detail & Notes Modal */}
+      {selectedLeadDetail && (
+        <div className="modal-overlay">
+          <div className="modal-content glass-card" style={{ maxWidth: '500px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h3 style={{ fontSize: '1.1rem', margin: 0 }}>Lead Details: {selectedLeadDetail.name}</h3>
+              <button className="btn btn-secondary" style={{ padding: '0.2rem 0.5rem' }} onClick={() => setSelectedLeadDetail(null)}><X size={14} /></button>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', fontSize: '0.8rem', marginBottom: '1rem' }}>
+              <div>Phone: <strong>{selectedLeadDetail.phone}</strong></div>
+              <div>Status: <strong>{selectedLeadDetail.status}</strong></div>
+              <div>Region: <strong>{selectedLeadDetail.region_id || 'r1'}</strong></div>
+              <div>Created: <strong>{new Date(selectedLeadDetail.created_at).toLocaleDateString()}</strong></div>
+            </div>
+
+            <h4 style={{ fontSize: '0.9rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.3rem', marginBottom: '0.5rem' }}>Internal Notes</h4>
+            <div style={{ maxHeight: '150px', overflowY: 'auto', marginBottom: '1rem', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+              {selectedLeadDetail.notes?.map((n, idx) => (
+                <div key={idx} style={{ background: 'rgba(255,255,255,0.03)', padding: '0.4rem', borderRadius: '4px', fontSize: '0.75rem' }}>
+                  <div style={{ color: 'var(--text-muted)', fontSize: '0.65rem' }}>{n.admin_user_id || 'Admin'} at {new Date(n.timestamp).toLocaleString()}</div>
+                  <div>{n.text}</div>
+                </div>
+              ))}
+              {(!selectedLeadDetail.notes || selectedLeadDetail.notes.length === 0) && <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>No internal notes recorded.</p>}
+            </div>
+
+            <div className="input-group">
+              <label className="input-label">Add Note</label>
+              <input type="text" className="text-input" placeholder="Enter note text..." value={newLeadNoteText} onChange={e => setNewLeadNoteText(e.target.value)} />
+            </div>
+
+            <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '1rem' }}>
+              <button className="btn btn-secondary" onClick={() => setSelectedLeadDetail(null)}>Close</button>
+              <button className="btn btn-accent" onClick={handleAddLeadNote}>Add Note</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* R8 Fraud Report Admin Review Modal */}
+      {selectedFraudReportDetail && (
+        <div className="modal-overlay">
+          <div className="modal-content glass-card" style={{ maxWidth: '600px', maxHeight: '85vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h3 style={{ fontSize: '1.1rem', margin: 0 }}>Review Fraud Report</h3>
+              <button className="btn btn-secondary" style={{ padding: '0.2rem 0.5rem' }} onClick={() => setSelectedFraudReportDetail(null)}><X size={14} /></button>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', fontSize: '0.8rem', marginBottom: '1rem' }}>
+              <div>Reporter ID: <strong>{selectedFraudReportDetail.reporter_customer_id}</strong></div>
+              <div>Status: <strong>{selectedFraudReportDetail.status}</strong></div>
+              <div>Subject: <strong>{selectedFraudReportDetail.subject}</strong></div>
+              <div>Linked Entity: <strong>{selectedFraudReportDetail.linked_entity_type || 'None'}: {selectedFraudReportDetail.linked_entity_id || 'N/A'}</strong></div>
+            </div>
+
+            <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.75rem', borderRadius: '6px', marginBottom: '1rem', fontSize: '0.8rem' }}>
+              <strong>Description:</strong>
+              <p style={{ margin: '0.35rem 0 0 0', color: 'var(--text-main)' }}>{selectedFraudReportDetail.description}</p>
+            </div>
+
+            <div className="input-group" style={{ marginBottom: '1rem' }}>
+              <label className="input-label">Admin Notes (min 10 chars required for Resolve/Dismiss)</label>
+              <textarea 
+                className="text-input" 
+                rows={3}
+                placeholder="Document investigation outcome..."
+                value={fraudReportAdminNotes}
+                onChange={e => setFraudReportAdminNotes(e.target.value)}
+              />
+            </div>
+
+            <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+              <button className="btn btn-secondary" onClick={() => setSelectedFraudReportDetail(null)}>Close</button>
+              {selectedFraudReportDetail.status === 'NEW' && (
+                <button className="btn btn-primary" onClick={() => handleUpdateFraudReportStatus(selectedFraudReportDetail.id, 'TRIAGING', fraudReportAdminNotes)}>
+                  Move to Triaging
+                </button>
+              )}
+              <button className="btn btn-accent" onClick={() => handleUpdateFraudReportStatus(selectedFraudReportDetail.id, 'RESOLVED', fraudReportAdminNotes)}>
+                Resolve
+              </button>
+              <button className="btn btn-danger" onClick={() => handleUpdateFraudReportStatus(selectedFraudReportDetail.id, 'DISMISSED', fraudReportAdminNotes)}>
+                Dismiss
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Developer Settings Toggle Switcher Footer */}
       <footer className="dev-toggle-container">

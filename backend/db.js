@@ -104,7 +104,9 @@ const DEFAULT_DB = {
     { stockist_id: 's3', vendor_id: 'v1', approved_at: new Date().toISOString() }
   ],
   anomaly_logs: [],
-  partner_leads: []
+  partner_leads: [],
+  fraud_reports: [],
+  admin_audit_log: []
 };
 
 // Seed r2 products
@@ -132,6 +134,26 @@ function read() {
     if (!parsed.payment_ledger) parsed.payment_ledger = [];
     if (!parsed.cod_commission_ledger) parsed.cod_commission_ledger = [];
     if (!parsed.partner_leads) parsed.partner_leads = [];
+    if (!parsed.fraud_reports) parsed.fraud_reports = [];
+    if (!parsed.admin_audit_log) parsed.admin_audit_log = [];
+
+    // Safe backfills on read
+    if (parsed.users && Array.isArray(parsed.users)) {
+      parsed.users.forEach(u => {
+        if (u.is_active === undefined) u.is_active = true;
+      });
+    }
+    if (parsed.stockists && Array.isArray(parsed.stockists)) {
+      parsed.stockists.forEach(s => {
+        if (s.is_active === undefined) s.is_active = true;
+      });
+    }
+    if (parsed.partner_leads && Array.isArray(parsed.partner_leads)) {
+      parsed.partner_leads.forEach(l => {
+        if (!l.notes) l.notes = [];
+        if (!l.status) l.status = 'NEW';
+      });
+    }
     return parsed;
   } catch (err) {
     console.error('Failed to read database file, returning default memory db:', err);
