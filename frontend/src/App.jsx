@@ -114,7 +114,16 @@ export default function App() {
   // Customer App State
   const [customerStockists, setCustomerStockists] = useState([]);
   const [selectedStockist, setSelectedStockist] = useState(null);
+  const [previousStockistId, setPreviousStockistId] = useState(null);
   const [lastSelectedStockist, setLastSelectedStockist] = useState(null);
+
+  useEffect(() => {
+    if (previousStockistId && customerStockists.length > 0) {
+      if (!customerStockists.some(s => s.id === previousStockistId)) {
+        setPreviousStockistId(null);
+      }
+    }
+  }, [customerStockists, previousStockistId]);
   const [customerProducts, setCustomerProducts] = useState([]);
   const [customerCart, setCustomerCart] = useState([]);
   const [cartFulfillment, setCartFulfillment] = useState('PICKUP');
@@ -1140,6 +1149,7 @@ export default function App() {
     setCurrentUser(null);
     setCustomerStockists([]);
     setSelectedStockist(null);
+    setPreviousStockistId(null);
     setCustomerProducts([]);
     setCustomerCart([]);
     setStockistProfile(null);
@@ -3273,18 +3283,26 @@ export default function App() {
                       {/* Shop Selection discovery cards */}
                       {!selectedStockist ? (
                         <div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-                            <h3 style={{ fontSize: '0.95rem', margin: 0 }}>Select Local Grocery Store</h3>
-                            {lastSelectedStockist && (
-                              <button 
-                                className="btn btn-secondary" 
-                                style={{ padding: '0.25rem 0.55rem', fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }} 
-                                onClick={() => setSelectedStockist(lastSelectedStockist)}
-                              >
-                                <ArrowLeft size={12} /> {t(`Go back (${lastSelectedStockist.name})`, `वापस जाएं (${lastSelectedStockist.name})`, `আগের দোকানে ফিরুন (${lastSelectedStockist.name})`)}
-                              </button>
-                            )}
-                          </div>
+                          {(() => {
+                            const prevStockistObj = previousStockistId ? customerStockists.find(s => s.id === previousStockistId) : null;
+                            return (
+                              <>
+                                {prevStockistObj && (
+                                  <button 
+                                    className="btn btn-secondary" 
+                                    style={{ marginBottom: '0.75rem', width: '100%', padding: '0.5rem 0.75rem', fontSize: '0.75rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.35rem', borderColor: 'var(--accent)', background: 'rgba(99, 102, 241, 0.12)' }}
+                                    onClick={() => {
+                                      setSelectedStockist(prevStockistObj);
+                                      setPreviousStockistId(null);
+                                    }}
+                                  >
+                                    <ArrowLeft size={14} /> {t('Continue shopping at', 'यहाँ खरीदारी जारी रखें:', 'এখানে কেনাকাটা চালিয়ে যান:')} {prevStockistObj.name}
+                                  </button>
+                                )}
+                                <h3 style={{ fontSize: '0.95rem', marginBottom: '0.75rem' }}>Select Local Grocery Store</h3>
+                              </>
+                            );
+                          })()}
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                             {customerStockists.map(s => (
                               <div key={s.id} className="glass-card" style={{ padding: '0.85rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -3295,7 +3313,7 @@ export default function App() {
                                     <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Delivery: {s.delivery_radius_km}km radius</span>
                                   </div>
                                 </div>
-                                <button className="btn btn-accent" style={{ padding: '0.35rem 0.75rem', fontSize: '0.75rem' }} onClick={() => { setSelectedStockist(s); setLastSelectedStockist(s); }}>
+                                <button className="btn btn-accent" style={{ padding: '0.35rem 0.75rem', fontSize: '0.75rem' }} onClick={() => { setSelectedStockist(s); setPreviousStockistId(null); }}>
                                   Shop (বাজার করুন)
                                 </button>
                               </div>
@@ -3308,7 +3326,16 @@ export default function App() {
                       ) : (
                         <>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <button className="btn btn-secondary" style={{ padding: '0.25rem 0.5rem', fontSize: '0.7rem' }} onClick={() => setSelectedStockist(null)}>
+                            <button 
+                              className="btn btn-secondary" 
+                              style={{ padding: '0.25rem 0.5rem', fontSize: '0.7rem' }} 
+                              onClick={() => {
+                                if (selectedStockist) {
+                                  setPreviousStockistId(selectedStockist.id);
+                                }
+                                setSelectedStockist(null);
+                              }}
+                            >
                               ← Other Shops
                             </button>
                             <span style={{ fontSize: '0.8rem', color: 'white', fontWeight: 'bold' }}>{selectedStockist.name}</span>

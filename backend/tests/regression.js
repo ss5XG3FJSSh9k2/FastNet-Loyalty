@@ -895,6 +895,11 @@ async function main() {
   assert(appJsxContent.includes('Report a problem'), 'App.jsx contains "Report a problem" button in customer UI');
   assert(appJsxContent.includes('onClick={() => setShowFraudReportModal(true)}'), 'App.jsx button onClick handler opens fraud report modal');
 
+  // 31. Round R2 Customer App "Continue shopping at" Button
+  console.log('\n--- 31. Round R2 Customer App "Continue shopping at" Button ---');
+  assert(appJsxContent.includes('const [previousStockistId, setPreviousStockistId] = useState(null)'), 'App.jsx contains previousStockistId state declaration');
+  assert(appJsxContent.includes('Continue shopping at') && appJsxContent.includes('setPreviousStockistId(null)'), 'App.jsx contains "Continue shopping at" button label and clears previousStockistId');
+
   console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);
 }
