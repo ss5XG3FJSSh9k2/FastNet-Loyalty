@@ -114,6 +114,7 @@ export default function App() {
   // Customer App State
   const [customerStockists, setCustomerStockists] = useState([]);
   const [selectedStockist, setSelectedStockist] = useState(null);
+  const [lastSelectedStockist, setLastSelectedStockist] = useState(null);
   const [customerProducts, setCustomerProducts] = useState([]);
   const [customerCart, setCustomerCart] = useState([]);
   const [cartFulfillment, setCartFulfillment] = useState('PICKUP');
@@ -3272,7 +3273,18 @@ export default function App() {
                       {/* Shop Selection discovery cards */}
                       {!selectedStockist ? (
                         <div>
-                          <h3 style={{ fontSize: '0.95rem', marginBottom: '0.75rem' }}>Select Local Grocery Store</h3>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                            <h3 style={{ fontSize: '0.95rem', margin: 0 }}>Select Local Grocery Store</h3>
+                            {lastSelectedStockist && (
+                              <button 
+                                className="btn btn-secondary" 
+                                style={{ padding: '0.25rem 0.55rem', fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }} 
+                                onClick={() => setSelectedStockist(lastSelectedStockist)}
+                              >
+                                <ArrowLeft size={12} /> {t(`Go back (${lastSelectedStockist.name})`, `वापस जाएं (${lastSelectedStockist.name})`, `আগের দোকানে ফিরুন (${lastSelectedStockist.name})`)}
+                              </button>
+                            )}
+                          </div>
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                             {customerStockists.map(s => (
                               <div key={s.id} className="glass-card" style={{ padding: '0.85rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -3283,7 +3295,7 @@ export default function App() {
                                     <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Delivery: {s.delivery_radius_km}km radius</span>
                                   </div>
                                 </div>
-                                <button className="btn btn-accent" style={{ padding: '0.35rem 0.75rem', fontSize: '0.75rem' }} onClick={() => setSelectedStockist(s)}>
+                                <button className="btn btn-accent" style={{ padding: '0.35rem 0.75rem', fontSize: '0.75rem' }} onClick={() => { setSelectedStockist(s); setLastSelectedStockist(s); }}>
                                   Shop (বাজার করুন)
                                 </button>
                               </div>
