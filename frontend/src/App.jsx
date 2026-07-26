@@ -3505,10 +3505,20 @@ export default function App() {
                         </p>
                       </div>
 
-                      <h3 style={{ fontSize: '0.85rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.4rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                        <TrendingUp size={14} style={{ color: 'var(--primary)' }} />
-                        {t('Points History', 'पॉइंट इतिहास', 'পয়েন্ট इतिहास')}
-                      </h3>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.4rem' }}>
+                        <h3 style={{ fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.35rem', margin: 0 }}>
+                          <TrendingUp size={14} style={{ color: 'var(--primary)' }} />
+                          {t('Points History', 'पॉइंट इतिहास', 'পয়েন্ট ইতিহাস')}
+                        </h3>
+                        <button 
+                          className="btn btn-secondary" 
+                          style={{ padding: '0.25rem 0.5rem', fontSize: '0.65rem', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}
+                          onClick={() => setShowFraudReportModal(true)}
+                        >
+                          <ShieldAlert size={12} style={{ color: 'var(--warning)' }} />
+                          {t('Report a problem', 'समस्या रिपोर्ट करें', 'সমস্যা রিপোর্ট করুন')}
+                        </button>
+                      </div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                         {customerLedger.map(l => (
                           <div key={l.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.45rem 0', borderBottom: '1px dashed rgba(255,255,255,0.05)', fontSize: '0.7rem' }}>

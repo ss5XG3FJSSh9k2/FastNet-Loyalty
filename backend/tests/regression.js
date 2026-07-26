@@ -887,6 +887,14 @@ async function main() {
   assert(auditLogRes.status === 200, 'GET /api/admin/audit-log succeeds');
   assert(auditLogRes.body.length >= 5, 'Audit log contains entries for admin actions');
 
+  // 30. Customer UI Fraud Report Button Reachability
+  console.log('\n--- 30. Customer UI Fraud Report Button Reachability ---');
+  const fs = require('fs');
+  const path = require('path');
+  const appJsxContent = fs.readFileSync(path.join(__dirname, '../../frontend/src/App.jsx'), 'utf8');
+  assert(appJsxContent.includes('Report a problem'), 'App.jsx contains "Report a problem" button in customer UI');
+  assert(appJsxContent.includes('onClick={() => setShowFraudReportModal(true)}'), 'App.jsx button onClick handler opens fraud report modal');
+
   console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);
 }
