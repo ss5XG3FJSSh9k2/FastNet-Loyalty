@@ -3,9 +3,33 @@ const cors = require('cors');
 const db = require('./db');
 const cfg = require('./config');
 
+const multer = require('multer');
+const r2 = require('./lib/r2');
+
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 8 * 1024 * 1024 }
+});
+
+const uploadBillMiddleware = (req, res, next) => {
+  upload.single('bill_photo')(req, res, (err) => {
+    if (err) {
+      if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({ error: 'file_too_large', message: 'Bill photo exceeds 8 MB limit.' });
+      }
+      return res.status(400).json({ error: 'upload_error', message: err.message });
+    }
+    next();
+  });
+};
+
+if (!r2.isR2Configured()) {
+  console.warn('[Storage Warning] bill upload disabled — R2 not configured');
+}
 
 // In-memory OTP storage
 const otpStore = new Map();
@@ -195,25 +219,107 @@ app.get('/api/products', (req, res) => {
   return res.json(filtered);
 });
 
-app.post('/api/products', (req, res) => {
-  const { name, price, costPrice, category, initialStock, stockistId, regionId } = req.body;
-  if (!name || !price || !category || initialStock === undefined || !stockistId || !regionId) {
+app.post('/api/products', uploadBillMiddleware, async (req, res) => {
+  if (req.headers['x-r2-mock'] === 'false' || !r2.isR2Configured()) {
+    return res.status(503).json({ error: 'r2_not_configured', message: 'Bill upload service unavailable' });
+  }
+
+  // If content-type is JSON or no req.file present:
+  if (!req.file) {
+    return res.status(400).json({
+      error: 'bill_photo_required',
+      message: "New SKUs require a bill photo. Send as multipart/form-data with a 'bill_photo' file field."
+    });
+  }
+
+  // Validate file MIME
+  const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/webp'];
+  if (!allowedMimeTypes.includes(req.file.mimetype)) {
+    return res.status(400).json({
+      error: 'invalid_file_type',
+      message: 'Only JPG, PNG, and WebP bill photos are allowed.'
+    });
+  }
+
+  // Validate file size (8MB)
+  if (req.file.size > 8 * 1024 * 1024) {
+    return res.status(400).json({
+      error: 'file_too_large',
+      message: 'Bill photo exceeds 8 MB limit.'
+    });
+  }
+
+  const name = req.body.name;
+  const price = req.body.price;
+  const costPrice = req.body.costPrice || req.body.cost_price;
+  const category = req.body.category;
+  const initialStock = req.body.initialStock !== undefined ? req.body.initialStock : req.body.stock_qty;
+  const stockistId = req.body.stockistId || req.body.stockist_id;
+  const regionId = req.body.regionId || req.body.region_id;
+  const description = req.body.description;
+  const imageUrl = req.body.image_url;
+
+  if (!name || price === undefined || !category || initialStock === undefined || !stockistId || !regionId) {
     return res.status(400).json({ error: 'Missing product fields' });
   }
 
-  const products = db.getTable('products');
+  const parsedPrice = parseFloat(price);
+  const parsedCostPrice = costPrice !== undefined ? parseFloat(costPrice) : parsedPrice * 0.75;
+
+  if (parsedPrice <= 0) {
+    return res.status(400).json({ error: 'Price must be greater than 0' });
+  }
+  if (parsedCostPrice < 0 || parsedCostPrice > parsedPrice) {
+    return res.status(400).json({ error: 'Cost price must be between 0 and selling price' });
+  }
+
+  // Upload bill to R2
+  let uploadRes;
+  try {
+    uploadRes = await r2.uploadBillPhoto(req.file.buffer, req.file.mimetype, `bills/${stockistId}`);
+  } catch (uploadErr) {
+    return res.status(500).json({ error: 'upload_failed', message: uploadErr.message });
+  }
+
+  const billPhotos = db.getTable('product_bill_photos');
+  const billPhotoId = 'pbp-' + generateId();
   const productId = 'p-' + generateId();
 
+  const billPhotoRow = {
+    id: billPhotoId,
+    product_id: productId,
+    stockist_id: stockistId,
+    r2_key: uploadRes.key,
+    public_url: uploadRes.publicUrl,
+    selling_price_at_upload: parsedPrice,
+    cost_price_at_upload: parsedCostPrice,
+    file_size_bytes: req.file.size,
+    content_type: req.file.mimetype,
+    flag_status: 'CLEAN',
+    flag_reason: null,
+    flagged_by_admin_id: null,
+    flagged_at: null,
+    uploaded_at: new Date().toISOString(),
+    uploaded_by_stockist_admin_id: req.body.uploaded_by || stockistId
+  };
+
+  billPhotos.push(billPhotoRow);
+  db.saveTable('product_bill_photos', billPhotos);
+
+  const products = db.getTable('products');
   const newProduct = {
     id: productId,
     tenant_id: 't1',
     region_id: regionId,
     name,
     category,
-    price: parseFloat(price),
-    cost_price: costPrice ? parseFloat(costPrice) : parseFloat(price) * 0.75,
-    description: name + ' added by local stockist',
-    image_url: 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=200&auto=format&fit=crop&q=60'
+    price: parsedPrice,
+    cost_price: parsedCostPrice,
+    description: description || (name + ' added by local stockist'),
+    image_url: imageUrl || 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=200&auto=format&fit=crop&q=60',
+    latest_bill_photo_id: billPhotoId,
+    has_flagged_bill: false,
+    created_at: new Date().toISOString()
   };
 
   products.push(newProduct);
@@ -228,18 +334,18 @@ app.post('/api/products', (req, res) => {
   });
   db.saveTable('stockist_inventory', inventory);
 
-  return res.json({ success: true, product: newProduct });
+  return res.json({ success: true, product: newProduct, bill_photo: billPhotoRow });
 });
 
-app.patch('/api/products/:id', (req, res) => {
+app.patch('/api/products/:id', uploadBillMiddleware, async (req, res) => {
   const { id } = req.params;
-  const { name, price, costPrice, stockistId } = req.body;
+  const stockistId = req.body.stockistId || req.body.stockist_id;
 
   if (!stockistId) {
     return res.status(400).json({ error: 'Missing stockistId' });
   }
 
-  // Ownership: only the owning stockist (exists in stockist_inventory)
+  // Ownership check
   const inventory = db.getTable('stockist_inventory');
   const inv = inventory.find(i => i.product_id === id && i.stockist_id === stockistId);
   if (!inv) {
@@ -252,24 +358,221 @@ app.patch('/api/products/:id', (req, res) => {
     return res.status(404).json({ error: 'Product not found' });
   }
 
-  const finalPrice = price !== undefined ? parseFloat(price) : product.price;
-  const finalCostPrice = costPrice !== undefined ? parseFloat(costPrice) : product.cost_price;
+  const reqPrice = req.body.price;
+  const reqCostPrice = req.body.costPrice !== undefined ? req.body.costPrice : req.body.cost_price;
 
-  // Validate: price > 0, 0 <= costPrice <= price
-  if (finalPrice <= 0) {
+  const newPrice = reqPrice !== undefined ? parseFloat(reqPrice) : product.price;
+  const newCostPrice = reqCostPrice !== undefined ? parseFloat(reqCostPrice) : product.cost_price;
+
+  if (newPrice <= 0) {
     return res.status(400).json({ error: 'Price must be greater than 0' });
   }
-  if (finalCostPrice < 0 || finalCostPrice > finalPrice) {
+  if (newCostPrice < 0 || newCostPrice > newPrice) {
     return res.status(400).json({ error: 'Cost price must be between 0 and selling price' });
   }
 
-  if (name !== undefined) product.name = name;
-  product.price = finalPrice;
-  product.cost_price = finalCostPrice;
+  const priceChanged = Math.abs(newPrice - product.price) > 0.001 || Math.abs(newCostPrice - product.cost_price) > 0.001;
+
+  if (priceChanged && !req.file) {
+    return res.status(400).json({
+      error: 'bill_required_for_price_change',
+      message: 'Price change detected. A new bill photo is required.'
+    });
+  }
+
+  let billPhotoRow = null;
+  if (req.file) {
+    const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/webp'];
+    if (!allowedMimeTypes.includes(req.file.mimetype)) {
+      return res.status(400).json({
+        error: 'invalid_file_type',
+        message: 'Only JPG, PNG, and WebP bill photos are allowed.'
+      });
+    }
+    if (req.file.size > 8 * 1024 * 1024) {
+      return res.status(400).json({
+        error: 'file_too_large',
+        message: 'Bill photo exceeds 8 MB limit.'
+      });
+    }
+
+    if (!r2.isR2Configured()) {
+      return res.status(503).json({ error: 'r2_not_configured', message: 'Bill upload service unavailable' });
+    }
+
+    let uploadRes;
+    try {
+      uploadRes = await r2.uploadBillPhoto(req.file.buffer, req.file.mimetype, `bills/${stockistId}`);
+    } catch (uploadErr) {
+      return res.status(500).json({ error: 'upload_failed', message: uploadErr.message });
+    }
+
+    const billPhotos = db.getTable('product_bill_photos');
+    billPhotoRow = {
+      id: 'pbp-' + generateId(),
+      product_id: id,
+      stockist_id: stockistId,
+      r2_key: uploadRes.key,
+      public_url: uploadRes.publicUrl,
+      selling_price_at_upload: newPrice,
+      cost_price_at_upload: newCostPrice,
+      file_size_bytes: req.file.size,
+      content_type: req.file.mimetype,
+      flag_status: 'CLEAN',
+      flag_reason: null,
+      flagged_by_admin_id: null,
+      flagged_at: null,
+      uploaded_at: new Date().toISOString(),
+      uploaded_by_stockist_admin_id: req.body.uploaded_by || stockistId
+    };
+
+    billPhotos.push(billPhotoRow);
+    db.saveTable('product_bill_photos', billPhotos);
+
+    product.latest_bill_photo_id = billPhotoRow.id;
+  }
+
+  if (req.body.name !== undefined) product.name = req.body.name;
+  if (req.body.description !== undefined) product.description = req.body.description;
+  if (req.body.category !== undefined) product.category = req.body.category;
+  if (req.body.image_url !== undefined) product.image_url = req.body.image_url;
+
+  product.price = newPrice;
+  product.cost_price = newCostPrice;
 
   db.saveTable('products', products);
 
-  return res.json({ success: true, product });
+  return res.json({ success: true, product, bill_photo: billPhotoRow });
+});
+
+// GET /api/products/:id/bill-history
+app.get('/api/products/:id/bill-history', (req, res) => {
+  const { id } = req.params;
+  const billPhotos = db.getTable('product_bill_photos');
+  const history = billPhotos
+    .filter(b => b.product_id === id)
+    .sort((a, b) => new Date(b.uploaded_at) - new Date(a.uploaded_at));
+  return res.json(history);
+});
+
+// GET /api/admin/bill-photos
+app.get('/api/admin/bill-photos', (req, res) => {
+  const { flag_status, stockist_id, date_from, date_to, page = 1 } = req.query;
+  let billPhotos = db.getTable('product_bill_photos');
+  const products = db.getTable('products');
+  const stockists = db.getTable('stockists');
+
+  if (flag_status) {
+    billPhotos = billPhotos.filter(b => b.flag_status === flag_status);
+  }
+  if (stockist_id) {
+    billPhotos = billPhotos.filter(b => b.stockist_id === stockist_id);
+  }
+  if (date_from) {
+    const fromTime = new Date(date_from).getTime();
+    billPhotos = billPhotos.filter(b => new Date(b.uploaded_at).getTime() >= fromTime);
+  }
+  if (date_to) {
+    const toTime = new Date(date_to).getTime();
+    billPhotos = billPhotos.filter(b => new Date(b.uploaded_at).getTime() <= toTime);
+  }
+
+  billPhotos.sort((a, b) => new Date(b.uploaded_at) - new Date(a.uploaded_at));
+
+  const pageSize = 50;
+  const pageNum = parseInt(page, 10) || 1;
+  const startIndex = (pageNum - 1) * pageSize;
+  const paginated = billPhotos.slice(startIndex, startIndex + pageSize);
+
+  const enriched = paginated.map(b => {
+    const p = products.find(prod => prod.id === b.product_id);
+    const s = stockists.find(st => st.id === b.stockist_id);
+    return {
+      ...b,
+      product_name: p ? p.name : 'Unknown Product',
+      stockist_name: s ? s.name : 'Unknown Stockist'
+    };
+  });
+
+  return res.json({
+    total: billPhotos.length,
+    page: pageNum,
+    page_size: pageSize,
+    data: enriched
+  });
+});
+
+// POST /api/admin/bill-photos/:id/flag
+app.post('/api/admin/bill-photos/:id/flag', (req, res) => {
+  const { id } = req.params;
+  const { admin_id, reason } = req.body;
+
+  if (!reason || reason.trim().length < 10) {
+    return res.status(400).json({ error: 'reason_too_short', message: 'reason must be at least 10 characters' });
+  }
+
+  const billPhotos = db.getTable('product_bill_photos');
+  const bill = billPhotos.find(b => b.id === id);
+  if (!bill) return res.status(404).json({ error: 'Bill photo not found' });
+
+  const beforeState = bill.flag_status;
+  bill.flag_status = 'FLAGGED';
+  bill.flag_reason = reason.trim();
+  bill.flagged_by_admin_id = admin_id || 'u-admin';
+  bill.flagged_at = new Date().toISOString();
+  db.saveTable('product_bill_photos', billPhotos);
+
+  const products = db.getTable('products');
+  const product = products.find(p => p.id === bill.product_id);
+  if (product) {
+    product.has_flagged_bill = true;
+    db.saveTable('products', products);
+  }
+
+  appendAudit(req, 'BILL_PHOTO_FLAG', 'product_bill_photos', id, beforeState, 'FLAGGED', reason.trim());
+
+  return res.json({ success: true, bill, product });
+});
+
+// POST /api/admin/bill-photos/:id/unflag
+app.post('/api/admin/bill-photos/:id/unflag', (req, res) => {
+  const { id } = req.params;
+
+  const billPhotos = db.getTable('product_bill_photos');
+  const bill = billPhotos.find(b => b.id === id);
+  if (!bill) return res.status(404).json({ error: 'Bill photo not found' });
+
+  const beforeState = bill.flag_status;
+  bill.flag_status = 'RESOLVED';
+  db.saveTable('product_bill_photos', billPhotos);
+
+  const products = db.getTable('products');
+  const product = products.find(p => p.id === bill.product_id);
+  if (product) {
+    const hasOtherFlagged = billPhotos.some(b => b.product_id === bill.product_id && b.flag_status === 'FLAGGED');
+    product.has_flagged_bill = hasOtherFlagged;
+    db.saveTable('products', products);
+  }
+
+  appendAudit(req, 'BILL_PHOTO_UNFLAG', 'product_bill_photos', id, beforeState, 'RESOLVED', 'Admin resolved flag');
+
+  return res.json({ success: true, bill, product });
+});
+
+// POST /api/admin/bill-photos/:id/signed-url
+app.post('/api/admin/bill-photos/:id/signed-url', async (req, res) => {
+  const { id } = req.params;
+  const billPhotos = db.getTable('product_bill_photos');
+  const bill = billPhotos.find(b => b.id === id);
+  if (!bill) return res.status(404).json({ error: 'Bill photo not found' });
+
+  try {
+    const expiresAt = new Date(Date.now() + 3600 * 1000).toISOString();
+    const signedUrl = await r2.getSignedReadUrl(bill.r2_key, 3600);
+    return res.json({ signed_url: signedUrl, expires_at: expiresAt });
+  } catch (err) {
+    return res.status(500).json({ error: 'failed_signed_url', message: err.message });
+  }
 });
 
 app.get('/api/products/search-alternatives', (req, res) => {

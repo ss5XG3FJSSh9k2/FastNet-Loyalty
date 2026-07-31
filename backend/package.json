@@ -4,7 +4,10 @@
   "private": true,
   "main": "server.js",
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1100.0",
+    "@aws-sdk/s3-request-presigner": "^3.1100.0",
+    "cors": "^2.8.5",
     "express": "^4.19.2",
-    "cors": "^2.8.5"
+    "multer": "^2.2.0"
   }
 }

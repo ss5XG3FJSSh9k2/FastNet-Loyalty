@@ -134,9 +134,10 @@ DEFAULT_DB.products.push(
   { id: 'p6-r2', tenant_id: 't1', region_id: 'r2', name: 'Amul Butter (100g)', category: 'groceries', price: 58.0, cost_price: 50.0, description: 'Pasteurized salted butter', image_url: 'https://images.unsplash.com/photo-1589985270826-4b7bb135bc9d?auto=format&fit=crop&q=80&w=300', created_at: new Date().toISOString() },
   { id: 'p7-r2', tenant_id: 't1', region_id: 'r2', name: 'Kachi Ghani Mustard Oil (500ml)', category: 'groceries', price: 90.0, cost_price: 75.0, description: 'Pure cold-pressed mustard oil', image_url: 'https://images.unsplash.com/photo-1474979266404-7eaacbcd87c5?auto=format&fit=crop&q=80&w=300', created_at: new Date().toISOString() },
   { id: 'p8-r2', tenant_id: 't1', region_id: 'r2', name: 'Tata Salt (1kg)', category: 'groceries', price: 28.0, cost_price: 22.0, description: 'Iodized salt', image_url: 'https://images.unsplash.com/photo-1608686207856-001b95cf60ca?auto=format&fit=crop&q=80&w=300', created_at: new Date().toISOString() },
-  { id: 'p9-r2', tenant_id: 't1', region_id: 'r2', name: 'Marie Gold Biscuits (250g)', category: 'groceries', price: 30.0, cost_price: 25.0, description: 'Crunchy tea-time biscuits', image_url: 'https://images.unsplash.com/photo-1558961363-fa8fdf82db35?auto=format&fit=crop&q=80&w=300', created_at: new Date().toISOString() },
-  { id: 'p10-r2', tenant_id: 't1', region_id: 'r2', name: 'Darjeeling Tea (100g)', category: 'groceries', price: 75.0, cost_price: 60.0, description: 'Fragrant Darjeeling tea leaves', image_url: 'https://images.unsplash.com/photo-1594631252845-29fc4589dbd8?auto=format&fit=crop&q=80&w=300', created_at: new Date().toISOString() }
+  { id: 'p9-r2', tenant_id: 't1', region_id: 'r2', name: 'Marie Gold Biscuits (250g)', category: 'groceries', price: 30.0, cost_price: 25.0, description: 'Crunchy tea-time biscuits', image_url: 'https://images.unsplash.com/photo-1558961363-fa8fdf82db35?auto=format&fit=crop&q=80&w=300', created_at: new Date().toISOString() }
 );
+
+DEFAULT_DB.product_bill_photos = [];
 
 function read() {
   try {
@@ -151,6 +152,7 @@ function read() {
     if (!parsed.partner_leads) parsed.partner_leads = [];
     if (!parsed.fraud_reports) parsed.fraud_reports = [];
     if (!parsed.admin_audit_log) parsed.admin_audit_log = [];
+    if (!parsed.product_bill_photos) parsed.product_bill_photos = [];
     if (!parsed.commission_config || !Array.isArray(parsed.commission_config) || parsed.commission_config.length === 0) {
       parsed.commission_config = [
         {
@@ -188,6 +190,12 @@ function read() {
         if (!o.commission_model) {
           o.commission_model = 'gross_v1';
         }
+      });
+    }
+    if (parsed.products && Array.isArray(parsed.products)) {
+      parsed.products.forEach(p => {
+        if (p.latest_bill_photo_id === undefined) p.latest_bill_photo_id = null;
+        if (p.has_flagged_bill === undefined) p.has_flagged_bill = false;
       });
     }
     return parsed;

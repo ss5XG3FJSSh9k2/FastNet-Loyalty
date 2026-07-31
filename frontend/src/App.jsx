@@ -1,3 +1,4 @@
+/* global FormData */
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   ShoppingBag, 
@@ -276,6 +277,29 @@ export default function App() {
   const [editProdName, setEditProdName] = useState('');
   const [editProdPrice, setEditProdPrice] = useState('');
   const [editProdCostPrice, setEditProdCostPrice] = useState('');
+
+  // Round T Bill Photo State
+  const [newProdBillFile, setNewProdBillFile] = useState(null);
+  const [editProdBillFile, setEditProdBillFile] = useState(null);
+  const [showBillHistoryModal, setShowBillHistoryModal] = useState(false);
+  const [billHistoryProduct, setBillHistoryProduct] = useState(null);
+  const [billHistoryData, setBillHistoryData] = useState([]);
+  const [uploadedBillPreviewUrl, setUploadedBillPreviewUrl] = useState(null);
+
+  // Admin Bill Photos Tab State
+  const [adminBillPhotos, setAdminBillPhotos] = useState([]);
+  const [billPhotoFlagFilter, setBillPhotoFlagFilter] = useState('ALL');
+  const [billPhotoStockistFilter, setBillPhotoStockistFilter] = useState('ALL');
+  const [billPhotoDateFrom, setBillPhotoDateFrom] = useState('');
+  const [billPhotoDateTo, setBillPhotoDateTo] = useState('');
+  const [showFlagBillModal, setShowFlagBillModal] = useState(false);
+  const [flaggingBill, setFlaggingBill] = useState(null);
+  const [flagReasonText, setFlagReasonText] = useState('');
+  const [showUnflagBillModal, setShowUnflagBillModal] = useState(false);
+  const [unflaggingBill, setUnflaggingBill] = useState(null);
+  const [viewingBillModal, setViewingBillModal] = useState(null);
+  const [customerProvenanceProduct, setCustomerProvenanceProduct] = useState(null);
+  const [customerProvenanceHistory, setCustomerProvenanceHistory] = useState([]);
 
   // Multi-lingual & Simulation States
   const [lang, setLang] = useState('en');
@@ -888,11 +912,16 @@ export default function App() {
         const fraudRes = await fetch(`${API_BASE}/admin/fraud-reports`);
         const auditRes = await fetch(`${API_BASE}/admin/audit-log`);
         const ccRes = await fetch(`${API_BASE}/admin/commission-config`);
+        const bpRes = await fetch(`${API_BASE}/admin/bill-photos`);
 
         if (custsRes.ok) setAdminCustomers(await custsRes.json());
         if (stksRes.ok) setAdminStockists(await stksRes.json());
         if (fraudRes.ok) setAdminFraudReports(await fraudRes.json());
         if (auditRes.ok) setAdminAuditLogs(await auditRes.json());
+        if (bpRes.ok) {
+          const bpData = await bpRes.json();
+          setAdminBillPhotos(bpData.data || []);
+        }
         if (ccRes.ok) {
           const ccData = await ccRes.json();
           setCommissionConfigs(ccData);
@@ -1038,6 +1067,26 @@ export default function App() {
   };
 
   // Sync DB Inspector tables directly
+  
+
+  const fetchAdminBillPhotos = async () => {
+    try {
+      let query = `${API_BASE}/admin/bill-photos?`;
+      if (billPhotoFlagFilter !== 'ALL') query += `flag_status=${billPhotoFlagFilter}&`;
+      if (billPhotoStockistFilter !== 'ALL') query += `stockist_id=${billPhotoStockistFilter}&`;
+      if (billPhotoDateFrom) query += `date_from=${billPhotoDateFrom}&`;
+      if (billPhotoDateTo) query += `date_to=${billPhotoDateTo}&`;
+
+      const res = await fetch(query);
+      if (res.ok) {
+        const data = await res.json();
+        setAdminBillPhotos(data.data || []);
+      }
+    } catch (err) {
+      console.error('Error fetching admin bill photos:', err);
+    }
+  };
+
   const syncInspectorTable = async () => {
     try {
       const ordersRes = await fetch(`${API_BASE}/orders`);
@@ -2535,35 +2584,47 @@ export default function App() {
       showToast('Please fill all required product fields', 'error');
       return;
     }
+    if (!newProdBillFile) {
+      showToast("New SKUs require a bill photo. Please select a photo.", 'error');
+      return;
+    }
+    if (newProdBillFile.size > 8 * 1024 * 1024) {
+      showToast("Bill photo exceeds 8 MB limit.", 'error');
+      return;
+    }
+
     try {
-      const payload = {
-        name: newProdName,
-        price: parseFloat(newProdPrice),
-        costPrice: newProdCostPrice ? parseFloat(newProdCostPrice) : parseFloat(newProdPrice) * 0.75,
-        category: newProdCategory,
-        initialStock: parseInt(newProdInitialStock, 10),
-        stockistId: stockistProfile.id,
-        regionId: currentUser.region_id
-      };
-      
+      const formData = new FormData();
+      formData.append('bill_photo', newProdBillFile);
+      formData.append('name', newProdName);
+      formData.append('price', parseFloat(newProdPrice));
+      formData.append('costPrice', newProdCostPrice ? parseFloat(newProdCostPrice) : parseFloat(newProdPrice) * 0.75);
+      formData.append('category', newProdCategory);
+      formData.append('initialStock', parseInt(newProdInitialStock, 10));
+      formData.append('stockistId', stockistProfile.id);
+      formData.append('regionId', currentUser.region_id);
+
       const res = await fetch(`${API_BASE}/products`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        body: formData
       });
       const data = await res.json();
       if (res.ok) {
-        showToast(`Product ${newProdName} added successfully!`, 'success');
+        showToast(`Product ${newProdName} added successfully with bill!`, 'success');
+        if (data.bill_photo && data.bill_photo.public_url) {
+          setUploadedBillPreviewUrl(data.bill_photo.public_url);
+        }
         setShowAddProductModal(false);
         setNewProdName('');
         setNewProdPrice('');
         setNewProdCostPrice('');
         setNewProdCategory('groceries');
         setNewProdInitialStock('10');
+        setNewProdBillFile(null);
         loadStockistData();
         fetchDbState();
       } else {
-        showToast(data.error || 'Failed to add product', 'error');
+        showToast(data.message || data.error || 'Failed to add product', 'error');
       }
     } catch (err) {
       showToast('Error adding product', 'error');
@@ -2575,6 +2636,7 @@ export default function App() {
     setEditProdName(prod.name);
     setEditProdPrice(prod.price.toString());
     setEditProdCostPrice((prod.cost_price !== undefined && prod.cost_price !== null ? prod.cost_price : prod.price * 0.75).toString());
+    setEditProdBillFile(null);
   };
 
   const handleSaveEditProduct = async () => {
@@ -2593,29 +2655,105 @@ export default function App() {
       return;
     }
 
+    const priceChanged = Math.abs(priceNum - editingProduct.price) > 0.001 || Math.abs(costNum - editingProduct.cost_price) > 0.001;
+    if (priceChanged && !editProdBillFile) {
+      showToast('Price change detected. A new bill photo is required.', 'error');
+      return;
+    }
+    if (editProdBillFile && editProdBillFile.size > 8 * 1024 * 1024) {
+      showToast('Bill photo exceeds 8 MB limit.', 'error');
+      return;
+    }
+
     try {
-      const payload = {
-        name: editProdName,
-        price: priceNum,
-        costPrice: costNum,
-        stockistId: stockistProfile.id
-      };
+      const formData = new FormData();
+      if (editProdBillFile) formData.append('bill_photo', editProdBillFile);
+      formData.append('name', editProdName);
+      formData.append('price', priceNum);
+      formData.append('costPrice', costNum);
+      formData.append('stockistId', stockistProfile.id);
+
       const res = await fetch(`${API_BASE}/products/${editingProduct.id}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        body: formData
       });
       const data = await res.json();
       if (res.ok) {
         showToast('Product updated successfully!', 'success');
         setEditingProduct(null);
+        setEditProdBillFile(null);
         loadStockistData();
         fetchDbState();
       } else {
-        showToast(data.error || 'Failed to update product', 'error');
+        showToast(data.message || data.error || 'Failed to update product', 'error');
       }
     } catch (err) {
       showToast('Network error updating product', 'error');
+    }
+  };
+
+  const handleFlagBillPhoto = async () => {
+    if (!flaggingBill) return;
+    if (!flagReasonText || flagReasonText.trim().length < 10) {
+      showToast('Reason must be at least 10 characters', 'error');
+      return;
+    }
+    try {
+      const res = await fetch(`${API_BASE}/admin/bill-photos/${flaggingBill.id}/flag`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ admin_id: currentUser?.id || 'u-admin', reason: flagReasonText.trim() })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast('Bill photo flagged successfully', 'success');
+        setShowFlagBillModal(false);
+        setFlaggingBill(null);
+        setFlagReasonText('');
+        fetchDbState();
+      } else {
+        showToast(data.error || 'Failed to flag bill photo', 'error');
+      }
+    } catch (err) {
+      showToast('Error flagging bill photo', 'error');
+    }
+  };
+
+  const handleUnflagBillPhoto = async () => {
+    if (!unflaggingBill) return;
+    try {
+      const res = await fetch(`${API_BASE}/admin/bill-photos/${unflaggingBill.id}/unflag`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ admin_id: currentUser?.id || 'u-admin' })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast('Bill photo unflagged/resolved successfully', 'success');
+        setShowUnflagBillModal(false);
+        setUnflaggingBill(null);
+        fetchDbState();
+      } else {
+        showToast(data.error || 'Failed to unflag bill photo', 'error');
+      }
+    } catch (err) {
+      showToast('Error unflagging bill photo', 'error');
+    }
+  };
+
+  const handleViewSignedUrl = async (billId) => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/bill-photos/${billId}/signed-url`, {
+        method: 'POST'
+      });
+      const data = await res.json();
+      if (res.ok && data.signed_url) {
+        window.open(data.signed_url, '_blank');
+      } else {
+        showToast(data.message || data.error || 'Failed to get signed URL', 'error');
+      }
+    } catch (err) {
+      showToast('Error fetching signed URL', 'error');
     }
   };
 
@@ -3484,7 +3622,23 @@ export default function App() {
                                   <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', width: '100%' }}>
                                     <img src={p.image_url} alt={p.name} style={{ width: '56px', height: '56px', borderRadius: '6px', objectFit: 'cover' }} />
                                     <div style={{ flex: 1 }}>
-                                      <h4 style={{ fontSize: '0.75rem', color: 'white' }}>{p.name}</h4>
+                                      <h4 style={{ fontSize: '0.75rem', color: 'white', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                                          {p.name}
+                                          {p.has_flagged_bill && (
+                                            <AlertTriangle size={12} style={{ color: 'var(--danger)' }} title="This product has a flagged bill photo under review by admin." />
+                                          )}
+                                        </h4>
+                                        <button 
+                                          style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: '0.6rem', padding: 0, cursor: 'pointer', textAlign: 'left', display: 'block', marginTop: '0.1rem' }}
+                                          onClick={() => {
+                                            setCustomerProvenanceProduct(p);
+                                            fetch(`${API_BASE}/products/${p.id}/bill-history`)
+                                              .then(res => res.json())
+                                              .then(data => setCustomerProvenanceHistory(data));
+                                          }}
+                                        >
+                                          View price provenance
+                                        </button>
                                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.2rem' }}>
                                         <span style={{ fontWeight: 'bold', fontSize: '0.85rem' }}>₹{p.price}</span>
                                         <span className="badge badge-success" style={{ fontSize: '0.55rem', padding: '0.1rem 0.25rem' }}>
@@ -4457,6 +4611,9 @@ export default function App() {
                                 <div style={{ flex: 1 }}>
                                   <div style={{ fontWeight: '600', color: 'white', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
                                     {p.name}
+                                    {p.has_flagged_bill && (
+                                      <AlertTriangle size={12} style={{ color: 'var(--danger)' }} title="This product has a flagged bill photo under review by admin." />
+                                    )}
                                     <Edit 
                                       size={12} 
                                       style={{ color: 'var(--text-muted)', cursor: 'pointer', verticalAlign: 'middle' }} 
@@ -4510,7 +4667,7 @@ export default function App() {
                         <>
                           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.65rem' }}>
                             <div className="glass-card" style={{ padding: '0.75rem', textAlign: 'center' }}>
-                              <span style={{ fontSize: '0.55rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{t("Today's Sales", "आज की बिक्री", "আজকের বিক্রি")}</span>
+                              <span style={{ fontSize: '0.55rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{t("Today's Sales", "आज की बिक्री", "आजকের বিক্রি")}</span>
                               <h3 style={{ fontSize: '1.2rem', color: 'white', margin: '0.15rem 0' }}>₹{stockistAnalytics.today_earnings.toFixed(2)}</h3>
                               <span style={{ fontSize: '0.55rem', color: 'var(--accent)', fontWeight: 'bold' }}>{stockistAnalytics.today_order_count} orders</span>
                             </div>
@@ -4524,7 +4681,7 @@ export default function App() {
                           <div className="glass-card" style={{ padding: '0.75rem' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
                               <span style={{ fontSize: '0.55rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                                {analyticsRange === 'weekly' ? t('7-Day Sales Trend (₹)', '7-दिवसीय बिक्री रुझान (₹)', '৭-দিনের সেলস ট্রেন্ড (₹)') : t('4-Week Sales Trend (₹)', '4-सप्ताह बिक्री रुझान (₹)', '৪-সप्ताहের সেলस ट्रेंड (₹)')}
+                                {analyticsRange === 'weekly' ? t('7-Day Sales Trend (₹)', '7-दिवसीय बिक्री रुझान (₹)', '৭-দিনের সেলস ট্রেন্ড (₹)') : t('4-Week Sales Trend (₹)', '4-सप्ताह बिक्री रुझान (₹)', '৪-সप्ताहের সেলস ট্রেন্ড (₹)')}
                               </span>
                               <div style={{ display: 'flex', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', padding: '0.1rem' }}>
                                 <button
@@ -4720,6 +4877,33 @@ export default function App() {
                           <label className="input-label">{t('Initial Stock', 'प्रारंभिक स्टॉक', 'প্রাথমিক স্টক')}</label>
                           <input type="number" className="text-input" value={newProdInitialStock} onChange={e => setNewProdInitialStock(e.target.value)} />
                         </div>
+
+                        <div className="input-group">
+                          <label className="input-label">
+                            {t('Wholesale bill / invoice (photo)', 'थोक बिल / चालान (फोटो)', 'পাইকারি বিল / ইনভয়েস (ছবি)')} <span style={{ color: 'var(--danger)' }}>*</span>
+                          </label>
+                          <input 
+                            type="file" 
+                            accept=".jpg,.jpeg,.png,.webp"
+                            className="text-input" 
+                            onChange={e => {
+                              const file = e.target.files[0];
+                              if (file && file.size > 8 * 1024 * 1024) {
+                                showToast('Bill photo exceeds 8 MB limit', 'error');
+                                return;
+                              }
+                              setNewProdBillFile(file || null);
+                            }}
+                          />
+                          {newProdBillFile && (
+                            <div style={{ fontSize: '0.7rem', color: 'var(--accent)', marginTop: '0.2rem' }}>
+                              Selected: {newProdBillFile.name} ({(newProdBillFile.size / 1024).toFixed(1)} KB)
+                            </div>
+                          )}
+                          <p style={{ fontSize: '0.65rem', color: 'var(--text-muted)', margin: '0.35rem 0 0 0' }}>
+                            Upload a photo of the wholesaler's bill or invoice showing you paid the cost price for this stock. This helps us verify prices are honest. Bills are visible to admin and customers.
+                          </p>
+                        </div>
                         
                         <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
                           <button className="btn btn-accent" style={{ flex: 1 }} onClick={handleAddNewProduct}>
@@ -4740,6 +4924,12 @@ export default function App() {
                           <Edit size={16} style={{ color: 'var(--accent)' }} />
                           {t('Edit SKU details', 'SKU विवरण संपादित करें', 'SKU বিবরণ সংশোধন করুন')}
                         </h3>
+
+                        {(Math.abs(parseFloat(editProdPrice || 0) - editingProduct.price) > 0.001 || Math.abs(parseFloat(editProdCostPrice || 0) - editingProduct.cost_price) > 0.001) && (
+                          <div style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid var(--danger)', padding: '0.5rem', borderRadius: '6px', fontSize: '0.75rem', color: '#fca5a5' }}>
+                            ⚠️ Price change detected. A new bill is required.
+                          </div>
+                        )}
                         
                         <div className="input-group">
                           <label className="input-label">{t('Product Name', 'उत्पाद का नाम', 'পণ্যের নাম')}</label>
@@ -4758,6 +4948,45 @@ export default function App() {
                             {t('Points customers earn are based on your margin', 'ग्राहकों द्वारा अर्जित अंक आपके मार्जिन पर आधारित होते हैं', 'গ্রাহকদের অর্জিত পয়েন্ট আপনার মার্জিনের ওপর ভিত্তি করে নির্ধারিত হয়')}
                           </small>
                         </div>
+
+                        <div className="input-group">
+                          <label className="input-label">
+                            {t('Wholesale bill photo', 'थोक बिल फोटो', 'পাইকারি বিল ছবি')} {(Math.abs(parseFloat(editProdPrice || 0) - editingProduct.price) > 0.001 || Math.abs(parseFloat(editProdCostPrice || 0) - editingProduct.cost_price) > 0.001) && <span style={{ color: 'var(--danger)' }}>*</span>}
+                          </label>
+                          <input 
+                            type="file" 
+                            accept=".jpg,.jpeg,.png,.webp"
+                            className="text-input" 
+                            onChange={e => {
+                              const file = e.target.files[0];
+                              if (file && file.size > 8 * 1024 * 1024) {
+                                showToast('Bill photo exceeds 8 MB limit', 'error');
+                                return;
+                              }
+                              setEditProdBillFile(file || null);
+                            }}
+                          />
+                          {editProdBillFile && (
+                            <div style={{ fontSize: '0.7rem', color: 'var(--accent)', marginTop: '0.2rem' }}>
+                              Selected: {editProdBillFile.name} ({(editProdBillFile.size / 1024).toFixed(1)} KB)
+                            </div>
+                          )}
+                        </div>
+
+                        <button 
+                          type="button"
+                          className="btn btn-secondary" 
+                          style={{ fontSize: '0.7rem', marginTop: '0.2rem' }}
+                          onClick={() => {
+                            setBillHistoryProduct(editingProduct);
+                            fetch(`${API_BASE}/products/${editingProduct.id}/bill-history`)
+                              .then(res => res.json())
+                              .then(data => setBillHistoryData(data));
+                            setShowBillHistoryModal(true);
+                          }}
+                        >
+                          View bill history for this SKU
+                        </button>
                         
                         <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
                           <button className="btn btn-accent" style={{ flex: 1 }} onClick={handleSaveEditProduct}>
@@ -4847,6 +5076,9 @@ export default function App() {
               </button>
               <button className={`admin-nav-item ${adminTab === 'fraud_reports' ? 'active' : ''}`} onClick={() => setAdminTab('fraud_reports')}>
                 <AlertTriangle size={16} /> Fraud Reports {adminFraudReports.filter(r=>['NEW','TRIAGING'].includes(r.status)).length > 0 && <span className="badge badge-warning" style={{ marginLeft: '0.25rem', fontSize: '0.65rem' }}>{adminFraudReports.filter(r=>['NEW','TRIAGING'].includes(r.status)).length}</span>}
+              </button>
+              <button className={`admin-nav-item ${adminTab === 'bill_photos' ? 'active' : ''}`} onClick={() => { setAdminTab('bill_photos'); fetchAdminBillPhotos(); }}>
+                <FileText size={16} /> Bill Photos {adminBillPhotos.filter(b => b.flag_status === 'FLAGGED').length > 0 && <span className="badge badge-warning" style={{ marginLeft: '0.25rem', fontSize: '0.65rem' }}>{adminBillPhotos.filter(b => b.flag_status === 'FLAGGED').length}</span>}
               </button>
               <button className={`admin-nav-item ${adminTab === 'audit_log' ? 'active' : ''}`} onClick={() => setAdminTab('audit_log')}>
                 <FileText size={16} /> Audit Log
@@ -5131,6 +5363,149 @@ export default function App() {
                         <tr>
                           <td colSpan="7" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
                             No reports in {fraudReportTab} status.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {adminTab === 'bill_photos' && (
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                    <h2 style={{ fontSize: '1.4rem', margin: 0 }}>SKU Bill Photos Audit Queue</h2>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                      Total Uploaded Bills: {adminBillPhotos.length}
+                    </span>
+                  </div>
+
+                  {/* Filter Controls */}
+                  <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1rem', flexWrap: 'wrap', alignItems: 'center', background: 'var(--bg-surface)', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                    <div>
+                      <label style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block' }}>Flag Status:</label>
+                      <select 
+                        className="text-input" 
+                        style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem', width: '130px' }}
+                        value={billPhotoFlagFilter}
+                        onChange={e => setBillPhotoFlagFilter(e.target.value)}
+                      >
+                        <option value="ALL">All Statuses</option>
+                        <option value="CLEAN">CLEAN</option>
+                        <option value="FLAGGED">FLAGGED</option>
+                        <option value="RESOLVED">RESOLVED</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block' }}>Stockist:</label>
+                      <select 
+                        className="text-input" 
+                        style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem', width: '160px' }}
+                        value={billPhotoStockistFilter}
+                        onChange={e => setBillPhotoStockistFilter(e.target.value)}
+                      >
+                        <option value="ALL">All Stockists</option>
+                        {adminStockists.map(s => (
+                          <option key={s.id} value={s.id}>{s.name}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block' }}>From Date:</label>
+                      <input 
+                        type="date" 
+                        className="text-input"
+                        style={{ fontSize: '0.75rem', padding: '0.2rem 0.4rem', width: '130px' }}
+                        value={billPhotoDateFrom}
+                        onChange={e => setBillPhotoDateFrom(e.target.value)}
+                      />
+                    </div>
+
+                    <div>
+                      <label style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block' }}>To Date:</label>
+                      <input 
+                        type="date" 
+                        className="text-input"
+                        style={{ fontSize: '0.75rem', padding: '0.2rem 0.4rem', width: '130px' }}
+                        value={billPhotoDateTo}
+                        onChange={e => setBillPhotoDateTo(e.target.value)}
+                      />
+                    </div>
+
+                    <div style={{ marginTop: 'auto' }}>
+                      <button className="btn btn-primary" style={{ fontSize: '0.75rem', padding: '0.25rem 0.65rem' }} onClick={fetchAdminBillPhotos}>
+                        Apply Filters
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Table */}
+                  <table className="admin-table">
+                    <thead>
+                      <tr>
+                        <th>Uploaded Date</th>
+                        <th>Stockist</th>
+                        <th>Product</th>
+                        <th>Selling Price</th>
+                        <th>Cost Price</th>
+                        <th>Status</th>
+                        <th>Preview</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {adminBillPhotos
+                        .filter(b => billPhotoFlagFilter === 'ALL' || b.flag_status === billPhotoFlagFilter)
+                        .filter(b => billPhotoStockistFilter === 'ALL' || b.stockist_id === billPhotoStockistFilter)
+                        .map(b => (
+                          <tr key={b.id}>
+                            <td style={{ fontSize: '0.75rem' }}>{new Date(b.created_at).toLocaleString()}</td>
+                            <td style={{ fontWeight: 'bold' }}>{b.stockist_name || b.stockist_id}</td>
+                            <td>{b.product_name || b.product_id}</td>
+                            <td style={{ fontWeight: 'bold' }}>₹{b.declared_price}</td>
+                            <td style={{ color: 'var(--text-muted)' }}>₹{b.declared_cost_price}</td>
+                            <td>
+                              <span className={`badge ${b.flag_status === 'FLAGGED' ? 'badge-danger' : b.flag_status === 'RESOLVED' ? 'badge-primary' : 'badge-success'}`}>
+                                {b.flag_status}
+                              </span>
+                            </td>
+                            <td>
+                              {b.public_url ? (
+                                <img 
+                                  src={b.public_url} 
+                                  alt="Bill thumbnail" 
+                                  style={{ width: '40px', height: '40px', objectFit: 'cover', borderRadius: '4px', cursor: 'pointer', border: '1px solid var(--border-color)' }}
+                                  onClick={() => setViewingBillModal(b)}
+                                />
+                              ) : (
+                                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>No Preview</span>
+                              )}
+                            </td>
+                            <td>
+                              <div style={{ display: 'flex', gap: '0.35rem' }}>
+                                {b.flag_status !== 'FLAGGED' && (
+                                  <button className="btn btn-warning" style={{ fontSize: '0.65rem', padding: '0.2rem 0.4rem' }} onClick={() => { setFlaggingBill(b); setFlagReasonText(''); setShowFlagBillModal(true); }}>
+                                    Flag Bill
+                                  </button>
+                                )}
+                                {b.flag_status === 'FLAGGED' && (
+                                  <button className="btn btn-success" style={{ fontSize: '0.65rem', padding: '0.2rem 0.4rem' }} onClick={() => { setUnflaggingBill(b); setShowUnflagBillModal(true); }}>
+                                    Mark Resolved
+                                  </button>
+                                )}
+                                <button className="btn btn-secondary" style={{ fontSize: '0.65rem', padding: '0.2rem 0.4rem' }} onClick={() => handleViewSignedUrl(b.id)}>
+                                  Private Link
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      {adminBillPhotos.length === 0 && (
+                        <tr>
+                          <td colSpan="8" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
+                            No bill photos found for selected filters.
                           </td>
                         </tr>
                       )}
@@ -6760,7 +7135,160 @@ export default function App() {
             Show Developer Options (Live Gateway Log Stream & DB Row Inspector)
           </span>
         </label>
-      </footer>
+      
+      {/* Bill History Modal */}
+      {showBillHistoryModal && (
+        <div className="modal-overlay">
+          <div className="modal-content glass-card" style={{ maxWidth: '550px', maxHeight: '80vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h3 style={{ fontSize: '1.1rem', margin: 0 }}>Bill Photo History: {billHistoryProduct?.name}</h3>
+              <button className="btn btn-secondary" style={{ padding: '0.2rem 0.5rem' }} onClick={() => setShowBillHistoryModal(false)}><X size={14} /></button>
+            </div>
+            <table className="admin-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Selling Price</th>
+                  <th>Cost Price</th>
+                  <th>Status</th>
+                  <th>Preview</th>
+                </tr>
+              </thead>
+              <tbody>
+                {billHistoryData.map(b => (
+                  <tr key={b.id}>
+                    <td style={{ fontSize: '0.75rem' }}>{new Date(b.created_at).toLocaleDateString()}</td>
+                    <td>₹{b.declared_price}</td>
+                    <td>₹{b.declared_cost_price}</td>
+                    <td>
+                      <span className={`badge ${b.flag_status === 'FLAGGED' ? 'badge-danger' : b.flag_status === 'RESOLVED' ? 'badge-primary' : 'badge-success'}`}>
+                        {b.flag_status}
+                      </span>
+                    </td>
+                    <td>
+                      {b.public_url && (
+                        <img 
+                          src={b.public_url} 
+                          alt="Bill" 
+                          style={{ width: '40px', height: '40px', objectFit: 'cover', borderRadius: '4px', cursor: 'pointer' }}
+                          onClick={() => setViewingBillModal(b)}
+                        />
+                      )}
+                    </td>
+                  </tr>
+                ))}
+                {billHistoryData.length === 0 && (
+                  <tr><td colSpan="5" style={{ textAlign: 'center', color: 'var(--text-muted)' }}>No bill history found.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Flag Bill Modal */}
+      {showFlagBillModal && flaggingBill && (
+        <div className="modal-overlay">
+          <div className="modal-content glass-card" style={{ maxWidth: '400px' }}>
+            <h3>Flag Bill Photo</h3>
+            <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Product: {flaggingBill.product_name || flaggingBill.product_id}</p>
+            <div className="input-group" style={{ margin: '1rem 0' }}>
+              <label className="input-label">Reason for Flagging (min 10 characters) <span style={{ color: 'var(--danger)' }}>*</span></label>
+              <textarea 
+                className="text-input" 
+                style={{ height: '80px', fontSize: '0.8rem' }}
+                placeholder="e.g., Unclear receipt, price mismatch, non-wholesale invoice format..."
+                value={flagReasonText} 
+                onChange={e => setFlagReasonText(e.target.value)} 
+              />
+              <small style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>{flagReasonText.length}/10 chars min</small>
+            </div>
+            <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+              <button className="btn btn-secondary" onClick={() => setShowFlagBillModal(false)}>Cancel</button>
+              <button className="btn btn-warning" onClick={handleFlagBillPhoto}>Flag Bill Photo</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Unflag / Resolve Bill Modal */}
+      {showUnflagBillModal && unflaggingBill && (
+        <div className="modal-overlay">
+          <div className="modal-content glass-card" style={{ maxWidth: '400px' }}>
+            <h3>Mark Bill Photo Resolved</h3>
+            <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Confirm that this bill photo issue has been investigated and resolved.</p>
+            <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '1rem' }}>
+              <button className="btn btn-secondary" onClick={() => setShowUnflagBillModal(false)}>Cancel</button>
+              <button className="btn btn-success" onClick={handleUnflagBillPhoto}>Confirm Resolved</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Viewing Bill Image Modal */}
+      {viewingBillModal && (
+        <div className="modal-overlay" onClick={() => setViewingBillModal(null)}>
+          <div className="modal-content glass-card" style={{ maxWidth: '600px', textAlign: 'center' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h3 style={{ fontSize: '1rem', margin: 0 }}>Bill Photo Inspection</h3>
+              <button className="btn btn-secondary" style={{ padding: '0.2rem 0.5rem' }} onClick={() => setViewingBillModal(null)}><X size={14} /></button>
+            </div>
+            {viewingBillModal.public_url ? (
+              <img src={viewingBillModal.public_url} alt="Full Bill Photo" style={{ maxWidth: '100%', maxHeight: '400px', borderRadius: '8px' }} />
+            ) : (
+              <p style={{ color: 'var(--text-muted)' }}>No public preview URL available.</p>
+            )}
+            <div style={{ marginTop: '1rem', fontSize: '0.75rem', color: 'var(--text-muted)', textAlign: 'left' }}>
+              <p>Uploaded: {new Date(viewingBillModal.created_at).toLocaleString()}</p>
+              <p>Declared Price: ₹{viewingBillModal.declared_price} | Cost: ₹{viewingBillModal.declared_cost_price}</p>
+              {viewingBillModal.flag_reason && <p style={{ color: 'var(--danger)' }}>Flag Reason: {viewingBillModal.flag_reason}</p>}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Customer Price Provenance Modal */}
+      {customerProvenanceProduct && (
+        <div className="modal-overlay">
+          <div className="modal-content glass-card" style={{ maxWidth: '450px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h3 style={{ fontSize: '1.1rem', margin: 0 }}>Price Provenance & Integrity</h3>
+              <button className="btn btn-secondary" style={{ padding: '0.2rem 0.5rem' }} onClick={() => setCustomerProvenanceProduct(null)}><X size={14} /></button>
+            </div>
+            <p style={{ fontSize: '0.85rem', fontWeight: 'bold' }}>{customerProvenanceProduct.name}</p>
+            <div style={{ background: 'var(--bg-surface)', padding: '0.75rem', borderRadius: '6px', margin: '0.75rem 0', fontSize: '0.8rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', margin: '0.25rem 0' }}>
+                <span>Listed Selling Price:</span>
+                <strong>₹{customerProvenanceProduct.price}</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', margin: '0.25rem 0' }}>
+                <span>Verified Wholesale Cost:</span>
+                <span>₹{customerProvenanceProduct.cost_price}</span>
+              </div>
+            </div>
+
+            {customerProvenanceProduct.has_flagged_bill && (
+              <div style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid var(--danger)', padding: '0.5rem', borderRadius: '6px', fontSize: '0.75rem', color: '#fca5a5', marginBottom: '0.75rem' }}>
+                ⚠️ Notice: One or more bill photos for this SKU are currently flagged for operator review.
+              </div>
+            )}
+
+            <h4 style={{ fontSize: '0.85rem', marginBottom: '0.5rem' }}>Wholesale Bill Upload History</h4>
+            <div style={{ maxHeight: '150px', overflowY: 'auto' }}>
+              {customerProvenanceHistory.map(b => (
+                <div key={b.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.75rem', padding: '0.3rem 0', borderBottom: '1px dashed rgba(255,255,255,0.05)' }}>
+                  <span>{new Date(b.created_at).toLocaleDateString()}</span>
+                  <span>Cost: ₹{b.declared_cost_price} → Price: ₹{b.declared_price}</span>
+                  <span className={`badge ${b.flag_status === 'FLAGGED' ? 'badge-danger' : 'badge-success'}`}>{b.flag_status}</span>
+                </div>
+              ))}
+              {customerProvenanceHistory.length === 0 && <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>No bill history records found.</p>}
+            </div>
+          </div>
+        </div>
+      )}
+
+</footer>
     </div>
   );
 }

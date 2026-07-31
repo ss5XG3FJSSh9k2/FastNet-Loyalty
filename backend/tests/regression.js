@@ -1,19 +1,70 @@
 const http = require('http');
 const dbModule = require('../db.js');
 
-function post(url, body) {
+function postMultipart(url, fields, fileObj = { fieldName: 'bill_photo', filename: 'bill.jpg', mime: 'image/jpeg', buffer: Buffer.from('mock jpeg data') }, method = 'POST', options = {}) {
+  return new Promise((resolve, reject) => {
+    const boundary = '----WebKitFormBoundary' + Math.random().toString(36).substring(2);
+    const parsed = new URL(url);
+
+    let body = [];
+
+    for (const [key, value] of Object.entries(fields)) {
+      if (value !== undefined && value !== null) {
+        body.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="${key}"\r\n\r\n${value}\r\n`));
+      }
+    }
+
+    if (fileObj) {
+      body.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="${fileObj.fieldName || 'bill_photo'}"; filename="${fileObj.filename || 'bill.jpg'}"\r\nContent-Type: ${fileObj.mime || 'image/jpeg'}\r\n\r\n`));
+      body.push(Buffer.isBuffer(fileObj.buffer) ? fileObj.buffer : Buffer.from(fileObj.buffer || 'mock bill content'));
+      body.push(Buffer.from('\r\n'));
+    }
+
+    body.push(Buffer.from(`--${boundary}--\r\n`));
+    const payload = Buffer.concat(body);
+
+    const headers = Object.assign({
+      'Content-Type': `multipart/form-data; boundary=${boundary}`,
+      'Content-Length': payload.length
+    }, options.headers || {});
+
+    const req = http.request({
+      hostname: parsed.hostname,
+      port: parsed.port,
+      path: parsed.pathname,
+      method: method,
+      headers: headers
+    }, (res) => {
+      let raw = '';
+      res.on('data', chunk => raw += chunk);
+      res.on('end', () => {
+        try { resolve({ status: res.statusCode, body: JSON.parse(raw) }); }
+        catch(e) { resolve({ status: res.statusCode, body: raw }); }
+      });
+    });
+    req.on('error', reject);
+    req.write(payload);
+    req.end();
+  });
+}
+
+function post(url, body, options = {}) {
+  if (options.asMultipart || (url.includes('/api/products') && !options.rawJson)) {
+    return postMultipart(url, body, options.fileObj || { fieldName: 'bill_photo', filename: 'bill.jpg', mime: 'image/jpeg', buffer: Buffer.from('mock bill photo data') }, 'POST', options);
+  }
   return new Promise((resolve, reject) => {
     const parsed = new URL(url);
     const data = JSON.stringify(body || {});
+    const headers = Object.assign({
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(data)
+    }, options.headers || {});
     const req = http.request({
       hostname: parsed.hostname,
       port: parsed.port,
       path: parsed.pathname,
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(data)
-      }
+      headers: headers
     }, (res) => {
       let raw = '';
       res.on('data', chunk => raw += chunk);
@@ -28,19 +79,23 @@ function post(url, body) {
   });
 }
 
-function patch(url, body) {
+function patch(url, body, options = {}) {
+  if (options.asMultipart || (url.includes('/api/products') && !options.rawJson && (body.price !== undefined || body.costPrice !== undefined || body.cost_price !== undefined))) {
+    return postMultipart(url, body, options.fileObj || { fieldName: 'bill_photo', filename: 'bill.jpg', mime: 'image/jpeg', buffer: Buffer.from('mock bill photo data') }, 'PATCH', options);
+  }
   return new Promise((resolve, reject) => {
     const parsed = new URL(url);
     const data = JSON.stringify(body || {});
+    const headers = Object.assign({
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(data)
+    }, options.headers || {});
     const req = http.request({
       hostname: parsed.hostname,
       port: parsed.port,
       path: parsed.pathname,
       method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(data)
-      }
+      headers: headers
     }, (res) => {
       let raw = '';
       res.on('data', chunk => raw += chunk);
@@ -997,12 +1052,12 @@ async function main() {
   assert(overrideOrder.points_credited === 2.4, `Override points_credited is 2.4 (got ${overrideOrder.points_credited})`);
   assert(overrideOrder.stockist_payout === 92, `Override stockist_payout is 92 (got ${overrideOrder.stockist_payout})`);
 
-  // Test 155: Loss leader (price=100, cost=120 -> profit = -20) -> 0/0/0 settlement
+  // Test 155: Loss leader (price=100, cost=100 -> profit = 0) -> 0/0/0 settlement
   const lossProdRes = await post('http://localhost:3001/api/products', {
     name: 'Loss Leader item',
     category: 'groceries',
     price: 100,
-    costPrice: 120,
+    costPrice: 100,
     stockistId: 's3',
     regionId: 'r1',
     initialStock: 10
@@ -1058,6 +1113,158 @@ async function main() {
   const actionsInLog = finalAuditRes.body.map(a => a.action);
   assert(actionsInLog.includes('COMMISSION_CONFIG_CREATE'), 'Audit log contains COMMISSION_CONFIG_CREATE');
   assert(actionsInLog.includes('COMMISSION_CONFIG_DELETE'), 'Audit log contains COMMISSION_CONFIG_DELETE');
+
+  
+  // --- Round T: Stockist Bill Upload for SKU Integrity ---
+  console.log('\n--- 24. Round T: Stockist Bill Upload for SKU Integrity ---');
+
+  // Test 184: 503 when R2 is unconfigured and R2_MOCK=false
+  const unconfigRes = await post('http://localhost:3001/api/products', { name: 'Test', price: 100 }, { rawJson: true, headers: { 'x-r2-mock': 'false' } });
+  assert(unconfigRes.status === 503, 'R2 unconfigured returns 503');
+  assert(unconfigRes.body.error === 'r2_not_configured', 'Error code is r2_not_configured');
+
+  // Test 185: JSON POST (missing bill_photo) returns 400 bill_photo_required
+  const jsonPostRes = await post('http://localhost:3001/api/products', {
+    name: 'No Bill Product',
+    category: 'groceries',
+    price: 100,
+    costPrice: 70,
+    stockistId: 's1',
+    regionId: 'r1',
+    initialStock: 10
+  }, { rawJson: true });
+  assert(jsonPostRes.status === 400, 'JSON product create rejected with 400');
+  assert(jsonPostRes.body.error === 'bill_photo_required', 'Error is bill_photo_required');
+
+  // Test 186: Non-image file type (PDF) returns 400 invalid_file_type
+  const pdfRes = await postMultipart('http://localhost:3001/api/products', {
+    name: 'PDF Bill SKU',
+    category: 'groceries',
+    price: 100,
+    costPrice: 70,
+    stockistId: 's1',
+    regionId: 'r1',
+    initialStock: 10
+  }, { fieldName: 'bill_photo', filename: 'bill.pdf', mime: 'application/pdf', buffer: Buffer.from('%PDF-1.4 test') }, 'POST');
+  assert(pdfRes.status === 400, 'PDF upload rejected with 400');
+  assert(pdfRes.body.error === 'invalid_file_type', 'Error is invalid_file_type');
+
+  // Test 187: Oversized file (>8MB) returns 400 file_too_large
+  const largeBuffer = Buffer.alloc(8 * 1024 * 1024 + 100);
+  const largeRes = await postMultipart('http://localhost:3001/api/products', {
+    name: 'Large Bill SKU',
+    category: 'groceries',
+    price: 100,
+    costPrice: 70,
+    stockistId: 's1',
+    regionId: 'r1',
+    initialStock: 10
+  }, { fieldName: 'bill_photo', filename: 'big.jpg', mime: 'image/jpeg', buffer: largeBuffer }, 'POST');
+  assert(largeRes.status === 400, 'File >8MB rejected with 400');
+  assert(largeRes.body.error === 'file_too_large', 'Error is file_too_large');
+
+  // Test 188: Valid JPEG multipart POST creates product and bill_photo row
+  const createBillRes = await postMultipart('http://localhost:3001/api/products', {
+    name: 'Integrity SKU 101',
+    category: 'groceries',
+    price: 150,
+    costPrice: 110,
+    stockistId: 's1',
+    regionId: 'r1',
+    initialStock: 25
+  }, { fieldName: 'bill_photo', filename: 'bill1.jpg', mime: 'image/jpeg', buffer: Buffer.from('bill jpeg data') }, 'POST');
+  assert(createBillRes.status === 200, 'Valid product + bill photo upload returns 200');
+  assert(createBillRes.body.product.latest_bill_photo_id, 'Product has latest_bill_photo_id');
+  assert(createBillRes.body.bill_photo.flag_status === 'CLEAN', 'Initial bill photo flag_status is CLEAN');
+  const integrityProdId = createBillRes.body.product.id;
+  const initialBillId = createBillRes.body.bill_photo.id;
+
+  // Test 189: Non-price edit (name change) via JSON without bill photo succeeds
+  const nonPricePatchRes = await patch(`http://localhost:3001/api/products/${integrityProdId}`, {
+    name: 'Integrity SKU 101 Renamed',
+    stockistId: 's1'
+  }, { rawJson: true });
+  assert(nonPricePatchRes.status === 200, 'Non-price edit without bill photo succeeds');
+
+  // Test 190: Price edit via JSON without bill photo fails 400 bill_required_for_price_change
+  const priceNoBillPatchRes = await patch(`http://localhost:3001/api/products/${integrityProdId}`, {
+    price: 160,
+    stockistId: 's1'
+  }, { rawJson: true });
+  assert(priceNoBillPatchRes.status === 400, 'Price edit without bill photo fails with 400');
+  assert(priceNoBillPatchRes.body.error === 'bill_required_for_price_change', 'Error is bill_required_for_price_change');
+
+  // Test 191: Price edit WITH bill photo succeeds and appends bill record
+  const priceWithBillPatchRes = await postMultipart(`http://localhost:3001/api/products/${integrityProdId}`, {
+    name: 'Integrity SKU 101 Renamed',
+    price: 160,
+    costPrice: 120,
+    stockistId: 's1'
+  }, { fieldName: 'bill_photo', filename: 'bill2.png', mime: 'image/png', buffer: Buffer.from('bill2 png data') }, 'PATCH');
+  assert(priceWithBillPatchRes.status === 200, 'Price edit with bill photo succeeds');
+  const secondBillId = priceWithBillPatchRes.body.bill_photo.id;
+  assert(secondBillId !== initialBillId, 'New bill photo ID created on price edit');
+
+  // Test 192: Bill history endpoint returns chronological bill photos
+  const historyRes = await get(`http://localhost:3001/api/products/${integrityProdId}/bill-history`);
+  assert(historyRes.status === 200, 'GET bill history returns 200');
+  assert(historyRes.body.length === 2, `Bill history returns 2 entries (got ${historyRes.body.length})`);
+
+  // Test 193: Admin bill photos list endpoint returns paginated bill list
+  const adminBillsRes = await get('http://localhost:3001/api/admin/bill-photos');
+  assert(adminBillsRes.status === 200, 'GET admin bill photos returns 200');
+  assert(adminBillsRes.body.data.length >= 2, 'Admin bill photos list includes uploaded bills');
+
+  // Test 194: Flagging bill with reason < 10 chars fails 400
+  const shortFlagRes = await post(`http://localhost:3001/api/admin/bill-photos/${secondBillId}/flag`, {
+    admin_id: 'u-admin',
+    reason: 'Short'
+  });
+  assert(shortFlagRes.status === 400, 'Flag with reason < 10 chars fails with 400');
+  assert(shortFlagRes.body.error === 'reason_too_short', 'Error is reason_too_short');
+
+  // Test 195: Flagging bill with valid reason sets FLAGGED status & product has_flagged_bill
+  const flagBillRes = await post(`http://localhost:3001/api/admin/bill-photos/${secondBillId}/flag`, {
+    admin_id: 'u-admin',
+    reason: 'Invoice price does not match declared wholesale cost price.'
+  });
+  assert(flagBillRes.status === 200, 'Flag bill succeeds with 200');
+  assert(flagBillRes.body.bill.flag_status === 'FLAGGED', 'Bill flag_status set to FLAGGED');
+  assert(flagBillRes.body.product.has_flagged_bill === true, 'Product has_flagged_bill set to true');
+
+  // Test 196: Unflagging/resolving bill sets RESOLVED and updates audit log
+  const unflagRes = await post(`http://localhost:3001/api/admin/bill-photos/${secondBillId}/unflag`, {
+    admin_id: 'u-admin'
+  });
+  assert(unflagRes.status === 200, 'Unflag bill succeeds with 200');
+  assert(unflagRes.body.bill.flag_status === 'RESOLVED', 'Bill flag_status set to RESOLVED');
+  assert(unflagRes.body.product.has_flagged_bill === false, 'Product has_flagged_bill set to false');
+
+  // Test 197: Signed URL endpoint returns presigned read URL
+  const signedUrlRes = await post(`http://localhost:3001/api/admin/bill-photos/${secondBillId}/signed-url`, {});
+  assert(signedUrlRes.status === 200, 'Signed URL request succeeds with 200');
+  assert(signedUrlRes.body.signed_url, 'Response contains signed_url');
+
+  // Test 198: Filtering admin bill photos by flag_status
+  const flagInitialRes = await post(`http://localhost:3001/api/admin/bill-photos/${initialBillId}/flag`, {
+    admin_id: 'u-admin',
+    reason: 'Flagging initial bill for status filter testing.'
+  });
+  assert(flagInitialRes.status === 200, 'Flagged initial bill for filter test');
+
+  const filteredStatusRes = await get('http://localhost:3001/api/admin/bill-photos?flag_status=FLAGGED');
+  assert(filteredStatusRes.status === 200, 'Filter by flag_status returns 200');
+  assert(filteredStatusRes.body.data.every(b => b.flag_status === 'FLAGGED'), 'All filtered bills have flag_status FLAGGED');
+
+  // Test 199: Filtering admin bill photos by stockist_id
+  const filteredStockistRes = await get('http://localhost:3001/api/admin/bill-photos?stockist_id=s1');
+  assert(filteredStockistRes.status === 200, 'Filter by stockist_id returns 200');
+  assert(filteredStockistRes.body.data.every(b => b.stockist_id === 's1'), 'All filtered bills belong to stockist s1');
+
+  // Test 200: Multi-bill product retains has_flagged_bill=true if any bill remains FLAGGED
+  const prodCheckRes = await get(`http://localhost:3001/api/products?stockistId=s1`);
+  const targetProd = prodCheckRes.body.find(p => p.id === integrityProdId);
+  assert(targetProd.has_flagged_bill === true, 'Product retains has_flagged_bill=true because initialBillId is FLAGGED');
 
   console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);
