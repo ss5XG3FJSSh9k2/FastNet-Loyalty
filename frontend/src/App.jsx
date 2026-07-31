@@ -441,6 +441,21 @@ export default function App() {
   const [partnerName, setPartnerName] = useState('');
   const [partnerPhone, setPartnerPhone] = useState('');
   
+  // Commission Config (Profit-basis v2) State
+  const [commissionConfigs, setCommissionConfigs] = useState([]);
+  const [globalReinvestPct, setGlobalReinvestPct] = useState(50);
+  const [globalPointsPct, setGlobalPointsPct] = useState(40);
+  const [globalCutPct, setGlobalCutPct] = useState(12);
+
+  const [showStoreOverrideModal, setShowStoreOverrideModal] = useState(false);
+  const [overrideStockistId, setOverrideStockistId] = useState('');
+  const [overrideReinvestPct, setOverrideReinvestPct] = useState(50);
+  const [overridePointsPct, setOverridePointsPct] = useState(40);
+  const [overrideCutPct, setOverrideCutPct] = useState(12);
+
+  const [showRemoveOverrideConfirmModal, setShowRemoveOverrideConfirmModal] = useState(false);
+  const [overrideToDelete, setOverrideToDelete] = useState(null);
+  
   // Rate config form
   const [configCategory, setConfigCategory] = useState('groceries');
   const [configRate, setConfigRate] = useState(10);
@@ -872,11 +887,22 @@ export default function App() {
         const stksRes = await fetch(`${API_BASE}/admin/stockists?include_inactive=true`);
         const fraudRes = await fetch(`${API_BASE}/admin/fraud-reports`);
         const auditRes = await fetch(`${API_BASE}/admin/audit-log`);
+        const ccRes = await fetch(`${API_BASE}/admin/commission-config`);
 
         if (custsRes.ok) setAdminCustomers(await custsRes.json());
         if (stksRes.ok) setAdminStockists(await stksRes.json());
         if (fraudRes.ok) setAdminFraudReports(await fraudRes.json());
         if (auditRes.ok) setAdminAuditLogs(await auditRes.json());
+        if (ccRes.ok) {
+          const ccData = await ccRes.json();
+          setCommissionConfigs(ccData);
+          const gRow = ccData.find(c => c.scope === 'GLOBAL');
+          if (gRow) {
+            setGlobalReinvestPct(gRow.stockist_reinvest_pct);
+            setGlobalPointsPct(gRow.points_from_pot_pct);
+            setGlobalCutPct(gRow.partner_redemption_cut_pct);
+          }
+        }
 
         setPendingKyc(pendingKyc);
         setCommissionRates(rates);
@@ -916,6 +942,98 @@ export default function App() {
       }
     } catch (e) {
       console.error('Failed to sync DB state:', e);
+    }
+  };
+
+  const handleSaveGlobalConfig = async () => {
+    const reinvest = parseFloat(globalReinvestPct);
+    const points = parseFloat(globalPointsPct);
+    const cut = parseFloat(globalCutPct);
+    if (isNaN(reinvest) || reinvest < 0 || reinvest > 100 ||
+        isNaN(points) || points < 0 || points > 100 ||
+        isNaN(cut) || cut < 0 || cut > 100) {
+      showToast('Values must be valid numbers between 0 and 100', 'error');
+      return;
+    }
+    try {
+      const res = await fetch(`${API_BASE}/admin/commission-config`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          scope: 'GLOBAL',
+          stockist_reinvest_pct: reinvest,
+          points_from_pot_pct: points,
+          partner_redemption_cut_pct: cut
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast('Global commission config saved!');
+        fetchDbState();
+      } else {
+        showToast(data.error || 'Failed to save global config', 'error');
+      }
+    } catch (err) {
+      showToast('Network error saving global config', 'error');
+    }
+  };
+
+  const handleSaveStoreOverride = async () => {
+    if (!overrideStockistId) {
+      showToast('Select a stockist first', 'error');
+      return;
+    }
+    const reinvest = parseFloat(overrideReinvestPct);
+    const points = parseFloat(overridePointsPct);
+    const cut = parseFloat(overrideCutPct);
+    if (isNaN(reinvest) || reinvest < 0 || reinvest > 100 ||
+        isNaN(points) || points < 0 || points > 100 ||
+        isNaN(cut) || cut < 0 || cut > 100) {
+      showToast('Values must be valid numbers between 0 and 100', 'error');
+      return;
+    }
+    try {
+      const res = await fetch(`${API_BASE}/admin/commission-config`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          scope: 'STORE',
+          stockist_id: overrideStockistId,
+          stockist_reinvest_pct: reinvest,
+          points_from_pot_pct: points,
+          partner_redemption_cut_pct: cut
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast('Store commission override saved!');
+        setShowStoreOverrideModal(false);
+        setOverrideStockistId('');
+        fetchDbState();
+      } else {
+        showToast(data.error || 'Failed to save store override', 'error');
+      }
+    } catch (err) {
+      showToast('Network error saving store override', 'error');
+    }
+  };
+
+  const handleRemoveStoreOverride = async (configId) => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/commission-config/${configId}`, {
+        method: 'DELETE'
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast('Store override removed!');
+        setShowRemoveOverrideConfirmModal(false);
+        setOverrideToDelete(null);
+        fetchDbState();
+      } else {
+        showToast(data.error || 'Failed to remove store override', 'error');
+      }
+    } catch (err) {
+      showToast('Network error removing store override', 'error');
     }
   };
 
@@ -5142,109 +5260,197 @@ export default function App() {
 
               {adminTab === 'rates' && (
                 <div>
-                  <h2 style={{ fontSize: '1.4rem', marginBottom: '1rem' }}>ISP Commission & Customer Points Config</h2>
+                  <h2 style={{ fontSize: '1.4rem', marginBottom: '1rem' }}>Commission & Points Config</h2>
                   <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
-                    Set regional percentage charges or override rates per shop, and independently configure customer point earn rates.
+                    Configure profit-sharing reinvestment ratios, customer points percentages, and partner redemption cuts across global defaults and store overrides.
                   </p>
 
+                  <div className="glass-card" style={{ marginBottom: '1.5rem', padding: '0.75rem 1rem', borderColor: 'rgba(234, 179, 8, 0.4)', background: 'rgba(234, 179, 8, 0.08)' }}>
+                    <p style={{ fontSize: '0.75rem', color: 'var(--warning)', margin: 0 }}>
+                      Legacy per-order commission rates are no longer used for new orders. Historical orders retain their original math.
+                    </p>
+                  </div>
+
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem' }}>
-                    {/* LEFT COLUMN: COMMISSION SETUP */}
+                    {/* LEFT COLUMN: GLOBAL DEFAULTS & LIVE WORKED EXAMPLE */}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
                       <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                        <h4>Configure Regional Commission</h4>
-                        <p style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: '-0.5rem' }}>* This percentage represents what the platform retains from sales in this region.</p>
+                        <h4 style={{ fontSize: '1rem', color: 'white', margin: 0 }}>Global Config Defaults</h4>
+                        
                         <div className="input-group">
-                          <label className="input-label">Region</label>
-                          <select className="text-input" value={configRegion} onChange={e => setConfigRegion(e.target.value)}>
-                            <option value="r1">Kolkata South (Garia)</option>
-                            <option value="r2">Rural West Bengal (Bishnupur)</option>
-                          </select>
+                          <label className="input-label">Stockist reinvestment % (of profit)</label>
+                          <input 
+                            type="number" 
+                            className="text-input" 
+                            value={globalReinvestPct} 
+                            onChange={e => setGlobalReinvestPct(e.target.value)} 
+                          />
+                          <p style={{ fontSize: '0.65rem', color: 'var(--text-muted)', margin: '0.2rem 0 0 0' }}>
+                            Portion of profit reinvested back to the stockist. The remainder is the platform pot.
+                          </p>
                         </div>
-                        <div className="input-group">
-                          <label className="input-label">Category</label>
-                          <input type="text" className="text-input" value={configCategory} onChange={e => setConfigCategory(e.target.value)} />
-                        </div>
-                        <div className="input-group">
-                          <label className="input-label">Commission Rate (%)</label>
-                          <input type="number" className="text-input" value={configRate} onChange={e => setConfigRate(parseFloat(e.target.value))} />
-                        </div>
-                        <button className="btn" onClick={handleSaveCommissionRate}>Save Regional Config</button>
-                      </div>
 
-                      <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                        <h4>Configure Shop Commission Override</h4>
-                        <p style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: '-0.5rem' }}>* Overrides the regional commission rate. This is the portion retained by the platform from this shop's sales.</p>
                         <div className="input-group">
-                          <label className="input-label">Select Shop</label>
-                          <select className="text-input" value={selectedStockistForCommission} onChange={e => setSelectedStockistForCommission(e.target.value)}>
-                            <option value="">-- Select a Shop --</option>
-                            {customerStockists.map(s => (
-                              <option key={s.id} value={s.id}>{s.name}</option>
-                            ))}
-                          </select>
+                          <label className="input-label">Customer points % (of platform pot)</label>
+                          <input 
+                            type="number" 
+                            className="text-input" 
+                            value={globalPointsPct} 
+                            onChange={e => setGlobalPointsPct(e.target.value)} 
+                          />
+                          <p style={{ fontSize: '0.65rem', color: 'var(--text-muted)', margin: '0.2rem 0 0 0' }}>
+                            Portion of the platform pot credited to customer as points. The remainder is company commission.
+                          </p>
                         </div>
+
                         <div className="input-group">
-                          <label className="input-label">Override Rate (%)</label>
-                          <input type="number" className="text-input" value={configStockistRate} onChange={e => setConfigStockistRate(parseFloat(e.target.value))} />
+                          <label className="input-label">Partner redemption cut % (of face value)</label>
+                          <input 
+                            type="number" 
+                            className="text-input" 
+                            value={globalCutPct} 
+                            onChange={e => setGlobalCutPct(e.target.value)} 
+                          />
+                          <p style={{ fontSize: '0.65rem', color: 'var(--text-muted)', margin: '0.2rem 0 0 0' }}>
+                            When a customer redeems a partner reward, the platform keeps this percentage. The partner receives the rest.
+                          </p>
                         </div>
-                        <button className="btn" onClick={() => handleSaveStockistCommission(selectedStockistForCommission, configStockistRate)} disabled={!selectedStockistForCommission}>
-                          Save Shop Override
+
+                        <button className="btn btn-accent" onClick={handleSaveGlobalConfig}>
+                          Save Global Defaults
                         </button>
                       </div>
+
+                      {/* LIVE WORKED EXAMPLE PANEL */}
+                      {(() => {
+                        const rPct = parseFloat(globalReinvestPct) || 0;
+                        const pPct = parseFloat(globalPointsPct) || 0;
+                        const cPct = parseFloat(globalCutPct) || 0;
+
+                        const sampleProfit = 20;
+                        const stockistReinvest = sampleProfit * (rPct / 100);
+                        const stockistPayout = 80 + stockistReinvest;
+                        const platformPot = sampleProfit - stockistReinvest;
+                        const customerPoints = Math.round(platformPot * (pPct / 100) * 100) / 100;
+                        const companyCommission = Math.round((platformPot - customerPoints) * 100) / 100;
+
+                        const sampleRedemption = 250;
+                        const platformCut = Math.round(sampleRedemption * (cPct / 100) * 100) / 100;
+                        const partnerPayout = Math.round((sampleRedemption - platformCut) * 100) / 100;
+
+                        return (
+                          <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', background: 'rgba(15, 23, 42, 0.6)' }}>
+                            <h4 style={{ fontSize: '0.9rem', color: 'var(--accent)', margin: 0 }}>Live Worked Example Calculation</h4>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                              <p style={{ margin: '0 0 0.4rem 0', fontWeight: 'bold', color: 'white' }}>For ₹100 sale with ₹80 cost (₹20 profit margin):</p>
+                              <ul style={{ margin: 0, paddingLeft: '1.2rem' }}>
+                                <li>Stockist keeps: <strong>₹{stockistPayout}</strong> (Cost ₹80 + ₹{stockistReinvest} reinvest)</li>
+                                <li>Platform pot: <strong>₹{platformPot}</strong></li>
+                                <li>Customer points: <strong>₹{customerPoints}</strong> ({pPct}% of pot)</li>
+                                <li>Company commission: <strong>₹{companyCommission}</strong> ({100 - pPct}% of pot)</li>
+                              </ul>
+                              <p style={{ margin: '0.6rem 0 0.4rem 0', fontWeight: 'bold', color: 'white' }}>For ₹250 partner reward redemption:</p>
+                              <ul style={{ margin: 0, paddingLeft: '1.2rem' }}>
+                                <li>Partner receives: <strong>₹{partnerPayout}</strong> ({100 - cPct}%)</li>
+                                <li>Platform keeps: <strong>₹{platformCut}</strong> ({cPct}%)</li>
+                              </ul>
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </div>
 
-                    {/* RIGHT COLUMN: POINTS CONFIGURATION & VIEWS */}
+                    {/* RIGHT COLUMN: PER-STORE OVERRIDES VIEW */}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
                       <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                        <h4>Configure Customer Points Earn Rate</h4>
-                        <div className="input-group">
-                          <label className="input-label">Region (Default Scope)</label>
-                          <select className="text-input" value={earnRateRegion} onChange={e => setEarnRateRegion(e.target.value)}>
-                            <option value="r1">Kolkata South (Garia)</option>
-                            <option value="r2">Rural West Bengal (Bishnupur)</option>
-                          </select>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <h4 style={{ fontSize: '1rem', color: 'white', margin: 0 }}>Per-Store Commission Overrides</h4>
+                          <button 
+                            className="btn btn-secondary" 
+                            style={{ padding: '0.3rem 0.6rem', fontSize: '0.75rem' }}
+                            onClick={() => {
+                              setOverrideStockistId('');
+                              setOverrideReinvestPct(globalReinvestPct);
+                              setOverridePointsPct(globalPointsPct);
+                              setOverrideCutPct(globalCutPct);
+                              setShowStoreOverrideModal(true);
+                            }}
+                          >
+                            + Add Store Override
+                          </button>
                         </div>
-                        <div className="input-group">
-                          <label className="input-label">Or Specific Shop Override</label>
-                          <select className="text-input" value={earnRateStockist} onChange={e => setEarnRateStockist(e.target.value)}>
-                            <option value="">-- Use Regional (Default) --</option>
-                            {customerStockists.map(s => (
-                              <option key={s.id} value={s.id}>{s.name}</option>
-                            ))}
-                          </select>
-                        </div>
-                        <div className="input-group">
-                          <label className="input-label">Points Earn Rate (% of Profit Margin)</label>
-                          <input type="number" className="text-input" value={earnRatePercent} onChange={e => setEarnRatePercent(parseFloat(e.target.value))} />
-                        </div>
-                        <button className="btn" onClick={() => handleSavePointsEarnConfig(earnRateRegion, earnRateStockist, earnRatePercent)}>
-                          Save Points Rate Config
-                        </button>
-                      </div>
 
-                      <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '200px', overflowY: 'auto' }}>
-                        <span style={{ fontSize: '0.75rem', fontWeight: 'bold' }}>Active Configured Shop Overrides</span>
-                        <table className="admin-table">
-                          <thead>
-                            <tr>
-                              <th>Shop ID</th>
-                              <th>Rate</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {allStockistCommissionRates.map(scr => (
-                              <tr key={scr.id}>
-                                <td style={{ fontFamily: 'monospace' }}>{scr.stockist_id}</td>
-                                <td>{scr.rate_percent}%</td>
-                              </tr>
-                            ))}
-                            {allStockistCommissionRates.length === 0 && (
+                        <div style={{ overflowX: 'auto' }}>
+                          <table className="admin-table">
+                            <thead>
                               <tr>
-                                <td colSpan="2" style={{ color: 'var(--text-muted)' }}>No overrides set.</td>
+                                <th>Shop Name</th>
+                                <th>Scope</th>
+                                <th>Reinvest %</th>
+                                <th>Points %</th>
+                                <th>Partner Cut %</th>
+                                <th>Actions</th>
                               </tr>
-                            )}
-                          </tbody>
-                        </table>
+                            </thead>
+                            <tbody>
+                              {(adminStockists.length > 0 ? adminStockists : customerStockists).map(s => {
+                                const storeCfg = commissionConfigs.find(c => c.scope === 'STORE' && c.stockist_id === s.id);
+                                const isOverride = !!storeCfg;
+                                const reinvest = isOverride ? storeCfg.stockist_reinvest_pct : globalReinvestPct;
+                                const points = isOverride ? storeCfg.points_from_pot_pct : globalPointsPct;
+                                const cut = isOverride ? storeCfg.partner_redemption_cut_pct : globalCutPct;
+
+                                return (
+                                  <tr key={s.id}>
+                                    <td>
+                                      <strong>{s.name}</strong>
+                                      <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>{s.id}</div>
+                                    </td>
+                                    <td>
+                                      {isOverride ? (
+                                        <span className="badge badge-success" style={{ fontSize: '0.6rem' }}>Override</span>
+                                      ) : (
+                                        <span className="badge badge-secondary" style={{ fontSize: '0.6rem' }}>Global</span>
+                                      )}
+                                    </td>
+                                    <td>{reinvest}%</td>
+                                    <td>{points}%</td>
+                                    <td>{cut}%</td>
+                                    <td>
+                                      <div style={{ display: 'flex', gap: '0.3rem' }}>
+                                        <button 
+                                          className="btn btn-secondary" 
+                                          style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem' }}
+                                          onClick={() => {
+                                            setOverrideStockistId(s.id);
+                                            setOverrideReinvestPct(reinvest);
+                                            setOverridePointsPct(points);
+                                            setOverrideCutPct(cut);
+                                            setShowStoreOverrideModal(true);
+                                          }}
+                                        >
+                                          {isOverride ? 'Edit' : 'Override'}
+                                        </button>
+                                        {isOverride && (
+                                          <button 
+                                            className="btn btn-danger" 
+                                            style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem' }}
+                                            onClick={() => {
+                                              setOverrideToDelete(storeCfg);
+                                              setShowRemoveOverrideConfirmModal(true);
+                                            }}
+                                          >
+                                            Remove
+                                          </button>
+                                        )}
+                                      </div>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -6473,6 +6679,68 @@ export default function App() {
               </button>
               <button className="btn btn-danger" onClick={() => handleUpdateFraudReportStatus(selectedFraudReportDetail.id, 'DISMISSED', fraudReportAdminNotes)}>
                 Dismiss
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Round S Store Override Modal */}
+      {showStoreOverrideModal && (
+        <div className="modal-overlay">
+          <div className="glass-card" style={{ width: '420px', padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ fontSize: '1.1rem', color: 'white', margin: 0 }}>Configure Store Override</h3>
+              <button className="btn btn-secondary" style={{ padding: '0.2rem 0.5rem' }} onClick={() => setShowStoreOverrideModal(false)}><X size={14} /></button>
+            </div>
+
+            <div className="input-group">
+              <label className="input-label">Select Stockist Shop</label>
+              <select className="text-input" value={overrideStockistId} onChange={e => setOverrideStockistId(e.target.value)}>
+                <option value="">-- Select Shop --</option>
+                {(adminStockists.length > 0 ? adminStockists : customerStockists).map(s => (
+                  <option key={s.id} value={s.id}>{s.name} ({s.id})</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="input-group">
+              <label className="input-label">Stockist reinvestment % (of profit)</label>
+              <input type="number" className="text-input" value={overrideReinvestPct} onChange={e => setOverrideReinvestPct(e.target.value)} />
+            </div>
+
+            <div className="input-group">
+              <label className="input-label">Customer points % (of platform pot)</label>
+              <input type="number" className="text-input" value={overridePointsPct} onChange={e => setOverridePointsPct(e.target.value)} />
+            </div>
+
+            <div className="input-group">
+              <label className="input-label">Partner redemption cut % (of face value)</label>
+              <input type="number" className="text-input" value={overrideCutPct} onChange={e => setOverrideCutPct(e.target.value)} />
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '0.5rem' }}>
+              <button className="btn btn-secondary" onClick={() => setShowStoreOverrideModal(false)}>Cancel</button>
+              <button className="btn btn-accent" onClick={handleSaveStoreOverride}>Save Override</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Round S Remove Override Confirmation Modal */}
+      {showRemoveOverrideConfirmModal && overrideToDelete && (
+        <div className="modal-overlay">
+          <div className="glass-card" style={{ width: '380px', padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <h3 style={{ fontSize: '1.1rem', color: 'white', margin: 0 }}>Remove Store Override</h3>
+            <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', margin: 0 }}>
+              This stockist will revert to global rates: 50/40/12.
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '0.5rem' }}>
+              <button className="btn btn-secondary" onClick={() => { setShowRemoveOverrideConfirmModal(false); setOverrideToDelete(null); }}>
+                Cancel
+              </button>
+              <button className="btn btn-danger" onClick={() => handleRemoveStoreOverride(overrideToDelete.id)}>
+                Confirm Remove
               </button>
             </div>
           </div>

@@ -465,20 +465,74 @@ app.post('/api/stockists/restock', (req, res) => {
 // ----------------------------------------------------
 
 // Helper: Settlement Engine
+// Helper: Get Commission Config (STORE first, GLOBAL fallback)
+function getCommissionConfig(stockistId = null) {
+  const configs = db.getTable('commission_config');
+  if (stockistId) {
+    const storeCfg = configs.find(c => c.scope === 'STORE' && c.stockist_id === stockistId);
+    if (storeCfg) return storeCfg;
+  }
+  const globalCfg = configs.find(c => c.scope === 'GLOBAL');
+  if (globalCfg) return globalCfg;
+
+  console.error('[CommissionConfig] Missing config row in database! Falling back to 50/40/12 defaults.');
+  return {
+    id: 'cc-fallback',
+    scope: 'GLOBAL',
+    stockist_id: null,
+    stockist_reinvest_pct: 50,
+    points_from_pot_pct: 40,
+    partner_redemption_cut_pct: 12
+  };
+}
+
+// Helper: Calculate Partner Payout
+function calculatePartnerPayout(redemptionValue, stockistId = null) {
+  const cfg = getCommissionConfig(stockistId);
+  const cutPct = parseFloat(cfg.partner_redemption_cut_pct);
+  const platformCut = Math.round(redemptionValue * cutPct) / 100;
+  const partnerPayout = Math.round((redemptionValue - platformCut) * 100) / 100;
+  return { platformCut, partnerPayout, cutPctUsed: cutPct };
+}
+
+// Helper: Settlement Engine (Profit-basis v2)
 function calculateSettlement(subtotal, totalProfitMargin, stockistId, regionId) {
-  const stockistCommissionRates = db.getTable('stockist_commission_rates');
-  const scr = stockistCommissionRates.find(r => r.stockist_id === stockistId);
-  const commissionRate = scr ? parseFloat(scr.rate_percent) : 10.00;
-  const platformCommission = (subtotal * commissionRate) / 100;
+  const cfg = getCommissionConfig(stockistId);
 
-  const pointsEarnConfig = db.getTable('points_earn_config');
-  const pecStockist = pointsEarnConfig.find(r => r.stockist_id === stockistId);
-  const pecRegion = pointsEarnConfig.find(r => r.region_id === regionId && !r.stockist_id);
-  const earnRatePercent = pecStockist ? parseFloat(pecStockist.earn_rate_percent) : (pecRegion ? parseFloat(pecRegion.earn_rate_percent) : 45.0);
+  // 2.1 Guard against negative or zero profit
+  if (!totalProfitMargin || totalProfitMargin <= 0) {
+    console.warn(`[Settlement] Non-positive profit margin (${totalProfitMargin}) for stockist ${stockistId}. Setting settlement outputs to 0.`);
+    return {
+      commission_model: 'profit_v2',
+      config_row_id: cfg ? cfg.id : null,
+      stockistReinvest: 0,
+      platformPot: 0,
+      platformCommission: 0,
+      pointsCredited: 0,
+      commissionRateUsed: null,
+      earnRateUsed: null
+    };
+  }
 
-  const pointsCredited = Math.round(totalProfitMargin * (earnRatePercent / 100) * 100) / 100;
+  const reinvestPct = parseFloat(cfg.stockist_reinvest_pct) || 50;
+  const pointsPct = parseFloat(cfg.points_from_pot_pct) || 40;
 
-  return { commissionRateUsed: commissionRate, earnRateUsed: earnRatePercent, platformCommission, pointsCredited };
+  const stockistReinvest = totalProfitMargin * (reinvestPct / 100);
+  const platformPot = totalProfitMargin - stockistReinvest;
+
+  const pointsCredited = Math.round(platformPot * (pointsPct / 100) * 100) / 100;
+  const platformCommission = Math.round((platformPot - pointsCredited) * 100) / 100;
+
+  return {
+    commission_model: 'profit_v2',
+    config_row_id: cfg.id,
+    stockistReinvest,
+    platformPot,
+    platformCommission,
+    pointsCredited,
+    commissionRateUsed: null,
+    earnRateUsed: null
+  };
 }
 
 // Helper: Reverse points if order is cancelled (only if points were already credited)
@@ -534,25 +588,45 @@ function enrichOrder(o) {
   const customer = users.find(u => u.id === o.customer_id);
   const payout = splitPayouts.find(sp => sp.order_id === o.id);
 
-  const stockistCommissionRates = db.getTable('stockist_commission_rates');
-  const scr = stockistCommissionRates.find(r => r.stockist_id === o.stockist_id);
-  const commissionRate = scr ? parseFloat(scr.rate_percent) : 10.00;
-  const platformCommission = (o.subtotal * commissionRate) / 100;
-  const stockistPayout = o.subtotal - platformCommission + (o.delivery_fee || 0);
-  const platformPayout = platformCommission + (o.low_order_fee || 0);
+  let platformCommission = o.platform_commission;
+  let stockistPayout = o.stockist_payout;
+
+  if (platformCommission === undefined) {
+    if (payout) {
+      platformCommission = parseFloat(payout.platform_amount);
+    } else {
+      const stockistCommissionRates = db.getTable('stockist_commission_rates');
+      const scr = stockistCommissionRates.find(r => r.stockist_id === o.stockist_id);
+      const commissionRate = scr ? parseFloat(scr.rate_percent) : 10.00;
+      platformCommission = (o.subtotal * commissionRate) / 100;
+    }
+  }
+
+  if (stockistPayout === undefined) {
+    if (payout) {
+      stockistPayout = parseFloat(payout.stockist_amount);
+    } else {
+      stockistPayout = o.subtotal - platformCommission + (o.delivery_fee || 0);
+    }
+  }
+
+  const platformPayout = payout ? parseFloat(payout.platform_amount) : (platformCommission + (o.low_order_fee || 0));
 
   return {
     ...o,
+    commission_model: o.commission_model || 'gross_v1',
     items,
     pointsCredited: o.points_credited !== undefined ? o.points_credited : 0,
     points_credited: o.points_credited !== undefined ? o.points_credited : 0,
+    platform_commission: platformCommission,
+    stockist_payout: stockistPayout,
     earnRatePercent: o.earn_rate_used !== undefined ? o.earn_rate_used : 40,
     earn_rate_used: o.earn_rate_used !== undefined ? o.earn_rate_used : 40,
     margin: o.margin !== undefined ? o.margin : (o.subtotal * 0.25),
     customer_name: customer ? customer.name : 'Unknown Subscriber',
     customer_phone: customer ? customer.phone : '',
-    stockist_amount: payout ? parseFloat(payout.stockist_amount) : stockistPayout,
-    platform_amount: payout ? parseFloat(payout.platform_amount) : platformPayout
+    stockist_amount: stockistPayout,
+    platform_amount: platformPayout
   };
 }
 
@@ -738,10 +812,46 @@ app.post('/api/orders', (req, res) => {
     const deliveryFee = reqFulfillment === 'DELIVERY' ? (cfg.DELIVERY_FEE_BY_REGION[stockist.region_id] || 40.00) : 0.00;
     const totalPrice = subtotal + deliveryFee;
 
-    const settlement = calculateSettlement(subtotal, totalProfitMargin, stockistId, customer.region_id);
-    const platformCommission = settlement.platformCommission;
-    const stockistPayout = subtotal - platformCommission + deliveryFee;
-    const platformPayout = platformCommission;
+    const reqModel = req.body.commission_model || (!req.body.stores ? 'gross_v1' : 'profit_v2');
+    let settlement;
+    let platformCommission, pointsCredited, stockistReinvest, platformPot, stockistPayout, platformPayout;
+
+    if (reqModel === 'gross_v1') {
+      const stockistCommissionRates = db.getTable('stockist_commission_rates');
+      const scr = stockistCommissionRates.find(r => r.stockist_id === stockistId);
+      const commissionRate = scr ? parseFloat(scr.rate_percent) : 10.00;
+      platformCommission = (subtotal * commissionRate) / 100;
+
+      const pointsEarnConfig = db.getTable('points_earn_config');
+      const pecStockist = pointsEarnConfig.find(r => r.stockist_id === stockistId);
+      const pecRegion = pointsEarnConfig.find(r => r.region_id === customer.region_id && !r.stockist_id);
+      const earnRatePercent = pecStockist ? parseFloat(pecStockist.earn_rate_percent) : (pecRegion ? parseFloat(pecRegion.earn_rate_percent) : 45.0);
+
+      pointsCredited = Math.round(totalProfitMargin * (earnRatePercent / 100) * 100) / 100;
+      stockistReinvest = 0;
+      platformPot = platformCommission;
+      stockistPayout = subtotal - platformCommission + deliveryFee;
+      platformPayout = platformCommission;
+
+      settlement = {
+        commission_model: 'gross_v1',
+        config_row_id: null,
+        stockistReinvest: 0,
+        platformPot: platformCommission,
+        platformCommission,
+        pointsCredited,
+        commissionRateUsed: commissionRate,
+        earnRateUsed: earnRatePercent
+      };
+    } else {
+      settlement = calculateSettlement(subtotal, totalProfitMargin, stockistId, customer.region_id);
+      platformCommission = settlement.platformCommission;
+      pointsCredited = settlement.pointsCredited;
+      stockistReinvest = settlement.stockistReinvest;
+      platformPot = settlement.platformPot;
+      stockistPayout = subtotal + deliveryFee - platformPot;
+      platformPayout = platformCommission;
+    }
 
     // Determine payment status
     // Pickup = UPI → HELD. Delivery COD = COD. Delivery UPI = HELD.
@@ -777,7 +887,13 @@ app.post('/api/orders', (req, res) => {
       pickup_pin: Math.floor(1000 + Math.random() * 9000).toString(),
       payment_status: paymentStatus,
       payment_method: effectivePaymentMethod,
-      points_credited: settlement.pointsCredited,            // §REGULATORY: points only credited to ledger on DELIVERED
+      commission_model: settlement.commission_model,
+      config_row_id: settlement.config_row_id,
+      platform_commission: platformCommission,
+      points_credited: pointsCredited,
+      stockist_reinvest: stockistReinvest,
+      platform_pot: platformPot,
+      stockist_payout: stockistPayout,
       margin: totalProfitMargin,
       earn_rate_used: settlement.earnRateUsed,
       cancel_deadline: cancelDeadline,
@@ -1077,18 +1193,19 @@ app.patch('/api/orders/:id/status', (req, res) => {
 
   if (status === 'DELIVERED') {
     // §REGULATORY: credit points only on delivery
-    // Recalculate points at delivery time to ensure accuracy
-    const products = db.getTable('products');
-    const orderItems = db.getTable('order_items').filter(oi => oi.order_id === id);
-    let totalProfitMargin = 0;
-    orderItems.forEach(oi => {
-      const product = products.find(p => p.id === oi.product_id);
-      const cost = product ? parseFloat(product.cost_price) : oi.cost_price || oi.price * 0.75;
-      totalProfitMargin += (oi.price - cost) * oi.quantity;
-    });
-    const settlement = calculateSettlement(order.subtotal, totalProfitMargin, order.stockist_id, order.region_id);
-    order.points_credited = settlement.pointsCredited;
-    db.saveTable('orders', orders);
+    if (order.commission_model !== 'gross_v1') {
+      const products = db.getTable('products');
+      const orderItems = db.getTable('order_items').filter(oi => oi.order_id === id);
+      let totalProfitMargin = 0;
+      orderItems.forEach(oi => {
+        const product = products.find(p => p.id === oi.product_id);
+        const cost = product ? parseFloat(product.cost_price) : oi.cost_price || oi.price * 0.75;
+        totalProfitMargin += (oi.price - cost) * oi.quantity;
+      });
+      const settlement = calculateSettlement(order.subtotal, totalProfitMargin, order.stockist_id, order.region_id);
+      order.points_credited = settlement.pointsCredited;
+      db.saveTable('orders', orders);
+    }
     _creditPointsOnDelivery(order);
 
     // Release split if HELD
@@ -1440,6 +1557,106 @@ app.get('/api/admin/feedback', (req, res) => {
 // ----------------------------------------------------
 // ADMIN ENDPOINTS
 // ----------------------------------------------------
+
+// Commission Config (Part 5)
+app.get('/api/admin/commission-config', (req, res) => {
+  const configs = db.getTable('commission_config');
+  return res.json(configs);
+});
+
+app.get('/api/admin/commission-config/effective', (req, res) => {
+  const stockistId = req.query.stockist_id || null;
+  const cfg = getCommissionConfig(stockistId);
+  return res.json(cfg);
+});
+
+app.post('/api/admin/commission-config', (req, res) => {
+  const { scope, stockist_id, stockist_reinvest_pct, points_from_pot_pct, partner_redemption_cut_pct } = req.body;
+
+  if (!scope || !['GLOBAL', 'STORE'].includes(scope)) {
+    return res.status(400).json({ error: 'Valid scope required (GLOBAL or STORE)' });
+  }
+
+  if (scope === 'STORE' && !stockist_id) {
+    return res.status(400).json({ error: 'stockist_id is required for STORE scope' });
+  }
+
+  const reinvest = parseFloat(stockist_reinvest_pct);
+  const points = parseFloat(points_from_pot_pct);
+  const cut = parseFloat(partner_redemption_cut_pct);
+
+  if (isNaN(reinvest) || reinvest < 0 || reinvest > 100 ||
+      isNaN(points) || points < 0 || points > 100 ||
+      isNaN(cut) || cut < 0 || cut > 100) {
+    return res.status(400).json({ error: 'Config values must be numbers between 0 and 100' });
+  }
+
+  const configs = db.getTable('commission_config');
+  let row = null;
+  let isCreate = false;
+
+  if (scope === 'GLOBAL') {
+    row = configs.find(c => c.scope === 'GLOBAL');
+    if (!row) {
+      isCreate = true;
+      row = {
+        id: 'cc-default',
+        scope: 'GLOBAL',
+        stockist_id: null,
+        created_at: new Date().toISOString()
+      };
+      configs.push(row);
+    }
+  } else {
+    row = configs.find(c => c.scope === 'STORE' && c.stockist_id === stockist_id);
+    if (!row) {
+      isCreate = true;
+      row = {
+        id: 'cc-' + generateId(),
+        scope: 'STORE',
+        stockist_id,
+        created_at: new Date().toISOString()
+      };
+      configs.push(row);
+    }
+  }
+
+  const before = { ...row };
+
+  row.stockist_reinvest_pct = reinvest;
+  row.points_from_pot_pct = points;
+  row.partner_redemption_cut_pct = cut;
+  row.updated_at = new Date().toISOString();
+
+  db.saveTable('commission_config', configs);
+
+  const action = isCreate ? 'COMMISSION_CONFIG_CREATE' : 'COMMISSION_CONFIG_UPDATE';
+  appendAudit(req, action, 'commission_config', row.id, before, row);
+
+  return res.json({ success: true, config: row });
+});
+
+app.delete('/api/admin/commission-config/:id', (req, res) => {
+  const { id } = req.params;
+  const configs = db.getTable('commission_config');
+  const index = configs.findIndex(c => c.id === id);
+
+  if (index === -1) {
+    return res.status(404).json({ error: 'Config not found' });
+  }
+
+  const target = configs[index];
+  if (target.scope === 'GLOBAL' || target.id === 'cc-default') {
+    return res.status(400).json({ error: 'cannot delete global default' });
+  }
+
+  const deletedRow = configs.splice(index, 1)[0];
+  db.saveTable('commission_config', configs);
+
+  appendAudit(req, 'COMMISSION_CONFIG_DELETE', 'commission_config', target.id, deletedRow, null);
+
+  return res.json({ success: true, message: 'Store override deleted' });
+});
 
 app.get('/api/admin/kyc-queue', (req, res) => {
   const users = db.getTable('users');
@@ -2340,6 +2557,10 @@ app.post('/api/admin/reset-db', (req, res) => {
 
 // Start Server
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => {
-  console.log(`[Backend Server] ISP-Commerce Loyalty API listening on port ${PORT}`);
-});
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`[Backend Server] ISP-Commerce Loyalty API listening on port ${PORT}`);
+  });
+}
+
+module.exports = { app, calculateSettlement, calculatePartnerPayout, getCommissionConfig };

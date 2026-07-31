@@ -116,6 +116,7 @@ async function main() {
     customerId: 'u-cust1',
     stockistId: 's1',
     pickupSlot: 'Morning (8AM–12PM)',
+    commission_model: 'gross_v1',
     items: [
       { productId: 'p1', quantity: 2 }, // Alu, price: 30, cost: 22. Subtotal: 60. profit: 16
       { productId: 'p3', quantity: 1 }  // Dal, price: 60, cost: 48. Subtotal: 60. profit: 12
@@ -899,6 +900,164 @@ async function main() {
   console.log('\n--- 31. Round R2 Customer App "Continue shopping at" Button ---');
   assert(appJsxContent.includes('const [previousStockistId, setPreviousStockistId] = useState(null)'), 'App.jsx contains previousStockistId state declaration');
   assert(appJsxContent.includes('Continue shopping at') && appJsxContent.includes('setPreviousStockistId(null)'), 'App.jsx contains "Continue shopping at" button label and clears previousStockistId');
+
+  // 32. Round S — Commission Model Refactor (Profit-Basis)
+  console.log('\n--- 32. Round S — Commission Model Refactor (Profit-Basis) ---');
+
+  // Config CRUD (Tests 149-152)
+  const getCcRes = await get('http://localhost:3001/api/admin/commission-config');
+  assert(getCcRes.status === 200, 'GET /api/admin/commission-config succeeds');
+  assert(getCcRes.body.length >= 1, 'Commission config returns at least 1 row (GLOBAL default)');
+  const globalRow = getCcRes.body.find(c => c.scope === 'GLOBAL');
+  assert(globalRow && globalRow.stockist_reinvest_pct === 50, 'GLOBAL default row has reinvest_pct=50');
+
+  // Test 150: Create STORE override for s1
+  const postOverrideRes = await post('http://localhost:3001/api/admin/commission-config', {
+    scope: 'STORE',
+    stockist_id: 's1',
+    stockist_reinvest_pct: 60,
+    points_from_pot_pct: 30,
+    partner_redemption_cut_pct: 15
+  });
+  assert(postOverrideRes.status === 200, 'POST STORE override succeeds');
+  assert(postOverrideRes.body.config.scope === 'STORE', 'Created config scope is STORE');
+  const overrideConfigId = postOverrideRes.body.config.id;
+
+  // Test 151: Invalid percentage range
+  const postInvalidRes = await post('http://localhost:3001/api/admin/commission-config', {
+    scope: 'GLOBAL',
+    stockist_reinvest_pct: 150,
+    points_from_pot_pct: 40,
+    partner_redemption_cut_pct: 12
+  });
+  assert(postInvalidRes.status === 400, 'POST with stockist_reinvest_pct=150 returns 400');
+
+  // Test 152: DELETE GLOBAL row is blocked
+  const deleteGlobalRes = await del(`http://localhost:3001/api/admin/commission-config/${globalRow.id}`);
+  assert(deleteGlobalRes.status === 400, 'DELETE of GLOBAL default row returns 400');
+  assert(deleteGlobalRes.body.error.includes('cannot delete global default'), 'DELETE error message mentions cannot delete global default');
+
+  // Test 153: Canonical order at s3 (Price 100, Cost 80 -> Profit 20. Reinvest 50% = 10, Pot 10, Points 40% = 4, Comm = 6, Payout = 90)
+  const prodResCanonical = await post('http://localhost:3001/api/products', {
+    name: 'Canonical Test item',
+    category: 'groceries',
+    price: 100,
+    costPrice: 80,
+    stockistId: 's3',
+    regionId: 'r1',
+    initialStock: 10
+  });
+  assert(prodResCanonical.status === 200, 'Product for canonical settlement created');
+  const canonicalProdId = prodResCanonical.body.product.id;
+
+  const canonicalOrderRes = await post('http://localhost:3001/api/orders', {
+    customerId: 'u-cust1',
+    fulfillmentType: 'PICKUP',
+    stores: [
+      {
+        stockistId: 's3',
+        pickupSlot: '10:00–11:00',
+        items: [{ productId: canonicalProdId, quantity: 1 }]
+      }
+    ]
+  });
+  assert(canonicalOrderRes.status === 200, 'Canonical order created');
+  const canonicalOrder = canonicalOrderRes.body.orders[0];
+  assert(canonicalOrder.platform_commission === 6, `Canonical platform_commission is 6 (got ${canonicalOrder.platform_commission})`);
+  assert(canonicalOrder.points_credited === 4, `Canonical points_credited is 4 (got ${canonicalOrder.points_credited})`);
+  assert(canonicalOrder.stockist_payout === 90, `Canonical stockist_payout is 90 (got ${canonicalOrder.stockist_payout})`);
+
+  // Test 154: Order at s1 with STORE override (Reinvest 60%, Points 30% -> Profit 20, Reinvest 12, Pot 8, Points 2.4, Comm 5.6, Payout 92)
+  const prodResOverride = await post('http://localhost:3001/api/products', {
+    name: 'Override Test item',
+    category: 'groceries',
+    price: 100,
+    costPrice: 80,
+    stockistId: 's1',
+    regionId: 'r1',
+    initialStock: 10
+  });
+  assert(prodResOverride.status === 200, 'Product for override settlement created');
+  const overrideProdId = prodResOverride.body.product.id;
+
+  const overrideOrderRes = await post('http://localhost:3001/api/orders', {
+    customerId: 'u-cust1',
+    fulfillmentType: 'PICKUP',
+    stores: [
+      {
+        stockistId: 's1',
+        pickupSlot: '10:00–11:00',
+        items: [{ productId: overrideProdId, quantity: 1 }]
+      }
+    ]
+  });
+  assert(overrideOrderRes.status === 200, 'Override order created');
+  const overrideOrder = overrideOrderRes.body.orders[0];
+  assert(overrideOrder.platform_commission === 5.6, `Override platform_commission is 5.6 (got ${overrideOrder.platform_commission})`);
+  assert(overrideOrder.points_credited === 2.4, `Override points_credited is 2.4 (got ${overrideOrder.points_credited})`);
+  assert(overrideOrder.stockist_payout === 92, `Override stockist_payout is 92 (got ${overrideOrder.stockist_payout})`);
+
+  // Test 155: Loss leader (price=100, cost=120 -> profit = -20) -> 0/0/0 settlement
+  const lossProdRes = await post('http://localhost:3001/api/products', {
+    name: 'Loss Leader item',
+    category: 'groceries',
+    price: 100,
+    costPrice: 120,
+    stockistId: 's3',
+    regionId: 'r1',
+    initialStock: 10
+  });
+  assert(lossProdRes.status === 200, 'Loss leader product created');
+  const lossProdId = lossProdRes.body.product.id;
+
+  const lossOrderRes = await post('http://localhost:3001/api/orders', {
+    customerId: 'u-cust1',
+    fulfillmentType: 'PICKUP',
+    stores: [
+      {
+        stockistId: 's3',
+        pickupSlot: '10:00–11:00',
+        items: [{ productId: lossProdId, quantity: 1 }]
+      }
+    ]
+  });
+  assert(lossOrderRes.status === 200, 'Loss leader order created successfully');
+  const lossOrder = lossOrderRes.body.orders[0];
+  assert(lossOrder.platform_commission === 0, 'Loss leader platform_commission is 0');
+  assert(lossOrder.points_credited === 0, 'Loss leader points_credited is 0');
+
+  // Test 156: Order tagged commission_model='profit_v2'
+  assert(canonicalOrder.commission_model === 'profit_v2', 'New order tagged commission_model=profit_v2');
+
+  // Test 157: config_row_id on order matches row used (STORE for overrideOrder, GLOBAL for canonicalOrder)
+  assert(overrideOrder.config_row_id === overrideConfigId, 'Override order config_row_id matches STORE config ID');
+  assert(canonicalOrder.config_row_id === globalRow.id, 'Canonical order config_row_id matches GLOBAL config ID');
+
+  // Test 158 & 159: Historical order integrity (seed orders)
+  const allOrdersRes = await get('http://localhost:3001/api/orders');
+  assert(allOrdersRes.status === 200, 'GET /api/orders succeeds');
+  const grossV1Order = allOrdersRes.body.find(o => o.commission_model === 'gross_v1');
+  assert(grossV1Order, 'Historical gross_v1 order exists');
+  assert(grossV1Order.commission_model === 'gross_v1', 'Historical order returns commission_model=gross_v1');
+  assert(grossV1Order.platform_commission !== undefined, 'Historical order preserves platform_commission');
+
+  // Test 160 & 161: Partner payout helper
+  const serverModule = require('../server.js');
+  const defaultPayout = serverModule.calculatePartnerPayout(250);
+  assert(defaultPayout.platformCut === 30 && defaultPayout.partnerPayout === 220 && defaultPayout.cutPctUsed === 12, 'calculatePartnerPayout(250) returns 30/220/12');
+
+  const overridePayout = serverModule.calculatePartnerPayout(200, 's1');
+  assert(overridePayout.platformCut === 30 && overridePayout.partnerPayout === 170 && overridePayout.cutPctUsed === 15, 'calculatePartnerPayout(200, s1) returns 30/170/15');
+
+  // Test 162: Audit log coverage for commission-config mutations
+  const deleteOverrideRes = await del(`http://localhost:3001/api/admin/commission-config/${overrideConfigId}`);
+  assert(deleteOverrideRes.status === 200, 'DELETE of STORE override succeeds');
+
+  const finalAuditRes = await get('http://localhost:3001/api/admin/audit-log');
+  assert(finalAuditRes.status === 200, 'GET /api/admin/audit-log succeeds');
+  const actionsInLog = finalAuditRes.body.map(a => a.action);
+  assert(actionsInLog.includes('COMMISSION_CONFIG_CREATE'), 'Audit log contains COMMISSION_CONFIG_CREATE');
+  assert(actionsInLog.includes('COMMISSION_CONFIG_DELETE'), 'Audit log contains COMMISSION_CONFIG_DELETE');
 
   console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);

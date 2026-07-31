@@ -84,18 +84,33 @@ const DEFAULT_DB = {
     { id: 'l-init1', tenant_id: 't1', region_id: 'r1', customer_id: 'u-cust1', amount: 50.0, type: 'EARN', order_id: null, description: 'Welcome signup bonus points', created_at: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString() },
     { id: 'l-init2', tenant_id: 't1', region_id: 'r2', customer_id: 'u-cust2', amount: 30.0, type: 'EARN', order_id: null, description: 'Welcome signup bonus points', created_at: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString() }
   ],
+  // Deprecated: legacy per-order commission rates retained for gross_v1 historical order compatibility. Superceded by commission_config (profit_v2).
   commission_rates: [
     { id: 'c1', tenant_id: 't1', region_id: 'r1', category: 'groceries', rate_percent: 10.0, created_at: new Date().toISOString() },
     { id: 'c2', tenant_id: 't1', region_id: 'r2', category: 'groceries', rate_percent: 8.0, created_at: new Date().toISOString() }
   ],
+  // Deprecated: legacy stockist commission rates retained for gross_v1 historical order compatibility. Superceded by commission_config (profit_v2).
   stockist_commission_rates: [
     { id: 'scr1', stockist_id: 's1', rate_percent: 10.0, created_at: new Date().toISOString() },
     { id: 'scr2', stockist_id: 's2', rate_percent: 8.0, created_at: new Date().toISOString() },
     { id: 'scr3', stockist_id: 's3', rate_percent: 10.0, created_at: new Date().toISOString() }
   ],
+  // Deprecated: legacy points earn config retained for gross_v1 historical order compatibility. Superceded by commission_config (profit_v2).
   points_earn_config: [
     { id: 'pec1', region_id: 'r1', stockist_id: null, earn_rate_percent: 45.0, created_at: new Date().toISOString() },
     { id: 'pec2', region_id: 'r2', stockist_id: null, earn_rate_percent: 45.0, created_at: new Date().toISOString() }
+  ],
+  commission_config: [
+    {
+      id: 'cc-default',
+      scope: 'GLOBAL',
+      stockist_id: null,
+      stockist_reinvest_pct: 50,
+      points_from_pot_pct: 40,
+      partner_redemption_cut_pct: 12,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    }
   ],
   feedback_reports: [],
   stockist_vendors: [
@@ -136,6 +151,20 @@ function read() {
     if (!parsed.partner_leads) parsed.partner_leads = [];
     if (!parsed.fraud_reports) parsed.fraud_reports = [];
     if (!parsed.admin_audit_log) parsed.admin_audit_log = [];
+    if (!parsed.commission_config || !Array.isArray(parsed.commission_config) || parsed.commission_config.length === 0) {
+      parsed.commission_config = [
+        {
+          id: 'cc-default',
+          scope: 'GLOBAL',
+          stockist_id: null,
+          stockist_reinvest_pct: 50,
+          points_from_pot_pct: 40,
+          partner_redemption_cut_pct: 12,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        }
+      ];
+    }
 
     // Safe backfills on read
     if (parsed.users && Array.isArray(parsed.users)) {
@@ -152,6 +181,13 @@ function read() {
       parsed.partner_leads.forEach(l => {
         if (!l.notes) l.notes = [];
         if (!l.status) l.status = 'NEW';
+      });
+    }
+    if (parsed.orders && Array.isArray(parsed.orders)) {
+      parsed.orders.forEach(o => {
+        if (!o.commission_model) {
+          o.commission_model = 'gross_v1';
+        }
       });
     }
     return parsed;
