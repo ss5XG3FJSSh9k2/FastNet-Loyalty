@@ -27,8 +27,29 @@ const uploadBillMiddleware = (req, res, next) => {
   });
 };
 
+const crypto = require('crypto');
+const bcrypt = require('bcrypt');
+const emailHelper = require('./lib/email');
+const sessionHelper = require('./lib/session');
+
 if (!r2.isR2Configured()) {
   console.warn('[Storage Warning] bill upload disabled — R2 not configured');
+}
+
+if (!emailHelper.isEmailConfigured()) {
+  console.warn('email delivery disabled — mock and SendGrid both off');
+}
+
+// In-memory rate limiting and token stores
+const loginPasswordFailedAttempts = new Map();
+const otpRequestAttempts = new Map();
+const resetTokens = new Map();
+
+// Helper: sanitize user object (remove password_hash)
+function sanitizeUser(user) {
+  if (!user) return null;
+  const { password_hash, ...safeUser } = user;
+  return safeUser;
 }
 
 // In-memory OTP storage
@@ -2848,12 +2869,1005 @@ app.get('/api/admin/audit-log', (req, res) => {
   return res.json(logs);
 });
 
+// Test helper endpoints for Mock Email Outbox
+app.get('/api/test/mock-outbox', (req, res) => {
+  return res.json(emailHelper.getMockOutbox());
+});
+
+app.post('/api/test/clear-mock-outbox', (req, res) => {
+  emailHelper.clearMockOutbox();
+  return res.json({ success: true });
+});
+
+// ==========================================
+// ROUND P1 — PARTNER MODEL & AUTH ENDPOINTS
+// ==========================================
+
+const ALLOWED_SERVICE_TYPES = ['CABLE', 'BROADBAND', 'DTH', 'OTT_BUNDLE'];
+
+function getPartnerSession(req) {
+  const authHeader = req.headers.authorization || req.headers.Authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
+  const token = authHeader.substring(7);
+  try {
+    const { userId, role } = sessionHelper.verifySession(token);
+    if (role !== 'PARTNER_ADMIN') return null;
+    const users = db.getTable('users');
+    const user = users.find(u => u.id === userId && u.is_active !== false);
+    if (!user) return null;
+    const partnerUsers = db.getTable('partner_users');
+    const pu = partnerUsers.find(p => p.user_id === userId);
+    if (!pu) return null;
+    const partners = db.getTable('partners');
+    const partner = partners.find(p => p.id === pu.partner_id);
+    if (!partner) return null;
+    return { user, partner, userId: user.id, partnerId: partner.id };
+  } catch (err) {
+    return null;
+  }
+}
+
+// 3.1 POST /api/partner/auth/set-password
+app.post('/api/partner/auth/set-password', (req, res) => {
+  const { user_id, current_password, new_password } = req.body;
+  if (!new_password || typeof new_password !== 'string' || new_password.length < 8) {
+    return res.status(400).json({ error: 'Password must be at least 8 characters long.' });
+  }
+
+  let targetUserId = user_id;
+  let authSuccess = false;
+
+  const session = getPartnerSession(req);
+  if (session) {
+    targetUserId = session.userId;
+    authSuccess = true;
+  } else if (current_password && targetUserId) {
+    const users = db.getTable('users');
+    const user = users.find(u => u.id === targetUserId);
+    if (user && user.password_hash && bcrypt.compareSync(current_password, user.password_hash)) {
+      authSuccess = true;
+    }
+  }
+
+  if (!authSuccess || !targetUserId) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+
+  const users = db.getTable('users');
+  const user = users.find(u => u.id === targetUserId);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  user.password_hash = bcrypt.hashSync(new_password, 10);
+  db.saveTable('users', users);
+
+  appendAudit(req, 'PARTNER_SET_PASSWORD', 'users', user.id, null, { password_updated: true });
+  return res.json({ success: true, message: 'Password set successfully.' });
+});
+
+// 3.2 POST /api/partner/auth/login-password
+app.post('/api/partner/auth/login-password', (req, res) => {
+  const { email, password } = req.body;
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Email and password are required' });
+  }
+
+  const normalizedEmail = email.trim().toLowerCase();
+  const now = Date.now();
+  let attempts = loginPasswordFailedAttempts.get(normalizedEmail) || [];
+  attempts = attempts.filter(ts => now - ts < 15 * 60 * 1000);
+  loginPasswordFailedAttempts.set(normalizedEmail, attempts);
+
+  if (attempts.length >= 5) {
+    return res.status(429).json({ error: 'Too many failed attempts. Try again later.' });
+  }
+
+  const users = db.getTable('users');
+  const user = users.find(u => u.role === 'PARTNER_ADMIN' && u.email && u.email.trim().toLowerCase() === normalizedEmail && u.is_active !== false);
+
+  if (user && user.password_hash && bcrypt.compareSync(password, user.password_hash)) {
+    loginPasswordFailedAttempts.delete(normalizedEmail);
+
+    const partnerUsers = db.getTable('partner_users');
+    const pu = partnerUsers.find(p => p.user_id === user.id);
+    const partners = db.getTable('partners');
+    const partner = pu ? partners.find(p => p.id === pu.partner_id) : null;
+
+    const token = sessionHelper.signSession(user.id, user.role);
+    return res.json({
+      session_token: token,
+      user: sanitizeUser(user),
+      partner: partner || null
+    });
+  }
+
+  attempts.push(now);
+  loginPasswordFailedAttempts.set(normalizedEmail, attempts);
+  return res.status(401).json({ error: 'Invalid credentials' });
+});
+
+// 3.3 POST /api/partner/auth/login-otp-request
+app.post('/api/partner/auth/login-otp-request', (req, res) => {
+  const { phone } = req.body;
+  if (!phone) return res.status(400).json({ error: 'Phone number is required' });
+
+  const now = Date.now();
+  let attempts = otpRequestAttempts.get(phone) || [];
+  attempts = attempts.filter(ts => now - ts < 5 * 60 * 1000);
+  otpRequestAttempts.set(phone, attempts);
+
+  if (attempts.length >= 3) {
+    return res.status(429).json({ error: 'Too many OTP requests. Try again later.' });
+  }
+  attempts.push(now);
+  otpRequestAttempts.set(phone, attempts);
+
+  const users = db.getTable('users');
+  const user = users.find(u => u.role === 'PARTNER_ADMIN' && u.phone === phone && u.is_active !== false);
+
+  if (user) {
+    otpStore.set(phone, { otp: '123456', expiresAt: Date.now() + 10 * 60 * 1000 });
+  }
+
+  return res.json({ success: true, message: 'OTP sent successfully if phone is registered.' });
+});
+
+// 3.4 POST /api/partner/auth/login-otp-verify
+app.post('/api/partner/auth/login-otp-verify', (req, res) => {
+  const { phone, otp } = req.body;
+  if (!phone || !otp) return res.status(400).json({ error: 'Phone and OTP are required' });
+
+  const users = db.getTable('users');
+  const user = users.find(u => u.role === 'PARTNER_ADMIN' && u.phone === phone && u.is_active !== false);
+
+  if (!user || otp !== '123456') {
+    return res.status(401).json({ error: 'Invalid credentials or OTP' });
+  }
+
+  const partnerUsers = db.getTable('partner_users');
+  const pu = partnerUsers.find(p => p.user_id === user.id);
+  const partners = db.getTable('partners');
+  const partner = pu ? partners.find(p => p.id === pu.partner_id) : null;
+
+  const token = sessionHelper.signSession(user.id, user.role);
+  return res.json({
+    session_token: token,
+    user: sanitizeUser(user),
+    partner: partner || null
+  });
+});
+
+// 3.5 POST /api/partner/auth/forgot-password
+app.post('/api/partner/auth/forgot-password', (req, res) => {
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ error: 'Email is required' });
+
+  if (!emailHelper.isEmailConfigured()) {
+    return res.status(503).json({ error: 'Email service unavailable' });
+  }
+
+  const normalizedEmail = email.trim().toLowerCase();
+  const users = db.getTable('users');
+  const user = users.find(u => u.role === 'PARTNER_ADMIN' && u.email && u.email.trim().toLowerCase() === normalizedEmail && u.is_active !== false);
+
+  if (user) {
+    const token = crypto.randomBytes(32).toString('hex');
+    resetTokens.set(token, { userId: user.id, expiresAt: Date.now() + 30 * 60 * 1000 });
+
+    const baseUrl = process.env.APP_BASE_URL || 'localhost:3000';
+    const resetUrl = `https://${baseUrl}/partner/reset-password?token=${token}`;
+
+    emailHelper.sendEmail(
+      user.email,
+      'Partner Account Password Reset',
+      `<p>Click here to reset your password: <a href="${resetUrl}">${resetUrl}</a></p>`,
+      `Reset your password: ${resetUrl}`
+    ).catch(err => console.error('Failed to send reset email:', err));
+  }
+
+  return res.json({ success: true, message: 'If email exists, a password reset link has been sent.' });
+});
+
+// 3.6 POST /api/partner/auth/reset-password
+app.post('/api/partner/auth/reset-password', (req, res) => {
+  const { token, new_password } = req.body;
+  if (!token || !new_password || typeof new_password !== 'string' || new_password.length < 8) {
+    return res.status(400).json({ error: 'Invalid token or password too short (min 8 characters).' });
+  }
+
+  const tokenRecord = resetTokens.get(token);
+  if (!tokenRecord || Date.now() > tokenRecord.expiresAt) {
+    return res.status(400).json({ error: 'Invalid or expired token' });
+  }
+
+  const users = db.getTable('users');
+  const user = users.find(u => u.id === tokenRecord.userId);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  user.password_hash = bcrypt.hashSync(new_password, 10);
+  db.saveTable('users', users);
+  resetTokens.delete(token);
+
+  appendAudit(req, 'PARTNER_RESET_PASSWORD', 'users', user.id, null, { password_reset: true });
+  return res.json({ success: true, message: 'Password reset successfully.' });
+});
+
+// 3.7 GET /api/partner/auth/session
+app.get('/api/partner/auth/session', (req, res) => {
+  const session = getPartnerSession(req);
+  if (!session) {
+    return res.status(401).json({ error: 'Unauthorized or invalid session' });
+  }
+  return res.json({
+    user: sanitizeUser(session.user),
+    partner: session.partner
+  });
+});
+
+// 4.1 POST /api/admin/partners
+app.post('/api/admin/partners', (req, res) => {
+  const { legal_name, display_name, contact_phone, contact_email, address, service_types, admin_id, gst_number } = req.body;
+  if (!legal_name || !display_name || !contact_phone || !service_types || !Array.isArray(service_types) || service_types.length === 0) {
+    return res.status(400).json({ error: 'Missing required partner fields' });
+  }
+  if (!service_types.every(st => ALLOWED_SERVICE_TYPES.includes(st))) {
+    return res.status(400).json({ error: 'Invalid service_types enum' });
+  }
+
+  const users = db.getTable('users');
+  if (users.some(u => u.phone === contact_phone)) {
+    return res.status(409).json({ error: 'Phone number already registered' });
+  }
+  if (contact_email && users.some(u => u.email && u.email.trim().toLowerCase() === contact_email.trim().toLowerCase())) {
+    return res.status(409).json({ error: 'Email already registered' });
+  }
+
+  const now = new Date().toISOString();
+  const userId = 'u-' + generateId();
+  const partnerId = 'ptr-' + generateId();
+  const partnerUserId = 'pu-' + generateId();
+
+  const newUser = {
+    id: userId,
+    tenant_id: 't1',
+    region_id: null,
+    phone: contact_phone,
+    email: contact_email || null,
+    password_hash: null,
+    name: display_name,
+    role: 'PARTNER_ADMIN',
+    kyc_status: 'PENDING',
+    no_show_count: 0,
+    address: address || '',
+    created_at: now
+  };
+  users.push(newUser);
+  db.saveTable('users', users);
+
+  const partners = db.getTable('partners');
+  const newPartner = {
+    id: partnerId,
+    tenant_id: 't1',
+    legal_name,
+    display_name,
+    contact_phone,
+    contact_email: contact_email || null,
+    address: address || '',
+    gst_number: gst_number || null,
+    service_types,
+    is_active: true,
+    onboarded_at: now,
+    onboarded_by_admin_id: admin_id || 'u-admin',
+    promoted_from_lead_id: null,
+    created_at: now,
+    updated_at: now
+  };
+  partners.push(newPartner);
+  db.saveTable('partners', partners);
+
+  const partnerUsers = db.getTable('partner_users');
+  const newPU = {
+    id: partnerUserId,
+    partner_id: partnerId,
+    user_id: userId,
+    role: 'OWNER',
+    created_at: now
+  };
+  partnerUsers.push(newPU);
+  db.saveTable('partner_users', partnerUsers);
+
+  appendAudit(req, 'PARTNER_CREATE', 'partner', partnerId, null, newPartner);
+  return res.json({ partner: newPartner, user: sanitizeUser(newUser) });
+});
+
+// 4.2 POST /api/admin/partner-leads/:id/promote
+app.post('/api/admin/partner-leads/:id/promote', (req, res) => {
+  const { id } = req.params;
+  const { admin_id, legal_name, display_name, service_types } = req.body;
+
+  const leads = db.getTable('partner_leads');
+  const lead = leads.find(l => l.id === id);
+  if (!lead) return res.status(404).json({ error: 'Lead not found' });
+  if (lead.promoted_partner_id || lead.status === 'ONBOARDED') {
+    return res.status(409).json({ error: 'Lead has already been promoted' });
+  }
+
+  if (!service_types || !Array.isArray(service_types) || service_types.length === 0 || !service_types.every(st => ALLOWED_SERVICE_TYPES.includes(st))) {
+    return res.status(400).json({ error: 'Valid service_types array is required' });
+  }
+
+  const contact_phone = lead.phone;
+  const contact_email = lead.email || null;
+  const address = lead.address || '';
+  const finalLegalName = legal_name || lead.business_name || lead.name;
+  const finalDisplayName = display_name || lead.business_name || lead.name;
+
+  const users = db.getTable('users');
+  if (contact_phone && users.some(u => u.phone === contact_phone)) {
+    return res.status(409).json({ error: 'Phone number already registered' });
+  }
+  if (contact_email && users.some(u => u.email && u.email.trim().toLowerCase() === contact_email.trim().toLowerCase())) {
+    return res.status(409).json({ error: 'Email already registered' });
+  }
+
+  const now = new Date().toISOString();
+  const userId = 'u-' + generateId();
+  const partnerId = 'ptr-' + generateId();
+  const partnerUserId = 'pu-' + generateId();
+
+  const newUser = {
+    id: userId,
+    tenant_id: 't1',
+    region_id: null,
+    phone: contact_phone,
+    email: contact_email,
+    password_hash: null,
+    name: finalDisplayName,
+    role: 'PARTNER_ADMIN',
+    kyc_status: 'PENDING',
+    no_show_count: 0,
+    address: address,
+    created_at: now
+  };
+  users.push(newUser);
+  db.saveTable('users', users);
+
+  const partners = db.getTable('partners');
+  const newPartner = {
+    id: partnerId,
+    tenant_id: 't1',
+    legal_name: finalLegalName,
+    display_name: finalDisplayName,
+    contact_phone,
+    contact_email,
+    address,
+    gst_number: null,
+    service_types,
+    is_active: true,
+    onboarded_at: now,
+    onboarded_by_admin_id: admin_id || 'u-admin',
+    promoted_from_lead_id: lead.id,
+    created_at: now,
+    updated_at: now
+  };
+  partners.push(newPartner);
+  db.saveTable('partners', partners);
+
+  const partnerUsers = db.getTable('partner_users');
+  const newPU = {
+    id: partnerUserId,
+    partner_id: partnerId,
+    user_id: userId,
+    role: 'OWNER',
+    created_at: now
+  };
+  partnerUsers.push(newPU);
+  db.saveTable('partner_users', partnerUsers);
+
+  const beforeLead = { status: lead.status, promoted_partner_id: lead.promoted_partner_id };
+  lead.status = 'ONBOARDED';
+  lead.promoted_partner_id = partnerId;
+  lead.promoted_by_admin_id = admin_id || 'u-admin';
+  lead.promoted_at = now;
+  db.saveTable('partner_leads', leads);
+
+  appendAudit(req, 'LEAD_PROMOTED', 'partner_lead', lead.id, beforeLead, lead);
+  appendAudit(req, 'PARTNER_CREATE', 'partner', partnerId, null, newPartner);
+
+  return res.json({ partner: newPartner, user: sanitizeUser(newUser), lead });
+});
+
+// 4.3 GET /api/admin/partners
+app.get('/api/admin/partners', (req, res) => {
+  const { is_active, region_id, service_type } = req.query;
+  let partners = db.getTable('partners');
+  const partnerRegions = db.getTable('partner_regions');
+  const partnerPackages = db.getTable('partner_packages');
+  const customerBindings = db.getTable('customer_partner_bindings');
+
+  if (is_active !== undefined) {
+    const activeBool = is_active === 'true';
+    partners = partners.filter(p => p.is_active === activeBool);
+  }
+
+  if (region_id) {
+    partners = partners.filter(p => partnerRegions.some(pr => pr.partner_id === p.id && pr.region_id === region_id && pr.is_active !== false));
+  }
+
+  if (service_type) {
+    partners = partners.filter(p => Array.isArray(p.service_types) && p.service_types.includes(service_type));
+  }
+
+  const result = partners.map(p => {
+    const regions = partnerRegions.filter(pr => pr.partner_id === p.id && pr.is_active !== false);
+    const active_package_count = partnerPackages.filter(pp => pp.partner_id === p.id && pp.is_active !== false).length;
+    const bound_customer_count = customerBindings.filter(cb => cb.cable_partner_id === p.id || cb.broadband_partner_id === p.id).length;
+    return {
+      ...p,
+      regions,
+      active_package_count,
+      bound_customer_count
+    };
+  });
+
+  return res.json(result);
+});
+
+// 4.4 GET /api/admin/partners/:id
+app.get('/api/admin/partners/:id', (req, res) => {
+  const { id } = req.params;
+  const partners = db.getTable('partners');
+  const partner = partners.find(p => p.id === id);
+  if (!partner) return res.status(404).json({ error: 'Partner not found' });
+
+  const partnerRegions = db.getTable('partner_regions').filter(pr => pr.partner_id === id);
+  const partnerPackages = db.getTable('partner_packages').filter(pp => pp.partner_id === id);
+  const partnerUsers = db.getTable('partner_users').filter(pu => pu.partner_id === id);
+  const users = db.getTable('users');
+
+  const joinedUsers = partnerUsers.map(pu => {
+    const u = users.find(usr => usr.id === pu.user_id);
+    return {
+      ...pu,
+      user: sanitizeUser(u)
+    };
+  });
+
+  const customerBindings = db.getTable('customer_partner_bindings');
+  const bound_customer_count = customerBindings.filter(cb => cb.cable_partner_id === id || cb.broadband_partner_id === id).length;
+
+  return res.json({
+    partner,
+    regions: partnerRegions,
+    packages: partnerPackages,
+    users: joinedUsers,
+    bound_customer_count
+  });
+});
+
+// 4.5 PATCH /api/admin/partners/:id
+app.patch('/api/admin/partners/:id', (req, res) => {
+  const { id } = req.params;
+  if (req.body.service_types !== undefined || req.body.promoted_from_lead_id !== undefined || req.body.id !== undefined) {
+    return res.status(400).json({ error: 'Cannot update service_types or system fields directly via this endpoint' });
+  }
+
+  const partners = db.getTable('partners');
+  const partner = partners.find(p => p.id === id);
+  if (!partner) return res.status(404).json({ error: 'Partner not found' });
+
+  const mutableFields = ['legal_name', 'display_name', 'contact_phone', 'contact_email', 'address', 'gst_number'];
+  const before = { ...partner };
+
+  mutableFields.forEach(field => {
+    if (req.body[field] !== undefined) {
+      partner[field] = req.body[field];
+    }
+  });
+  partner.updated_at = new Date().toISOString();
+  db.saveTable('partners', partners);
+
+  const partnerUsers = db.getTable('partner_users').filter(pu => pu.partner_id === id);
+  const users = db.getTable('users');
+  partnerUsers.forEach(pu => {
+    const u = users.find(usr => usr.id === pu.user_id);
+    if (u) {
+      if (req.body.contact_phone) u.phone = req.body.contact_phone;
+      if (req.body.contact_email !== undefined) u.email = req.body.contact_email;
+      if (req.body.display_name) u.name = req.body.display_name;
+    }
+  });
+  db.saveTable('users', users);
+
+  appendAudit(req, 'EDIT_PARTNER', 'partner', id, before, partner);
+  return res.json(partner);
+});
+
+// 4.6 POST /api/admin/partners/:id/deactivate and /reactivate
+app.post('/api/admin/partners/:id/deactivate', (req, res) => {
+  const { id } = req.params;
+  const partners = db.getTable('partners');
+  const partner = partners.find(p => p.id === id);
+  if (!partner) return res.status(404).json({ error: 'Partner not found' });
+
+  const before = { is_active: partner.is_active };
+  partner.is_active = false;
+  partner.updated_at = new Date().toISOString();
+  db.saveTable('partners', partners);
+
+  const packages = db.getTable('partner_packages');
+  packages.forEach(pkg => {
+    if (pkg.partner_id === id) {
+      pkg.is_active = false;
+      pkg.updated_at = new Date().toISOString();
+    }
+  });
+  db.saveTable('partner_packages', packages);
+
+  appendAudit(req, 'DEACTIVATE_PARTNER', 'partner', id, before, { is_active: false });
+  return res.json(partner);
+});
+
+app.post('/api/admin/partners/:id/reactivate', (req, res) => {
+  const { id } = req.params;
+  const partners = db.getTable('partners');
+  const partner = partners.find(p => p.id === id);
+  if (!partner) return res.status(404).json({ error: 'Partner not found' });
+
+  const before = { is_active: partner.is_active };
+  partner.is_active = true;
+  partner.updated_at = new Date().toISOString();
+  db.saveTable('partners', partners);
+
+  appendAudit(req, 'REACTIVATE_PARTNER', 'partner', id, before, { is_active: true });
+  return res.json(partner);
+});
+
+// 4.7 POST /api/admin/partners/:id/service-types
+app.post('/api/admin/partners/:id/service-types', (req, res) => {
+  const { id } = req.params;
+  const { service_types, confirm } = req.body;
+
+  if (!service_types || !Array.isArray(service_types) || !service_types.every(st => ALLOWED_SERVICE_TYPES.includes(st))) {
+    return res.status(400).json({ error: 'Invalid service_types enum' });
+  }
+
+  const partners = db.getTable('partners');
+  const partner = partners.find(p => p.id === id);
+  if (!partner) return res.status(404).json({ error: 'Partner not found' });
+
+  const currentTypes = partner.service_types || [];
+  const removedTypes = currentTypes.filter(st => !service_types.includes(st));
+
+  if (removedTypes.length > 0) {
+    const regions = db.getTable('partner_regions').filter(pr => pr.partner_id === id && removedTypes.includes(pr.service_type));
+    const packages = db.getTable('partner_packages').filter(pp => pp.partner_id === id && removedTypes.includes(pp.service_type));
+
+    if ((regions.length > 0 || packages.length > 0) && confirm !== true) {
+      return res.json({
+        requires_confirmation: true,
+        warning: 'Removing service types will affect existing regions or packages.',
+        affected_regions: regions,
+        affected_packages: packages
+      });
+    }
+  }
+
+  const before = { service_types: partner.service_types };
+  partner.service_types = service_types;
+  partner.updated_at = new Date().toISOString();
+  db.saveTable('partners', partners);
+
+  appendAudit(req, 'UPDATE_PARTNER_SERVICE_TYPES', 'partner', id, before, { service_types });
+  return res.json(partner);
+});
+
+// 4.8 Partner-regions CRUD
+app.post('/api/admin/partners/:id/regions', (req, res) => {
+  const { id } = req.params;
+  const { region_id, service_type } = req.body;
+
+  const partners = db.getTable('partners');
+  const partner = partners.find(p => p.id === id);
+  if (!partner) return res.status(404).json({ error: 'Partner not found' });
+
+  const regions = db.getTable('regions');
+  if (!regions.some(r => r.id === region_id)) {
+    return res.status(400).json({ error: 'Region does not exist' });
+  }
+
+  if (!partner.service_types || !partner.service_types.includes(service_type)) {
+    return res.status(400).json({ error: 'Partner does not support this service_type' });
+  }
+
+  const partnerRegions = db.getTable('partner_regions');
+  if (partnerRegions.some(pr => pr.partner_id === id && pr.region_id === region_id && pr.service_type === service_type)) {
+    return res.status(409).json({ error: 'Duplicate region mapping for this partner and service_type' });
+  }
+
+  const newPR = {
+    id: 'prg-' + generateId(),
+    partner_id: id,
+    region_id,
+    service_type,
+    is_active: true,
+    created_at: new Date().toISOString()
+  };
+  partnerRegions.push(newPR);
+  db.saveTable('partner_regions', partnerRegions);
+
+  appendAudit(req, 'ADD_PARTNER_REGION', 'partner_region', newPR.id, null, newPR);
+  return res.json(newPR);
+});
+
+app.post('/api/admin/partners/:id/regions/:regionRowId/deactivate', (req, res) => {
+  const { id, regionRowId } = req.params;
+  const partnerRegions = db.getTable('partner_regions');
+  const pr = partnerRegions.find(p => p.id === regionRowId && p.partner_id === id);
+  if (!pr) return res.status(404).json({ error: 'Partner region mapping not found' });
+
+  const before = { is_active: pr.is_active };
+  pr.is_active = false;
+  db.saveTable('partner_regions', partnerRegions);
+
+  appendAudit(req, 'DEACTIVATE_PARTNER_REGION', 'partner_region', pr.id, before, { is_active: false });
+  return res.json(pr);
+});
+
+app.post('/api/admin/partners/:id/regions/:regionRowId/reactivate', (req, res) => {
+  const { id, regionRowId } = req.params;
+  const partnerRegions = db.getTable('partner_regions');
+  const pr = partnerRegions.find(p => p.id === regionRowId && p.partner_id === id);
+  if (!pr) return res.status(404).json({ error: 'Partner region mapping not found' });
+
+  const before = { is_active: pr.is_active };
+  pr.is_active = true;
+  db.saveTable('partner_regions', partnerRegions);
+
+  appendAudit(req, 'REACTIVATE_PARTNER_REGION', 'partner_region', pr.id, before, { is_active: true });
+  return res.json(pr);
+});
+
+app.delete('/api/admin/partners/:id/regions/:regionRowId', (req, res) => {
+  const { id, regionRowId } = req.params;
+  const partnerRegions = db.getTable('partner_regions');
+  const idx = partnerRegions.findIndex(p => p.id === regionRowId && p.partner_id === id);
+  if (idx === -1) return res.status(404).json({ error: 'Partner region mapping not found' });
+
+  const targetPR = partnerRegions[idx];
+  const packages = db.getTable('partner_packages').filter(pp => pp.partner_id === id && pp.service_type === targetPR.service_type);
+  if (packages.some(pkg => pkg.active_regions && pkg.active_regions.includes(targetPR.region_id))) {
+    return res.status(400).json({ error: 'Cannot delete region referenced by active packages' });
+  }
+
+  partnerRegions.splice(idx, 1);
+  db.saveTable('partner_regions', partnerRegions);
+
+  appendAudit(req, 'DELETE_PARTNER_REGION', 'partner_region', regionRowId, targetPR, null);
+  return res.json({ success: true, message: 'Partner region mapping deleted.' });
+});
+
+// 4.9 Partner-packages CRUD (Admin set)
+app.post('/api/admin/partners/:id/packages', (req, res) => {
+  const { id } = req.params;
+  const { service_type, name, description, face_value_rupees, cost_to_partner_rupees, point_cost, active_regions } = req.body;
+
+  const partners = db.getTable('partners');
+  const partner = partners.find(p => p.id === id);
+  if (!partner) return res.status(404).json({ error: 'Partner not found' });
+
+  if (!service_type || !partner.service_types || !partner.service_types.includes(service_type)) {
+    return res.status(400).json({ error: 'Service type must match one of partner service_types' });
+  }
+
+  if (!name || face_value_rupees === undefined || !active_regions || !Array.isArray(active_regions)) {
+    return res.status(400).json({ error: 'Missing required package fields' });
+  }
+
+  const partnerRegions = db.getTable('partner_regions').filter(pr => pr.partner_id === id && pr.service_type === service_type && pr.is_active !== false);
+  const partnerRegionIds = partnerRegions.map(pr => pr.region_id);
+
+  if (!active_regions.every(rId => partnerRegionIds.includes(rId))) {
+    return res.status(400).json({ error: 'Every active_region must be an active region served by partner for this service_type' });
+  }
+
+  const now = new Date().toISOString();
+  const packages = db.getTable('partner_packages');
+  const newPkg = {
+    id: 'ppk-' + generateId(),
+    partner_id: id,
+    service_type,
+    name,
+    description: description || '',
+    face_value_rupees: Number(face_value_rupees),
+    cost_to_partner_rupees: Number(cost_to_partner_rupees !== undefined ? cost_to_partner_rupees : face_value_rupees),
+    point_cost: Number(point_cost !== undefined ? point_cost : face_value_rupees),
+    active_regions,
+    is_active: true,
+    created_at: now,
+    updated_at: now
+  };
+  packages.push(newPkg);
+  db.saveTable('partner_packages', packages);
+
+  appendAudit(req, 'CREATE_PARTNER_PACKAGE', 'partner_package', newPkg.id, null, newPkg);
+  return res.json(newPkg);
+});
+
+app.patch('/api/admin/partners/:id/packages/:packageId', (req, res) => {
+  const { id, packageId } = req.params;
+  const packages = db.getTable('partner_packages');
+  const pkg = packages.find(p => p.id === packageId && p.partner_id === id);
+  if (!pkg) return res.status(404).json({ error: 'Package not found' });
+
+  const before = { ...pkg };
+  const mutableFields = ['name', 'description', 'face_value_rupees', 'cost_to_partner_rupees', 'point_cost', 'active_regions'];
+  mutableFields.forEach(f => {
+    if (req.body[f] !== undefined) {
+      if (f === 'face_value_rupees' || f === 'cost_to_partner_rupees' || f === 'point_cost') {
+        pkg[f] = Number(req.body[f]);
+      } else {
+        pkg[f] = req.body[f];
+      }
+    }
+  });
+  pkg.updated_at = new Date().toISOString();
+  db.saveTable('partner_packages', packages);
+
+  appendAudit(req, 'EDIT_PARTNER_PACKAGE', 'partner_package', packageId, before, pkg);
+  return res.json(pkg);
+});
+
+app.post('/api/admin/partners/:id/packages/:packageId/deactivate', (req, res) => {
+  const { id, packageId } = req.params;
+  const packages = db.getTable('partner_packages');
+  const pkg = packages.find(p => p.id === packageId && p.partner_id === id);
+  if (!pkg) return res.status(404).json({ error: 'Package not found' });
+
+  const before = { is_active: pkg.is_active };
+  pkg.is_active = false;
+  pkg.updated_at = new Date().toISOString();
+  db.saveTable('partner_packages', packages);
+
+  appendAudit(req, 'DEACTIVATE_PARTNER_PACKAGE', 'partner_package', packageId, before, { is_active: false });
+  return res.json(pkg);
+});
+
+app.post('/api/admin/partners/:id/packages/:packageId/reactivate', (req, res) => {
+  const { id, packageId } = req.params;
+  const packages = db.getTable('partner_packages');
+  const pkg = packages.find(p => p.id === packageId && p.partner_id === id);
+  if (!pkg) return res.status(404).json({ error: 'Package not found' });
+
+  const before = { is_active: pkg.is_active };
+  pkg.is_active = true;
+  pkg.updated_at = new Date().toISOString();
+  db.saveTable('partner_packages', packages);
+
+  appendAudit(req, 'REACTIVATE_PARTNER_PACKAGE', 'partner_package', packageId, before, { is_active: true });
+  return res.json(pkg);
+});
+
+// Partner-self Package Endpoints (/api/partner/packages)
+app.post('/api/partner/packages', (req, res) => {
+  const session = getPartnerSession(req);
+  if (!session) return res.status(401).json({ error: 'Unauthorized' });
+
+  if (req.body.partner_id && req.body.partner_id !== session.partnerId) {
+    return res.status(403).json({ error: 'Cannot create package for a different partner' });
+  }
+
+  const { service_type, name, description, face_value_rupees, cost_to_partner_rupees, point_cost, active_regions } = req.body;
+  const partner = session.partner;
+  const partnerId = partner.id;
+
+  if (!service_type || !partner.service_types || !partner.service_types.includes(service_type)) {
+    return res.status(400).json({ error: 'Service type must match one of partner service_types' });
+  }
+
+  if (!name || face_value_rupees === undefined || !active_regions || !Array.isArray(active_regions)) {
+    return res.status(400).json({ error: 'Missing required package fields' });
+  }
+
+  const partnerRegions = db.getTable('partner_regions').filter(pr => pr.partner_id === partnerId && pr.service_type === service_type && pr.is_active !== false);
+  const partnerRegionIds = partnerRegions.map(pr => pr.region_id);
+
+  if (!active_regions.every(rId => partnerRegionIds.includes(rId))) {
+    return res.status(400).json({ error: 'Every active_region must be an active region served by partner for this service_type' });
+  }
+
+  const now = new Date().toISOString();
+  const packages = db.getTable('partner_packages');
+  const newPkg = {
+    id: 'ppk-' + generateId(),
+    partner_id: partnerId,
+    service_type,
+    name,
+    description: description || '',
+    face_value_rupees: Number(face_value_rupees),
+    cost_to_partner_rupees: Number(cost_to_partner_rupees !== undefined ? cost_to_partner_rupees : face_value_rupees),
+    point_cost: Number(point_cost !== undefined ? point_cost : face_value_rupees),
+    active_regions,
+    is_active: true,
+    created_at: now,
+    updated_at: now
+  };
+  packages.push(newPkg);
+  db.saveTable('partner_packages', packages);
+
+  return res.json(newPkg);
+});
+
+app.patch('/api/partner/packages/:packageId', (req, res) => {
+  const session = getPartnerSession(req);
+  if (!session) return res.status(401).json({ error: 'Unauthorized' });
+
+  const { packageId } = req.params;
+  const packages = db.getTable('partner_packages');
+  const pkg = packages.find(p => p.id === packageId);
+  if (!pkg) return res.status(404).json({ error: 'Package not found' });
+  if (pkg.partner_id !== session.partnerId) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+
+  const mutableFields = ['name', 'description', 'face_value_rupees', 'cost_to_partner_rupees', 'point_cost', 'active_regions'];
+  mutableFields.forEach(f => {
+    if (req.body[f] !== undefined) {
+      if (f === 'face_value_rupees' || f === 'cost_to_partner_rupees' || f === 'point_cost') {
+        pkg[f] = Number(req.body[f]);
+      } else {
+        pkg[f] = req.body[f];
+      }
+    }
+  });
+  pkg.updated_at = new Date().toISOString();
+  db.saveTable('partner_packages', packages);
+
+  return res.json(pkg);
+});
+
+app.post('/api/partner/packages/:packageId/deactivate', (req, res) => {
+  const session = getPartnerSession(req);
+  if (!session) return res.status(401).json({ error: 'Unauthorized' });
+
+  const { packageId } = req.params;
+  const packages = db.getTable('partner_packages');
+  const pkg = packages.find(p => p.id === packageId);
+  if (!pkg) return res.status(404).json({ error: 'Package not found' });
+  if (pkg.partner_id !== session.partnerId) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+
+  pkg.is_active = false;
+  pkg.updated_at = new Date().toISOString();
+  db.saveTable('partner_packages', packages);
+
+  return res.json(pkg);
+});
+
+app.post('/api/partner/packages/:packageId/reactivate', (req, res) => {
+  const session = getPartnerSession(req);
+  if (!session) return res.status(401).json({ error: 'Unauthorized' });
+
+  const { packageId } = req.params;
+  const packages = db.getTable('partner_packages');
+  const pkg = packages.find(p => p.id === packageId);
+  if (!pkg) return res.status(404).json({ error: 'Package not found' });
+  if (pkg.partner_id !== session.partnerId) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+
+  pkg.is_active = true;
+  pkg.updated_at = new Date().toISOString();
+  db.saveTable('partner_packages', packages);
+
+  return res.json(pkg);
+});
+
+// Part 5 — Customer Partner Bindings
+app.post('/api/customer/partner-bindings', (req, res) => {
+  const { customer_user_id, cable_partner_id, broadband_partner_id } = req.body;
+  if (!customer_user_id) return res.status(400).json({ error: 'customer_user_id is required' });
+
+  const users = db.getTable('users');
+  const customer = users.find(u => u.id === customer_user_id);
+  if (!customer) return res.status(404).json({ error: 'Customer not found' });
+
+  const partners = db.getTable('partners');
+  const partnerRegions = db.getTable('partner_regions');
+
+  if (cable_partner_id) {
+    const cp = partners.find(p => p.id === cable_partner_id && p.is_active !== false);
+    if (!cp || !cp.service_types || !cp.service_types.includes('CABLE')) {
+      return res.status(400).json({ error: 'Invalid cable partner' });
+    }
+    const servesRegion = partnerRegions.some(pr => pr.partner_id === cable_partner_id && pr.region_id === customer.region_id && pr.service_type === 'CABLE' && pr.is_active !== false);
+    if (!servesRegion) {
+      return res.status(400).json({ error: 'Cable partner does not serve customer region' });
+    }
+  }
+
+  if (broadband_partner_id) {
+    const bp = partners.find(p => p.id === broadband_partner_id && p.is_active !== false);
+    if (!bp || !bp.service_types || !bp.service_types.includes('BROADBAND')) {
+      return res.status(400).json({ error: 'Invalid broadband partner' });
+    }
+    const servesRegion = partnerRegions.some(pr => pr.partner_id === broadband_partner_id && pr.region_id === customer.region_id && pr.service_type === 'BROADBAND' && pr.is_active !== false);
+    if (!servesRegion) {
+      return res.status(400).json({ error: 'Broadband partner does not serve customer region' });
+    }
+  }
+
+  const bindings = db.getTable('customer_partner_bindings');
+  let binding = bindings.find(b => b.customer_user_id === customer_user_id);
+  const now = new Date().toISOString();
+
+  if (binding) {
+    const before = { cable_partner_id: binding.cable_partner_id, broadband_partner_id: binding.broadband_partner_id };
+    binding.cable_partner_id = cable_partner_id !== undefined ? cable_partner_id : binding.cable_partner_id;
+    binding.broadband_partner_id = broadband_partner_id !== undefined ? broadband_partner_id : binding.broadband_partner_id;
+    binding.updated_at = now;
+    db.saveTable('customer_partner_bindings', bindings);
+    appendAudit(req, 'UPDATE_PARTNER_BINDING', 'customer_partner_binding', customer_user_id, before, binding);
+  } else {
+    binding = {
+      customer_user_id,
+      cable_partner_id: cable_partner_id || null,
+      broadband_partner_id: broadband_partner_id || null,
+      updated_at: now
+    };
+    bindings.push(binding);
+    db.saveTable('customer_partner_bindings', bindings);
+  }
+
+  return res.json(binding);
+});
+
+app.get('/api/customer/partner-bindings/:customer_user_id', (req, res) => {
+  const { customer_user_id } = req.params;
+  const bindings = db.getTable('customer_partner_bindings');
+  const binding = bindings.find(b => b.customer_user_id === customer_user_id);
+  return res.json(binding || null);
+});
+
+app.get('/api/customer/partner-bindings/:customer_user_id/available', (req, res) => {
+  const { customer_user_id } = req.params;
+  const users = db.getTable('users');
+  const customer = users.find(u => u.id === customer_user_id);
+  if (!customer || !customer.region_id) {
+    return res.json({ cable: [], broadband: [] });
+  }
+
+  const partners = db.getTable('partners');
+  const partnerRegions = db.getTable('partner_regions');
+
+  const cablePartnerIds = partnerRegions
+    .filter(pr => pr.region_id === customer.region_id && pr.service_type === 'CABLE' && pr.is_active !== false)
+    .map(pr => pr.partner_id);
+
+  const broadbandPartnerIds = partnerRegions
+    .filter(pr => pr.region_id === customer.region_id && pr.service_type === 'BROADBAND' && pr.is_active !== false)
+    .map(pr => pr.partner_id);
+
+  const cablePartners = partners.filter(p => p.is_active !== false && cablePartnerIds.includes(p.id));
+  const broadbandPartners = partners.filter(p => p.is_active !== false && broadbandPartnerIds.includes(p.id));
+
+  return res.json({
+    cable: cablePartners,
+    broadband: broadbandPartners
+  });
+});
+
+
 // Reset DB
 app.post('/api/admin/reset-db', (req, res) => {
   const path = require('path');
   const fs = require('fs');
   const DB_PATH = path.join(__dirname, 'db.json');
   if (fs.existsSync(DB_PATH)) fs.unlinkSync(DB_PATH);
+  emailHelper.clearMockOutbox();
+  loginPasswordFailedAttempts.clear();
+  otpRequestAttempts.clear();
+  resetTokens.clear();
   const fresh = db.read();
   return res.json({ success: true, message: 'Database reset successfully.', state: fresh });
 });

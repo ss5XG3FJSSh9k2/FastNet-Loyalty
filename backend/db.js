@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const bcrypt = require('bcrypt');
 
 const DB_PATH = path.join(__dirname, 'db.json');
 
@@ -18,7 +19,106 @@ const DEFAULT_DB = {
     { id: 'u-stk1', tenant_id: 't1', region_id: 'r1', phone: '7654321098', name: 'Madan Shaw', role: 'STOCKIST', kyc_status: 'APPROVED', no_show_count: 0, address: 'Garia Market', created_at: new Date().toISOString() },
     { id: 'u-stk2', tenant_id: 't1', region_id: 'r2', phone: '6543210987', name: 'Prabhat Sarkar', role: 'STOCKIST', kyc_status: 'APPROVED', no_show_count: 0, address: 'Bishnupur Bazar', created_at: new Date().toISOString() },
     { id: 'u-stk3', tenant_id: 't1', region_id: 'r2', phone: '5432109876', name: 'Gopal Joy', role: 'STOCKIST', kyc_status: 'PENDING', no_show_count: 0, kyc_details: { id_type: 'Aadhaar', id_number: '1234-5678-9012', shop_name: 'Joy Kirana', shop_address: 'Bishnupur Market Road' }, address: 'Bishnupur Market Road', created_at: new Date().toISOString() },
-    { id: 'u-stk4', tenant_id: 't1', region_id: 'r1', phone: '4321098765', name: 'Soumik Banerjee', role: 'STOCKIST', kyc_status: 'APPROVED', no_show_count: 0, address: 'Garia Corner', created_at: new Date().toISOString() }
+    { id: 'u-stk4', tenant_id: 't1', region_id: 'r1', phone: '4321098765', name: 'Soumik Banerjee', role: 'STOCKIST', kyc_status: 'APPROVED', no_show_count: 0, address: 'Garia Corner', created_at: new Date().toISOString() },
+    { id: 'u-ptr-adhya', tenant_id: 't1', region_id: 'r1', phone: '9876500000', email: 'adhya@partners.example', password_hash: bcrypt.hashSync('partner123', 10), name: 'Adhya Admin', role: 'PARTNER_ADMIN', kyc_status: 'APPROVED', no_show_count: 0, address: '15 Garia Main Road', created_at: '2026-08-01T00:00:00.000Z' },
+    { id: 'u-ptr-jio', tenant_id: 't1', region_id: 'r1', phone: '9876500001', email: 'jio@partners.example', password_hash: bcrypt.hashSync('partner123', 10), name: 'Jio Admin', role: 'PARTNER_ADMIN', kyc_status: 'APPROVED', no_show_count: 0, address: '8 Park Street', created_at: '2026-08-01T00:00:00.000Z' }
+  ],
+  partners: [
+    {
+      id: 'ptr-adhya',
+      tenant_id: 't1',
+      legal_name: 'Adhya Cable Services Pvt Ltd',
+      display_name: 'Adhya Cable',
+      contact_phone: '9876500000',
+      contact_email: 'adhya@partners.example',
+      address: '15 Garia Main Road, Kolkata',
+      gst_number: '19AAAAA0000A1Z5',
+      service_types: ['CABLE'],
+      is_active: true,
+      onboarded_at: '2026-08-01T00:00:00.000Z',
+      onboarded_by_admin_id: 'u-admin',
+      promoted_from_lead_id: null,
+      created_at: '2026-08-01T00:00:00.000Z',
+      updated_at: '2026-08-01T00:00:00.000Z'
+    },
+    {
+      id: 'ptr-jio',
+      tenant_id: 't1',
+      legal_name: 'JioFiber Local Services',
+      display_name: 'JioFiber Local',
+      contact_phone: '9876500001',
+      contact_email: 'jio@partners.example',
+      address: '8 Park Street, Kolkata',
+      gst_number: '19BBBBB0000B1Z5',
+      service_types: ['BROADBAND'],
+      is_active: true,
+      onboarded_at: '2026-08-01T00:00:00.000Z',
+      onboarded_by_admin_id: 'u-admin',
+      promoted_from_lead_id: null,
+      created_at: '2026-08-01T00:00:00.000Z',
+      updated_at: '2026-08-01T00:00:00.000Z'
+    }
+  ],
+  partner_regions: [
+    { id: 'prg-adhya-r1', partner_id: 'ptr-adhya', region_id: 'r1', service_type: 'CABLE', is_active: true, created_at: '2026-08-01T00:00:00.000Z' },
+    { id: 'prg-adhya-r2', partner_id: 'ptr-adhya', region_id: 'r2', service_type: 'CABLE', is_active: true, created_at: '2026-08-01T00:00:00.000Z' },
+    { id: 'prg-jio-r1', partner_id: 'ptr-jio', region_id: 'r1', service_type: 'BROADBAND', is_active: true, created_at: '2026-08-01T00:00:00.000Z' }
+  ],
+  partner_packages: [
+    {
+      id: 'ppk-adhya-basic',
+      partner_id: 'ptr-adhya',
+      service_type: 'CABLE',
+      name: '₹250 Cable Basic Monthly',
+      description: 'Basic tier cable connection for one month',
+      face_value_rupees: 250,
+      cost_to_partner_rupees: 250,
+      point_cost: 250,
+      active_regions: ['r1', 'r2'],
+      is_active: true,
+      created_at: '2026-08-01T00:00:00.000Z',
+      updated_at: '2026-08-01T00:00:00.000Z'
+    },
+    {
+      id: 'ppk-adhya-premium',
+      partner_id: 'ptr-adhya',
+      service_type: 'CABLE',
+      name: '₹500 Cable Premium Monthly',
+      description: 'Premium tier cable connection with HD channels',
+      face_value_rupees: 500,
+      cost_to_partner_rupees: 500,
+      point_cost: 500,
+      active_regions: ['r1'],
+      is_active: true,
+      created_at: '2026-08-01T00:00:00.000Z',
+      updated_at: '2026-08-01T00:00:00.000Z'
+    },
+    {
+      id: 'ppk-jio-basic',
+      partner_id: 'ptr-jio',
+      service_type: 'BROADBAND',
+      name: '₹500 Broadband Basic Monthly',
+      description: '100 Mbps unlimited broadband connection',
+      face_value_rupees: 500,
+      cost_to_partner_rupees: 500,
+      point_cost: 500,
+      active_regions: ['r1'],
+      is_active: true,
+      created_at: '2026-08-01T00:00:00.000Z',
+      updated_at: '2026-08-01T00:00:00.000Z'
+    }
+  ],
+  partner_users: [
+    { id: 'pu-adhya', partner_id: 'ptr-adhya', user_id: 'u-ptr-adhya', role: 'OWNER', created_at: '2026-08-01T00:00:00.000Z' },
+    { id: 'pu-jio', partner_id: 'ptr-jio', user_id: 'u-ptr-jio', role: 'OWNER', created_at: '2026-08-01T00:00:00.000Z' }
+  ],
+  customer_partner_bindings: [
+    {
+      customer_user_id: 'u-cust1',
+      cable_partner_id: 'ptr-adhya',
+      broadband_partner_id: 'ptr-jio',
+      updated_at: '2026-08-01T00:00:00.000Z'
+    }
   ],
   vendors: [
     { id: 'v1', tenant_id: 't1', region_id: 'r1', name: 'Kolkata Wholesale Mart', created_at: new Date().toISOString() },
@@ -153,6 +253,11 @@ function read() {
     if (!parsed.fraud_reports) parsed.fraud_reports = [];
     if (!parsed.admin_audit_log) parsed.admin_audit_log = [];
     if (!parsed.product_bill_photos) parsed.product_bill_photos = [];
+    if (!parsed.partners) parsed.partners = JSON.parse(JSON.stringify(DEFAULT_DB.partners));
+    if (!parsed.partner_regions) parsed.partner_regions = JSON.parse(JSON.stringify(DEFAULT_DB.partner_regions));
+    if (!parsed.partner_packages) parsed.partner_packages = JSON.parse(JSON.stringify(DEFAULT_DB.partner_packages));
+    if (!parsed.partner_users) parsed.partner_users = JSON.parse(JSON.stringify(DEFAULT_DB.partner_users));
+    if (!parsed.customer_partner_bindings) parsed.customer_partner_bindings = JSON.parse(JSON.stringify(DEFAULT_DB.customer_partner_bindings));
     if (!parsed.commission_config || !Array.isArray(parsed.commission_config) || parsed.commission_config.length === 0) {
       parsed.commission_config = [
         {
@@ -172,6 +277,8 @@ function read() {
     if (parsed.users && Array.isArray(parsed.users)) {
       parsed.users.forEach(u => {
         if (u.is_active === undefined) u.is_active = true;
+        if (u.password_hash === undefined) u.password_hash = null;
+        if (u.email === undefined) u.email = null;
       });
     }
     if (parsed.stockists && Array.isArray(parsed.stockists)) {
@@ -183,6 +290,9 @@ function read() {
       parsed.partner_leads.forEach(l => {
         if (!l.notes) l.notes = [];
         if (!l.status) l.status = 'NEW';
+        if (l.promoted_partner_id === undefined) l.promoted_partner_id = null;
+        if (l.promoted_by_admin_id === undefined) l.promoted_by_admin_id = null;
+        if (l.promoted_at === undefined) l.promoted_at = null;
       });
     }
     if (parsed.orders && Array.isArray(parsed.orders)) {
