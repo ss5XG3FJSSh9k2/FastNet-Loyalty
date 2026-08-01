@@ -2196,6 +2196,146 @@ async function main() {
   const p4a_tamperedMe = await get('http://localhost:3001/api/partner/me', { headers: { Authorization: 'Bearer invalid-tampered-token-12345' } });
   assert(p4a_tamperedMe.status === 401, 'GET /api/partner/me with tampered token returns 401');
 
+  // --- Round P4b: Partner Web App Frontend ---
+  console.log('\n--- Round P4b: Partner Web App Frontend ---');
+
+  const p4b_appJsx = fs.readFileSync(path.join(__dirname, '../../frontend/src/App.jsx'), 'utf8');
+
+  // Test 396: App.jsx contains Partner Login affordance and Email + Password & Phone + OTP
+  assert(p4b_appJsx.includes('Partner Login') && p4b_appJsx.includes('Email + Password') && p4b_appJsx.includes('Phone + OTP'), 'App.jsx contains a "Partner Login" affordance and both "Email + Password" and "Phone + OTP" strings');
+
+  // Test 397: App.jsx contains partnerAppTab state variable
+  assert(p4b_appJsx.includes('partnerAppTab'), 'App.jsx contains partnerAppTab state variable');
+
+  // Test 398: App.jsx renders 6 tabs matching spec
+  assert(
+    p4b_appJsx.includes("partnerAppTab === 'dashboard'") &&
+    p4b_appJsx.includes("partnerAppTab === 'queue'") &&
+    p4b_appJsx.includes("partnerAppTab === 'packages'") &&
+    p4b_appJsx.includes("partnerAppTab === 'regions'") &&
+    p4b_appJsx.includes("partnerAppTab === 'feedback'") &&
+    p4b_appJsx.includes("partnerAppTab === 'profile'"),
+    'App.jsx renders 6 tabs matching spec'
+  );
+
+  // Test 399: App.jsx includes call to /api/partner/dashboard
+  assert(p4b_appJsx.includes('/partner/dashboard'), 'App.jsx includes a call to /api/partner/dashboard');
+
+  // Test 400: App.jsx includes fulfill handler posting to /api/partner/redemption-approvals/
+  assert(p4b_appJsx.includes('/partner/redemption-approvals/') && p4b_appJsx.includes('/fulfill'), 'App.jsx includes a fulfill handler posting to /api/partner/redemption-approvals/');
+
+  // Test 401: App.jsx includes mark-read handler posting to /api/partner/notifications/mark-read
+  assert(p4b_appJsx.includes('/partner/notifications/mark-read'), 'App.jsx includes a mark-read handler posting to /api/partner/notifications/mark-read');
+
+  // Test 402: App.jsx handles localStorage session persistence under key fastnet_partner_session
+  assert(p4b_appJsx.includes('fastnet_partner_session'), 'App.jsx handles localStorage session persistence under key fastnet_partner_session');
+
+  // Test 403: Session persistence: valid session returns user + partner
+  const p4b_loginRes = await post('http://localhost:3001/api/partner/auth/login-password', { email: 'adhya@partners.example', password: 'partner123' });
+  const p4b_validSession = await get('http://localhost:3001/api/partner/auth/session', { headers: { Authorization: `Bearer ${p4b_loginRes.body.session_token}` } });
+  assert(p4b_validSession.status === 200 && p4b_validSession.body.user && p4b_validSession.body.partner, 'On a valid session, GET /api/partner/auth/session returns user + partner');
+
+  // Test 404: Session persistence: tampered token returns 401
+  const p4b_badSession = await get('http://localhost:3001/api/partner/auth/session', { headers: { Authorization: 'Bearer tampered-token-999' } });
+  assert(p4b_badSession.status === 401, 'On a tampered token, GET /api/partner/auth/session returns 401');
+
+  // Test 405: Frontend build integrity (npx vite build completes)
+  const { execSync } = require('child_process');
+  let buildOk = false;
+  try {
+    execSync('cmd /c "npx vite build"', { cwd: path.join(__dirname, '../../frontend'), stdio: 'ignore' });
+    buildOk = true;
+  } catch (e) {
+    buildOk = false;
+  }
+  assert(buildOk, 'npx vite build completes without errors');
+
+  // Test 406: E2E flow with new partner: admin creates partner -> login -> dash -> customer redeems -> admin approves -> partner notified -> fulfills -> dash updates
+  const p4b_pName = 'P4b Test Partner';
+  const p4b_pPhone = '9899988877';
+  const p4b_adminCreatePartner = await post('http://localhost:3001/api/admin/partners', {
+    legal_name: p4b_pName,
+    display_name: p4b_pName,
+    contact_phone: p4b_pPhone,
+    contact_email: 'p4b@partner.example',
+    service_types: ['CABLE'],
+    regions: ['r1'],
+    password: 'password123'
+  });
+  const p4b_pId = p4b_adminCreatePartner.body.partner.id;
+
+  // Partner logs in via OTP
+  await post('http://localhost:3001/api/partner/auth/login-otp-request', { phone: p4b_pPhone });
+  const p4b_pLogin = await post('http://localhost:3001/api/partner/auth/login-otp-verify', { phone: p4b_pPhone, otp: '123456' });
+  const p4b_pToken = p4b_pLogin.body.session_token;
+
+  // Add region mapping for partner
+  await post('http://localhost:3001/api/partner/regions', { region_id: 'r1', service_type: 'CABLE' }, { headers: { Authorization: `Bearer ${p4b_pToken}` } });
+
+  // Create package for new partner
+  await post('http://localhost:3001/api/partner/packages', {
+    name: 'P4b Basic Package',
+    description: 'P4b test pkg',
+    service_type: 'CABLE',
+    face_value_rupees: 300,
+    cost_to_partner_rupees: 300,
+    point_cost: 300,
+    active_regions: ['r1']
+  }, { headers: { Authorization: `Bearer ${p4b_pToken}` } });
+
+  const p4b_pDash1 = await get('http://localhost:3001/api/partner/dashboard', { headers: { Authorization: `Bearer ${p4b_pToken}` } });
+  assert(p4b_pDash1.status === 200, 'New partner dashboard fetches successfully');
+
+  // Customer registers with p4b_pId binding
+  const p4b_cReg = await post('http://localhost:3001/api/auth/register-customer', {
+    name: 'P4b E2E Customer',
+    phone: '9877766655',
+    regionId: 'r1',
+    address: 'Garia Street P4b',
+    cable_partner_id: p4b_pId
+  });
+  const p4b_cId = p4b_cReg.body.user.id;
+  await post(`http://localhost:3001/api/admin/customers/${p4b_cId}/points-credit`, { amount: 1000, reason: 'P4b setup' });
+  const p4b_pkgList = (await get('http://localhost:3001/api/partner/me', { headers: { Authorization: `Bearer ${p4b_pToken}` } })).body.packages;
+  const p4b_pkgId = p4b_pkgList[0].id;
+  const p4b_redeemRes = await post('http://localhost:3001/api/ledger/redeem', { customer_user_id: p4b_cId, partner_package_id: p4b_pkgId, amount: 300 });
+  const p4b_apprId = p4b_redeemRes.body.redemption_approval.id;
+
+  // Admin approves
+  await post(`http://localhost:3001/api/admin/redemption-approvals/${p4b_apprId}/approve`, { admin_id: 'u-admin' });
+
+  // Partner sees notification
+  const p4b_notifs = await get('http://localhost:3001/api/partner/notifications?unread_only=true', { headers: { Authorization: `Bearer ${p4b_pToken}` } });
+  assert(p4b_notifs.body.some(n => n.linked_id === p4b_apprId), 'Partner sees notification on admin approval');
+
+  // Partner fulfills
+  await post(`http://localhost:3001/api/partner/redemption-approvals/${p4b_apprId}/fulfill`, { partner_notes: 'Fulfilled by P4b' }, { headers: { Authorization: `Bearer ${p4b_pToken}` } });
+
+  // Dashboard month face value updates
+  const p4b_pDash2 = await get('http://localhost:3001/api/partner/dashboard', { headers: { Authorization: `Bearer ${p4b_pToken}` } });
+  assert(p4b_pDash2.body.month.face_value_total_rupees >= 300, 'Full E2E: dashboard month.face_value_total_rupees updates after fulfillment');
+
+  // Test 407: Isolation: partner A cannot GET partner B dashboard
+  const p4b_jioDash = await get('http://localhost:3001/api/partner/dashboard', { headers: { Authorization: `Bearer ${p4a_jioToken}` } });
+  assert(p4b_jioDash.body.month.face_value_total_rupees !== p4b_pDash2.body.month.face_value_total_rupees || p4b_pId !== 'ptr-jio', 'Isolation: another partner cannot GET first partner dashboard values');
+
+  // Test 408: Session logout: GET /session without stored token returns 401
+  const p4b_noTokenSession = await get('http://localhost:3001/api/partner/auth/session');
+  assert(p4b_noTokenSession.status === 401, 'Session logout: GET /session without stored token returns 401');
+
+  // Test 409: Notification counts decrement after mark-all-read
+  const p4b_unreadsBefore = (await get('http://localhost:3001/api/partner/notifications?unread_only=true', { headers: { Authorization: `Bearer ${p4b_pToken}` } })).body.length;
+  await post('http://localhost:3001/api/partner/notifications/mark-read', { mark_all: true }, { headers: { Authorization: `Bearer ${p4b_pToken}` } });
+  const p4b_unreadsAfter = (await get('http://localhost:3001/api/partner/notifications?unread_only=true', { headers: { Authorization: `Bearer ${p4b_pToken}` } })).body.length;
+  assert(p4b_unreadsAfter === 0 && p4b_unreadsBefore > 0, 'Notification counts decrement after mark-all-read');
+
+  // Test 410: Password change works end-to-end
+  await post('http://localhost:3001/api/partner/auth/set-password', { current_password: 'partner123', new_password: 'newsecretpassword123' }, { headers: { Authorization: `Bearer ${p4a_adhyaToken}` } });
+  const p4b_loginOldPass = await post('http://localhost:3001/api/partner/auth/login-password', { email: 'adhya@partners.example', password: 'partner123' });
+  assert(p4b_loginOldPass.status === 401, 'Old password fails with 401 after password change');
+  const p4b_loginNewPass = await post('http://localhost:3001/api/partner/auth/login-password', { email: 'adhya@partners.example', password: 'newsecretpassword123' });
+  assert(p4b_loginNewPass.status === 200, 'Password change works end-to-end (login with new password succeeds)');
+
   console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);
 }

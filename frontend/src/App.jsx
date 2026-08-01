@@ -1,4 +1,4 @@
-/* global FormData */
+/* global FormData, URLSearchParams */
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   ShoppingBag, 
@@ -55,7 +55,8 @@ import {
   Check,
   ArrowRight,
   Edit,
-  Star
+  Star,
+  Bell
 } from 'lucide-react';
 import {
   BarChart,
@@ -303,6 +304,91 @@ export default function App() {
   const [customerBindings, setCustomerBindings] = useState(null);
   const [profileSaving, setProfileSaving] = useState(false);
   
+  // --- Round P4b Partner App State ---
+  const [partnerAppTab, setPartnerAppTab] = useState('dashboard');
+  const [partnerQueueSubTab, setPartnerQueueSubTab] = useState('to_fulfill');
+  const [partnerData, setPartnerData] = useState(null);
+  const [partnerSessionToken, setPartnerSessionToken] = useState(localStorage.getItem('fastnet_partner_session') || '');
+  
+  // Auth Form state
+  const [showPartnerLogin, setShowPartnerLogin] = useState(false);
+  const [partnerLoginTab, setPartnerLoginTab] = useState('password'); // 'password' or 'otp'
+  const [partnerLoginEmail, setPartnerLoginEmail] = useState('');
+  const [partnerLoginPassword, setPartnerLoginPassword] = useState('');
+  const [partnerForgotEmail, setPartnerForgotEmail] = useState('');
+  const [showPartnerForgotForm, setShowPartnerForgotForm] = useState(false);
+  const [partnerLoginPhone, setPartnerLoginPhone] = useState('');
+  const [partnerLoginOtp, setPartnerLoginOtp] = useState('');
+  const [partnerOtpSent, setPartnerOtpSent] = useState(false);
+  const [partnerResetToken, setPartnerResetToken] = useState('');
+  const [partnerNewPasswordLanding, setPartnerNewPasswordLanding] = useState('');
+  const [partnerConfirmPasswordLanding, setPartnerConfirmPasswordLanding] = useState('');
+
+  // Dashboard Tab state
+  const [partnerDashData, setPartnerDashData] = useState(null);
+  
+  // Queue Tab state
+  const [partnerQueueList, setPartnerQueueList] = useState([]);
+  const [partnerDisputesList, setPartnerDisputesList] = useState([]);
+  const [showFulfillModal, setShowFulfillModal] = useState(false);
+  const [selectedFulfillItem, setSelectedFulfillItem] = useState(null);
+  const [fulfillNotes, setFulfillNotes] = useState('');
+  const [showDisputeModal, setShowDisputeModal] = useState(false);
+  const [selectedDisputeItem, setSelectedDisputeItem] = useState(null);
+  const [disputeReasonText, setDisputeReasonText] = useState('');
+
+  // Packages Tab state
+  const [partnerPackagesList, setPartnerPackagesList] = useState([]);
+  const [showPkgModal, setShowPkgModal] = useState(false);
+  const [editingPkg, setEditingPkg] = useState(null);
+  const [pkgName, setPkgName] = useState('');
+  const [pkgDesc, setPkgDesc] = useState('');
+  const [pkgServiceType, setPkgServiceType] = useState('CABLE');
+  const [pkgFaceValue, setPkgFaceValue] = useState('');
+  const [pkgCostToPartner, setPkgCostToPartner] = useState('');
+  const [pkgPointCost, setPkgPointCost] = useState('');
+  const [pkgActiveRegions, setPkgActiveRegions] = useState([]);
+
+  // Regions Tab state
+  const [partnerRegionsList, setPartnerRegionsList] = useState([]);
+  const [allSystemRegions, setAllSystemRegions] = useState([]);
+  const [showAddRegionModal, setShowAddRegionModal] = useState(false);
+  const [newRegionId, setNewRegionId] = useState('r1');
+  const [newRegionServiceType, setNewRegionServiceType] = useState('CABLE');
+  const [deactWarnModal, setDeactWarnModal] = useState(false);
+  const [deactWarnRowId, setDeactWarnRowId] = useState(null);
+  const [deactWarnPackages, setDeactWarnPackages] = useState([]);
+
+  // Feedback Tab state
+  const [partnerFeedbackList, setPartnerFeedbackList] = useState([]);
+  const [showNewFeedbackModal, setShowNewFeedbackModal] = useState(false);
+  const [fbTypeRadio, setFbTypeRadio] = useState('GENERAL');
+  const [fbRedemptionId, setFbRedemptionId] = useState('');
+  const [fbFulfilledRedemptions, setFbFulfilledRedemptions] = useState([]);
+  const [fbCategory, setFbCategory] = useState('GENERAL');
+  const [fbSubject, setFbSubject] = useState('');
+  const [fbDescription, setFbDescription] = useState('');
+  const [showFeedbackDetailModal, setShowFeedbackDetailModal] = useState(false);
+  const [selectedFeedbackDetail, setSelectedFeedbackDetail] = useState(null);
+
+  // Profile Tab state
+  const [pProfDisplayName, setPProfDisplayName] = useState('');
+  const [pProfContactPhone, setPProfContactPhone] = useState('');
+  const [pProfContactEmail, setPProfContactEmail] = useState('');
+  const [pProfAddress, setPProfAddress] = useState('');
+  const [confirmPhoneChangeCheck, setConfirmPhoneChangeCheck] = useState(false);
+  const [initialContactPhone, setInitialContactPhone] = useState('');
+  const [pProfCounts, setPProfCounts] = useState({ bound_customers: 0, redemptions_all_time: 0, disputes_open: 0 });
+  const [showChangePasswordForm, setShowChangePasswordForm] = useState(false);
+  const [pProfCurrentPass, setPProfCurrentPass] = useState('');
+  const [pProfNewPass, setPProfNewPass] = useState('');
+  const [pProfConfirmNewPass, setPProfConfirmNewPass] = useState('');
+
+  // Notifications
+  const [partnerNotifList, setPartnerNotifList] = useState([]);
+  const [unreadNotifCount, setUnreadNotifCount] = useState(0);
+  const [showNotifDropdown, setShowNotifDropdown] = useState(false);
+
   // Rate config form (per-stockist overrides)
   const [selectedStockistForCommission, setSelectedStockistForCommission] = useState('');
   const [configStockistRate, setConfigStockistRate] = useState(10);
@@ -1353,6 +1439,41 @@ export default function App() {
     return () => clearInterval(interval);
   }, [selectedRegionId]);
 
+  // Partner Session Hydration on Mount & Reset Query Token Parse
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const resetToken = urlParams.get('partner_reset');
+    if (resetToken) {
+      setPartnerResetToken(resetToken);
+      setShowPartnerLogin(true);
+    }
+
+    const savedPartnerToken = localStorage.getItem('fastnet_partner_session');
+    if (savedPartnerToken) {
+      fetch(`${API_BASE}/partner/auth/session`, {
+        headers: { Authorization: `Bearer ${savedPartnerToken}` }
+      })
+      .then(res => {
+        if (res.ok) return res.json();
+        throw new Error('Unauthorized');
+      })
+      .then(data => {
+        if (data.user && data.partner) {
+          setCurrentUser(data.user);
+          setPartnerData(data.partner);
+          setActiveRole('partner');
+          setPartnerSessionToken(savedPartnerToken);
+          loadPartnerAppData(savedPartnerToken);
+        } else {
+          localStorage.removeItem('fastnet_partner_session');
+        }
+      })
+      .catch(() => {
+        localStorage.removeItem('fastnet_partner_session');
+      });
+    }
+  }, []);
+
   // Handle active role triggers
   useEffect(() => {
     if (!showDevSettings && activeRole === 'db') {
@@ -1363,9 +1484,21 @@ export default function App() {
       loadCustomerData();
     } else if (currentUser && currentUser.role === 'STOCKIST') {
       loadStockistData();
+    } else if (currentUser && currentUser.role === 'PARTNER_ADMIN') {
+      loadPartnerAppData();
     }
     syncInspectorTable();
   }, [currentUser, activeRole, showDevSettings]);
+
+  // Partner Notifications Polling (every 30s & on tab switch)
+  useEffect(() => {
+    if (currentUser?.role !== 'PARTNER_ADMIN' && activeRole !== 'partner') return;
+    fetchPartnerNotifications();
+    const interval = setInterval(() => {
+      fetchPartnerNotifications();
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [currentUser, activeRole, partnerAppTab]);
 
   // Live order status polling for customer (§A1)
   useEffect(() => {
@@ -3462,6 +3595,1480 @@ export default function App() {
     } catch (e) {
       showToast('Network error submitting details', 'error');
     }
+  };
+
+  // ----------------------------------------------------
+  // PARTNER APP HANDLERS & HELPERS (ROUND P4b)
+  // ----------------------------------------------------
+  const fetchPartnerDashboard = async (tokenOverride) => {
+    const token = tokenOverride || partnerSessionToken || localStorage.getItem('fastnet_partner_session');
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_BASE}/partner/dashboard`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.status === 401) {
+        handlePartnerLogout();
+        return;
+      }
+      if (res.ok) {
+        const data = await res.json();
+        setPartnerDashData(data);
+      }
+    } catch (err) {
+      console.error('Error fetching partner dashboard:', err);
+    }
+  };
+
+  const fetchPartnerQueue = async (tokenOverride) => {
+    const token = tokenOverride || partnerSessionToken || localStorage.getItem('fastnet_partner_session');
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_BASE}/partner/redemption-queue`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setPartnerQueueList(data);
+      }
+      const histRes = await fetch(`${API_BASE}/partner/redemption-history`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (histRes.ok) {
+        const histData = await histRes.json();
+        setPartnerDisputesList(histData.filter(item => item.status === 'DISPUTED'));
+        setFbFulfilledRedemptions(histData.filter(item => item.status === 'FULFILLED'));
+      }
+    } catch (err) {
+      console.error('Error fetching partner queue:', err);
+    }
+  };
+
+  const fetchPartnerPackages = async (tokenOverride) => {
+    const token = tokenOverride || partnerSessionToken || localStorage.getItem('fastnet_partner_session');
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_BASE}/partner/me`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setPartnerPackagesList(data.packages || []);
+      }
+    } catch (err) {
+      console.error('Error fetching partner packages:', err);
+    }
+  };
+
+  const fetchPartnerRegions = async (tokenOverride) => {
+    const token = tokenOverride || partnerSessionToken || localStorage.getItem('fastnet_partner_session');
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_BASE}/partner/regions`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setPartnerRegionsList(data);
+      }
+      const regRes = await fetch(`${API_BASE}/regions`);
+      if (regRes.ok) {
+        const regData = await regRes.json();
+        setAllSystemRegions(regData);
+      } else {
+        setAllSystemRegions([{ id: 'r1', name: 'Kolkata South (Garia)', code: 'r1' }, { id: 'r2', name: 'South 24 Parganas (Bishnupur)', code: 'r2' }, { id: 'r3', name: 'Barasat North', code: 'r3' }]);
+      }
+    } catch (err) {
+      console.error('Error fetching partner regions:', err);
+    }
+  };
+
+  const fetchPartnerFeedback = async (tokenOverride) => {
+    const token = tokenOverride || partnerSessionToken || localStorage.getItem('fastnet_partner_session');
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_BASE}/partner/feedback`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setPartnerFeedbackList(data);
+      }
+    } catch (err) {
+      console.error('Error fetching partner feedback:', err);
+    }
+  };
+
+  const fetchPartnerProfile = async (tokenOverride) => {
+    const token = tokenOverride || partnerSessionToken || localStorage.getItem('fastnet_partner_session');
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_BASE}/partner/me`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setPartnerData(data.partner);
+        setPProfDisplayName(data.partner.display_name || '');
+        setPProfContactPhone(data.partner.contact_phone || data.user.phone || '');
+        setInitialContactPhone(data.partner.contact_phone || data.user.phone || '');
+        setPProfContactEmail(data.partner.contact_email || '');
+        setPProfAddress(data.partner.address || '');
+        setPProfCounts(data.counts || { bound_customers: 0, redemptions_all_time: 0, disputes_open: 0 });
+      }
+    } catch (err) {
+      console.error('Error fetching partner profile:', err);
+    }
+  };
+
+  const fetchPartnerNotifications = async (tokenOverride) => {
+    const token = tokenOverride || partnerSessionToken || localStorage.getItem('fastnet_partner_session');
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_BASE}/partner/notifications?unread_only=true`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setPartnerNotifList(data);
+        setUnreadNotifCount(data.filter(n => !n.is_read).length);
+      }
+    } catch (err) {
+      console.error('Error fetching partner notifications:', err);
+    }
+  };
+
+  const loadPartnerAppData = (token) => {
+    fetchPartnerDashboard(token);
+    fetchPartnerQueue(token);
+    fetchPartnerPackages(token);
+    fetchPartnerRegions(token);
+    fetchPartnerFeedback(token);
+    fetchPartnerProfile(token);
+    fetchPartnerNotifications(token);
+  };
+
+  const handlePartnerEmailLogin = async () => {
+    if (!partnerLoginEmail || !partnerLoginPassword) {
+      showToast('Email and password required', 'error');
+      return;
+    }
+    try {
+      const res = await fetch(`${API_BASE}/partner/auth/login-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: partnerLoginEmail, password: partnerLoginPassword })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        localStorage.setItem('fastnet_partner_session', data.session_token);
+        setPartnerSessionToken(data.session_token);
+        setCurrentUser(data.user);
+        setPartnerData(data.partner);
+        setActiveRole('partner');
+        setPartnerAppTab('dashboard');
+        loadPartnerAppData(data.session_token);
+        showToast('Logged in successfully!', 'success');
+      } else {
+        showToast(data.error || 'Login failed', 'error');
+      }
+    } catch (err) {
+      showToast('Network error during login', 'error');
+    }
+  };
+
+  const handlePartnerForgotPassword = async () => {
+    if (!partnerForgotEmail) {
+      showToast('Please enter your email', 'error');
+      return;
+    }
+    try {
+      await fetch(`${API_BASE}/partner/auth/forgot-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: partnerForgotEmail })
+      });
+      showToast('If your email is registered, a reset link has been sent.', 'success');
+      setShowPartnerForgotForm(false);
+    } catch (err) {
+      showToast('Error requesting password reset', 'error');
+    }
+  };
+
+  const handlePartnerSendOtp = async () => {
+    if (!partnerLoginPhone) {
+      showToast('Please enter phone number', 'error');
+      return;
+    }
+    try {
+      const res = await fetch(`${API_BASE}/partner/auth/login-otp-request`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: partnerLoginPhone })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setPartnerOtpSent(true);
+        showToast('OTP sent (demo code 123456)', 'info');
+      } else {
+        showToast(data.error || 'Failed to send OTP', 'error');
+      }
+    } catch (err) {
+      showToast('Network error sending OTP', 'error');
+    }
+  };
+
+  const handlePartnerVerifyOtp = async () => {
+    if (!partnerLoginOtp) {
+      showToast('Please enter OTP', 'error');
+      return;
+    }
+    try {
+      const res = await fetch(`${API_BASE}/partner/auth/login-otp-verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: partnerLoginPhone, otp: partnerLoginOtp })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        localStorage.setItem('fastnet_partner_session', data.session_token);
+        setPartnerSessionToken(data.session_token);
+        setCurrentUser(data.user);
+        setPartnerData(data.partner);
+        setActiveRole('partner');
+        setPartnerAppTab('dashboard');
+        loadPartnerAppData(data.session_token);
+        showToast('Logged in successfully!', 'success');
+      } else {
+        showToast(data.error || 'Invalid OTP', 'error');
+      }
+    } catch (err) {
+      showToast('Network error verifying OTP', 'error');
+    }
+  };
+
+  const handlePartnerResetPasswordLanding = async () => {
+    if (!partnerNewPasswordLanding) {
+      showToast('Please enter a new password', 'error');
+      return;
+    }
+    if (partnerNewPasswordLanding !== partnerConfirmPasswordLanding) {
+      showToast('Passwords do not match', 'error');
+      return;
+    }
+    try {
+      const res = await fetch(`${API_BASE}/partner/auth/reset-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: partnerResetToken, new_password: partnerNewPasswordLanding })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast('Password reset successfully. Please log in.', 'success');
+        setPartnerResetToken('');
+        setShowPartnerLogin(true);
+      } else {
+        showToast(data.error || 'Invalid or expired reset token', 'error');
+      }
+    } catch (err) {
+      showToast('Error resetting password', 'error');
+    }
+  };
+
+  const handlePartnerLogout = () => {
+    localStorage.removeItem('fastnet_partner_session');
+    setPartnerSessionToken('');
+    setCurrentUser(null);
+    setPartnerData(null);
+    setActiveRole('marketing');
+    showToast('Logged out of partner account.', 'info');
+  };
+
+  const handleFulfillRedemption = async () => {
+    if (!selectedFulfillItem) return;
+    try {
+      const res = await fetch(`${API_BASE}/partner/redemption-approvals/${selectedFulfillItem.id}/fulfill`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${partnerSessionToken}`
+        },
+        body: JSON.stringify({ partner_notes: fulfillNotes })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast(`Redemption for ${selectedFulfillItem.customer_name} marked as fulfilled!`, 'success');
+        setShowFulfillModal(false);
+        setSelectedFulfillItem(null);
+        setFulfillNotes('');
+        fetchPartnerQueue();
+        fetchPartnerDashboard();
+        fetchPartnerNotifications();
+      } else {
+        showToast(data.error || 'Failed to fulfill redemption', 'error');
+      }
+    } catch (err) {
+      showToast('Network error fulfilling redemption', 'error');
+    }
+  };
+
+  const handleDisputeRedemption = async () => {
+    if (!selectedDisputeItem) return;
+    if (!disputeReasonText || disputeReasonText.trim().length < 10) {
+      showToast('Dispute reason must be at least 10 characters', 'error');
+      return;
+    }
+    try {
+      const res = await fetch(`${API_BASE}/partner/redemption-approvals/${selectedDisputeItem.id}/dispute`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${partnerSessionToken}`
+        },
+        body: JSON.stringify({ reason: disputeReasonText })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast('Dispute submitted to admin.', 'success');
+        setShowDisputeModal(false);
+        setSelectedDisputeItem(null);
+        setDisputeReasonText('');
+        fetchPartnerQueue();
+        fetchPartnerDashboard();
+        setPartnerQueueSubTab('disputes');
+      } else {
+        showToast(data.error || 'Failed to submit dispute', 'error');
+      }
+    } catch (err) {
+      showToast('Network error submitting dispute', 'error');
+    }
+  };
+
+  const openAddPackageModal = () => {
+    setEditingPkg(null);
+    setPkgName('');
+    setPkgDesc('');
+    setPkgServiceType((partnerData?.service_types || ['CABLE'])[0]);
+    setPkgFaceValue('');
+    setPkgCostToPartner('');
+    setPkgPointCost('');
+    setPkgActiveRegions((partnerRegionsList || []).map(r => r.region_code || r.region_id));
+    setShowPkgModal(true);
+  };
+
+  const openEditPackageModal = (pkg) => {
+    setEditingPkg(pkg);
+    setPkgName(pkg.name || '');
+    setPkgDesc(pkg.description || '');
+    setPkgServiceType(pkg.service_type || 'CABLE');
+    setPkgFaceValue(pkg.face_value_rupees || '');
+    setPkgCostToPartner(pkg.cost_to_partner_rupees || pkg.face_value_rupees || '');
+    setPkgPointCost(pkg.point_cost || pkg.face_value_rupees || '');
+    setPkgActiveRegions(pkg.active_regions || []);
+    setShowPkgModal(true);
+  };
+
+  const handleSavePackage = async () => {
+    if (!pkgName.trim() || !pkgFaceValue) {
+      showToast('Package name and face value are required', 'error');
+      return;
+    }
+    const payload = {
+      name: pkgName,
+      description: pkgDesc,
+      service_type: pkgServiceType,
+      face_value_rupees: Number(pkgFaceValue),
+      cost_to_partner_rupees: Number(pkgCostToPartner || pkgFaceValue),
+      point_cost: Number(pkgPointCost || pkgFaceValue),
+      active_regions: pkgActiveRegions
+    };
+    try {
+      const url = editingPkg
+        ? `${API_BASE}/partner/packages/${editingPkg.id}`
+        : `${API_BASE}/partner/packages`;
+      const method = editingPkg ? 'PATCH' : 'POST';
+      const res = await fetch(url, {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${partnerSessionToken}`
+        },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast(editingPkg ? 'Package updated!' : 'Package created!', 'success');
+        setShowPkgModal(false);
+        fetchPartnerPackages();
+      } else {
+        showToast(data.error || 'Failed to save package', 'error');
+      }
+    } catch (err) {
+      showToast('Network error saving package', 'error');
+    }
+  };
+
+  const handleTogglePackageActive = async (pkg) => {
+    const endpoint = pkg.is_active ? 'deactivate' : 'reactivate';
+    try {
+      const res = await fetch(`${API_BASE}/partner/packages/${pkg.id}/${endpoint}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${partnerSessionToken}` }
+      });
+      if (res.ok) {
+        showToast(`Package ${pkg.is_active ? 'deactivated' : 'reactivated'}!`, 'success');
+        fetchPartnerPackages();
+      } else {
+        const data = await res.json();
+        showToast(data.error || 'Failed to update package status', 'error');
+      }
+    } catch (err) {
+      showToast('Error updating package status', 'error');
+    }
+  };
+
+  const handleAddRegion = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/partner/regions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${partnerSessionToken}`
+        },
+        body: JSON.stringify({ region_id: newRegionId, service_type: newRegionServiceType })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast('Region mapping added!', 'success');
+        setShowAddRegionModal(false);
+        fetchPartnerRegions();
+      } else {
+        showToast(data.error || 'Failed to add region', 'error');
+      }
+    } catch (err) {
+      showToast('Network error adding region', 'error');
+    }
+  };
+
+  const handleDeactivateRegion = async (row, confirm = false) => {
+    try {
+      const res = await fetch(`${API_BASE}/partner/regions/${row.id}/deactivate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${partnerSessionToken}`
+        },
+        body: JSON.stringify({ confirm })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast('Region deactivated!', 'success');
+        setDeactWarnModal(false);
+        fetchPartnerRegions();
+      } else if (res.status === 400 && data.requires_confirmation) {
+        setDeactWarnRowId(row.id);
+        setDeactWarnPackages(data.affected_packages || []);
+        setDeactWarnModal(true);
+      } else {
+        showToast(data.error || 'Failed to deactivate region', 'error');
+      }
+    } catch (err) {
+      showToast('Network error deactivating region', 'error');
+    }
+  };
+
+  const handleReactivateRegion = async (row) => {
+    try {
+      const res = await fetch(`${API_BASE}/partner/regions/${row.id}/reactivate`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${partnerSessionToken}` }
+      });
+      if (res.ok) {
+        showToast('Region reactivated!', 'success');
+        fetchPartnerRegions();
+      } else {
+        const data = await res.json();
+        showToast(data.error || 'Failed to reactivate region', 'error');
+      }
+    } catch (err) {
+      showToast('Network error reactivating region', 'error');
+    }
+  };
+
+  const handleDeleteRegion = async (row) => {
+    try {
+      const res = await fetch(`${API_BASE}/partner/regions/${row.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${partnerSessionToken}` }
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast('Region removed!', 'success');
+        fetchPartnerRegions();
+      } else {
+        showToast(data.error || 'Failed to remove region', 'error');
+      }
+    } catch (err) {
+      showToast('Network error deleting region', 'error');
+    }
+  };
+
+  const handleSavePartnerFeedback = async () => {
+    if (!fbSubject.trim() || !fbDescription.trim()) {
+      showToast('Subject and description are required', 'error');
+      return;
+    }
+    if (fbDescription.trim().length < 20) {
+      showToast('Description must be at least 20 characters', 'error');
+      return;
+    }
+    const payload = {
+      feedback_type: fbTypeRadio,
+      redemption_approval_id: fbTypeRadio === 'REDEMPTION' ? fbRedemptionId : undefined,
+      category: fbCategory,
+      subject: fbSubject,
+      description: fbDescription
+    };
+    try {
+      const res = await fetch(`${API_BASE}/partner/feedback`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${partnerSessionToken}`
+        },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast('Feedback submitted to admin!', 'success');
+        setShowNewFeedbackModal(false);
+        setFbSubject('');
+        setFbDescription('');
+        fetchPartnerFeedback();
+      } else {
+        showToast(data.error || 'Failed to submit feedback', 'error');
+      }
+    } catch (err) {
+      showToast('Network error submitting feedback', 'error');
+    }
+  };
+
+  const handleSavePartnerProfile = async () => {
+    const isPhoneChanged = pProfContactPhone !== initialContactPhone;
+    if (isPhoneChanged && !confirmPhoneChangeCheck) {
+      showToast('Please confirm phone number change by checking the checkbox', 'warning');
+      return;
+    }
+    const payload = {
+      display_name: pProfDisplayName,
+      contact_phone: pProfContactPhone,
+      contact_email: pProfContactEmail,
+      address: pProfAddress,
+      confirm_phone_change: isPhoneChanged ? confirmPhoneChangeCheck : false
+    };
+    try {
+      const res = await fetch(`${API_BASE}/partner/me`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${partnerSessionToken}`
+        },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast('Partner profile updated successfully!', 'success');
+        fetchPartnerProfile();
+      } else {
+        showToast(data.error || 'Failed to update profile', 'error');
+      }
+    } catch (err) {
+      showToast('Network error updating profile', 'error');
+    }
+  };
+
+  const handleChangePartnerPassword = async () => {
+    if (!pProfCurrentPass || !pProfNewPass) {
+      showToast('Current and new password are required', 'error');
+      return;
+    }
+    if (pProfNewPass !== pProfConfirmNewPass) {
+      showToast('New passwords do not match', 'error');
+      return;
+    }
+    try {
+      const res = await fetch(`${API_BASE}/partner/auth/set-password`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${partnerSessionToken}`
+        },
+        body: JSON.stringify({ current_password: pProfCurrentPass, new_password: pProfNewPass })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast('Password changed successfully!', 'success');
+        setShowChangePasswordForm(false);
+        setPProfCurrentPass('');
+        setPProfNewPass('');
+        setPProfConfirmNewPass('');
+      } else {
+        showToast(data.error || 'Failed to change password', 'error');
+      }
+    } catch (err) {
+      showToast('Network error changing password', 'error');
+    }
+  };
+
+  const handleMarkNotificationsRead = async (notification_ids, mark_all = false) => {
+    try {
+      const payload = mark_all ? { mark_all: true } : { notification_ids };
+      const res = await fetch(`${API_BASE}/partner/notifications/mark-read`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${partnerSessionToken}`
+        },
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) {
+        fetchPartnerNotifications();
+      }
+    } catch (err) {
+      console.error('Error marking notifications read:', err);
+    }
+  };
+
+  const handleNotificationClick = (notif) => {
+    handleMarkNotificationsRead([notif.id]);
+    setShowNotifDropdown(false);
+    if (notif.kind === 'REDEMPTION_APPROVED') {
+      setPartnerAppTab('queue');
+      setPartnerQueueSubTab('to_fulfill');
+    } else if (notif.kind === 'DISPUTE_RESOLVED') {
+      setPartnerAppTab('queue');
+      setPartnerQueueSubTab('disputes');
+    }
+  };
+
+  const renderPartnerAuthForm = () => {
+    if (partnerResetToken) {
+      return (
+        <div className="card" style={{ maxWidth: '400px', margin: '2rem auto', padding: '1.5rem' }}>
+          <h3>Set New Password</h3>
+          <div className="input-group" style={{ marginTop: '1rem' }}>
+            <label className="input-label">New Password</label>
+            <input type="password" className="text-input" value={partnerNewPasswordLanding} onChange={e => setPartnerNewPasswordLanding(e.target.value)} />
+          </div>
+          <div className="input-group" style={{ marginTop: '0.75rem' }}>
+            <label className="input-label">Confirm New Password</label>
+            <input type="password" className="text-input" value={partnerConfirmPasswordLanding} onChange={e => setPartnerConfirmPasswordLanding(e.target.value)} />
+          </div>
+          <button className="btn btn-primary" style={{ width: '100%', marginTop: '1rem' }} onClick={handlePartnerResetPasswordLanding}>Set New Password</button>
+        </div>
+      );
+    }
+
+    return (
+      <div className="card" style={{ maxWidth: '450px', margin: '2rem auto', padding: '1.5rem' }}>
+        <div style={{ textAlign: 'center', marginBottom: '1rem' }}>
+          <h2 style={{ fontSize: '1.4rem', fontWeight: 'bold' }}>Partner Login</h2>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>FastNet Operator Hub</p>
+        </div>
+
+        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem' }}>
+          <button className={`btn ${partnerLoginTab === 'password' ? 'btn-primary' : 'btn-secondary'}`} style={{ flex: 1, fontSize: '0.75rem' }} onClick={() => setPartnerLoginTab('password')}>
+            Email + Password
+          </button>
+          <button className={`btn ${partnerLoginTab === 'otp' ? 'btn-primary' : 'btn-secondary'}`} style={{ flex: 1, fontSize: '0.75rem' }} onClick={() => setPartnerLoginTab('otp')}>
+            Phone + OTP
+          </button>
+        </div>
+
+        {partnerLoginTab === 'password' ? (
+          <>
+            <div className="input-group">
+              <label className="input-label">Partner Email</label>
+              <input type="email" placeholder="partner@example.com" className="text-input" value={partnerLoginEmail} onChange={e => setPartnerLoginEmail(e.target.value)} />
+            </div>
+            <div className="input-group" style={{ marginTop: '0.75rem' }}>
+              <label className="input-label">Password</label>
+              <input type="password" placeholder="••••••••" className="text-input" value={partnerLoginPassword} onChange={e => setPartnerLoginPassword(e.target.value)} />
+            </div>
+            <button className="btn btn-primary" style={{ width: '100%', marginTop: '1rem' }} onClick={handlePartnerEmailLogin}>
+              Log in
+            </button>
+
+            <div style={{ textAlign: 'center', marginTop: '0.75rem' }}>
+              <button style={{ background: 'none', border: 'none', color: 'var(--primary)', fontSize: '0.75rem', cursor: 'pointer', textDecoration: 'underline' }} onClick={() => setShowPartnerForgotForm(!showPartnerForgotForm)}>
+                Forgot password?
+              </button>
+            </div>
+
+            {showPartnerForgotForm && (
+              <div style={{ marginTop: '1rem', padding: '0.75rem', background: 'rgba(255,255,255,0.03)', borderRadius: '6px', border: '1px dashed var(--border-color)' }}>
+                <label className="input-label" style={{ fontSize: '0.75rem' }}>Registered Email</label>
+                <input type="email" placeholder="Enter email for reset link" className="text-input" style={{ fontSize: '0.75rem', margin: '0.35rem 0' }} value={partnerForgotEmail} onChange={e => setPartnerForgotEmail(e.target.value)} />
+                <button className="btn btn-secondary" style={{ width: '100%', fontSize: '0.75rem' }} onClick={handlePartnerForgotPassword}>
+                  Send reset link
+                </button>
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            {!partnerOtpSent ? (
+              <>
+                <div className="input-group">
+                  <label className="input-label">Registered Phone Number</label>
+                  <input type="tel" placeholder="10-digit mobile number" className="text-input" value={partnerLoginPhone} onChange={e => setPartnerLoginPhone(e.target.value.replace(/\D/g,''))} />
+                </div>
+                <button className="btn btn-primary" style={{ width: '100%', marginTop: '1rem' }} onClick={handlePartnerSendOtp}>
+                  Send One-Time Password
+                </button>
+              </>
+            ) : (
+              <>
+                <div className="input-group">
+                  <label className="input-label">Enter OTP (Demo: 123456)</label>
+                  <input type="text" placeholder="6-digit OTP" className="text-input" value={partnerLoginOtp} onChange={e => setPartnerLoginOtp(e.target.value)} />
+                </div>
+                <button className="btn btn-primary" style={{ width: '100%', marginTop: '1rem' }} onClick={handlePartnerVerifyOtp}>
+                  Verify
+                </button>
+                <button className="btn btn-secondary" style={{ width: '100%', marginTop: '0.5rem', fontSize: '0.75rem' }} onClick={() => setPartnerOtpSent(false)}>
+                  Back
+                </button>
+              </>
+            )}
+          </>
+        )}
+      </div>
+    );
+  };
+
+  const renderPartnerView = () => {
+    if (!currentUser || currentUser.role !== 'PARTNER_ADMIN') {
+      return renderPartnerAuthForm();
+    }
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.75rem', width: '100%' }}>
+        {/* Perspective Banner */}
+        <div className="perspective-banner">
+          <span><Store size={14} style={{ display: 'inline', marginRight: '0.25rem', verticalAlign: 'middle' }} /> Partner Hub: {partnerData?.display_name || partnerData?.name || 'Partner Account'}</span>
+        </div>
+
+        <div className="phone-mockup" style={{ maxWidth: '600px', width: '100%' }}>
+          <div className="phone-screen" style={{ minHeight: '550px', display: 'flex', flexDirection: 'column' }}>
+            
+            {/* Header */}
+            <div style={{ padding: '0.75rem 1rem', background: 'rgba(255,255,255,0.03)', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <h3 style={{ fontSize: '0.95rem', margin: 0 }}>Welcome, {partnerData?.display_name || partnerData?.name}</h3>
+                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{partnerData?.contact_email || partnerData?.contact_phone}</span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                {/* Notifications Bell */}
+                <div style={{ position: 'relative', cursor: 'pointer' }} onClick={() => setShowNotifDropdown(!showNotifDropdown)}>
+                  <Bell size={20} style={{ color: unreadNotifCount > 0 ? 'var(--primary)' : 'var(--text-muted)' }} />
+                  {unreadNotifCount > 0 && (
+                    <span style={{ position: 'absolute', top: '-4px', right: '-6px', background: 'var(--danger)', color: 'white', borderRadius: '50%', padding: '0.1rem 0.35rem', fontSize: '0.6rem', fontWeight: 'bold' }}>
+                      {unreadNotifCount}
+                    </span>
+                  )}
+                </div>
+                <button className="btn btn-secondary" style={{ padding: '0.25rem 0.5rem', fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }} onClick={handlePartnerLogout}>
+                  <LogOut size={12} /> Log out
+                </button>
+              </div>
+            </div>
+
+            {/* Notifications Dropdown Modal / Popup */}
+            {showNotifDropdown && (
+              <div style={{ padding: '0.75rem', background: 'var(--bg-card)', borderBottom: '2px solid var(--primary)', fontSize: '0.8rem', position: 'relative', zIndex: 10 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                  <strong>Notifications ({partnerNotifList.length})</strong>
+                  <button className="btn btn-secondary" style={{ fontSize: '0.65rem', padding: '0.2rem 0.4rem' }} onClick={() => handleMarkNotificationsRead([], true)}>
+                    Mark all as read
+                  </button>
+                </div>
+                <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
+                  {partnerNotifList.map(n => (
+                    <div 
+                      key={n.id} 
+                      onClick={() => handleNotificationClick(n)}
+                      style={{ padding: '0.4rem', borderBottom: '1px dashed var(--border-color)', cursor: 'pointer', background: n.is_read ? 'transparent' : 'rgba(99,102,241,0.1)' }}
+                    >
+                      <div style={{ fontWeight: 'bold', fontSize: '0.75rem' }}>{n.title} {!n.is_read && <span style={{ color: 'var(--danger)' }}>●</span>}</div>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{n.body}</div>
+                      <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', textAlign: 'right' }}>{new Date(n.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+                    </div>
+                  ))}
+                  {partnerNotifList.length === 0 && <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textAlign: 'center', padding: '0.5rem' }}>No notifications.</div>}
+                </div>
+              </div>
+            )}
+
+            {/* Main Content Area */}
+            <div style={{ flex: 1, padding: '1rem', overflowY: 'auto' }}>
+              
+              {/* TAB 1: DASHBOARD */}
+              {partnerAppTab === 'dashboard' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <h4 style={{ margin: 0, fontSize: '0.9rem' }}>Dashboard Overview</h4>
+                    <button className="btn btn-secondary" style={{ fontSize: '0.7rem', padding: '0.2rem 0.5rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }} onClick={() => fetchPartnerDashboard()}>
+                      <RefreshCw size={12} /> Refresh
+                    </button>
+                  </div>
+
+                  {/* Row 1: Today */}
+                  <div>
+                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 'bold' }}>Today</span>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.5rem', marginTop: '0.35rem' }}>
+                      <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.6rem', borderRadius: '6px', border: '1px solid var(--border-color)', textAlign: 'center' }}>
+                        <div style={{ fontSize: '1.1rem', fontWeight: 'bold', color: 'var(--primary)' }}>{partnerDashData?.today?.redemptions_count || 0}</div>
+                        <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Redemptions</div>
+                      </div>
+                      <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.6rem', borderRadius: '6px', border: '1px solid var(--border-color)', textAlign: 'center' }}>
+                        <div style={{ fontSize: '1.1rem', fontWeight: 'bold', color: 'var(--success)' }}>{partnerDashData?.today?.fulfilled_count || 0}</div>
+                        <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Fulfilled</div>
+                      </div>
+                      <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.6rem', borderRadius: '6px', border: '1px solid var(--border-color)', textAlign: 'center' }}>
+                        <div style={{ fontSize: '1.1rem', fontWeight: 'bold', color: 'var(--warning)' }}>{partnerDashData?.today?.pending_count || 0}</div>
+                        <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Pending Action</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Row 2: This Month */}
+                  <div>
+                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 'bold' }}>This Month</span>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginTop: '0.35rem' }}>
+                      <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.6rem', borderRadius: '6px', border: '1px solid var(--border-color)' }}>
+                        <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Total Redemptions / Fulfilled</div>
+                        <div style={{ fontSize: '1rem', fontWeight: 'bold', color: 'white', marginTop: '0.2rem' }}>
+                          {partnerDashData?.month?.redemptions_count || 0} <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>({partnerDashData?.month?.fulfilled_count || 0} fulfilled)</span>
+                        </div>
+                      </div>
+                      <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.6rem', borderRadius: '6px', border: '1px solid var(--border-color)' }}>
+                        <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Face Value Total</div>
+                        <div style={{ fontSize: '1rem', fontWeight: 'bold', color: 'var(--primary)', marginTop: '0.2rem' }}>₹{partnerDashData?.month?.face_value_total_rupees || 0}</div>
+                      </div>
+                      <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.6rem', borderRadius: '6px', border: '1px solid var(--border-color)', gridColumn: 'span 2' }}>
+                        <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Expected Payout</div>
+                        <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: 'var(--accent)', marginTop: '0.2rem' }}>₹{partnerDashData?.month?.expected_payout_rupees || 0}</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Row 3: Open Disputes */}
+                  <div 
+                    onClick={() => { setPartnerAppTab('queue'); setPartnerQueueSubTab('disputes'); }}
+                    style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', padding: '0.75rem', borderRadius: '6px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                  >
+                    <div>
+                      <div style={{ fontWeight: 'bold', fontSize: '0.85rem', color: 'var(--danger)' }}>Open Disputes</div>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Redemptions waiting on admin resolution</div>
+                    </div>
+                    <div style={{ fontSize: '1.3rem', fontWeight: 'bold', color: 'var(--danger)' }}>{partnerDashData?.disputes?.open_count || 0}</div>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 2: QUEUE */}
+              {partnerAppTab === 'queue' && (
+                <div>
+                  <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
+                    <button className={`btn ${partnerQueueSubTab === 'to_fulfill' ? 'btn-primary' : 'btn-secondary'}`} style={{ flex: 1, fontSize: '0.75rem' }} onClick={() => setPartnerQueueSubTab('to_fulfill')}>
+                      To Fulfill ({partnerQueueList.length})
+                    </button>
+                    <button className={`btn ${partnerQueueSubTab === 'disputes' ? 'btn-primary' : 'btn-secondary'}`} style={{ flex: 1, fontSize: '0.75rem' }} onClick={() => setPartnerQueueSubTab('disputes')}>
+                      Disputes ({partnerDisputesList.length})
+                    </button>
+                  </div>
+
+                  {partnerQueueSubTab === 'to_fulfill' ? (
+                    <div>
+                      <table style={{ width: '100%', fontSize: '0.75rem', borderCollapse: 'collapse' }}>
+                        <thead>
+                          <tr style={{ borderBottom: '1px solid var(--border-color)', textAlign: 'left', color: 'var(--text-muted)' }}>
+                            <th style={{ padding: '0.4rem' }}>Customer</th>
+                            <th style={{ padding: '0.4rem' }}>Package</th>
+                            <th style={{ padding: '0.4rem' }}>Face Value</th>
+                            <th style={{ padding: '0.4rem' }}>Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {partnerQueueList.map(row => (
+                            <tr key={row.id} style={{ borderBottom: '1px dashed var(--border-color)' }}>
+                              <td style={{ padding: '0.4rem' }}>
+                                <div style={{ fontWeight: 'bold' }}>{row.customer_name}</div>
+                                <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>{row.customer_phone}</div>
+                              </td>
+                              <td style={{ padding: '0.4rem' }}>{row.package_name}</td>
+                              <td style={{ padding: '0.4rem', fontWeight: 'bold' }}>₹{row.face_value_rupees}</td>
+                              <td style={{ padding: '0.4rem' }}>
+                                <div style={{ display: 'flex', gap: '0.25rem' }}>
+                                  <button className="btn btn-primary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem' }} onClick={() => { setSelectedFulfillItem(row); setShowFulfillModal(true); }}>
+                                    Fulfill
+                                  </button>
+                                  <button className="btn btn-warning" style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem' }} onClick={() => { setSelectedDisputeItem(row); setShowDisputeModal(true); }}>
+                                    Dispute
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                          {partnerQueueList.length === 0 && (
+                            <tr><td colSpan="4" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '1.5rem' }}>No approved redemptions to fulfill.</td></tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div>
+                      <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.5rem 0.75rem', borderRadius: '4px', fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '0.75rem' }}>
+                        <em>Note: Waiting on admin to resolve.</em>
+                      </div>
+                      <table style={{ width: '100%', fontSize: '0.75rem', borderCollapse: 'collapse' }}>
+                        <thead>
+                          <tr style={{ borderBottom: '1px solid var(--border-color)', textAlign: 'left', color: 'var(--text-muted)' }}>
+                            <th style={{ padding: '0.4rem' }}>Customer</th>
+                            <th style={{ padding: '0.4rem' }}>Package</th>
+                            <th style={{ padding: '0.4rem' }}>Reason</th>
+                            <th style={{ padding: '0.4rem' }}>Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {partnerDisputesList.map(row => (
+                            <tr key={row.id} style={{ borderBottom: '1px dashed var(--border-color)' }}>
+                              <td style={{ padding: '0.4rem' }}>{row.customer_name}</td>
+                              <td style={{ padding: '0.4rem' }}>{row.package_name}</td>
+                              <td style={{ padding: '0.4rem', fontSize: '0.65rem' }}>{row.disputed_reason}</td>
+                              <td style={{ padding: '0.4rem' }}><span className="badge badge-warning">DISPUTED</span></td>
+                            </tr>
+                          ))}
+                          {partnerDisputesList.length === 0 && (
+                            <tr><td colSpan="4" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '1.5rem' }}>No open disputes.</td></tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* TAB 3: PACKAGES */}
+              {partnerAppTab === 'packages' && (
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                    <h4 style={{ margin: 0, fontSize: '0.9rem' }}>My Packages</h4>
+                    <button className="btn btn-primary" style={{ fontSize: '0.7rem', padding: '0.3rem 0.6rem' }} onClick={openAddPackageModal}>
+                      + Add Package
+                    </button>
+                  </div>
+                  <table style={{ width: '100%', fontSize: '0.75rem', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid var(--border-color)', textAlign: 'left', color: 'var(--text-muted)' }}>
+                        <th style={{ padding: '0.4rem' }}>Name</th>
+                        <th style={{ padding: '0.4rem' }}>Type</th>
+                        <th style={{ padding: '0.4rem' }}>Value</th>
+                        <th style={{ padding: '0.4rem' }}>Points</th>
+                        <th style={{ padding: '0.4rem' }}>Status</th>
+                        <th style={{ padding: '0.4rem' }}>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {partnerPackagesList.map(pkg => (
+                        <tr key={pkg.id} style={{ borderBottom: '1px dashed var(--border-color)' }}>
+                          <td style={{ padding: '0.4rem', fontWeight: 'bold' }}>{pkg.name}</td>
+                          <td style={{ padding: '0.4rem' }}><span className="badge badge-secondary">{pkg.service_type}</span></td>
+                          <td style={{ padding: '0.4rem' }}>₹{pkg.face_value_rupees}</td>
+                          <td style={{ padding: '0.4rem' }}>{pkg.point_cost} pts</td>
+                          <td style={{ padding: '0.4rem' }}>
+                            <span className={`badge ${pkg.is_active ? 'badge-success' : 'badge-danger'}`}>
+                              {pkg.is_active ? 'ACTIVE' : 'INACTIVE'}
+                            </span>
+                          </td>
+                          <td style={{ padding: '0.4rem' }}>
+                            <div style={{ display: 'flex', gap: '0.25rem' }}>
+                              <button className="btn btn-secondary" style={{ padding: '0.15rem 0.35rem', fontSize: '0.65rem' }} onClick={() => openEditPackageModal(pkg)}>
+                                Edit
+                              </button>
+                              <button className="btn btn-secondary" style={{ padding: '0.15rem 0.35rem', fontSize: '0.65rem' }} onClick={() => handleTogglePackageActive(pkg)}>
+                                {pkg.is_active ? 'Deactivate' : 'Reactivate'}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                      {partnerPackagesList.length === 0 && (
+                        <tr><td colSpan="6" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '1.5rem' }}>No packages configured.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* TAB 4: REGIONS */}
+              {partnerAppTab === 'regions' && (
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                    <h4 style={{ margin: 0, fontSize: '0.9rem' }}>Service Regions</h4>
+                    <button className="btn btn-primary" style={{ fontSize: '0.7rem', padding: '0.3rem 0.6rem' }} onClick={() => setShowAddRegionModal(true)}>
+                      + Add Region
+                    </button>
+                  </div>
+                  <table style={{ width: '100%', fontSize: '0.75rem', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid var(--border-color)', textAlign: 'left', color: 'var(--text-muted)' }}>
+                        <th style={{ padding: '0.4rem' }}>Region</th>
+                        <th style={{ padding: '0.4rem' }}>Type</th>
+                        <th style={{ padding: '0.4rem' }}>Status</th>
+                        <th style={{ padding: '0.4rem' }}>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {partnerRegionsList.map(r => (
+                        <tr key={r.id} style={{ borderBottom: '1px dashed var(--border-color)' }}>
+                          <td style={{ padding: '0.4rem' }}>
+                            <div style={{ fontWeight: 'bold' }}>{r.region_name || r.region_id}</div>
+                            <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Code: {r.region_code || r.region_id}</div>
+                          </td>
+                          <td style={{ padding: '0.4rem' }}><span className="badge badge-secondary">{r.service_type}</span></td>
+                          <td style={{ padding: '0.4rem' }}>
+                            <span className={`badge ${r.is_active ? 'badge-success' : 'badge-danger'}`}>
+                              {r.is_active ? 'ACTIVE' : 'INACTIVE'}
+                            </span>
+                          </td>
+                          <td style={{ padding: '0.4rem' }}>
+                            <div style={{ display: 'flex', gap: '0.25rem' }}>
+                              {r.is_active ? (
+                                <button className="btn btn-secondary" style={{ padding: '0.15rem 0.35rem', fontSize: '0.65rem' }} onClick={() => handleDeactivateRegion(r, false)}>
+                                  Deactivate
+                                </button>
+                              ) : (
+                                <button className="btn btn-secondary" style={{ padding: '0.15rem 0.35rem', fontSize: '0.65rem' }} onClick={() => handleReactivateRegion(r)}>
+                                  Reactivate
+                                </button>
+                              )}
+                              <button className="btn btn-danger" style={{ padding: '0.15rem 0.35rem', fontSize: '0.65rem' }} onClick={() => handleDeleteRegion(r)}>
+                                Delete
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                      {partnerRegionsList.length === 0 && (
+                        <tr><td colSpan="4" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '1.5rem' }}>No regions mapped.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* TAB 5: FEEDBACK */}
+              {partnerAppTab === 'feedback' && (
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                    <h4 style={{ margin: 0, fontSize: '0.9rem' }}>Feedback &amp; Issues</h4>
+                    <button className="btn btn-primary" style={{ fontSize: '0.7rem', padding: '0.3rem 0.6rem' }} onClick={() => setShowNewFeedbackModal(true)}>
+                      + New Feedback
+                    </button>
+                  </div>
+                  <table style={{ width: '100%', fontSize: '0.75rem', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid var(--border-color)', textAlign: 'left', color: 'var(--text-muted)' }}>
+                        <th style={{ padding: '0.4rem' }}>Date</th>
+                        <th style={{ padding: '0.4rem' }}>Category</th>
+                        <th style={{ padding: '0.4rem' }}>Subject</th>
+                        <th style={{ padding: '0.4rem' }}>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {partnerFeedbackList.map(fb => (
+                        <tr key={fb.id} style={{ borderBottom: '1px dashed var(--border-color)', cursor: 'pointer' }} onClick={() => { setSelectedFeedbackDetail(fb); setShowFeedbackDetailModal(true); }}>
+                          <td style={{ padding: '0.4rem', fontSize: '0.65rem' }}>{new Date(fb.created_at).toLocaleDateString()}</td>
+                          <td style={{ padding: '0.4rem' }}><span className="badge badge-secondary">{fb.category}</span></td>
+                          <td style={{ padding: '0.4rem', fontWeight: 'bold' }}>{fb.subject}</td>
+                          <td style={{ padding: '0.4rem' }}>
+                            <span className={`badge ${fb.status === 'RESOLVED' ? 'badge-success' : 'badge-warning'}`}>
+                              {fb.status}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                      {partnerFeedbackList.length === 0 && (
+                        <tr><td colSpan="4" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '1.5rem' }}>No feedback submitted.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* TAB 6: PROFILE */}
+              {partnerAppTab === 'profile' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  <h4 style={{ margin: 0, fontSize: '0.9rem' }}>Partner Profile</h4>
+
+                  {/* Read-only info banner */}
+                  <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.75rem', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '0.75rem' }}>
+                    <div><strong>Legal Name:</strong> {partnerData?.legal_name}</div>
+                    <div><strong>GST Number:</strong> {partnerData?.gst_number || 'N/A'}</div>
+                    <div><strong>Services Offered:</strong> {(partnerData?.service_types || []).join(', ')}</div>
+                  </div>
+
+                  {/* Editable profile form */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                    <div className="input-group">
+                      <label className="input-label">Display Name</label>
+                      <input type="text" className="text-input" value={pProfDisplayName} onChange={e => setPProfDisplayName(e.target.value)} />
+                    </div>
+                    <div className="input-group">
+                      <label className="input-label">Contact Phone</label>
+                      <input type="tel" className="text-input" value={pProfContactPhone} onChange={e => setPProfContactPhone(e.target.value)} />
+                      {pProfContactPhone !== initialContactPhone && (
+                        <div style={{ marginTop: '0.35rem', fontSize: '0.7rem' }}>
+                          <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                            <input type="checkbox" checked={confirmPhoneChangeCheck} onChange={e => setConfirmPhoneChangeCheck(e.target.checked)} />
+                            Yes, I want to change my login phone number
+                          </label>
+                        </div>
+                      )}
+                    </div>
+                    <div className="input-group">
+                      <label className="input-label">Contact Email</label>
+                      <input type="email" className="text-input" value={pProfContactEmail} onChange={e => setPProfContactEmail(e.target.value)} />
+                    </div>
+                    <div className="input-group">
+                      <label className="input-label">Operating Address</label>
+                      <input type="text" className="text-input" value={pProfAddress} onChange={e => setPProfAddress(e.target.value)} />
+                    </div>
+                    <button className="btn btn-primary" onClick={handleSavePartnerProfile}>
+                      Save Profile Changes
+                    </button>
+                  </div>
+
+                  {/* Counts Panel */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.5rem', background: 'rgba(255,255,255,0.02)', padding: '0.75rem', borderRadius: '6px', border: '1px dashed var(--border-color)', textAlign: 'center' }}>
+                    <div>
+                      <div style={{ fontSize: '1rem', fontWeight: 'bold' }}>{pProfCounts?.bound_customers || 0}</div>
+                      <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Bound Customers</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '1rem', fontWeight: 'bold' }}>{pProfCounts?.redemptions_all_time || 0}</div>
+                      <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>All-Time Redemptions</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '1rem', fontWeight: 'bold', color: 'var(--warning)' }}>{pProfCounts?.disputes_open || 0}</div>
+                      <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Open Disputes</div>
+                    </div>
+                  </div>
+
+                  {/* Change Password Section */}
+                  <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '1rem' }}>
+                    {!showChangePasswordForm ? (
+                      <button className="btn btn-secondary" style={{ fontSize: '0.75rem' }} onClick={() => setShowChangePasswordForm(true)}>
+                        Change Password
+                      </button>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', background: 'rgba(255,255,255,0.03)', padding: '0.75rem', borderRadius: '6px' }}>
+                        <h5 style={{ margin: 0 }}>Change Password</h5>
+                        <div className="input-group">
+                          <label className="input-label">Current Password</label>
+                          <input type="password" className="text-input" value={pProfCurrentPass} onChange={e => setPProfCurrentPass(e.target.value)} />
+                        </div>
+                        <div className="input-group">
+                          <label className="input-label">New Password</label>
+                          <input type="password" className="text-input" value={pProfNewPass} onChange={e => setPProfNewPass(e.target.value)} />
+                        </div>
+                        <div className="input-group">
+                          <label className="input-label">Confirm New Password</label>
+                          <input type="password" className="text-input" value={pProfConfirmNewPass} onChange={e => setPProfConfirmNewPass(e.target.value)} />
+                        </div>
+                        <div style={{ display: 'flex', gap: '0.5rem' }}>
+                          <button className="btn btn-primary" style={{ flex: 1 }} onClick={handleChangePartnerPassword}>Set Password</button>
+                          <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setShowChangePasswordForm(false)}>Cancel</button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Bottom Nav Bar (6 Tabs) */}
+            <div className="phone-bottom-nav" style={{ display: 'flex', justifyContent: 'space-around', padding: '0.5rem 0', background: 'rgba(0,0,0,0.4)', borderTop: '1px solid var(--border-color)' }}>
+              <button className={`phone-nav-btn ${partnerAppTab === 'dashboard' ? 'active' : ''}`} onClick={() => { setPartnerAppTab('dashboard'); fetchPartnerDashboard(); }}>
+                <BarChart2 size={16} />
+                <span style={{ fontSize: '0.65rem' }}>Dashboard</span>
+              </button>
+              <button className={`phone-nav-btn ${partnerAppTab === 'queue' ? 'active' : ''}`} onClick={() => { setPartnerAppTab('queue'); fetchPartnerQueue(); }}>
+                <Clock size={16} />
+                <span style={{ fontSize: '0.65rem' }}>Queue</span>
+              </button>
+              <button className={`phone-nav-btn ${partnerAppTab === 'packages' ? 'active' : ''}`} onClick={() => { setPartnerAppTab('packages'); fetchPartnerPackages(); }}>
+                <Package size={16} />
+                <span style={{ fontSize: '0.65rem' }}>Packages</span>
+              </button>
+              <button className={`phone-nav-btn ${partnerAppTab === 'regions' ? 'active' : ''}`} onClick={() => { setPartnerAppTab('regions'); fetchPartnerRegions(); }}>
+                <MapPin size={16} />
+                <span style={{ fontSize: '0.65rem' }}>Regions</span>
+              </button>
+              <button className={`phone-nav-btn ${partnerAppTab === 'feedback' ? 'active' : ''}`} onClick={() => { setPartnerAppTab('feedback'); fetchPartnerFeedback(); }}>
+                <MessageSquare size={16} />
+                <span style={{ fontSize: '0.65rem' }}>Feedback</span>
+              </button>
+              <button className={`phone-nav-btn ${partnerAppTab === 'profile' ? 'active' : ''}`} onClick={() => { setPartnerAppTab('profile'); fetchPartnerProfile(); }}>
+                <User size={16} />
+                <span style={{ fontSize: '0.65rem' }}>Profile</span>
+              </button>
+            </div>
+
+          </div>
+        </div>
+
+        {/* FULFILL MODAL */}
+        {showFulfillModal && selectedFulfillItem && (
+          <div className="modal-overlay">
+            <div className="modal-content" style={{ maxWidth: '400px' }}>
+              <h4>Confirm Fulfillment</h4>
+              <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                Confirm you activated the <strong>{selectedFulfillItem.package_name}</strong> for <strong>{selectedFulfillItem.customer_name}</strong> ({selectedFulfillItem.customer_phone})?
+              </p>
+              <div className="input-group">
+                <label className="input-label">Optional Partner Notes</label>
+                <textarea className="text-input" placeholder="e.g. Account activated for July" value={fulfillNotes} onChange={e => setFulfillNotes(e.target.value)} />
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
+                <button className="btn btn-primary" style={{ flex: 1 }} onClick={handleFulfillRedemption}>Confirm Fulfill</button>
+                <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setShowFulfillModal(false)}>Cancel</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* DISPUTE MODAL */}
+        {showDisputeModal && selectedDisputeItem && (
+          <div className="modal-overlay">
+            <div className="modal-content" style={{ maxWidth: '400px' }}>
+              <h4>Dispute Redemption</h4>
+              <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                Disputing redemption for <strong>{selectedDisputeItem.customer_name}</strong>. Provide a reason for admin review (min 10 chars):
+              </p>
+              <div className="input-group">
+                <label className="input-label">Dispute Reason *</label>
+                <textarea className="text-input" placeholder="Reason for dispute (min 10 chars)..." value={disputeReasonText} onChange={e => setDisputeReasonText(e.target.value)} />
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
+                <button className="btn btn-warning" style={{ flex: 1 }} onClick={handleDisputeRedemption}>Submit Dispute</button>
+                <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setShowDisputeModal(false)}>Cancel</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* PACKAGE MODAL */}
+        {showPkgModal && (
+          <div className="modal-overlay">
+            <div className="modal-content" style={{ maxWidth: '450px' }}>
+              <h4>{editingPkg ? 'Edit Package' : 'Add Package'}</h4>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', marginTop: '0.5rem' }}>
+                <div className="input-group">
+                  <label className="input-label">Package Name *</label>
+                  <input type="text" className="text-input" value={pkgName} onChange={e => setPkgName(e.target.value)} />
+                </div>
+                <div className="input-group">
+                  <label className="input-label">Description</label>
+                  <textarea className="text-input" value={pkgDesc} onChange={e => setPkgDesc(e.target.value)} />
+                </div>
+                <div className="input-group">
+                  <label className="input-label">Service Type</label>
+                  <select className="text-input" value={pkgServiceType} onChange={e => setPkgServiceType(e.target.value)}>
+                    {(partnerData?.service_types || ['CABLE', 'BROADBAND']).map(st => (
+                      <option key={st} value={st}>{st}</option>
+                    ))}
+                  </select>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                  <div className="input-group">
+                    <label className="input-label">Face Value ₹ *</label>
+                    <input type="number" className="text-input" value={pkgFaceValue} onChange={e => setPkgFaceValue(e.target.value)} />
+                  </div>
+                  <div className="input-group">
+                    <label className="input-label">Cost to Partner ₹</label>
+                    <input type="number" className="text-input" value={pkgCostToPartner} onChange={e => setPkgCostToPartner(e.target.value)} placeholder={pkgFaceValue} />
+                  </div>
+                </div>
+                <div className="input-group">
+                  <label className="input-label">Point Cost *</label>
+                  <input type="number" className="text-input" value={pkgPointCost} onChange={e => setPkgPointCost(e.target.value)} placeholder={pkgFaceValue} />
+                </div>
+                <div className="input-group">
+                  <label className="input-label">Active Regions</label>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', marginTop: '0.25rem' }}>
+                    {(partnerRegionsList || []).filter(r => r.service_type === pkgServiceType).map(r => {
+                      const rCode = r.region_code || r.region_id;
+                      const checked = pkgActiveRegions.includes(rCode);
+                      return (
+                        <label key={r.id} style={{ fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                          <input 
+                            type="checkbox" 
+                            checked={checked} 
+                            onChange={e => {
+                              if (e.target.checked) setPkgActiveRegions(prev => [...prev, rCode]);
+                              else setPkgActiveRegions(prev => prev.filter(c => c !== rCode));
+                            }} 
+                          />
+                          {r.region_name || rCode} ({rCode})
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
+                <button className="btn btn-primary" style={{ flex: 1 }} onClick={handleSavePackage}>Save Package</button>
+                <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setShowPkgModal(false)}>Cancel</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ADD REGION MODAL */}
+        {showAddRegionModal && (
+          <div className="modal-overlay">
+            <div className="modal-content" style={{ maxWidth: '400px' }}>
+              <h4>Add Service Region</h4>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '0.5rem' }}>
+                <div className="input-group">
+                  <label className="input-label">Region</label>
+                  <select className="text-input" value={newRegionId} onChange={e => setNewRegionId(e.target.value)}>
+                    {allSystemRegions.map(r => (
+                      <option key={r.id} value={r.id}>{r.name || r.id} ({r.code || r.id})</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="input-group">
+                  <label className="input-label">Service Type</label>
+                  <select className="text-input" value={newRegionServiceType} onChange={e => setNewRegionServiceType(e.target.value)}>
+                    {(partnerData?.service_types || ['CABLE', 'BROADBAND']).map(st => (
+                      <option key={st} value={st}>{st}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
+                <button className="btn btn-primary" style={{ flex: 1 }} onClick={handleAddRegion}>Add Region</button>
+                <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setShowAddRegionModal(false)}>Cancel</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* REGION DEACTIVATION WARNING MODAL */}
+        {deactWarnModal && (
+          <div className="modal-overlay">
+            <div className="modal-content" style={{ maxWidth: '400px' }}>
+              <h4 style={{ color: 'var(--warning)' }}>Region Referenced in Packages</h4>
+              <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                Deactivating this region will also deactivate or update the following active packages:
+              </p>
+              <ul style={{ fontSize: '0.75rem', color: 'white', paddingLeft: '1.25rem' }}>
+                {deactWarnPackages.map(p => <li key={p.id}>{p.name}</li>)}
+              </ul>
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
+                <button className="btn btn-warning" style={{ flex: 1 }} onClick={() => handleDeactivateRegion({ id: deactWarnRowId }, true)}>
+                  Confirm Deactivation
+                </button>
+                <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setDeactWarnModal(false)}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* NEW FEEDBACK MODAL */}
+        {showNewFeedbackModal && (
+          <div className="modal-overlay">
+            <div className="modal-content" style={{ maxWidth: '450px' }}>
+              <h4>Submit Feedback / Issue</h4>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '0.5rem' }}>
+                <div className="input-group">
+                  <label className="input-label">Type</label>
+                  <div style={{ display: 'flex', gap: '1rem', fontSize: '0.8rem' }}>
+                    <label><input type="radio" name="fbType" value="GENERAL" checked={fbTypeRadio === 'GENERAL'} onChange={() => setFbTypeRadio('GENERAL')} /> General</label>
+                    <label><input type="radio" name="fbType" value="REDEMPTION" checked={fbTypeRadio === 'REDEMPTION'} onChange={() => setFbTypeRadio('REDEMPTION')} /> About a Redemption</label>
+                  </div>
+                </div>
+                {fbTypeRadio === 'REDEMPTION' && (
+                  <div className="input-group">
+                    <label className="input-label">Select Fulfilled Redemption</label>
+                    <select className="text-input" value={fbRedemptionId} onChange={e => setFbRedemptionId(e.target.value)}>
+                      <option value="">-- Select Redemption --</option>
+                      {fbFulfilledRedemptions.map(r => (
+                        <option key={r.id} value={r.id}>{r.customer_name} — {r.package_name} (₹{r.face_value_rupees})</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                <div className="input-group">
+                  <label className="input-label">Category</label>
+                  <select className="text-input" value={fbCategory} onChange={e => setFbCategory(e.target.value)}>
+                    <option value="GENERAL">GENERAL</option>
+                    <option value="CUSTOMER_ISSUE">CUSTOMER_ISSUE</option>
+                    <option value="TECHNICAL">TECHNICAL</option>
+                    <option value="PAYMENT">PAYMENT</option>
+                  </select>
+                </div>
+                <div className="input-group">
+                  <label className="input-label">Subject *</label>
+                  <input type="text" className="text-input" value={fbSubject} onChange={e => setFbSubject(e.target.value)} />
+                </div>
+                <div className="input-group">
+                  <label className="input-label">Description (min 20 chars) *</label>
+                  <textarea className="text-input" value={fbDescription} onChange={e => setFbDescription(e.target.value)} placeholder="Describe your feedback or issue..." />
+                  <div style={{ fontSize: '0.65rem', color: fbDescription.length < 20 ? 'var(--warning)' : 'var(--success)', textAlign: 'right' }}>
+                    {fbDescription.length} / 20 chars min
+                  </div>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
+                <button className="btn btn-primary" style={{ flex: 1 }} onClick={handleSavePartnerFeedback}>Submit Feedback</button>
+                <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setShowNewFeedbackModal(false)}>Cancel</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* FEEDBACK DETAIL MODAL */}
+        {showFeedbackDetailModal && selectedFeedbackDetail && (
+          <div className="modal-overlay">
+            <div className="modal-content" style={{ maxWidth: '450px' }}>
+              <h4>Feedback Details</h4>
+              <div style={{ fontSize: '0.8rem', display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '0.5rem' }}>
+                <div><strong>Subject:</strong> {selectedFeedbackDetail.subject}</div>
+                <div><strong>Category:</strong> <span className="badge badge-secondary">{selectedFeedbackDetail.category}</span></div>
+                <div><strong>Status:</strong> <span className={`badge ${selectedFeedbackDetail.status === 'RESOLVED' ? 'badge-success' : 'badge-warning'}`}>{selectedFeedbackDetail.status}</span></div>
+                <div><strong>Description:</strong></div>
+                <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.5rem', borderRadius: '4px', border: '1px solid var(--border-color)' }}>{selectedFeedbackDetail.description}</div>
+                {selectedFeedbackDetail.admin_notes && (
+                  <>
+                    <div><strong>Admin Notes:</strong></div>
+                    <div style={{ background: 'rgba(99,102,241,0.1)', padding: '0.5rem', borderRadius: '4px', border: '1px solid var(--primary)' }}>{selectedFeedbackDetail.admin_notes}</div>
+                  </>
+                )}
+              </div>
+              <button className="btn btn-secondary" style={{ width: '100%', marginTop: '1rem' }} onClick={() => setShowFeedbackDetailModal(false)}>Close</button>
+            </div>
+          </div>
+        )}
+
+      </div>
+    );
   };
 
   // ----------------------------------------------------
@@ -7605,6 +9212,9 @@ export default function App() {
           <button className={`role-tab ${activeRole === 'admin' ? 'active' : ''}`} onClick={() => setActiveRole('admin')}>
             Admin Portal
           </button>
+          <button className={`role-tab ${activeRole === 'partner' ? 'active' : ''}`} onClick={() => setActiveRole('partner')}>
+            Partner App
+          </button>
           {showDevSettings && (
             <button className={`role-tab ${activeRole === 'db' ? 'active' : ''}`} onClick={() => setActiveRole('db')}>
               DB Inspector
@@ -7624,6 +9234,7 @@ export default function App() {
           {activeRole === 'marketing' && renderMarketingView()}
           {activeRole === 'customer' && renderCustomerView()}
           {activeRole === 'stockist' && renderStockistView()}
+          {activeRole === 'partner' && renderPartnerView()}
           {activeRole === 'admin' && renderAdminView()}
           {activeRole === 'db' && renderDbInspector()}
         </main>
