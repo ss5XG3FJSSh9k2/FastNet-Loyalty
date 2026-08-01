@@ -1565,6 +1565,238 @@ async function main() {
   const p1_auditLogCheck = await get('http://localhost:3001/api/admin/audit-log');
   assert(p1_auditLogCheck.body.some(a => a.action === 'UPDATE_PARTNER_BINDING' && a.entity_id === 'u-cust1'), 'Audit log contains UPDATE_PARTNER_BINDING entry on update');
 
+  // --- 33. Round P2 — Redemption Approval Workflow & Health Dashboard ---
+  console.log('\n--- 33. Round P2 — Redemption Approval Workflow & Health Dashboard ---');
+
+  const p2_adhyaDetail = await get('http://localhost:3001/api/admin/partners/ptr-adhya');
+  const p2_targetPkg = p2_adhyaDetail.body.packages.find(p => p.is_active);
+  const p2_pkgId = p2_targetPkg.id;
+  const p2_pkgCost = p2_targetPkg.point_cost;
+
+  // Test 1: Customer redeems partner package with matching binding -> 200, status=PENDING_ADMIN_APPROVAL
+  await post('http://localhost:3001/api/admin/customers/u-cust1/points-credit', { amount: 2000, reason: 'Test setup' });
+
+  await post('http://localhost:3001/api/customer/partner-bindings', {
+    customer_user_id: 'u-cust1',
+    cable_partner_id: 'ptr-adhya',
+    broadband_partner_id: 'ptr-jio'
+  });
+
+  const p2_redeemRes = await post('http://localhost:3001/api/ledger/redeem', {
+    customer_user_id: 'u-cust1',
+    partner_package_id: p2_pkgId,
+    amount: p2_pkgCost
+  });
+  assert(p2_redeemRes.status === 200, 'Customer redeems partner package with matching binding succeeds');
+  assert(p2_redeemRes.body.redemption_approval !== undefined, 'Redemption approval created in response');
+  assert(p2_redeemRes.body.redemption_approval.status === 'PENDING_ADMIN_APPROVAL', 'Initial approval status is PENDING_ADMIN_APPROVAL');
+
+  const p2_approvalId = p2_redeemRes.body.redemption_approval.id;
+
+  // Test 2: Redemption attempt for unbound partner -> 400 binding_mismatch
+  const p2_unboundRes = await post('http://localhost:3001/api/ledger/redeem', {
+    customer_user_id: 'u-cust2',
+    partner_package_id: p2_pkgId,
+    amount: p2_pkgCost
+  });
+  assert(p2_unboundRes.status === 400, 'Redeem for unbound partner returns 400');
+  assert(p2_unboundRes.body.error === 'binding_mismatch', 'Error code is binding_mismatch');
+
+  // Test 3: Redemption attempt with incorrect point amount -> 400 amount_mismatch
+  const p2_amountMismatchRes = await post('http://localhost:3001/api/ledger/redeem', {
+    customer_user_id: 'u-cust1',
+    partner_package_id: p2_pkgId,
+    amount: p2_pkgCost - 10
+  });
+  assert(p2_amountMismatchRes.status === 400, 'Redeem with incorrect point cost returns 400');
+  assert(p2_amountMismatchRes.body.error === 'amount_mismatch', 'Error code is amount_mismatch');
+
+  // Test 4: Admin GET /api/admin/redemption-approvals returns list including PENDING_ADMIN_APPROVAL row
+  const p2_adminListRes = await get('http://localhost:3001/api/admin/redemption-approvals');
+  assert(p2_adminListRes.status === 200, 'GET /api/admin/redemption-approvals succeeds');
+  assert(p2_adminListRes.body.some(a => a.id === p2_approvalId), 'List includes created redemption approval');
+
+  // Test 5: Admin GET /api/admin/redemption-approvals/:id returns full detail
+  const p2_adminDetailRes = await get(`http://localhost:3001/api/admin/redemption-approvals/${p2_approvalId}`);
+  assert(p2_adminDetailRes.status === 200, 'GET redemption approval detail succeeds');
+  assert(p2_adminDetailRes.body.customer_name !== undefined, 'Detail includes customer_name');
+  assert(p2_adminDetailRes.body.partner_name !== undefined, 'Detail includes partner_name');
+
+  // Test 6: Customer GET /api/customer/redemption-status/:id returns status
+  const p2_custStatusRes = await get(`http://localhost:3001/api/customer/redemption-status/${p2_approvalId}`);
+  assert(p2_custStatusRes.status === 200, 'GET customer redemption status succeeds');
+  assert(p2_custStatusRes.body.status === 'PENDING_ADMIN_APPROVAL', 'Status matches PENDING_ADMIN_APPROVAL');
+
+  // Test 7: Admin approves pending redemption -> status changes to APPROVED_AWAITING_PARTNER
+  const p2_approveRes = await post(`http://localhost:3001/api/admin/redemption-approvals/${p2_approvalId}/approve`, {
+    admin_id: 'u-admin',
+    notes: 'Approved for processing'
+  });
+  assert(p2_approveRes.status === 200, 'Admin approve redemption succeeds');
+  assert(p2_approveRes.body.status === 'APPROVED_AWAITING_PARTNER', 'Status updated to APPROVED_AWAITING_PARTNER');
+
+  // Test 8: Re-approving already approved redemption returns 400 invalid_transition
+  const p2_reApproveRes = await post(`http://localhost:3001/api/admin/redemption-approvals/${p2_approvalId}/approve`, {
+    admin_id: 'u-admin'
+  });
+  assert(p2_reApproveRes.status === 400, 'Re-approving approved redemption returns 400');
+  assert(p2_reApproveRes.body.error === 'invalid_transition', 'Error code is invalid_transition');
+
+  // Test 9: Partner login & GET /api/partner/redemption-queue returns approved item
+  const p2_partnerAuthRes = await post('http://localhost:3001/api/partner/auth/login-otp-verify', {
+    phone: '9876500000',
+    otp: '123456'
+  });
+  const partnerToken = p2_partnerAuthRes.body.session_token;
+
+  const p2_queueRes = await get('http://localhost:3001/api/partner/redemption-queue', {
+    headers: { Authorization: `Bearer ${partnerToken}` }
+  });
+  assert(p2_queueRes.status === 200, 'Partner GET redemption-queue succeeds');
+  assert(p2_queueRes.body.some(a => a.id === p2_approvalId), 'Partner queue contains approved item');
+
+  // Test 10: Partner fulfills redemption -> status=FULFILLED
+  const p2_fulfillRes = await post(`http://localhost:3001/api/partner/redemption-approvals/${p2_approvalId}/fulfill`, {
+    partner_notes: 'Cable STB bill discounted by ₹350'
+  }, { headers: { Authorization: `Bearer ${partnerToken}` } });
+  assert(p2_fulfillRes.status === 200, 'Partner fulfill redemption succeeds');
+  assert(p2_fulfillRes.body.status === 'FULFILLED', 'Status updated to FULFILLED');
+
+  // Test 11: Fulfilling already fulfilled redemption returns 400 invalid_transition
+  const p2_reFulfillRes = await post(`http://localhost:3001/api/partner/redemption-approvals/${p2_approvalId}/fulfill`, {}, {
+    headers: { Authorization: `Bearer ${partnerToken}` }
+  });
+  assert(p2_reFulfillRes.status === 400, 'Fulfilling already fulfilled redemption returns 400');
+  assert(p2_reFulfillRes.body.error === 'invalid_transition', 'Error code is invalid_transition');
+
+  // Test 12: Create second redemption for rejection test
+  const p2_redeem2Res = await post('http://localhost:3001/api/ledger/redeem', {
+    customer_user_id: 'u-cust1',
+    partner_package_id: p2_pkgId,
+    amount: p2_pkgCost
+  });
+  const p2_approvalId2 = p2_redeem2Res.body.redemption_approval.id;
+
+  // Test 13: Admin rejects pending redemption with <10 char reason -> 400
+  const p2_shortRejectRes = await post(`http://localhost:3001/api/admin/redemption-approvals/${p2_approvalId2}/reject`, {
+    admin_id: 'u-admin',
+    reason: 'Too short'
+  });
+  assert(p2_shortRejectRes.status === 400, 'Reject with reason <10 chars returns 400');
+
+  // Test 14: Admin rejects pending redemption with valid reason -> 200, REDEEM_REFUND points entry created
+  const p2_rejectRes = await post(`http://localhost:3001/api/admin/redemption-approvals/${p2_approvalId2}/reject`, {
+    admin_id: 'u-admin',
+    reason: 'Subscriber cable account inactive or not found'
+  });
+  assert(p2_rejectRes.status === 200, 'Admin reject redemption succeeds');
+  assert(p2_rejectRes.body.status === 'REJECTED', 'Status updated to REJECTED');
+  assert(p2_rejectRes.body.refund_ledger_id !== undefined, 'Refund ledger ID attached');
+
+  // Test 15: Check ledger contains REDEEM_REFUND row for customer
+  const p2_ledgerRes = await get('http://localhost:3001/api/ledger/history/u-cust1');
+  assert(p2_ledgerRes.body.some(l => l.type === 'REDEEM_REFUND' && l.amount === p2_pkgCost), 'Customer ledger contains REDEEM_REFUND credit entry');
+
+  // Test 16: Create third redemption for dispute workflow
+  const p2_redeem3Res = await post('http://localhost:3001/api/ledger/redeem', {
+    customer_user_id: 'u-cust1',
+    partner_package_id: p2_pkgId,
+    amount: p2_pkgCost
+  });
+  const p2_approvalId3 = p2_redeem3Res.body.redemption_approval.id;
+  await post(`http://localhost:3001/api/admin/redemption-approvals/${p2_approvalId3}/approve`, { admin_id: 'u-admin' });
+
+  // Test 17: Partner disputes redemption with <10 char reason -> 400
+  const p2_shortDisputeRes = await post(`http://localhost:3001/api/partner/redemption-approvals/${p2_approvalId3}/dispute`, {
+    reason: 'short'
+  }, { headers: { Authorization: `Bearer ${partnerToken}` } });
+  assert(p2_shortDisputeRes.status === 400, 'Partner dispute with <10 char reason returns 400');
+
+  // Test 18: Partner disputes redemption with valid reason -> status=DISPUTED
+  const p2_disputeRes = await post(`http://localhost:3001/api/partner/redemption-approvals/${p2_approvalId3}/dispute`, {
+    reason: 'Customer account ID mismatch on partner side'
+  }, { headers: { Authorization: `Bearer ${partnerToken}` } });
+  assert(p2_disputeRes.status === 200, 'Partner dispute succeeds');
+  assert(p2_disputeRes.body.status === 'DISPUTED', 'Status updated to DISPUTED');
+
+  // Test 19: Admin resolves dispute with outcome=fulfill -> status=FULFILLED
+  const p2_resolveFulfillRes = await post(`http://localhost:3001/api/admin/redemption-approvals/${p2_approvalId3}/resolve-dispute`, {
+    admin_id: 'u-admin',
+    outcome: 'fulfill',
+    notes: 'Manually verified with partner operator'
+  });
+  assert(p2_resolveFulfillRes.status === 200, 'Admin resolve dispute with fulfill succeeds');
+  assert(p2_resolveFulfillRes.body.status === 'FULFILLED', 'Status resolved to FULFILLED');
+
+  // Test 20: Create fourth redemption for dispute reject resolution
+  const p2_redeem4Res = await post('http://localhost:3001/api/ledger/redeem', {
+    customer_user_id: 'u-cust1',
+    partner_package_id: p2_pkgId,
+    amount: p2_pkgCost
+  });
+  const p2_approvalId4 = p2_redeem4Res.body.redemption_approval.id;
+  await post(`http://localhost:3001/api/admin/redemption-approvals/${p2_approvalId4}/approve`, { admin_id: 'u-admin' });
+  await post(`http://localhost:3001/api/partner/redemption-approvals/${p2_approvalId4}/dispute`, {
+    reason: 'Customer account cancelled on partner side'
+  }, { headers: { Authorization: `Bearer ${partnerToken}` } });
+
+  // Test 21: Admin resolves dispute with outcome=reject -> status=REJECTED and refund credited
+  const p2_resolveRejectRes = await post(`http://localhost:3001/api/admin/redemption-approvals/${p2_approvalId4}/resolve-dispute`, {
+    admin_id: 'u-admin',
+    outcome: 'reject',
+    notes: 'Upheld dispute, refunding customer points'
+  });
+  assert(p2_resolveRejectRes.status === 200, 'Admin resolve dispute with reject succeeds');
+  assert(p2_resolveRejectRes.body.status === 'REJECTED', 'Status resolved to REJECTED');
+  assert(p2_resolveRejectRes.body.refund_ledger_id !== undefined, 'Refund ledger ID set on dispute rejection');
+
+  // Test 22: Partner GET /api/partner/redemption-history returns all partner redemptions
+  const p2_historyRes = await get('http://localhost:3001/api/partner/redemption-history', {
+    headers: { Authorization: `Bearer ${partnerToken}` }
+  });
+  assert(p2_historyRes.status === 200, 'GET partner redemption-history succeeds');
+  assert(Array.isArray(p2_historyRes.body), 'Returns array of redemption history');
+
+  // Test 23: GET /api/admin/health returns complete health dashboard structure
+  const p2_healthRes = await get('http://localhost:3001/api/admin/health');
+  assert(p2_healthRes.status === 200, 'GET /api/admin/health succeeds');
+  assert(p2_healthRes.body.redemption_pipeline !== undefined, 'Health response contains redemption_pipeline panel');
+  assert(p2_healthRes.body.partner_fulfillment_speed !== undefined, 'Health response contains partner_fulfillment_speed panel');
+  assert(p2_healthRes.body.stockist_volume_leaderboard !== undefined, 'Health response contains stockist_volume_leaderboard panel');
+  assert(p2_healthRes.body.new_arrivals !== undefined, 'Health response contains new_arrivals panel');
+  assert(p2_healthRes.body.fraud_signals !== undefined, 'Health response contains fraud_signals panel');
+  assert(p2_healthRes.body.system_stats !== undefined, 'Health response contains system_stats panel');
+
+  // Test 24: App.jsx contains "Redemption Approvals" sidebar entry
+  const fsMod = require('fs');
+  const appJsx = fsMod.readFileSync('frontend/src/App.jsx', 'utf8');
+  assert(appJsx.includes('Redemption Approvals'), 'App.jsx contains Redemption Approvals sidebar entry');
+
+  // Test 25: App.jsx contains an Approve-action handler that posts to /api/admin/redemption-approvals
+  assert(appJsx.includes('/admin/redemption-approvals/') && appJsx.includes('/approve'), 'App.jsx contains Approve-action handler posting to /api/admin/redemption-approvals');
+
+  // Test 26: App.jsx contains a Health sidebar entry
+  assert(appJsx.includes('Health') && appJsx.includes('fetchHealthData'), 'App.jsx contains Health sidebar entry');
+
+  // Test 27: App.jsx contains a Promote to Partner button
+  assert(appJsx.includes('Promote to Partner'), 'App.jsx contains Promote to Partner button');
+
+  // Test 28: Rejecting an already rejected approval returns 400 invalid_transition
+  const p2_reRejectRes = await post(`http://localhost:3001/api/admin/redemption-approvals/${p2_approvalId2}/reject`, {
+    admin_id: 'u-admin',
+    reason: 'Trying to reject again when already rejected'
+  });
+  assert(p2_reRejectRes.status === 400, 'Rejecting an already rejected approval returns 400');
+  assert(p2_reRejectRes.body.error === 'invalid_transition', 'Error code is invalid_transition');
+
+  // Test 29: Resolving dispute on non-disputed approval returns 400 invalid_transition
+  const p2_invalidResolveRes = await post(`http://localhost:3001/api/admin/redemption-approvals/${p2_approvalId}/resolve-dispute`, {
+    admin_id: 'u-admin',
+    outcome: 'fulfill'
+  });
+  assert(p2_invalidResolveRes.status === 400, 'Resolving dispute on non-disputed approval returns 400');
+  assert(p2_invalidResolveRes.body.error === 'invalid_transition', 'Error code is invalid_transition');
+
   console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);
 }

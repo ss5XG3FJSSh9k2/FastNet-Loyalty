@@ -200,6 +200,42 @@ export default function App() {
   const [showAddLeadNoteModal, setShowAddLeadNoteModal] = useState(false);
   const [newLeadNoteText, setNewLeadNoteText] = useState('');
 
+  // Round P2 State
+  const [healthData, setHealthData] = useState(null);
+  const [adminPartners, setAdminPartners] = useState([]);
+  const [partnerSubTab, setPartnerSubTab] = useState('leads');
+  const [partnerRegionFilter, setPartnerRegionFilter] = useState('ALL');
+  const [partnerServiceFilter, setPartnerServiceFilter] = useState('ALL');
+  const [partnerActiveFilter, setPartnerActiveFilter] = useState('ALL');
+  const [selectedPartnerDetail, setSelectedPartnerDetail] = useState(null);
+  const [showEditPartnerModal, setShowEditPartnerModal] = useState(false);
+  const [editPartnerLegalName, setEditPartnerLegalName] = useState('');
+  const [editPartnerDisplayName, setEditPartnerDisplayName] = useState('');
+  const [editPartnerPhone, setEditPartnerPhone] = useState('');
+  const [editPartnerEmail, setEditPartnerEmail] = useState('');
+  const [editPartnerAddress, setEditPartnerAddress] = useState('');
+  const [editPartnerGst, setEditPartnerGst] = useState('');
+
+  const [showPromoteLeadModal, setShowPromoteLeadModal] = useState(false);
+  const [selectedLeadToPromote, setSelectedLeadToPromote] = useState(null);
+  const [promoteDisplayName, setPromoteDisplayName] = useState('');
+  const [promoteServiceTypes, setPromoteServiceTypes] = useState(['CABLE']);
+
+  const [adminRedemptionApprovals, setAdminRedemptionApprovals] = useState([]);
+  const [redemptionApprovalSubTab, setRedemptionApprovalSubTab] = useState('pending');
+  const [showApproveRedemptionModal, setShowApproveRedemptionModal] = useState(false);
+  const [selectedRedemptionToApprove, setSelectedRedemptionToApprove] = useState(null);
+  const [approveNotes, setApproveNotes] = useState('');
+  const [showRejectRedemptionModal, setShowRejectRedemptionModal] = useState(false);
+  const [selectedRedemptionToReject, setSelectedRedemptionToReject] = useState(null);
+  const [rejectReason, setRejectReason] = useState('');
+  const [showResolveDisputeModal, setShowResolveDisputeModal] = useState(false);
+  const [selectedRedemptionToResolve, setSelectedRedemptionToResolve] = useState(null);
+  const [resolveOutcome, setResolveOutcome] = useState('fulfill');
+  const [resolveNotes, setResolveNotes] = useState('');
+  const [selectedRedemptionDetail, setSelectedRedemptionDetail] = useState(null);
+  const [fulfilledSearchText, setFulfilledSearchText] = useState('');
+
   const [adminFraudReports, setAdminFraudReports] = useState([]);
   const [fraudReportTab, setFraudReportTab] = useState('NEW');
   const [selectedFraudReportDetail, setSelectedFraudReportDetail] = useState(null);
@@ -933,6 +969,15 @@ export default function App() {
           }
         }
 
+        const partnersRes = await fetch(`${API_BASE}/admin/partners`);
+        if (partnersRes.ok) setAdminPartners(await partnersRes.json());
+
+        const approvalsRes = await fetch(`${API_BASE}/admin/redemption-approvals`);
+        if (approvalsRes.ok) setAdminRedemptionApprovals(await approvalsRes.json());
+
+        const healthRes = await fetch(`${API_BASE}/admin/health`);
+        if (healthRes.ok) setHealthData(await healthRes.json());
+
         setPendingKyc(pendingKyc);
         setCommissionRates(rates);
         setAnomalies(anomalies);
@@ -971,6 +1016,151 @@ export default function App() {
       }
     } catch (e) {
       console.error('Failed to sync DB state:', e);
+    }
+  };
+
+  const fetchAdminPartners = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/partners`);
+      if (res.ok) setAdminPartners(await res.json());
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const fetchRedemptionApprovals = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/redemption-approvals`);
+      if (res.ok) setAdminRedemptionApprovals(await res.json());
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const fetchHealthData = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/health`);
+      if (res.ok) setHealthData(await res.json());
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const openPromoteLeadModal = (lead) => {
+    setSelectedLeadToPromote(lead);
+    setPromoteDisplayName(lead.name || lead.business_name || '');
+    setPromoteServiceTypes([lead.service_type || 'CABLE']);
+    setShowPromoteLeadModal(true);
+  };
+
+  const handlePromoteLeadSubmit = async () => {
+    if (!selectedLeadToPromote) return;
+    if (!promoteDisplayName.trim()) {
+      showToast('Display name is required', 'error');
+      return;
+    }
+    if (!promoteServiceTypes || promoteServiceTypes.length === 0) {
+      showToast('At least one service type is required', 'error');
+      return;
+    }
+    try {
+      const res = await fetch(`${API_BASE}/admin/partner-leads/${selectedLeadToPromote.id}/promote`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          admin_id: currentUser?.id || 'u-admin',
+          service_types: promoteServiceTypes
+        })
+      });
+      const data = await res.json();
+      logApi('POST', `/admin/partner-leads/${selectedLeadToPromote.id}/promote`, { admin_id: 'u-admin', service_types: promoteServiceTypes }, res.status, data);
+      if (res.ok) {
+        showToast('Lead promoted to partner successfully!');
+        setShowPromoteLeadModal(false);
+        fetchDbState();
+        fetchAdminPartners();
+      } else {
+        showToast(data.error || 'Failed to promote lead', 'error');
+      }
+    } catch (err) {
+      showToast('Network error promoting lead', 'error');
+    }
+  };
+
+  const handleApproveRedemption = async (id, notes) => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/redemption-approvals/${id}/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          admin_id: currentUser?.id || 'u-admin',
+          notes
+        })
+      });
+      const data = await res.json();
+      logApi('POST', `/admin/redemption-approvals/${id}/approve`, { admin_id: 'u-admin', notes }, res.status, data);
+      if (res.ok) {
+        showToast('Redemption approval approved successfully');
+        setShowApproveRedemptionModal(false);
+        fetchRedemptionApprovals();
+      } else {
+        showToast(data.error || 'Failed to approve redemption', 'error');
+      }
+    } catch (err) {
+      showToast('Network error approving redemption', 'error');
+    }
+  };
+
+  const handleRejectRedemption = async (id, reason) => {
+    if (!reason || reason.trim().length < 10) {
+      showToast('Reason must be at least 10 characters long', 'error');
+      return;
+    }
+    try {
+      const res = await fetch(`${API_BASE}/admin/redemption-approvals/${id}/reject`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          admin_id: currentUser?.id || 'u-admin',
+          reason: reason.trim()
+        })
+      });
+      const data = await res.json();
+      logApi('POST', `/admin/redemption-approvals/${id}/reject`, { admin_id: 'u-admin', reason }, res.status, data);
+      if (res.ok) {
+        showToast(`Refund of ${data.points_deducted} points appended to customer's ledger`);
+        setShowRejectRedemptionModal(false);
+        fetchRedemptionApprovals();
+      } else {
+        showToast(data.error || 'Failed to reject redemption', 'error');
+      }
+    } catch (err) {
+      showToast('Network error rejecting redemption', 'error');
+    }
+  };
+
+  const handleResolveDispute = async (id, outcome, notes) => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/redemption-approvals/${id}/resolve-dispute`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          admin_id: currentUser?.id || 'u-admin',
+          outcome,
+          notes
+        })
+      });
+      const data = await res.json();
+      logApi('POST', `/admin/redemption-approvals/${id}/resolve-dispute`, { admin_id: 'u-admin', outcome, notes }, res.status, data);
+      if (res.ok) {
+        showToast(outcome === 'fulfill' ? 'Dispute resolved: FULFILLED' : 'Dispute resolved: REJECTED (Points refunded)');
+        setShowResolveDisputeModal(false);
+        fetchRedemptionApprovals();
+      } else {
+        showToast(data.error || 'Failed to resolve dispute', 'error');
+      }
+    } catch (err) {
+      showToast('Network error resolving dispute', 'error');
     }
   };
 
@@ -5065,14 +5255,20 @@ export default function App() {
 
           <div className="admin-grid">
             <div className="admin-sidebar">
+              <button className={`admin-nav-item ${adminTab === 'health' ? 'active' : ''}`} onClick={() => { setAdminTab('health'); fetchHealthData(); }}>
+                <TrendingUp size={16} /> Health
+              </button>
               <button className={`admin-nav-item ${adminTab === 'customers' ? 'active' : ''}`} onClick={() => setAdminTab('customers')}>
                 <UserCheck size={16} /> All Customers ({adminCustomers.length})
               </button>
               <button className={`admin-nav-item ${adminTab === 'stockists' ? 'active' : ''}`} onClick={() => setAdminTab('stockists')}>
                 <Store size={16} /> All Stockists ({adminStockists.length})
               </button>
-              <button className={`admin-nav-item ${adminTab === 'leads' ? 'active' : ''}`} onClick={() => setAdminTab('leads')}>
-                <UserPlus size={16} /> All Partners ({partnerLeads.length})
+              <button className={`admin-nav-item ${adminTab === 'partners' || adminTab === 'leads' ? 'active' : ''}`} onClick={() => { setAdminTab('partners'); fetchAdminPartners(); }}>
+                <UserPlus size={16} /> All Partners ({adminPartners.length + partnerLeads.length})
+              </button>
+              <button className={`admin-nav-item ${adminTab === 'redemption_approvals' ? 'active' : ''}`} onClick={() => { setAdminTab('redemption_approvals'); fetchRedemptionApprovals(); }}>
+                <Gift size={16} /> Redemption Approvals {adminRedemptionApprovals.filter(r => r.status === 'PENDING_ADMIN_APPROVAL').length > 0 && <span className="badge badge-warning" style={{ marginLeft: '0.25rem', fontSize: '0.65rem' }}>{adminRedemptionApprovals.filter(r => r.status === 'PENDING_ADMIN_APPROVAL').length}</span>}
               </button>
               <button className={`admin-nav-item ${adminTab === 'fraud_reports' ? 'active' : ''}`} onClick={() => setAdminTab('fraud_reports')}>
                 <AlertTriangle size={16} /> Fraud Reports {adminFraudReports.filter(r=>['NEW','TRIAGING'].includes(r.status)).length > 0 && <span className="badge badge-warning" style={{ marginLeft: '0.25rem', fontSize: '0.65rem' }}>{adminFraudReports.filter(r=>['NEW','TRIAGING'].includes(r.status)).length}</span>}
@@ -5297,6 +5493,473 @@ export default function App() {
                         })}
                     </tbody>
                   </table>
+                </div>
+              )}
+
+              {adminTab === 'health' && (
+                <div>
+                  <h2 style={{ fontSize: '1.4rem', marginBottom: '1rem' }}>System Health Dashboard</h2>
+                  <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
+                    Key operational health indicators across customer redemptions, partner fulfillment, stockist volume, and platform fraud signals.
+                  </p>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1.5rem', marginBottom: '1.5rem' }}>
+                    <div className="glass-card" style={{ padding: '1rem' }}>
+                      <h4 style={{ fontSize: '0.9rem', color: 'var(--primary)', marginBottom: '0.75rem' }}>4.1 Redemption Pipeline</h4>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
+                          <span>Pending Admin Approval &gt; 24h:</span>
+                          <span className="badge badge-warning" style={{ fontSize: '0.8rem' }}>{healthData?.redemption_pipeline?.pending_over_24h_count || 0}</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
+                          <span>Approved Awaiting Partner &gt; 48h:</span>
+                          <span className="badge badge-danger" style={{ fontSize: '0.8rem' }}>{healthData?.redemption_pipeline?.approved_over_48h_count || 0}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="glass-card" style={{ padding: '1rem' }}>
+                      <h4 style={{ fontSize: '0.9rem', color: 'var(--primary)', marginBottom: '0.75rem' }}>4.4 New Arrivals (Last 30 Days)</h4>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
+                          <span>New Stockists Onboarded:</span>
+                          <span style={{ fontWeight: 'bold', fontSize: '1rem', color: 'var(--accent)' }}>{healthData?.new_arrivals?.new_stockists_30d || 0}</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
+                          <span>New Partners Onboarded:</span>
+                          <span style={{ fontWeight: 'bold', fontSize: '1rem', color: 'var(--accent)' }}>{healthData?.new_arrivals?.new_partners_30d || 0}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="glass-card" style={{ padding: '1rem' }}>
+                      <h4 style={{ fontSize: '0.9rem', color: 'var(--primary)', marginBottom: '0.75rem' }}>4.6 System Stats</h4>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', fontSize: '0.75rem' }}>
+                        <div>Customers: <strong>{healthData?.system_stats?.total_customers || 0}</strong></div>
+                        <div>Stockists: <strong>{healthData?.system_stats?.total_stockists || 0}</strong></div>
+                        <div>Partners: <strong>{healthData?.system_stats?.total_onboarded_partners || 0}</strong></div>
+                        <div>Redemptions: <strong>{healthData?.system_stats?.total_redemption_approvals || 0}</strong></div>
+                        <div>Ledger Entries: <strong>{healthData?.system_stats?.total_ledger_entries || 0}</strong></div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
+                    <div className="glass-card" style={{ padding: '1rem' }}>
+                      <h4 style={{ fontSize: '0.9rem', color: 'var(--primary)', marginBottom: '0.75rem' }}>4.2 Partner Fulfillment Speed (Slowest First, Top 10)</h4>
+                      <table className="admin-table" style={{ fontSize: '0.75rem' }}>
+                        <thead>
+                          <tr>
+                            <th>Partner Name</th>
+                            <th>Median Hours (Approve → Fulfill)</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(healthData?.partner_fulfillment_speed || []).map(p => (
+                            <tr key={p.partner_id}>
+                              <td>{p.partner_name}</td>
+                              <td style={{ fontWeight: 'bold', color: p.median_hours > 48 ? 'var(--danger)' : 'var(--accent)' }}>{p.median_hours} hrs</td>
+                            </tr>
+                          ))}
+                          {(!healthData?.partner_fulfillment_speed || healthData.partner_fulfillment_speed.length === 0) && (
+                            <tr><td colSpan="2" style={{ textAlign: 'center', color: 'var(--text-muted)' }}>No fulfillment history yet.</td></tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <div className="glass-card" style={{ padding: '1rem' }}>
+                      <h4 style={{ fontSize: '0.9rem', color: 'var(--primary)', marginBottom: '0.75rem' }}>4.3 Stockist Volume Leaderboard (30d GMV)</h4>
+                      <table className="admin-table" style={{ fontSize: '0.75rem' }}>
+                        <thead>
+                          <tr>
+                            <th>Stockist Name</th>
+                            <th>Region</th>
+                            <th>30d GMV (Subtotal Sum)</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(healthData?.stockist_volume_leaderboard || []).map(s => (
+                            <tr key={s.stockist_id}>
+                              <td>{s.stockist_name}</td>
+                              <td>{s.region_id === 'r1' ? 'Kolkata South' : 'Rural Bishnupur'}</td>
+                              <td style={{ fontWeight: 'bold', color: 'var(--accent)' }}>₹{(s.gmv_30d || 0).toFixed(2)}</td>
+                            </tr>
+                          ))}
+                          {(!healthData?.stockist_volume_leaderboard || healthData.stockist_volume_leaderboard.length === 0) && (
+                            <tr><td colSpan="3" style={{ textAlign: 'center', color: 'var(--text-muted)' }}>No stockist GMV data yet.</td></tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  <div className="glass-card" style={{ padding: '1rem', marginTop: '1.5rem' }}>
+                    <h4 style={{ fontSize: '0.9rem', color: 'var(--primary)', marginBottom: '0.75rem' }}>4.5 Active Fraud Signals (NEW / TRIAGING)</h4>
+                    <table className="admin-table" style={{ fontSize: '0.75rem' }}>
+                      <thead>
+                        <tr>
+                          <th>Entity Type</th>
+                          <th>Entity ID / Name</th>
+                          <th>Active Fraud Reports</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(healthData?.fraud_signals || []).map((f, idx) => (
+                          <tr key={idx}>
+                            <td><span className="badge badge-warning">{f.entity_type}</span></td>
+                            <td>{f.entity_name || f.entity_id}</td>
+                            <td style={{ fontWeight: 'bold', color: 'var(--danger)' }}>{f.active_reports_count}</td>
+                          </tr>
+                        ))}
+                        {(!healthData?.fraud_signals || healthData.fraud_signals.length === 0) && (
+                          <tr><td colSpan="3" style={{ textAlign: 'center', color: 'var(--text-muted)' }}>No active fraud signals.</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {(adminTab === 'partners' || adminTab === 'leads') && (
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                    <h2 style={{ fontSize: '1.4rem', margin: 0 }}>All Partners Management</h2>
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      <button className={`btn ${partnerSubTab === 'leads' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setPartnerSubTab('leads')}>
+                        Partner Leads ({partnerLeads.length})
+                      </button>
+                      <button className={`btn ${partnerSubTab === 'onboarded' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => { setPartnerSubTab('onboarded'); fetchAdminPartners(); }}>
+                        Onboarded Partners ({adminPartners.length})
+                      </button>
+                    </div>
+                  </div>
+
+                  {partnerSubTab === 'leads' && (
+                    <div>
+                      <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1rem' }}>
+                        Partner lead inquiries submitted from local cable operators and internet service providers.
+                      </p>
+                      <table className="admin-table">
+                        <thead>
+                          <tr>
+                            <th>Lead ID</th>
+                            <th>Name</th>
+                            <th>Phone</th>
+                            <th>Business Name</th>
+                            <th>City / Service</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {partnerLeads.map(lead => (
+                            <tr key={lead.id}>
+                              <td style={{ fontFamily: 'monospace' }}>{lead.id}</td>
+                              <td>{lead.name}</td>
+                              <td>{lead.phone}</td>
+                              <td>{lead.business_name || 'N/A'}</td>
+                              <td>{lead.city || 'Kolkata'} / {lead.service_type || 'CABLE'}</td>
+                              <td>
+                                <span className={`badge ${lead.status === 'ONBOARDED' ? 'badge-success' : lead.status === 'CONTACTED' ? 'badge-primary' : 'badge-warning'}`}>
+                                  {lead.status || 'NEW'}
+                                </span>
+                              </td>
+                              <td>
+                                <div style={{ display: 'flex', gap: '0.35rem' }}>
+                                  {lead.status !== 'ONBOARDED' && (
+                                    <button className="btn btn-accent" style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem' }} onClick={() => openPromoteLeadModal(lead)}>
+                                      Promote to Partner
+                                    </button>
+                                  )}
+                                  {lead.status === 'ONBOARDED' && (
+                                    <span style={{ fontSize: '0.65rem', color: 'var(--accent)' }}>Onboarded</span>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                          {partnerLeads.length === 0 && (
+                            <tr><td colSpan="7" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>No partner leads submitted.</td></tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
+                  {partnerSubTab === 'onboarded' && (
+                    <div>
+                      <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1rem' }}>
+                        Onboarded cable and broadband partners providing bill discount redemption packages.
+                      </p>
+
+                      <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem', alignItems: 'center' }}>
+                        <div>
+                          <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginRight: '0.35rem' }}>Region:</label>
+                          <select className="text-input" style={{ width: 'auto', fontSize: '0.75rem', padding: '0.25rem' }} value={partnerRegionFilter} onChange={e => setPartnerRegionFilter(e.target.value)}>
+                            <option value="ALL">All Regions</option>
+                            {regions.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                          </select>
+                        </div>
+                        <div>
+                          <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginRight: '0.35rem' }}>Service:</label>
+                          <select className="text-input" style={{ width: 'auto', fontSize: '0.75rem', padding: '0.25rem' }} value={partnerServiceFilter} onChange={e => setPartnerServiceFilter(e.target.value)}>
+                            <option value="ALL">All Services</option>
+                            <option value="CABLE">Cable TV</option>
+                            <option value="BROADBAND">Broadband</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginRight: '0.35rem' }}>Active Status:</label>
+                          <select className="text-input" style={{ width: 'auto', fontSize: '0.75rem', padding: '0.25rem' }} value={partnerActiveFilter} onChange={e => setPartnerActiveFilter(e.target.value)}>
+                            <option value="ALL">All Statuses</option>
+                            <option value="ACTIVE">Active Only</option>
+                            <option value="INACTIVE">Inactive Only</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <table className="admin-table">
+                        <thead>
+                          <tr>
+                            <th>Partner Name</th>
+                            <th>Contact Phone</th>
+                            <th>Services</th>
+                            <th>Regions</th>
+                            <th>Packages</th>
+                            <th>Bound Customers</th>
+                            <th>Status</th>
+                            <th>Onboarded Date</th>
+                            <th>Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {adminPartners
+                            .filter(p => partnerServiceFilter === 'ALL' || (p.service_types || []).includes(partnerServiceFilter))
+                            .filter(p => partnerActiveFilter === 'ALL' ? true : partnerActiveFilter === 'ACTIVE' ? p.is_active !== false : p.is_active === false)
+                            .map(p => (
+                              <tr key={p.id} style={p.is_active === false ? { opacity: 0.6, background: 'rgba(255,255,255,0.02)' } : {}}>
+                                <td style={{ fontWeight: 'bold' }}>{p.display_name} <br/><span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{p.legal_name}</span></td>
+                                <td>{p.contact_phone}</td>
+                                <td>{(p.service_types || []).join(', ')}</td>
+                                <td>{(p.regions || []).length}</td>
+                                <td>{(p.packages || []).length}</td>
+                                <td>{p.bound_customers_count || 0}</td>
+                                <td><span className={`badge ${p.is_active !== false ? 'badge-success' : 'badge-secondary'}`}>{p.is_active !== false ? 'Active' : 'Inactive'}</span></td>
+                                <td style={{ fontSize: '0.7rem' }}>{p.onboarded_at ? new Date(p.onboarded_at).toLocaleDateString() : 'N/A'}</td>
+                                <td>
+                                  <div style={{ display: 'flex', gap: '0.35rem' }}>
+                                    <button className="btn btn-secondary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem' }} onClick={async () => {
+                                      const res = await fetch(`${API_BASE}/admin/partners/${p.id}`);
+                                      if (res.ok) setSelectedPartnerDetail(await res.json());
+                                      else setSelectedPartnerDetail(p);
+                                    }}>
+                                      Details
+                                    </button>
+                                    <button className={`btn ${p.is_active !== false ? 'btn-danger' : 'btn-secondary'}`} style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem' }} onClick={async () => {
+                                      const endpoint = p.is_active !== false ? 'deactivate' : 'reactivate';
+                                      await fetch(`${API_BASE}/admin/partners/${p.id}/${endpoint}`, { method: 'POST' });
+                                      fetchAdminPartners();
+                                    }}>
+                                      {p.is_active !== false ? 'Deactivate' : 'Reactivate'}
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                          {adminPartners.length === 0 && (
+                            <tr><td colSpan="9" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>No onboarded partners found.</td></tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {adminTab === 'redemption_approvals' && (
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                    <h2 style={{ fontSize: '1.4rem', margin: 0 }}>Redemption Approvals Queue</h2>
+                    <div style={{ display: 'flex', gap: '0.35rem' }}>
+                      <button className={`btn ${redemptionApprovalSubTab === 'pending' ? 'btn-primary' : 'btn-secondary'}`} style={{ fontSize: '0.75rem', padding: '0.25rem 0.6rem' }} onClick={() => setRedemptionApprovalSubTab('pending')}>
+                        Pending ({adminRedemptionApprovals.filter(r => r.status === 'PENDING_ADMIN_APPROVAL').length})
+                      </button>
+                      <button className={`btn ${redemptionApprovalSubTab === 'approved' ? 'btn-primary' : 'btn-secondary'}`} style={{ fontSize: '0.75rem', padding: '0.25rem 0.6rem' }} onClick={() => setRedemptionApprovalSubTab('approved')}>
+                        Approved ({adminRedemptionApprovals.filter(r => r.status === 'APPROVED_AWAITING_PARTNER').length})
+                      </button>
+                      <button className={`btn ${redemptionApprovalSubTab === 'fulfilled' ? 'btn-primary' : 'btn-secondary'}`} style={{ fontSize: '0.75rem', padding: '0.25rem 0.6rem' }} onClick={() => setRedemptionApprovalSubTab('fulfilled')}>
+                        Fulfilled ({adminRedemptionApprovals.filter(r => r.status === 'FULFILLED').length})
+                      </button>
+                      <button className={`btn ${redemptionApprovalSubTab === 'rejected_disputed' ? 'btn-primary' : 'btn-secondary'}`} style={{ fontSize: '0.75rem', padding: '0.25rem 0.6rem' }} onClick={() => setRedemptionApprovalSubTab('rejected_disputed')}>
+                        Rejected / Disputed ({adminRedemptionApprovals.filter(r => ['REJECTED', 'DISPUTED'].includes(r.status)).length})
+                      </button>
+                    </div>
+                  </div>
+
+                  {redemptionApprovalSubTab === 'pending' && (
+                    <table className="admin-table">
+                      <thead>
+                        <tr>
+                          <th>Date</th>
+                          <th>Customer</th>
+                          <th>Partner</th>
+                          <th>Package</th>
+                          <th>Face Value</th>
+                          <th>Points Deducted</th>
+                          <th>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {adminRedemptionApprovals.filter(r => r.status === 'PENDING_ADMIN_APPROVAL').map(r => (
+                          <tr key={r.id}>
+                            <td style={{ fontSize: '0.7rem' }}>{new Date(r.created_at).toLocaleString()}</td>
+                            <td style={{ fontWeight: 'bold' }}>{r.customer_name}<br/><span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>{r.customer_phone}</span></td>
+                            <td>{r.partner_name}</td>
+                            <td>{r.package_name}</td>
+                            <td>₹{r.face_value_rupees}</td>
+                            <td style={{ fontWeight: 'bold', color: 'var(--accent)' }}>{formatPoints(r.points_deducted)}</td>
+                            <td>
+                              <div style={{ display: 'flex', gap: '0.35rem' }}>
+                                <button className="btn btn-accent" style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem' }} onClick={() => { setSelectedRedemptionToApprove(r); setApproveNotes(''); setShowApproveRedemptionModal(true); }}>
+                                  Approve
+                                </button>
+                                <button className="btn btn-danger" style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem' }} onClick={() => { setSelectedRedemptionToReject(r); setRejectReason(''); setShowRejectRedemptionModal(true); }}>
+                                  Reject
+                                </button>
+                                <button className="btn btn-secondary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem' }} onClick={async () => {
+                                  const res = await fetch(`${API_BASE}/admin/redemption-approvals/${r.id}`);
+                                  if (res.ok) setSelectedRedemptionDetail(await res.json());
+                                }}>
+                                  Details
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                        {adminRedemptionApprovals.filter(r => r.status === 'PENDING_ADMIN_APPROVAL').length === 0 && (
+                          <tr><td colSpan="7" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>No pending redemption approvals.</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  )}
+
+                  {redemptionApprovalSubTab === 'approved' && (
+                    <table className="admin-table">
+                      <thead>
+                        <tr>
+                          <th>Approved Date</th>
+                          <th>Customer</th>
+                          <th>Partner</th>
+                          <th>Package</th>
+                          <th>Face Value</th>
+                          <th>Points</th>
+                          <th>Status</th>
+                          <th>Admin ID</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {adminRedemptionApprovals.filter(r => r.status === 'APPROVED_AWAITING_PARTNER').map(r => (
+                          <tr key={r.id}>
+                            <td style={{ fontSize: '0.7rem' }}>{r.approved_at ? new Date(r.approved_at).toLocaleString() : 'N/A'}</td>
+                            <td>{r.customer_name}</td>
+                            <td>{r.partner_name}</td>
+                            <td>{r.package_name}</td>
+                            <td>₹{r.face_value_rupees}</td>
+                            <td>{formatPoints(r.points_deducted)}</td>
+                            <td><span className="badge badge-primary">AWAITING PARTNER</span></td>
+                            <td style={{ fontFamily: 'monospace', fontSize: '0.7rem' }}>{r.admin_id}</td>
+                          </tr>
+                        ))}
+                        {adminRedemptionApprovals.filter(r => r.status === 'APPROVED_AWAITING_PARTNER').length === 0 && (
+                          <tr><td colSpan="8" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>No approved redemptions awaiting partner action.</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  )}
+
+                  {redemptionApprovalSubTab === 'fulfilled' && (
+                    <div>
+                      <div style={{ marginBottom: '1rem' }}>
+                        <input type="text" placeholder="Search by customer name or phone..." className="text-input" style={{ width: '250px', fontSize: '0.8rem', padding: '0.3rem 0.6rem' }} value={fulfilledSearchText} onChange={e => setFulfilledSearchText(e.target.value)} />
+                      </div>
+                      <table className="admin-table">
+                        <thead>
+                          <tr>
+                            <th>Fulfilled Date</th>
+                            <th>Customer</th>
+                            <th>Partner</th>
+                            <th>Package</th>
+                            <th>Face Value</th>
+                            <th>Points</th>
+                            <th>Partner Notes</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {adminRedemptionApprovals
+                            .filter(r => r.status === 'FULFILLED')
+                            .filter(r => !fulfilledSearchText || (r.customer_name || '').toLowerCase().includes(fulfilledSearchText.toLowerCase()) || (r.customer_phone || '').includes(fulfilledSearchText))
+                            .map(r => (
+                              <tr key={r.id}>
+                                <td style={{ fontSize: '0.7rem' }}>{r.fulfilled_at ? new Date(r.fulfilled_at).toLocaleString() : 'N/A'}</td>
+                                <td>{r.customer_name}</td>
+                                <td>{r.partner_name}</td>
+                                <td>{r.package_name}</td>
+                                <td>₹{r.face_value_rupees}</td>
+                                <td>{formatPoints(r.points_deducted)}</td>
+                                <td style={{ fontSize: '0.7rem' }}>{r.partner_notes || 'N/A'}</td>
+                              </tr>
+                            ))}
+                          {adminRedemptionApprovals.filter(r => r.status === 'FULFILLED').length === 0 && (
+                            <tr><td colSpan="7" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>No fulfilled redemptions recorded.</td></tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
+                  {redemptionApprovalSubTab === 'rejected_disputed' && (
+                    <table className="admin-table">
+                      <thead>
+                        <tr>
+                          <th>Date</th>
+                          <th>Customer</th>
+                          <th>Partner</th>
+                          <th>Package</th>
+                          <th>Status</th>
+                          <th>Reason / Details</th>
+                          <th>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {adminRedemptionApprovals.filter(r => ['REJECTED', 'DISPUTED'].includes(r.status)).map(r => (
+                          <tr key={r.id} style={r.status === 'DISPUTED' ? { background: 'rgba(234, 179, 8, 0.08)' } : {}}>
+                            <td style={{ fontSize: '0.7rem' }}>{new Date(r.updated_at || r.created_at).toLocaleString()}</td>
+                            <td>{r.customer_name}</td>
+                            <td>{r.partner_name}</td>
+                            <td>{r.package_name}</td>
+                            <td><span className={`badge ${r.status === 'DISPUTED' ? 'badge-warning' : 'badge-danger'}`}>{r.status}</span></td>
+                            <td style={{ fontSize: '0.7rem', maxWidth: '250px' }}>
+                              {r.status === 'DISPUTED' ? r.disputed_reason : r.rejected_reason}
+                            </td>
+                            <td>
+                              {r.status === 'DISPUTED' && (
+                                <button className="btn btn-warning" style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem' }} onClick={() => { setSelectedRedemptionToResolve(r); setResolveOutcome('fulfill'); setResolveNotes(''); setShowResolveDisputeModal(true); }}>
+                                  Resolve Dispute
+                                </button>
+                              )}
+                              {r.status === 'REJECTED' && (
+                                <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Points Refunded</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                        {adminRedemptionApprovals.filter(r => ['REJECTED', 'DISPUTED'].includes(r.status)).length === 0 && (
+                          <tr><td colSpan="7" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>No rejected or disputed redemptions.</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  )}
                 </div>
               )}
 
@@ -7117,6 +7780,205 @@ export default function App() {
               <button className="btn btn-danger" onClick={() => handleRemoveStoreOverride(overrideToDelete.id)}>
                 Confirm Remove
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* P2 Promote Lead to Partner Modal */}
+      {showPromoteLeadModal && selectedLeadToPromote && (
+        <div className="modal-overlay">
+          <div className="modal-content glass-card" style={{ maxWidth: '450px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h3 style={{ fontSize: '1.1rem', margin: 0 }}>Promote Lead to Partner</h3>
+              <button className="btn btn-secondary" style={{ padding: '0.2rem 0.5rem' }} onClick={() => setShowPromoteLeadModal(false)}><X size={14} /></button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+              <div className="input-group">
+                <label className="input-label">Lead Name / Business</label>
+                <input type="text" className="text-input" value={selectedLeadToPromote.name || ''} readOnly style={{ opacity: 0.7 }} />
+              </div>
+              <div className="input-group">
+                <label className="input-label">Partner Display Name</label>
+                <input type="text" className="text-input" value={promoteDisplayName} onChange={e => setPromoteDisplayName(e.target.value)} placeholder="e.g. Bishnupur Cable Network" />
+              </div>
+              <div className="input-group">
+                <label className="input-label">Service Types Offered</label>
+                <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginTop: '0.25rem' }}>
+                  {['CABLE', 'BROADBAND', 'DTH', 'OTT_BUNDLE'].map(st => (
+                    <label key={st} style={{ fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.25rem', cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={promoteServiceTypes.includes(st)}
+                        onChange={e => {
+                          if (e.target.checked) setPromoteServiceTypes([...promoteServiceTypes, st]);
+                          else setPromoteServiceTypes(promoteServiceTypes.filter(s => s !== st));
+                        }}
+                      />
+                      {st}
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+                <button className="btn btn-secondary" onClick={() => setShowPromoteLeadModal(false)}>Cancel</button>
+                <button className="btn btn-accent" onClick={handlePromoteLeadSubmit}>Promote to Partner</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* P2 Approve Redemption Modal */}
+      {showApproveRedemptionModal && selectedRedemptionToApprove && (
+        <div className="modal-overlay">
+          <div className="modal-content glass-card" style={{ maxWidth: '450px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h3 style={{ fontSize: '1.1rem', margin: 0 }}>Approve Redemption Request</h3>
+              <button className="btn btn-secondary" style={{ padding: '0.2rem 0.5rem' }} onClick={() => setShowApproveRedemptionModal(false)}><X size={14} /></button>
+            </div>
+            <div style={{ fontSize: '0.85rem', marginBottom: '1rem', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+              <div><strong>Customer:</strong> {selectedRedemptionToApprove.customer_name} ({selectedRedemptionToApprove.customer_phone})</div>
+              <div><strong>Partner:</strong> {selectedRedemptionToApprove.partner_name}</div>
+              <div><strong>Package:</strong> {selectedRedemptionToApprove.package_name}</div>
+              <div><strong>Face Value:</strong> ₹{selectedRedemptionToApprove.face_value_rupees} ({selectedRedemptionToApprove.points_deducted} points)</div>
+            </div>
+            <div className="input-group" style={{ marginBottom: '1rem' }}>
+              <label className="input-label">Admin Notes (Optional)</label>
+              <textarea className="text-input" rows={3} placeholder="Verification notes or authorization code..." value={approveNotes} onChange={e => setApproveNotes(e.target.value)} />
+            </div>
+            <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+              <button className="btn btn-secondary" onClick={() => setShowApproveRedemptionModal(false)}>Cancel</button>
+              <button className="btn btn-accent" onClick={() => handleApproveRedemption(selectedRedemptionToApprove.id, approveNotes)}>Approve Request</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* P2 Reject Redemption Modal */}
+      {showRejectRedemptionModal && selectedRedemptionToReject && (
+        <div className="modal-overlay">
+          <div className="modal-content glass-card" style={{ maxWidth: '450px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h3 style={{ fontSize: '1.1rem', margin: 0, color: 'var(--danger)' }}>Reject Redemption Request</h3>
+              <button className="btn btn-secondary" style={{ padding: '0.2rem 0.5rem' }} onClick={() => setShowRejectRedemptionModal(false)}><X size={14} /></button>
+            </div>
+            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '1rem' }}>
+              Rejecting will credit back <strong>{selectedRedemptionToReject.points_deducted} points</strong> to customer {selectedRedemptionToReject.customer_name}'s ledger as REDEEM_REFUND.
+            </p>
+            <div className="input-group" style={{ marginBottom: '1rem' }}>
+              <label className="input-label">Rejection Reason (Mandatory, min 10 chars)</label>
+              <textarea className="text-input" rows={3} placeholder="State reason for rejection..." value={rejectReason} onChange={e => setRejectReason(e.target.value)} />
+            </div>
+            <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+              <button className="btn btn-secondary" onClick={() => setShowRejectRedemptionModal(false)}>Cancel</button>
+              <button className="btn btn-danger" onClick={() => handleRejectRedemption(selectedRedemptionToReject.id, rejectReason)}>Confirm Rejection & Refund Points</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* P2 Resolve Dispute Modal */}
+      {showResolveDisputeModal && selectedRedemptionToResolve && (
+        <div className="modal-overlay">
+          <div className="modal-content glass-card" style={{ maxWidth: '450px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h3 style={{ fontSize: '1.1rem', margin: 0 }}>Resolve Partner Dispute</h3>
+              <button className="btn btn-secondary" style={{ padding: '0.2rem 0.5rem' }} onClick={() => setShowResolveDisputeModal(false)}><X size={14} /></button>
+            </div>
+            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '1rem' }}>
+              Dispute reason from partner: <em>"{selectedRedemptionToResolve.disputed_reason}"</em>
+            </p>
+            <div className="input-group" style={{ marginBottom: '0.75rem' }}>
+              <label className="input-label">Resolution Outcome</label>
+              <select className="text-input" value={resolveOutcome} onChange={e => setResolveOutcome(e.target.value)}>
+                <option value="fulfill">Override & Mark FULFILLED</option>
+                <option value="reject">Accept Dispute & REJECT (Refund Points)</option>
+              </select>
+            </div>
+            <div className="input-group" style={{ marginBottom: '1rem' }}>
+              <label className="input-label">Resolution Notes</label>
+              <textarea className="text-input" rows={3} placeholder="Notes explaining resolution..." value={resolveNotes} onChange={e => setResolveNotes(e.target.value)} />
+            </div>
+            <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+              <button className="btn btn-secondary" onClick={() => setShowResolveDisputeModal(false)}>Cancel</button>
+              <button className="btn btn-accent" onClick={() => handleResolveDispute(selectedRedemptionToResolve.id, resolveOutcome, resolveNotes)}>Submit Resolution</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* P2 Onboarded Partner Detail Modal */}
+      {selectedPartnerDetail && (
+        <div className="modal-overlay">
+          <div className="modal-content glass-card" style={{ maxWidth: '600px', maxHeight: '80vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h3 style={{ fontSize: '1.2rem', margin: 0 }}>Partner Details: {selectedPartnerDetail.display_name}</h3>
+              <button className="btn btn-secondary" style={{ padding: '0.2rem 0.5rem' }} onClick={() => setSelectedPartnerDetail(null)}><X size={14} /></button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', fontSize: '0.8rem' }}>
+              <div className="glass-card" style={{ padding: '0.75rem' }}>
+                <h4 style={{ margin: '0 0 0.5rem 0', color: 'var(--primary)' }}>Basics</h4>
+                <div>Legal Name: <strong>{selectedPartnerDetail.legal_name}</strong></div>
+                <div>Phone: <strong>{selectedPartnerDetail.contact_phone}</strong> | Email: <strong>{selectedPartnerDetail.contact_email || 'N/A'}</strong></div>
+                <div>Services: <strong>{(selectedPartnerDetail.service_types || []).join(', ')}</strong></div>
+                <div>Address: {selectedPartnerDetail.address || 'N/A'} | GST: {selectedPartnerDetail.gst_number || 'N/A'}</div>
+              </div>
+
+              <div className="glass-card" style={{ padding: '0.75rem' }}>
+                <h4 style={{ margin: '0 0 0.5rem 0', color: 'var(--primary)' }}>Service Regions ({(selectedPartnerDetail.regions || []).length})</h4>
+                {(selectedPartnerDetail.regions || []).map(r => (
+                  <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.25rem 0' }}>
+                    <span>{r.region_id === 'r1' ? 'Kolkata South' : r.region_id === 'r2' ? 'Rural Bishnupur' : r.region_id}</span>
+                    <span className={`badge ${r.is_active ? 'badge-success' : 'badge-secondary'}`}>{r.is_active ? 'Active' : 'Inactive'}</span>
+                  </div>
+                ))}
+              </div>
+
+              <div className="glass-card" style={{ padding: '0.75rem' }}>
+                <h4 style={{ margin: '0 0 0.5rem 0', color: 'var(--primary)' }}>Packages ({(selectedPartnerDetail.packages || []).length})</h4>
+                {(selectedPartnerDetail.packages || []).map(pkg => (
+                  <div key={pkg.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.25rem 0', borderBottom: '1px dashed rgba(255,255,255,0.05)' }}>
+                    <div>
+                      <strong>{pkg.package_name}</strong> ({pkg.service_type}) <br/>
+                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Face: ₹{pkg.face_value_rupees} | Cost: {pkg.point_cost} pts</span>
+                    </div>
+                    <span className={`badge ${pkg.is_active ? 'badge-success' : 'badge-secondary'}`}>{pkg.is_active ? 'Active' : 'Inactive'}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* P2 Redemption Approval Detail Modal */}
+      {selectedRedemptionDetail && (
+        <div className="modal-overlay">
+          <div className="modal-content glass-card" style={{ maxWidth: '500px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h3 style={{ fontSize: '1.1rem', margin: 0 }}>Redemption Approval Details</h3>
+              <button className="btn btn-secondary" style={{ padding: '0.2rem 0.5rem' }} onClick={() => setSelectedRedemptionDetail(null)}><X size={14} /></button>
+            </div>
+
+            <div style={{ fontSize: '0.8rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              <div><strong>Approval ID:</strong> <span style={{ fontFamily: 'monospace' }}>{selectedRedemptionDetail.id}</span></div>
+              <div><strong>Status:</strong> <span className="badge badge-primary">{selectedRedemptionDetail.status}</span></div>
+              <div><strong>Customer:</strong> {selectedRedemptionDetail.customer_name} ({selectedRedemptionDetail.customer_phone})</div>
+              <div><strong>Partner:</strong> {selectedRedemptionDetail.partner_name}</div>
+              <div><strong>Package:</strong> {selectedRedemptionDetail.package_name}</div>
+              <div><strong>Face Value:</strong> ₹{selectedRedemptionDetail.face_value_rupees}</div>
+              <div><strong>Points Deducted:</strong> {selectedRedemptionDetail.points_deducted}</div>
+              <div><strong>Ledger ID:</strong> <span style={{ fontFamily: 'monospace' }}>{selectedRedemptionDetail.ledger_id}</span></div>
+              {selectedRedemptionDetail.refund_ledger_id && <div><strong>Refund Ledger ID:</strong> <span style={{ fontFamily: 'monospace' }}>{selectedRedemptionDetail.refund_ledger_id}</span></div>}
+              {selectedRedemptionDetail.approved_at && <div><strong>Approved At:</strong> {new Date(selectedRedemptionDetail.approved_at).toLocaleString()}</div>}
+              {selectedRedemptionDetail.fulfilled_at && <div><strong>Fulfilled At:</strong> {new Date(selectedRedemptionDetail.fulfilled_at).toLocaleString()}</div>}
+              {selectedRedemptionDetail.rejected_at && <div><strong>Rejected At:</strong> {new Date(selectedRedemptionDetail.rejected_at).toLocaleString()}</div>}
+              {selectedRedemptionDetail.admin_notes && <div><strong>Admin Notes:</strong> {selectedRedemptionDetail.admin_notes}</div>}
+              {selectedRedemptionDetail.partner_notes && <div><strong>Partner Notes:</strong> {selectedRedemptionDetail.partner_notes}</div>}
+              {selectedRedemptionDetail.rejected_reason && <div><strong>Rejected Reason:</strong> {selectedRedemptionDetail.rejected_reason}</div>}
+              {selectedRedemptionDetail.disputed_reason && <div><strong>Disputed Reason:</strong> {selectedRedemptionDetail.disputed_reason}</div>}
             </div>
           </div>
         </div>

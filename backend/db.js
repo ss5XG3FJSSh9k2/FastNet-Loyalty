@@ -221,7 +221,8 @@ const DEFAULT_DB = {
   anomaly_logs: [],
   partner_leads: [],
   fraud_reports: [],
-  admin_audit_log: []
+  admin_audit_log: [],
+  redemption_approvals: []
 };
 
 // Seed r2 products
@@ -253,6 +254,7 @@ function read() {
     if (!parsed.fraud_reports) parsed.fraud_reports = [];
     if (!parsed.admin_audit_log) parsed.admin_audit_log = [];
     if (!parsed.product_bill_photos) parsed.product_bill_photos = [];
+    if (!parsed.redemption_approvals) parsed.redemption_approvals = [];
     if (!parsed.partners) parsed.partners = JSON.parse(JSON.stringify(DEFAULT_DB.partners));
     if (!parsed.partner_regions) parsed.partner_regions = JSON.parse(JSON.stringify(DEFAULT_DB.partner_regions));
     if (!parsed.partner_packages) parsed.partner_packages = JSON.parse(JSON.stringify(DEFAULT_DB.partner_packages));

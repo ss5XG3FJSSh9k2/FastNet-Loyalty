@@ -1773,19 +1773,63 @@ function getRedemptionDescription(type, pts) {
 }
 
 app.post('/api/ledger/redeem', (req, res) => {
-  const { customerId, amount, redemptionType } = req.body;
+  const customerId = req.body.customerId || req.body.customer_user_id;
+  const { amount, redemptionType, partner_package_id } = req.body;
   if (!customerId || !amount || parseFloat(amount) <= 0) {
     return res.status(400).json({ error: 'Invalid redemption parameters' });
-  }
-
-  const ALLOWED_REDEMPTION_TYPES = ['BROADBAND_DISCOUNT', 'BROADBAND_DISCOUNT_50', 'BROADBAND_DISCOUNT_100', 'WIFI_TOPUP', 'DATA_TOPUP', 'CABLE_RECHARGE'];
-  if (!redemptionType || !ALLOWED_REDEMPTION_TYPES.includes(redemptionType)) {
-    return res.status(400).json({ error: 'Invalid redemption type.' });
   }
 
   const users = db.getTable('users');
   const customer = users.find(u => u.id === customerId);
   if (!customer) return res.status(404).json({ error: 'Customer not found' });
+
+  const partnerPackages = db.getTable('partner_packages');
+  let pkg = null;
+
+  if (partner_package_id) {
+    pkg = partnerPackages.find(p => p.id === partner_package_id);
+    if (!pkg || pkg.is_active === false) {
+      return res.status(400).json({ error: 'Package missing or inactive' });
+    }
+
+    // Customer binding check
+    const bindings = db.getTable('customer_partner_bindings');
+    const binding = bindings.find(b => b.customer_user_id === customerId);
+    if (!binding) {
+      return res.status(400).json({ error: 'binding_mismatch' });
+    }
+    if (pkg.service_type === 'CABLE' && binding.cable_partner_id !== pkg.partner_id) {
+      return res.status(400).json({ error: 'binding_mismatch' });
+    }
+    if (pkg.service_type === 'BROADBAND' && binding.broadband_partner_id !== pkg.partner_id) {
+      return res.status(400).json({ error: 'binding_mismatch' });
+    }
+
+    // Customer region coverage check
+    const customerRegion = customer.region_id;
+    const partnerRegions = db.getTable('partner_regions');
+    const activeRegions = pkg.active_regions || [];
+    const isRegionActive = activeRegions.includes(customerRegion) && partnerRegions.some(pr =>
+      pr.partner_id === pkg.partner_id &&
+      pr.region_id === customerRegion &&
+      pr.service_type === pkg.service_type &&
+      pr.is_active !== false
+    );
+    if (!isRegionActive) {
+      return res.status(400).json({ error: 'partner_region_inactive' });
+    }
+
+    // Amount match check
+    if (parseFloat(amount) !== parseFloat(pkg.point_cost)) {
+      return res.status(400).json({ error: 'amount_mismatch' });
+    }
+  } else {
+    // Legacy generic path validation
+    const ALLOWED_REDEMPTION_TYPES = ['BROADBAND_DISCOUNT', 'BROADBAND_DISCOUNT_50', 'BROADBAND_DISCOUNT_100', 'WIFI_TOPUP', 'DATA_TOPUP', 'CABLE_RECHARGE'];
+    if (!redemptionType || !ALLOWED_REDEMPTION_TYPES.includes(redemptionType)) {
+      return res.status(400).json({ error: 'Invalid redemption type.' });
+    }
+  }
 
   const ledger = db.getTable('points_ledger');
   const customerLedger = ledger.filter(l => l.customer_id === customerId);
@@ -1798,7 +1842,8 @@ app.post('/api/ledger/redeem', (req, res) => {
   const redeemAmount = -Math.abs(parseFloat(amount));
   const ledgerId = 'l-' + generateId();
   const pts = parseFloat(amount);
-  const description = getRedemptionDescription(redemptionType, pts);
+  const finalRedemptionType = partner_package_id ? (pkg.service_type === 'CABLE' ? 'CABLE_RECHARGE' : 'BROADBAND_DISCOUNT') : redemptionType;
+  const description = partner_package_id ? `Partner Package Redemption: ${pkg.name}` : getRedemptionDescription(finalRedemptionType, pts);
 
   ledger.push({
     id: ledgerId,
@@ -1807,7 +1852,7 @@ app.post('/api/ledger/redeem', (req, res) => {
     customer_id: customer.id,
     amount: redeemAmount,
     type: 'REDEEM',
-    redemption_type: redemptionType,
+    redemption_type: finalRedemptionType,
     order_id: null,
     description,
     created_at: new Date().toISOString(),
@@ -1815,7 +1860,48 @@ app.post('/api/ledger/redeem', (req, res) => {
   });
   db.saveTable('points_ledger', ledger);
 
-  return res.json({ success: true, ledgerId, remaining_balance: currentBalance + redeemAmount, message: 'Points successfully queued for redemption.' });
+  let approvalId = null;
+  if (partner_package_id) {
+    const redemptionApprovals = db.getTable('redemption_approvals');
+    approvalId = 'ra-' + generateId();
+    const now = new Date().toISOString();
+    const approvalRow = {
+      id: approvalId,
+      ledger_id: ledgerId,
+      customer_user_id: customer.id,
+      partner_id: pkg.partner_id,
+      partner_package_id: pkg.id,
+      face_value_rupees: pkg.face_value_rupees,
+      points_deducted: pkg.point_cost,
+      status: 'PENDING_ADMIN_APPROVAL',
+      admin_notes: null,
+      partner_notes: null,
+      rejected_reason: null,
+      disputed_reason: null,
+      admin_id: null,
+      approved_at: null,
+      rejected_at: null,
+      fulfilled_at: null,
+      disputed_at: null,
+      refund_ledger_id: null,
+      created_at: now,
+      updated_at: now
+    };
+    redemptionApprovals.push(approvalRow);
+    db.saveTable('redemption_approvals', redemptionApprovals);
+  }
+
+  const responseObj = {
+    success: true,
+    ledgerId,
+    remaining_balance: currentBalance + redeemAmount,
+    message: 'Points successfully queued for redemption.'
+  };
+  if (approvalId) {
+    responseObj.approval_id = approvalId;
+    responseObj.redemption_approval = db.getTable('redemption_approvals').find(a => a.id === approvalId);
+  }
+  return res.json(responseObj);
 });
 
 // ----------------------------------------------------
@@ -3854,6 +3940,487 @@ app.get('/api/customer/partner-bindings/:customer_user_id/available', (req, res)
   return res.json({
     cable: cablePartners,
     broadband: broadbandPartners
+  });
+});
+
+
+// ==========================================
+// ROUND P2 — REDEMPTION APPROVAL & HEALTH ENDPOINTS
+// ==========================================
+
+// 1.3 Admin Redemption Approvals Endpoints
+app.get('/api/admin/redemption-approvals', (req, res) => {
+  const { status, partner_id, customer_user_id, date_from, date_to } = req.query;
+  let approvals = db.getTable('redemption_approvals');
+
+  if (status) approvals = approvals.filter(a => a.status === status);
+  if (partner_id) approvals = approvals.filter(a => a.partner_id === partner_id);
+  if (customer_user_id) approvals = approvals.filter(a => a.customer_user_id === customer_user_id);
+  if (date_from) approvals = approvals.filter(a => new Date(a.created_at) >= new Date(date_from));
+  if (date_to) approvals = approvals.filter(a => new Date(a.created_at) <= new Date(date_to));
+
+  const users = db.getTable('users');
+  const partners = db.getTable('partners');
+  const packages = db.getTable('partner_packages');
+
+  const result = approvals.map(a => {
+    const cust = users.find(u => u.id === a.customer_user_id);
+    const ptr = partners.find(p => p.id === a.partner_id);
+    const pkg = packages.find(p => p.id === a.partner_package_id);
+    return {
+      ...a,
+      customer_name: cust ? cust.name : 'Unknown Customer',
+      customer_phone: cust ? cust.phone : '',
+      partner_name: ptr ? ptr.display_name : 'Unknown Partner',
+      package_name: pkg ? pkg.name : 'Unknown Package'
+    };
+  });
+
+  return res.json(result);
+});
+
+app.get('/api/admin/redemption-approvals/:id', (req, res) => {
+  const { id } = req.params;
+  const approvals = db.getTable('redemption_approvals');
+  const approval = approvals.find(a => a.id === id);
+  if (!approval) return res.status(404).json({ error: 'Redemption approval not found' });
+
+  const users = db.getTable('users');
+  const partners = db.getTable('partners');
+  const packages = db.getTable('partner_packages');
+  const ledger = db.getTable('points_ledger');
+
+  const customer = users.find(u => u.id === approval.customer_user_id) || null;
+  const partner = partners.find(p => p.id === approval.partner_id) || null;
+  const pkg = packages.find(p => p.id === approval.partner_package_id) || null;
+  const ledgerRow = ledger.find(l => l.id === approval.ledger_id) || null;
+
+  return res.json({
+    ...approval,
+    customer_name: customer ? customer.name : 'Unknown Customer',
+    customer_phone: customer ? customer.phone : '',
+    partner_name: partner ? partner.display_name : 'Unknown Partner',
+    package_name: pkg ? pkg.name : 'Unknown Package',
+    customer,
+    partner,
+    package: pkg,
+    ledger_row: ledgerRow
+  });
+});
+
+app.post('/api/admin/redemption-approvals/:id/approve', (req, res) => {
+  const { id } = req.params;
+  const { admin_id, notes } = req.body;
+
+  const approvals = db.getTable('redemption_approvals');
+  const approval = approvals.find(a => a.id === id);
+  if (!approval) return res.status(404).json({ error: 'Redemption approval not found' });
+
+  if (approval.status !== 'PENDING_ADMIN_APPROVAL') {
+    return res.status(400).json({ error: 'invalid_transition' });
+  }
+
+  approval.status = 'APPROVED_AWAITING_PARTNER';
+  approval.admin_id = admin_id || 'u-admin';
+  if (notes) approval.admin_notes = notes;
+  approval.approved_at = new Date().toISOString();
+  approval.updated_at = new Date().toISOString();
+
+  db.saveTable('redemption_approvals', approvals);
+  appendAudit(req, 'APPROVE_REDEMPTION', 'redemption_approval', id, { status: 'PENDING_ADMIN_APPROVAL' }, { status: approval.status }, notes);
+
+  return res.json(approval);
+});
+
+app.post('/api/admin/redemption-approvals/:id/reject', (req, res) => {
+  const { id } = req.params;
+  const { admin_id, reason } = req.body;
+
+  if (!reason || reason.trim().length < 10) {
+    return res.status(400).json({ error: 'Reason must be at least 10 characters long' });
+  }
+
+  const approvals = db.getTable('redemption_approvals');
+  const approval = approvals.find(a => a.id === id);
+  if (!approval) return res.status(404).json({ error: 'Redemption approval not found' });
+
+  if (approval.status !== 'PENDING_ADMIN_APPROVAL' && approval.status !== 'DISPUTED') {
+    return res.status(400).json({ error: 'invalid_transition' });
+  }
+
+  const oldStatus = approval.status;
+  approval.status = 'REJECTED';
+  approval.admin_id = admin_id || 'u-admin';
+  approval.rejected_reason = reason.trim();
+  approval.rejected_at = new Date().toISOString();
+  approval.updated_at = new Date().toISOString();
+
+  // Append NEW points_ledger credit row
+  const ledger = db.getTable('points_ledger');
+  const users = db.getTable('users');
+  const cust = users.find(u => u.id === approval.customer_user_id);
+  const refundLedgerId = 'l-' + generateId();
+  ledger.push({
+    id: refundLedgerId,
+    tenant_id: cust ? cust.tenant_id : 't1',
+    region_id: cust ? cust.region_id : 'r1',
+    customer_id: approval.customer_user_id,
+    amount: Math.abs(parseFloat(approval.points_deducted)),
+    type: 'REDEEM_REFUND',
+    order_id: null,
+    description: `Refund for rejected redemption approval ${approval.id}`,
+    created_at: new Date().toISOString()
+  });
+  db.saveTable('points_ledger', ledger);
+
+  approval.refund_ledger_id = refundLedgerId;
+  db.saveTable('redemption_approvals', approvals);
+
+  appendAudit(req, 'REJECT_REDEMPTION', 'redemption_approval', id, { status: oldStatus }, { status: approval.status, refund_ledger_id: refundLedgerId }, reason);
+
+  return res.json(approval);
+});
+
+app.post('/api/admin/redemption-approvals/:id/resolve-dispute', (req, res) => {
+  const { id } = req.params;
+  const { admin_id, outcome, notes } = req.body;
+
+  if (!outcome || !['fulfill', 'reject'].includes(outcome)) {
+    return res.status(400).json({ error: 'outcome must be fulfill or reject' });
+  }
+
+  const approvals = db.getTable('redemption_approvals');
+  const approval = approvals.find(a => a.id === id);
+  if (!approval) return res.status(404).json({ error: 'Redemption approval not found' });
+
+  if (approval.status !== 'DISPUTED') {
+    return res.status(400).json({ error: 'invalid_transition' });
+  }
+
+  approval.admin_id = admin_id || 'u-admin';
+  if (notes) approval.admin_notes = notes;
+  approval.updated_at = new Date().toISOString();
+
+  if (outcome === 'fulfill') {
+    approval.status = 'FULFILLED';
+    approval.fulfilled_at = new Date().toISOString();
+    db.saveTable('redemption_approvals', approvals);
+    appendAudit(req, 'RESOLVE_DISPUTE_FULFILL', 'redemption_approval', id, { status: 'DISPUTED' }, { status: 'FULFILLED' }, notes);
+    return res.json(approval);
+  } else {
+    approval.status = 'REJECTED';
+    approval.rejected_at = new Date().toISOString();
+
+    // Append NEW points_ledger credit row
+    const ledger = db.getTable('points_ledger');
+    const users = db.getTable('users');
+    const cust = users.find(u => u.id === approval.customer_user_id);
+    const refundLedgerId = 'l-' + generateId();
+    ledger.push({
+      id: refundLedgerId,
+      tenant_id: cust ? cust.tenant_id : 't1',
+      region_id: cust ? cust.region_id : 'r1',
+      customer_id: approval.customer_user_id,
+      amount: Math.abs(parseFloat(approval.points_deducted)),
+      type: 'REDEEM_REFUND',
+      order_id: null,
+      description: `Refund for rejected redemption approval ${approval.id}`,
+      created_at: new Date().toISOString()
+    });
+    db.saveTable('points_ledger', ledger);
+
+    approval.refund_ledger_id = refundLedgerId;
+    db.saveTable('redemption_approvals', approvals);
+    appendAudit(req, 'RESOLVE_DISPUTE_REJECT', 'redemption_approval', id, { status: 'DISPUTED' }, { status: 'REJECTED', refund_ledger_id: refundLedgerId }, notes);
+    return res.json(approval);
+  }
+});
+
+// 1.4 Partner Endpoints (Session-authed)
+app.get('/api/partner/redemption-queue', (req, res) => {
+  const session = getPartnerSession(req);
+  if (!session) return res.status(401).json({ error: 'Unauthorized' });
+
+  const approvals = db.getTable('redemption_approvals');
+  const partnerApprovals = approvals.filter(a =>
+    a.partner_id === session.partnerId &&
+    ['APPROVED_AWAITING_PARTNER', 'DISPUTED'].includes(a.status)
+  );
+
+  const users = db.getTable('users');
+  const packages = db.getTable('partner_packages');
+
+  const result = partnerApprovals.map(a => {
+    const cust = users.find(u => u.id === a.customer_user_id);
+    const pkg = packages.find(p => p.id === a.partner_package_id);
+    return {
+      ...a,
+      customer_name: cust ? cust.name : 'Unknown Customer',
+      customer_phone: cust ? cust.phone : '',
+      package_name: pkg ? pkg.name : 'Unknown Package'
+    };
+  });
+
+  return res.json(result);
+});
+
+app.get('/api/partner/redemption-history', (req, res) => {
+  const session = getPartnerSession(req);
+  if (!session) return res.status(401).json({ error: 'Unauthorized' });
+
+  const { status, date_from, date_to } = req.query;
+  let approvals = db.getTable('redemption_approvals').filter(a => a.partner_id === session.partnerId);
+
+  if (status) approvals = approvals.filter(a => a.status === status);
+  if (date_from) approvals = approvals.filter(a => new Date(a.created_at) >= new Date(date_from));
+  if (date_to) approvals = approvals.filter(a => new Date(a.created_at) <= new Date(date_to));
+
+  const users = db.getTable('users');
+  const packages = db.getTable('partner_packages');
+
+  const result = approvals.map(a => {
+    const cust = users.find(u => u.id === a.customer_user_id);
+    const pkg = packages.find(p => p.id === a.partner_package_id);
+    return {
+      ...a,
+      customer_name: cust ? cust.name : 'Unknown Customer',
+      customer_phone: cust ? cust.phone : '',
+      package_name: pkg ? pkg.name : 'Unknown Package'
+    };
+  });
+
+  return res.json(result);
+});
+
+app.post('/api/partner/redemption-approvals/:id/fulfill', (req, res) => {
+  const session = getPartnerSession(req);
+  if (!session) return res.status(401).json({ error: 'Unauthorized' });
+
+  const { id } = req.params;
+  const { partner_notes } = req.body;
+
+  const approvals = db.getTable('redemption_approvals');
+  const approval = approvals.find(a => a.id === id);
+  if (!approval) return res.status(404).json({ error: 'Redemption approval not found' });
+
+  if (approval.partner_id !== session.partnerId) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+
+  if (approval.status !== 'APPROVED_AWAITING_PARTNER' && approval.status !== 'DISPUTED') {
+    return res.status(400).json({ error: 'invalid_transition' });
+  }
+
+  const oldStatus = approval.status;
+  approval.status = 'FULFILLED';
+  if (partner_notes) approval.partner_notes = partner_notes;
+  approval.fulfilled_at = new Date().toISOString();
+  approval.updated_at = new Date().toISOString();
+
+  db.saveTable('redemption_approvals', approvals);
+
+  const auditLogs = db.getTable('admin_audit_log');
+  auditLogs.push({
+    id: 'aud-' + generateId(),
+    action: 'PARTNER_FULFILLED',
+    entity_type: 'redemption_approval',
+    entity_id: id,
+    user_id: session.userId,
+    before: { status: oldStatus },
+    after: { status: 'FULFILLED' },
+    notes: partner_notes || 'Partner fulfilled redemption',
+    created_at: new Date().toISOString()
+  });
+  db.saveTable('admin_audit_log', auditLogs);
+
+  return res.json(approval);
+});
+
+app.post('/api/partner/redemption-approvals/:id/dispute', (req, res) => {
+  const session = getPartnerSession(req);
+  if (!session) return res.status(401).json({ error: 'Unauthorized' });
+
+  const { id } = req.params;
+  const { reason } = req.body;
+
+  if (!reason || reason.trim().length < 10) {
+    return res.status(400).json({ error: 'Reason must be at least 10 characters long' });
+  }
+
+  const approvals = db.getTable('redemption_approvals');
+  const approval = approvals.find(a => a.id === id);
+  if (!approval) return res.status(404).json({ error: 'Redemption approval not found' });
+
+  if (approval.partner_id !== session.partnerId) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+
+  if (approval.status !== 'APPROVED_AWAITING_PARTNER') {
+    return res.status(400).json({ error: 'invalid_transition' });
+  }
+
+  approval.status = 'DISPUTED';
+  approval.disputed_reason = reason.trim();
+  approval.disputed_at = new Date().toISOString();
+  approval.updated_at = new Date().toISOString();
+
+  db.saveTable('redemption_approvals', approvals);
+
+  const auditLogs = db.getTable('admin_audit_log');
+  auditLogs.push({
+    id: 'aud-' + generateId(),
+    action: 'PARTNER_DISPUTED',
+    entity_type: 'redemption_approval',
+    entity_id: id,
+    user_id: session.userId,
+    before: { status: 'APPROVED_AWAITING_PARTNER' },
+    after: { status: 'DISPUTED', disputed_reason: reason.trim() },
+    notes: reason.trim(),
+    created_at: new Date().toISOString()
+  });
+  db.saveTable('admin_audit_log', auditLogs);
+
+  return res.json(approval);
+});
+
+// 1.5 Customer Status Endpoint
+app.get('/api/customer/redemption-status/:approval_id', (req, res) => {
+  const { approval_id } = req.params;
+  const { customer_user_id } = req.query;
+
+  const approvals = db.getTable('redemption_approvals');
+  const approval = approvals.find(a => a.id === approval_id);
+  if (!approval) return res.status(404).json({ error: 'Redemption approval not found' });
+
+  if (customer_user_id && approval.customer_user_id !== customer_user_id) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+
+  return res.json({
+    status: approval.status,
+    approval,
+    timeline: {
+      created_at: approval.created_at,
+      approved_at: approval.approved_at,
+      fulfilled_at: approval.fulfilled_at,
+      rejected_at: approval.rejected_at,
+      disputed_at: approval.disputed_at
+    }
+  });
+});
+
+// Part 4 — Admin Health Dashboard API
+app.get('/api/admin/health', (req, res) => {
+  const now = Date.now();
+  const approvals = db.getTable('redemption_approvals');
+  const stockists = db.getTable('stockists');
+  const partners = db.getTable('partners');
+  const orders = db.getTable('orders');
+  const fraudReports = db.getTable('fraud_reports');
+  const users = db.getTable('users');
+  const ledger = db.getTable('points_ledger');
+
+  // 4.1 Redemption pipeline health
+  const pending_over_24h_count = approvals.filter(a =>
+    a.status === 'PENDING_ADMIN_APPROVAL' &&
+    (now - new Date(a.created_at).getTime()) > 24 * 3600 * 1000
+  ).length;
+
+  const approved_over_48h_count = approvals.filter(a =>
+    a.status === 'APPROVED_AWAITING_PARTNER' &&
+    a.approved_at &&
+    (now - new Date(a.approved_at).getTime()) > 48 * 3600 * 1000
+  ).length;
+
+  // 4.2 Partner fulfillment speed (last 30 days, slowest-first top 10)
+  const thirtyDaysAgo = now - 30 * 24 * 3600 * 1000;
+  const fulfilledLast30 = approvals.filter(a =>
+    a.status === 'FULFILLED' &&
+    a.approved_at &&
+    a.fulfilled_at &&
+    new Date(a.fulfilled_at).getTime() >= thirtyDaysAgo
+  );
+
+  const partnerTimes = {};
+  fulfilledLast30.forEach(a => {
+    const hours = (new Date(a.fulfilled_at).getTime() - new Date(a.approved_at).getTime()) / (3600 * 1000);
+    if (!partnerTimes[a.partner_id]) partnerTimes[a.partner_id] = [];
+    partnerTimes[a.partner_id].push(hours);
+  });
+
+  const partner_fulfillment_speed = Object.keys(partnerTimes).map(partner_id => {
+    const times = partnerTimes[partner_id].sort((x, y) => x - y);
+    const mid = Math.floor(times.length / 2);
+    const median_hours = times.length % 2 !== 0 ? times[mid] : (times[mid - 1] + times[mid]) / 2;
+    const partnerObj = partners.find(p => p.id === partner_id);
+    return {
+      partner_id,
+      partner_name: partnerObj ? partnerObj.display_name : partner_id,
+      median_hours: Math.round(median_hours * 10) / 10
+    };
+  }).sort((a, b) => b.median_hours - a.median_hours).slice(0, 10);
+
+  // 4.3 Stockist volume leaderboard (30d GMV descending)
+  const ordersLast30 = orders.filter(o => o.status !== 'CANCELLED' && new Date(o.createdAt || o.created_at || now).getTime() >= thirtyDaysAgo);
+  const stockistGmvMap = {};
+  ordersLast30.forEach(o => {
+    if (o.stockistId) {
+      stockistGmvMap[o.stockistId] = (stockistGmvMap[o.stockistId] || 0) + (o.subtotal || 0);
+    }
+  });
+
+  const stockist_volume_leaderboard = stockists.map(s => {
+    return {
+      stockist_id: s.id,
+      stockist_name: s.name,
+      region_id: s.region_id,
+      gmv_30d: stockistGmvMap[s.id] || 0
+    };
+  }).sort((a, b) => b.gmv_30d - a.gmv_30d).slice(0, 10);
+
+  // 4.4 New arrivals (last 30 days)
+  const new_stockists_30d = stockists.filter(s => new Date(s.created_at || now).getTime() >= thirtyDaysAgo).length;
+  const new_partners_30d = partners.filter(p => new Date(p.onboarded_at || p.created_at || now).getTime() >= thirtyDaysAgo).length;
+
+  // 4.5 Fraud signals (NEW or TRIAGING fraud reports by entity)
+  const activeFrauds = fraudReports.filter(f => ['NEW', 'TRIAGING'].includes(f.status));
+  const entityMap = {};
+  activeFrauds.forEach(f => {
+    const key = (f.linked_entity_type || 'general') + ':' + (f.linked_entity_id || 'unknown');
+    if (!entityMap[key]) {
+      entityMap[key] = {
+        entity_id: f.linked_entity_id || key,
+        entity_type: f.linked_entity_type || 'general',
+        entity_name: f.subject || f.linked_entity_id || 'Unknown',
+        active_reports_count: 0
+      };
+    }
+    entityMap[key].active_reports_count += 1;
+  });
+  const fraud_signals = Object.values(entityMap);
+
+  // 4.6 System stats
+  const system_stats = {
+    total_customers: users.filter(u => u.role === 'CUSTOMER').length,
+    total_stockists: stockists.length,
+    total_onboarded_partners: partners.filter(p => p.is_active !== false).length,
+    total_redemption_approvals: approvals.length,
+    total_ledger_entries: ledger.length
+  };
+
+  return res.json({
+    redemption_pipeline: {
+      pending_over_24h_count,
+      approved_over_48h_count
+    },
+    partner_fulfillment_speed,
+    stockist_volume_leaderboard,
+    new_arrivals: {
+      new_stockists_30d,
+      new_partners_30d
+    },
+    fraud_signals,
+    system_stats
   });
 });
 
