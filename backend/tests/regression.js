@@ -1797,6 +1797,155 @@ async function main() {
   assert(p2_invalidResolveRes.status === 400, 'Resolving dispute on non-disputed approval returns 400');
   assert(p2_invalidResolveRes.body.error === 'invalid_transition', 'Error code is invalid_transition');
 
+  // === ROUND P3 TESTS ===
+  console.log('\n--- Round P3: Customer Signup Partner Selection ---');
+
+  // We need a couple of active partners set up for testing:
+  const p3_bbRes = await post('http://localhost:3001/api/admin/partners', {
+    display_name: 'Test Broadband Partner R1',
+    legal_name: 'Test Broadband Ltd',
+    contact_phone: '9876543299',
+    contact_email: 'bb@partner.com',
+    address: '123 BB St',
+    service_types: ['BROADBAND'],
+    admin_id: 'u-admin'
+  });
+  assert(p3_bbRes.status === 200, 'Created test broadband partner for P3');
+  const p3_bbPartnerId = p3_bbRes.body.partner.id;
+
+  await post(`http://localhost:3001/api/admin/partners/${p3_bbPartnerId}/regions`, {
+    region_id: 'r1',
+    service_type: 'BROADBAND',
+    admin_id: 'u-admin'
+  });
+
+  // Test 1: GET /api/customer/available-partners?region_id=r1 returns cable and broadband arrays without sensitive fields
+  const p3_availRes = await get('http://localhost:3001/api/customer/available-partners?region_id=r1');
+  assert(p3_availRes.status === 200, 'GET available-partners returns 200');
+  assert(Array.isArray(p3_availRes.body.cable) && Array.isArray(p3_availRes.body.broadband), 'Returns cable and broadband arrays');
+  const sampleCable = p3_availRes.body.cable[0];
+  assert(sampleCable.id && sampleCable.display_name && sampleCable.service_types, 'Exposes id, display_name, service_types');
+  assert(!sampleCable.email && !sampleCable.gstin && !sampleCable.users, 'Does not expose sensitive partner fields');
+
+  // Test 2: GET /api/customer/available-partners without region_id returns 400
+  const p3_availNoRegion = await get('http://localhost:3001/api/customer/available-partners');
+  assert(p3_availNoRegion.status === 400, 'Missing region_id returns 400');
+
+  // Test 3: POST /api/auth/register-customer with valid partner bindings succeeds
+  const p3_custPhone1 = '9800000001';
+  const p3_regRes1 = await post('http://localhost:3001/api/auth/register-customer', {
+    phone: p3_custPhone1,
+    name: 'P3 Customer One',
+    regionId: 'r1',
+    address: '123 Test St',
+    cable_partner_id: 'ptr-adhya',
+    broadband_partner_id: p3_bbPartnerId
+  });
+  assert(p3_regRes1.status === 200, 'Customer registration with bindings returns 200');
+  assert(p3_regRes1.body.user && p3_regRes1.body.user.id, 'Returns user object');
+  assert(p3_regRes1.body.bindings.cable_partner_id === 'ptr-adhya', 'Cable binding saved correctly');
+  assert(p3_regRes1.body.bindings.broadband_partner_id === p3_bbPartnerId, 'Broadband binding saved correctly');
+  const p3_custId1 = p3_regRes1.body.user.id;
+
+  // Test 4: POST /api/auth/register-customer with invalid partner_id returns 400 invalid_partner_binding
+  const p3_regResInvalid = await post('http://localhost:3001/api/auth/register-customer', {
+    phone: '9800000002',
+    name: 'P3 Customer Two',
+    regionId: 'r1',
+    cable_partner_id: 'p-nonexistent'
+  });
+  assert(p3_regResInvalid.status === 400, 'Register with non-existent partner returns 400');
+  assert(p3_regResInvalid.body.error === 'invalid_partner_binding', 'Error code is invalid_partner_binding');
+
+  // Test 5: POST /api/auth/register-customer with wrong service_type binding returns 400
+  const p3_regResWrongType = await post('http://localhost:3001/api/auth/register-customer', {
+    phone: '9800000003',
+    name: 'P3 Customer Three',
+    regionId: 'r1',
+    broadband_partner_id: 'ptr-adhya'
+  });
+  assert(p3_regResWrongType.status === 400, 'Register with wrong service_type partner returns 400');
+  assert(p3_regResWrongType.body.error === 'invalid_partner_binding', 'Error code is invalid_partner_binding');
+
+  // Test 6: POST /api/auth/register-customer with partner not serving customer region returns 400
+  const p3_regResWrongRegion = await post('http://localhost:3001/api/auth/register-customer', {
+    phone: '9800000004',
+    name: 'P3 Customer Four',
+    regionId: 'r2',
+    broadband_partner_id: p3_bbPartnerId
+  });
+  assert(p3_regResWrongRegion.status === 400, 'Register with partner not covering region returns 400');
+  assert(p3_regResWrongRegion.body.error === 'invalid_partner_binding', 'Error code is invalid_partner_binding');
+
+  // Test 7: GET /api/customer/:id/profile returns user details, current bindings, and available partners
+  const p3_profRes1 = await get(`http://localhost:3001/api/customer/${p3_custId1}/profile`);
+  assert(p3_profRes1.status === 200, 'GET customer profile returns 200');
+  assert(p3_profRes1.body.user.name === 'P3 Customer One', 'User name matches');
+  assert(p3_profRes1.body.bindings.cable_partner_id === 'ptr-adhya', 'Bindings cable_partner_id matches');
+  assert(Array.isArray(p3_profRes1.body.available_partners.cable), 'available_partners cable list present');
+
+  // Test 8: POST /api/customer/:id/profile updates name and address
+  const p3_updateProfRes = await post(`http://localhost:3001/api/customer/${p3_custId1}/profile`, {
+    name: 'P3 Customer One Updated',
+    address: '456 Updated Ave'
+  });
+  assert(p3_updateProfRes.status === 200, 'POST customer profile returns 200');
+  assert(p3_updateProfRes.body.user.name === 'P3 Customer One Updated', 'Profile name updated');
+  assert(p3_updateProfRes.body.user.address === '456 Updated Ave', 'Profile address updated');
+
+  // Test 9: POST /api/customer/partner-bindings updates bindings for existing customer
+  const p3_bindRes1 = await post('http://localhost:3001/api/customer/partner-bindings', {
+    customer_user_id: p3_custId1,
+    cable_partner_id: 'ptr-adhya',
+    broadband_partner_id: null
+  });
+  assert(p3_bindRes1.status === 200, 'POST partner-bindings returns 200');
+  assert(p3_bindRes1.body.cable_partner_id === 'ptr-adhya', 'Cable binding updated');
+  assert(p3_bindRes1.body.broadband_partner_id === null, 'Broadband binding set to null');
+
+  // Test 10: Explicit null binding records audit log entry
+  const p3_auditLogCheck = await get('http://localhost:3001/api/admin/audit-log');
+  const nullBindLog = p3_auditLogCheck.body.find(l => l.action === 'UPDATE_PARTNER_BINDING' && l.entity_id === p3_custId1);
+  assert(nullBindLog !== undefined, 'Audit log entry created for customer binding update');
+
+  // Test 11: Binding an inactive partner returns 400 invalid_partner_binding
+  await post(`http://localhost:3001/api/admin/partners/${p3_bbPartnerId}/deactivate`, { admin_id: 'u-admin' });
+  const p3_bindInactive = await post('http://localhost:3001/api/customer/partner-bindings', {
+    customer_user_id: p3_custId1,
+    broadband_partner_id: p3_bbPartnerId
+  });
+  assert(p3_bindInactive.status === 400, 'Binding inactive partner returns 400');
+  assert(p3_bindInactive.body.error === 'invalid_partner_binding', 'Error code is invalid_partner_binding');
+
+  // Re-activate p3_bbPartnerId
+  await post(`http://localhost:3001/api/admin/partners/${p3_bbPartnerId}/reactivate`, { admin_id: 'u-admin' });
+
+  // Test 12: GET /api/customer/:id/profile with non-existent customer_user_id returns 404
+  const p3_prof404 = await get('http://localhost:3001/api/customer/u-nonexistent/profile');
+  assert(p3_prof404.status === 404, 'Non-existent customer profile returns 404');
+
+  // Test 13: POST /api/customer/partner-bindings with non-existent customer_user_id returns 404
+  const p3_bind404 = await post('http://localhost:3001/api/customer/partner-bindings', {
+    customer_user_id: 'u-nonexistent',
+    cable_partner_id: 'ptr-adhya'
+  });
+  assert(p3_bind404.status === 404, 'Partner-bindings for non-existent customer returns 404');
+
+  // Test 14: App.jsx contains CHOOSE YOUR LOCAL CABLE OPERATOR text or trilingual translations
+  assert(appJsx.includes('CHOOSE YOUR LOCAL CABLE OPERATOR'), 'App.jsx contains CHOOSE YOUR LOCAL CABLE OPERATOR label');
+
+  // Test 15: App.jsx contains handling for noCableProvider state variable
+  assert(appJsx.includes('noCableProvider'), 'App.jsx contains noCableProvider state handling');
+
+  // Test 16: App.jsx contains Do you have a local internet broadband question
+  assert(appJsx.includes('Do you have a local internet'), 'App.jsx contains broadband question');
+
+  // Test 17: App.jsx contains My Profile view with binding change handlers
+  assert(appJsx.includes('My Profile') && appJsx.includes('handleSaveProfile'), 'App.jsx contains My Profile view');
+
+  // Test 18: App.jsx contains at least one call to /api/customer/available-partners
+  assert(appJsx.includes('/customer/available-partners'), 'App.jsx calls /api/customer/available-partners');
+
   console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);
 }

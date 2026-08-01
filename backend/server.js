@@ -144,7 +144,7 @@ app.post('/api/auth/verify-otp', (req, res) => {
 
 // Register new Customer
 app.post('/api/auth/register-customer', (req, res) => {
-  const { phone, name, regionId, address } = req.body;
+  const { phone, name, regionId, address, cable_partner_id, broadband_partner_id } = req.body;
   if (!phone || !name || !regionId) {
     return res.status(400).json({ error: 'Name, phone, and region are required' });
   }
@@ -152,6 +152,25 @@ app.post('/api/auth/register-customer', (req, res) => {
   const users = db.getTable('users');
   if (users.some(u => u.phone === phone)) {
     return res.status(400).json({ error: 'An account with this phone number already exists' });
+  }
+
+  const partners = db.getTable('partners');
+  const partnerRegions = db.getTable('partner_regions');
+
+  if (cable_partner_id) {
+    const cp = partners.find(p => p.id === cable_partner_id && p.is_active !== false);
+    const cpServes = cp && partnerRegions.some(pr => pr.partner_id === cable_partner_id && pr.region_id === regionId && pr.service_type === 'CABLE' && pr.is_active !== false);
+    if (!cp || !cpServes) {
+      return res.status(400).json({ error: 'invalid_partner_binding', field: 'cable_partner_id', message: 'Cable partner invalid or does not serve region' });
+    }
+  }
+
+  if (broadband_partner_id) {
+    const bp = partners.find(p => p.id === broadband_partner_id && p.is_active !== false);
+    const bpServes = bp && partnerRegions.some(pr => pr.partner_id === broadband_partner_id && pr.region_id === regionId && pr.service_type === 'BROADBAND' && pr.is_active !== false);
+    if (!bp || !bpServes) {
+      return res.status(400).json({ error: 'invalid_partner_binding', field: 'broadband_partner_id', message: 'Broadband partner invalid or does not serve region' });
+    }
   }
 
   const user = {
@@ -169,7 +188,26 @@ app.post('/api/auth/register-customer', (req, res) => {
 
   users.push(user);
   db.saveTable('users', users);
-  return res.json({ success: true, user });
+
+  let bindings = null;
+  if (cable_partner_id || broadband_partner_id) {
+    const customerPartnerBindings = db.getTable('customer_partner_bindings');
+    const now = new Date().toISOString();
+    bindings = {
+      customer_user_id: user.id,
+      cable_partner_id: cable_partner_id || null,
+      broadband_partner_id: broadband_partner_id || null,
+      created_at: now,
+      updated_at: now
+    };
+    customerPartnerBindings.push(bindings);
+    db.saveTable('customer_partner_bindings', customerPartnerBindings);
+    appendAudit(req, 'CREATE_PARTNER_BINDING', 'customer_partner_binding', user.id, null, bindings);
+  }
+
+  const resObj = { success: true, user };
+  if (bindings) resObj.bindings = bindings;
+  return res.json(resObj);
 });
 
 // Register new Stockist (PENDING KYC)
@@ -3864,22 +3902,22 @@ app.post('/api/customer/partner-bindings', (req, res) => {
   if (cable_partner_id) {
     const cp = partners.find(p => p.id === cable_partner_id && p.is_active !== false);
     if (!cp || !cp.service_types || !cp.service_types.includes('CABLE')) {
-      return res.status(400).json({ error: 'Invalid cable partner' });
+      return res.status(400).json({ error: 'invalid_partner_binding', message: 'Invalid cable partner' });
     }
     const servesRegion = partnerRegions.some(pr => pr.partner_id === cable_partner_id && pr.region_id === customer.region_id && pr.service_type === 'CABLE' && pr.is_active !== false);
     if (!servesRegion) {
-      return res.status(400).json({ error: 'Cable partner does not serve customer region' });
+      return res.status(400).json({ error: 'invalid_partner_binding', message: 'Cable partner does not serve customer region' });
     }
   }
 
   if (broadband_partner_id) {
     const bp = partners.find(p => p.id === broadband_partner_id && p.is_active !== false);
     if (!bp || !bp.service_types || !bp.service_types.includes('BROADBAND')) {
-      return res.status(400).json({ error: 'Invalid broadband partner' });
+      return res.status(400).json({ error: 'invalid_partner_binding', message: 'Invalid broadband partner' });
     }
     const servesRegion = partnerRegions.some(pr => pr.partner_id === broadband_partner_id && pr.region_id === customer.region_id && pr.service_type === 'BROADBAND' && pr.is_active !== false);
     if (!servesRegion) {
-      return res.status(400).json({ error: 'Broadband partner does not serve customer region' });
+      return res.status(400).json({ error: 'invalid_partner_binding', message: 'Broadband partner does not serve customer region' });
     }
   }
 
@@ -3913,6 +3951,88 @@ app.get('/api/customer/partner-bindings/:customer_user_id', (req, res) => {
   const bindings = db.getTable('customer_partner_bindings');
   const binding = bindings.find(b => b.customer_user_id === customer_user_id);
   return res.json(binding || null);
+});
+
+function getAvailablePartnersForRegion(regionId) {
+  if (!regionId) return { cable: [], broadband: [] };
+
+  const partners = db.getTable('partners');
+  const partnerRegions = db.getTable('partner_regions');
+
+  const activePartnersMap = new Map(
+    partners.filter(p => p.is_active !== false).map(p => [p.id, p])
+  );
+
+  const cableSet = new Map();
+  const broadbandSet = new Map();
+
+  const matchingRegions = partnerRegions.filter(
+    pr => pr.region_id === regionId && pr.is_active !== false && activePartnersMap.has(pr.partner_id)
+  );
+
+  for (const pr of matchingRegions) {
+    const ptr = activePartnersMap.get(pr.partner_id);
+    if (!ptr) continue;
+    const sanitized = {
+      id: ptr.id,
+      display_name: ptr.display_name,
+      service_types: ptr.service_types || []
+    };
+
+    if (pr.service_type === 'CABLE' && !cableSet.has(ptr.id)) {
+      cableSet.set(ptr.id, sanitized);
+    } else if (pr.service_type === 'BROADBAND' && !broadbandSet.has(ptr.id)) {
+      broadbandSet.set(ptr.id, sanitized);
+    }
+  }
+
+  return {
+    cable: Array.from(cableSet.values()),
+    broadband: Array.from(broadbandSet.values())
+  };
+}
+
+app.get('/api/customer/available-partners', (req, res) => {
+  const { region_id } = req.query;
+  if (!region_id) {
+    return res.status(400).json({ error: 'region_id is required' });
+  }
+  return res.json(getAvailablePartnersForRegion(region_id));
+});
+
+app.get('/api/customer/:id/profile', (req, res) => {
+  const { id } = req.params;
+  const users = db.getTable('users');
+  const user = users.find(u => u.id === id && u.role === 'CUSTOMER');
+  if (!user) return res.status(404).json({ error: 'Customer not found' });
+
+  const bindings = db.getTable('customer_partner_bindings');
+  const binding = bindings.find(b => b.customer_user_id === id) || null;
+
+  const available_partners = getAvailablePartnersForRegion(user.region_id);
+
+  return res.json({
+    user: sanitizeUser(user),
+    bindings: binding,
+    available_partners
+  });
+});
+
+app.post('/api/customer/:id/profile', (req, res) => {
+  const { id } = req.params;
+  const { name, address } = req.body;
+  const users = db.getTable('users');
+  const user = users.find(u => u.id === id && u.role === 'CUSTOMER');
+  if (!user) return res.status(404).json({ error: 'Customer not found' });
+
+  const before = { name: user.name, address: user.address || '' };
+  if (name && name.trim()) user.name = name.trim();
+  if (address !== undefined) user.address = address.trim();
+
+  db.saveTable('users', users);
+  appendAudit(req, 'EDIT_CUSTOMER_PROFILE', 'customer', id, before, { name: user.name, address: user.address });
+
+  return res.json({ success: true, user: sanitizeUser(user) });
 });
 
 app.get('/api/customer/partner-bindings/:customer_user_id/available', (req, res) => {
