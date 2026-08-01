@@ -10,7 +10,8 @@ const DEFAULT_DB = {
   ],
   regions: [
     { id: 'r1', tenant_id: 't1', name: 'Kolkata South (Garia)', code: 'kolkata-garia', created_at: new Date().toISOString() },
-    { id: 'r2', tenant_id: 't1', name: 'Rural West Bengal (Bishnupur)', code: 'rural-bishnupur', created_at: new Date().toISOString() }
+    { id: 'r2', tenant_id: 't1', name: 'Rural West Bengal (Bishnupur)', code: 'rural-bishnupur', created_at: new Date().toISOString() },
+    { id: 'r3', tenant_id: 't1', name: 'Kolkata North (Salt Lake)', code: 'kolkata-saltlake', created_at: new Date().toISOString() }
   ],
   users: [
     { id: 'u-admin', tenant_id: 't1', region_id: 'r1', phone: '9999999999', name: 'Super Admin', role: 'ADMIN', kyc_status: 'APPROVED', no_show_count: 0, address: '', created_at: new Date().toISOString() },
@@ -222,7 +223,9 @@ const DEFAULT_DB = {
   partner_leads: [],
   fraud_reports: [],
   admin_audit_log: [],
-  redemption_approvals: []
+  redemption_approvals: [],
+  partner_feedback: [],
+  partner_notifications: []
 };
 
 // Seed r2 products

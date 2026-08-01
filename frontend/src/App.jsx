@@ -23,6 +23,7 @@ import {
   Truck,
   Store,
   Key,
+  User,
   RefreshCw,
   MessageSquare,
   Search,
@@ -281,6 +282,26 @@ export default function App() {
   const [regKycType2, setRegKycType2] = useState('Aadhaar');
   const [regKycNumber2, setRegKycNumber2] = useState('');
   const [stockistPendingUser, setStockistPendingUser] = useState(null);
+
+  // Round P3 — Customer Signup Partner Selection & Profile State
+  const [signupCablePartnerId, setSignupCablePartnerId] = useState('');
+  const [noCableProvider, setNoCableProvider] = useState(false);
+  const [hasBroadbandAnswered, setHasBroadbandAnswered] = useState(false);
+  const [hasBroadband, setHasBroadband] = useState(false);
+  const [signupBroadbandPartnerId, setSignupBroadbandPartnerId] = useState('');
+  const [noBroadbandProvider, setNoBroadbandProvider] = useState(false);
+  const [availablePartners, setAvailablePartners] = useState({ cable: [], broadband: [] });
+
+  const [profileName, setProfileName] = useState('');
+  const [profileAddress, setProfileAddress] = useState('');
+  const [profileCablePartnerId, setProfileCablePartnerId] = useState('');
+  const [profileNoCable, setProfileNoCable] = useState(false);
+  const [profileHasBroadband, setProfileHasBroadband] = useState(false);
+  const [profileBroadbandPartnerId, setProfileBroadbandPartnerId] = useState('');
+  const [profileNoBroadband, setProfileNoBroadband] = useState(false);
+  const [profileAvailablePartners, setProfileAvailablePartners] = useState({ cable: [], broadband: [] });
+  const [customerBindings, setCustomerBindings] = useState(null);
+  const [profileSaving, setProfileSaving] = useState(false);
   
   // Rate config form (per-stockist overrides)
   const [selectedStockistForCommission, setSelectedStockistForCommission] = useState('');
@@ -1781,6 +1802,148 @@ export default function App() {
     }
   };
 
+  const fetchAvailablePartners = async (regionId) => {
+    if (!regionId) return;
+    try {
+      const res = await fetch(`${API_BASE}/customer/available-partners?region_id=${regionId}`);
+      const data = await res.json();
+      if (res.ok) {
+        setAvailablePartners(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch available partners', err);
+    }
+  };
+
+  useEffect(() => {
+    if (showCustomerSignup && regRegion) {
+      fetchAvailablePartners(regRegion);
+    }
+  }, [showCustomerSignup, regRegion]);
+
+  const fetchCustomerProfileData = async () => {
+    if (!currentUser || currentUser.role !== 'CUSTOMER') return;
+    try {
+      const res = await fetch(`${API_BASE}/customer/${currentUser.id}/profile`);
+      const data = await res.json();
+      if (res.ok) {
+        setProfileName(data.user?.name || '');
+        setProfileAddress(data.user?.address || '');
+        setCustomerBindings(data.bindings || null);
+        setProfileAvailablePartners(data.available_partners || { cable: [], broadband: [] });
+
+        if (data.bindings?.cable_partner_id) {
+          setProfileCablePartnerId(data.bindings.cable_partner_id);
+          setProfileNoCable(false);
+        } else {
+          setProfileCablePartnerId('');
+          setProfileNoCable(true);
+        }
+
+        if (data.bindings?.broadband_partner_id) {
+          setProfileHasBroadband(true);
+          setProfileBroadbandPartnerId(data.bindings.broadband_partner_id);
+          setProfileNoBroadband(false);
+        } else {
+          setProfileHasBroadband(false);
+          setProfileBroadbandPartnerId('');
+          setProfileNoBroadband(true);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to fetch customer profile data', err);
+    }
+  };
+
+  useEffect(() => {
+    if (currentUser && currentUser.role === 'CUSTOMER') {
+      fetchCustomerProfileData();
+    }
+  }, [currentUser?.id, customerAppTab]);
+
+  const handleSaveProfile = async () => {
+    if (!currentUser || currentUser.role !== 'CUSTOMER') return;
+    setProfileSaving(true);
+    try {
+      const pRes = await fetch(`${API_BASE}/customer/${currentUser.id}/profile`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: profileName, address: profileAddress })
+      });
+      const pData = await pRes.json();
+
+      const cableIdToSave = profileNoCable ? null : (profileCablePartnerId || null);
+      const broadbandIdToSave = (profileHasBroadband && !profileNoBroadband) ? (profileBroadbandPartnerId || null) : null;
+
+      const bRes = await fetch(`${API_BASE}/customer/partner-bindings`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customer_user_id: currentUser.id,
+          cable_partner_id: cableIdToSave,
+          broadband_partner_id: broadbandIdToSave
+        })
+      });
+      const bData = await bRes.json();
+
+      if (pRes.ok && bRes.ok) {
+        showToast(t('Profile updated successfully', 'प्रोफाइल सफलतापूर्वक अपडेट किया गया', 'প্রোফাইল সফলভাবে আপডেট করা হয়েছে'));
+        setCurrentUser(prev => ({ ...prev, name: profileName, address: profileAddress }));
+        fetchCustomerProfileData();
+      } else {
+        const err = pData.error || bData.error || 'Failed to update profile';
+        showToast(err, 'error');
+      }
+    } catch (err) {
+      showToast('Profile update error', 'error');
+    } finally {
+      setProfileSaving(false);
+    }
+  };
+
+  // Customer registration
+  const handleCustomerRegister = async () => {
+    if (!regName || !loginPhone) { showToast('Name and phone required', 'error'); return; }
+    if (!noCableProvider && !signupCablePartnerId) {
+      showToast('Please select your cable operator or choose Not Listed', 'error');
+      return;
+    }
+    if (!hasBroadbandAnswered) {
+      showToast('Please answer whether you have a broadband provider', 'error');
+      return;
+    }
+    if (hasBroadband && !noBroadbandProvider && !signupBroadbandPartnerId) {
+      showToast('Please select your broadband operator or choose Not Listed', 'error');
+      return;
+    }
+
+    try {
+      const payload = { phone: loginPhone, name: regName, regionId: regRegion, address: regAddress };
+      if (signupCablePartnerId && !noCableProvider) {
+        payload.cable_partner_id = signupCablePartnerId;
+      }
+      if (hasBroadband && signupBroadbandPartnerId && !noBroadbandProvider) {
+        payload.broadband_partner_id = signupBroadbandPartnerId;
+      }
+
+      const res = await fetch(`${API_BASE}/auth/register-customer`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      const data = await res.json();
+      logApi('POST', '/auth/register-customer', payload, res.status, data);
+      if (res.ok) {
+        setCurrentUser(data.user);
+        setSelectedRegionId(data.user.region_id);
+        showToast(t(`Welcome, ${data.user.name}!`, `स्वागत, ${data.user.name}!`, `স্বাগতম, ${data.user.name}!`));
+        setShowCustomerSignup(false);
+        setRegName(''); setRegAddress(''); setOtpSent(false);
+        setSignupCablePartnerId(''); setNoCableProvider(false);
+        setHasBroadbandAnswered(false); setHasBroadband(false);
+        setSignupBroadbandPartnerId(''); setNoBroadbandProvider(false);
+      } else {
+        showToast(data.error || 'Registration failed', 'error');
+      }
+    } catch (err) { showToast('Registration error', 'error'); }
+  };
+
   const handleAdminRefund = async (orderId) => {
     try {
       const res = await fetch(`${API_BASE}/admin/orders/${orderId}/refund`, {
@@ -1840,25 +2003,7 @@ export default function App() {
     }
   };
 
-  // Customer registration
-  const handleCustomerRegister = async () => {
-    if (!regName || !loginPhone) { showToast('Name and phone required', 'error'); return; }
-    try {
-      const payload = { phone: loginPhone, name: regName, regionId: regRegion, address: regAddress };
-      const res = await fetch(`${API_BASE}/auth/register-customer`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-      const data = await res.json();
-      logApi('POST', '/auth/register-customer', payload, res.status, data);
-      if (res.ok) {
-        setCurrentUser(data.user);
-        setSelectedRegionId(data.user.region_id);
-        showToast(t(`Welcome, ${data.user.name}!`, `स्वागत, ${data.user.name}!`, `স্বাগতম, ${data.user.name}!`));
-        setShowCustomerSignup(false);
-        setRegName(''); setRegAddress(''); setOtpSent(false);
-      } else {
-        showToast(data.error || 'Registration failed', 'error');
-      }
-    } catch (err) { showToast('Registration error', 'error'); }
-  };
+
 
   // Stockist registration
   const handleStockistRegister = async () => {
@@ -3089,6 +3234,114 @@ export default function App() {
                 <option value="r1">Kolkata South (Garia)</option>
                 <option value="r2">Rural West Bengal (Bishnupur)</option>
               </select>
+            </div>
+
+            {/* Step A: Choose your local cable operator */}
+            <div className="input-group">
+              <label className="input-label" style={{ fontWeight: 'bold', color: 'var(--primary)' }}>
+                {t('CHOOSE YOUR LOCAL CABLE OPERATOR', 'अपने स्थानीय केबल ऑपरेटर को चुनें', 'আপনার স্থানীয় কেবল অপারেটর বাছুন')}
+              </label>
+              <select
+                className="text-input"
+                value={noCableProvider ? 'NOT_LISTED' : signupCablePartnerId}
+                onChange={e => {
+                  const val = e.target.value;
+                  if (val === 'NOT_LISTED') {
+                    setNoCableProvider(true);
+                    setSignupCablePartnerId('');
+                  } else {
+                    setNoCableProvider(false);
+                    setSignupCablePartnerId(val);
+                  }
+                }}
+              >
+                <option value="" disabled>-- Select --</option>
+                {(availablePartners.cable || []).map(p => (
+                  <option key={p.id} value={p.id}>{p.display_name}</option>
+                ))}
+                <option value="NOT_LISTED" style={{ fontStyle: 'italic', fontSize: '0.85em' }}>
+                  {t("My provider isn't listed yet", "मेरा प्रदाता अभी सूचीबद्ध नहीं है", "আমার প্রদানকারী এখনও তালিকাভুক্ত নয়")}
+                </option>
+              </select>
+              {noCableProvider && (
+                <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.25rem', fontStyle: 'italic' }}>
+                  {t(
+                    "You'll earn points and redeem stockist rewards. Cable recharge rewards will unlock when your provider joins.",
+                    "आप अंक अर्जित करेंगे और स्टॉकिस्ट पुरस्कार रिडीम करेंगे। आपके प्रदाता के शामिल होने पर केबल रीचार्ज पुरस्कार अनलॉक हो जाएंगे।",
+                    "আপনি পয়েন্ট অর্জন করবেন এবং স্টকিস্ট পুরস্কার রিডিম করবেন। আপনার প্রদানকারী যোগ দিলে কেবল রিচার্জ পুরষ্কার আনলক হবে।"
+                  )}
+                </p>
+              )}
+            </div>
+
+            {/* Step B: Do you have a local internet/wi-fi provider? */}
+            <div className="input-group">
+              <label className="input-label" style={{ fontWeight: 'bold' }}>
+                {t('Do you have a local internet/wi-fi provider?', 'क्या आपके पास स्थानीय इंटरनेट/वाई-फाई प्रदाता है?', 'আপনার কি কোনো স্থানীয় ইন্টারনেট/ওয়াই-ফাই প্রদানকারী আছে?')}
+              </label>
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.35rem' }}>
+                <button
+                  type="button"
+                  className="btn"
+                  style={{
+                    flex: 1,
+                    background: hasBroadbandAnswered && hasBroadband ? 'var(--success, #10b981)' : 'var(--bg-card, rgba(255,255,255,0.05))',
+                    color: 'white',
+                    border: '1px solid rgba(255,255,255,0.1)'
+                  }}
+                  onClick={() => {
+                    setHasBroadbandAnswered(true);
+                    setHasBroadband(true);
+                  }}
+                >
+                  {t('Yes', 'हाँ', 'হ্যাঁ')}
+                </button>
+                <button
+                  type="button"
+                  className="btn"
+                  style={{
+                    flex: 1,
+                    background: hasBroadbandAnswered && !hasBroadband ? 'var(--danger, #ef4444)' : 'var(--bg-card, rgba(255,255,255,0.05))',
+                    color: 'white',
+                    border: '1px solid rgba(255,255,255,0.1)'
+                  }}
+                  onClick={() => {
+                    setHasBroadbandAnswered(true);
+                    setHasBroadband(false);
+                    setSignupBroadbandPartnerId('');
+                    setNoBroadbandProvider(false);
+                  }}
+                >
+                  {t('No', 'नहीं', 'না')}
+                </button>
+              </div>
+
+              {hasBroadbandAnswered && hasBroadband && (
+                <div style={{ marginTop: '0.5rem' }}>
+                  <select
+                    className="text-input"
+                    value={noBroadbandProvider ? 'NOT_LISTED' : signupBroadbandPartnerId}
+                    onChange={e => {
+                      const val = e.target.value;
+                      if (val === 'NOT_LISTED') {
+                        setNoBroadbandProvider(true);
+                        setSignupBroadbandPartnerId('');
+                      } else {
+                        setNoBroadbandProvider(false);
+                        setSignupBroadbandPartnerId(val);
+                      }
+                    }}
+                  >
+                    <option value="" disabled>-- Select --</option>
+                    {(availablePartners.broadband || []).map(p => (
+                      <option key={p.id} value={p.id}>{p.display_name}</option>
+                    ))}
+                    <option value="NOT_LISTED" style={{ fontStyle: 'italic', fontSize: '0.85em' }}>
+                      {t("My provider isn't listed yet", "मेरा प्रदाता अभी सूचीबद्ध नहीं है", "আমার প্রদানকারী এখনও তালিকাভুক্ত নয়")}
+                    </option>
+                  </select>
+                </div>
+              )}
             </div>
             <div className="input-group">
               <label className="input-label">{t('Delivery Address (Optional)', 'डिलीवरी पता', 'ডেলিভারি ঠিকানা')}</label>
@@ -4365,6 +4618,198 @@ export default function App() {
                     </div>
                   )}
 
+                  {customerAppTab === 'profile' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                      <h3 style={{ fontSize: '1rem', fontWeight: 'bold', color: 'white' }}>
+                        {t('My Profile', 'मेरा प्रोफाइल', 'আমার প্রোফাইল')}
+                      </h3>
+
+                      {/* Inactive Provider Warning Banners */}
+                      {(() => {
+                        const activeCableId = customerBindings?.cable_partner_id;
+                        const activeBroadbandId = customerBindings?.broadband_partner_id;
+                        const cablePartnerObj = activeCableId ? (profileAvailablePartners.cable || []).find(p => p.id === activeCableId) : null;
+                        const broadbandPartnerObj = activeBroadbandId ? (profileAvailablePartners.broadband || []).find(p => p.id === activeBroadbandId) : null;
+
+                        const isCableInactive = activeCableId && !cablePartnerObj;
+                        const isBroadbandInactive = activeBroadbandId && !broadbandPartnerObj;
+
+                        return (
+                          <>
+                            {isCableInactive && (
+                              <div style={{ background: 'rgba(239, 68, 68, 0.15)', border: '1px solid #ef4444', color: '#fca5a5', padding: '0.75rem', borderRadius: '8px', fontSize: '0.75rem' }}>
+                                {t(
+                                  'Your cable provider is currently inactive. Please choose a different provider or wait for their status to update.',
+                                  'आपका केबल प्रदाता वर्तमान में निष्क्रिय है। कृपया एक अलग प्रदाता चुनें या उनकी स्थिति अपडेट होने की प्रतीक्षा करें।',
+                                  'আপনার ক্যাবল প্রদানকারী বর্তমানে নিষ্ক্রিয়। অনুগ্রহ করে অন্য প্রদানকারী চয়ন করুন বা তাদের স্ট্যাটাস আপডেট হওয়ার অপেক্ষা করুন।'
+                                )}
+                              </div>
+                            )}
+                            {isBroadbandInactive && (
+                              <div style={{ background: 'rgba(239, 68, 68, 0.15)', border: '1px solid #ef4444', color: '#fca5a5', padding: '0.75rem', borderRadius: '8px', fontSize: '0.75rem' }}>
+                                {t(
+                                  'Your broadband provider is currently inactive. Please choose a different provider or wait for their status to update.',
+                                  'आपका ब्रॉडबैंड प्रदाता वर्तमान में निष्क्रिय है। कृपया एक अलग प्रदाता चुनें या उनकी स्थिति अपडेट होने की प्रतीक्षा करें।',
+                                  'আপনার ব্রডব্যান্ড প্রদানকারী বর্তমানে নিষ্ক্রিয়। অনুগ্রহ করে অন্য প্রদানকারী চয়ন করুন বা তাদের স্ট্যাটাস আপডেট হওয়ার অপেক্ষা করুন।'
+                                )}
+                              </div>
+                            )}
+                          </>
+                        );
+                      })()}
+
+                      <div className="glass-card" style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+                        <div className="input-group">
+                          <label className="input-label">{t('Full Name', 'पूरा नाम', 'পুরো নাম')}</label>
+                          <input
+                            type="text"
+                            className="text-input"
+                            value={profileName}
+                            onChange={e => setProfileName(e.target.value)}
+                          />
+                        </div>
+
+                        <div className="input-group">
+                          <label className="input-label">{t('Phone Number', 'फ़ोन नंबर', 'फोन नंबर')}</label>
+                          <input
+                            type="text"
+                            className="text-input"
+                            disabled
+                            value={currentUser.phone}
+                            style={{ opacity: 0.7, cursor: 'not-allowed' }}
+                          />
+                        </div>
+
+                        <div className="input-group">
+                          <label className="input-label">{t('Region', 'क्षेत्र', 'অঞ্চল')}</label>
+                          <input
+                            type="text"
+                            className="text-input"
+                            disabled
+                            value={activeRegionName}
+                            style={{ opacity: 0.7, cursor: 'not-allowed' }}
+                          />
+                        </div>
+
+                        <div className="input-group">
+                          <label className="input-label">{t('Delivery Address', 'डिलीवरी पता', 'ডেলিভারি ঠিকানা')}</label>
+                          <textarea
+                            className="text-input"
+                            style={{ height: '60px', fontSize: '0.8rem' }}
+                            value={profileAddress}
+                            onChange={e => setProfileAddress(e.target.value)}
+                          />
+                        </div>
+
+                        {/* Cable Operator Selection */}
+                        <div className="input-group">
+                          <label className="input-label" style={{ fontWeight: 'bold', color: 'var(--primary)' }}>
+                            {t('CHOOSE YOUR LOCAL CABLE OPERATOR', 'अपने स्थानीय केबल ऑपरेटर को चुनें', 'আপনার স্থানীয় কেবল অপারেটর বাছুন')}
+                          </label>
+                          <select
+                            className="text-input"
+                            value={profileNoCable ? 'NOT_LISTED' : profileCablePartnerId}
+                            onChange={e => {
+                              const val = e.target.value;
+                              if (val === 'NOT_LISTED') {
+                                setProfileNoCable(true);
+                                setProfileCablePartnerId('');
+                              } else {
+                                setProfileNoCable(false);
+                                setProfileCablePartnerId(val);
+                              }
+                            }}
+                          >
+                            <option value="" disabled>-- Select --</option>
+                            {(profileAvailablePartners.cable || []).map(p => (
+                              <option key={p.id} value={p.id}>{p.display_name}</option>
+                            ))}
+                            <option value="NOT_LISTED" style={{ fontStyle: 'italic', fontSize: '0.85em' }}>
+                              {t("My provider isn't listed yet", "मेरा प्रदाता अभी सूचीबद्ध नहीं है", "আমার প্রদানকারী এখনও তালিকাভুক্ত নয়")}
+                            </option>
+                          </select>
+                        </div>
+
+                        {/* Broadband Operator Selection */}
+                        <div className="input-group">
+                          <label className="input-label" style={{ fontWeight: 'bold' }}>
+                            {t('Do you have a local internet/wi-fi provider?', 'क्या आपके पास स्थानीय इंटरनेट/वाई-फाई प्रदाता है?', 'আপনার কি কোনো স্থানীয় ইন্টারনেট/ওয়াই-ফাই প্রদানকারী আছে?')}
+                          </label>
+                          <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.35rem' }}>
+                            <button
+                              type="button"
+                              className="btn"
+                              style={{
+                                flex: 1,
+                                background: profileHasBroadband ? 'var(--success, #10b981)' : 'var(--bg-card, rgba(255,255,255,0.05))',
+                                color: 'white',
+                                border: '1px solid rgba(255,255,255,0.1)'
+                              }}
+                              onClick={() => {
+                                setProfileHasBroadband(true);
+                              }}
+                            >
+                              {t('Yes', 'हाँ', 'হ্যাঁ')}
+                            </button>
+                            <button
+                              type="button"
+                              className="btn"
+                              style={{
+                                flex: 1,
+                                background: !profileHasBroadband ? 'var(--danger, #ef4444)' : 'var(--bg-card, rgba(255,255,255,0.05))',
+                                color: 'white',
+                                border: '1px solid rgba(255,255,255,0.1)'
+                              }}
+                              onClick={() => {
+                                setProfileHasBroadband(false);
+                                setProfileBroadbandPartnerId('');
+                                setProfileNoBroadband(true);
+                              }}
+                            >
+                              {t('No', 'नहीं', 'ना')}
+                            </button>
+                          </div>
+
+                          {profileHasBroadband && (
+                            <div style={{ marginTop: '0.5rem' }}>
+                              <select
+                                className="text-input"
+                                value={profileNoBroadband ? 'NOT_LISTED' : profileBroadbandPartnerId}
+                                onChange={e => {
+                                  const val = e.target.value;
+                                  if (val === 'NOT_LISTED') {
+                                    setProfileNoBroadband(true);
+                                    setProfileBroadbandPartnerId('');
+                                  } else {
+                                    setProfileNoBroadband(false);
+                                    setProfileBroadbandPartnerId(val);
+                                  }
+                                }}
+                              >
+                                <option value="" disabled>-- Select --</option>
+                                {(profileAvailablePartners.broadband || []).map(p => (
+                                  <option key={p.id} value={p.id}>{p.display_name}</option>
+                                ))}
+                                <option value="NOT_LISTED" style={{ fontStyle: 'italic', fontSize: '0.85em' }}>
+                                  {t("My provider isn't listed yet", "मेरा प्रदाता अभी सूचीबद्ध नहीं है", "আমার প্রদানকারী এখনও তালিকাভুক্ত নয়")}
+                                </option>
+                              </select>
+                            </div>
+                          )}
+                        </div>
+
+                        <button
+                          className="btn btn-accent"
+                          disabled={profileSaving}
+                          onClick={handleSaveProfile}
+                          style={{ marginTop: '0.5rem', width: '100%' }}
+                        >
+                          {profileSaving ? t('Saving...', 'सहेजा जा रहा है...', 'সংরক্ষণ করা হচ্ছে...') : t('Save Profile', 'प्रोफाइल सहेजें', 'প্রোফাইল সংরক্ষণ')}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                 </div>
 
                 <div className="phone-footer">
@@ -4384,6 +4829,10 @@ export default function App() {
                   <button className={`phone-nav-btn ${customerAppTab === 'orders' ? 'active' : ''}`} onClick={() => setCustomerAppTab('orders')}>
                     <ArrowRightLeft size={18} />
                     {t('Orders', 'ऑर्डर', 'অর্ডার')}
+                  </button>
+                  <button className={`phone-nav-btn ${customerAppTab === 'profile' ? 'active' : ''}`} onClick={() => setCustomerAppTab('profile')}>
+                    <User size={18} />
+                    {t('My Profile', 'मेरा प्रोफाइल', 'আমার প্রোফাইল')}
                   </button>
                 </div>
               </>

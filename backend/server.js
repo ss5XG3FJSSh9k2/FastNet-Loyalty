@@ -144,7 +144,7 @@ app.post('/api/auth/verify-otp', (req, res) => {
 
 // Register new Customer
 app.post('/api/auth/register-customer', (req, res) => {
-  const { phone, name, regionId, address } = req.body;
+  const { phone, name, regionId, address, cable_partner_id, broadband_partner_id } = req.body;
   if (!phone || !name || !regionId) {
     return res.status(400).json({ error: 'Name, phone, and region are required' });
   }
@@ -152,6 +152,25 @@ app.post('/api/auth/register-customer', (req, res) => {
   const users = db.getTable('users');
   if (users.some(u => u.phone === phone)) {
     return res.status(400).json({ error: 'An account with this phone number already exists' });
+  }
+
+  const partners = db.getTable('partners');
+  const partnerRegions = db.getTable('partner_regions');
+
+  if (cable_partner_id) {
+    const cp = partners.find(p => p.id === cable_partner_id && p.is_active !== false);
+    const cpServes = cp && partnerRegions.some(pr => pr.partner_id === cable_partner_id && pr.region_id === regionId && pr.service_type === 'CABLE' && pr.is_active !== false);
+    if (!cp || !cpServes) {
+      return res.status(400).json({ error: 'invalid_partner_binding', field: 'cable_partner_id', message: 'Cable partner invalid or does not serve region' });
+    }
+  }
+
+  if (broadband_partner_id) {
+    const bp = partners.find(p => p.id === broadband_partner_id && p.is_active !== false);
+    const bpServes = bp && partnerRegions.some(pr => pr.partner_id === broadband_partner_id && pr.region_id === regionId && pr.service_type === 'BROADBAND' && pr.is_active !== false);
+    if (!bp || !bpServes) {
+      return res.status(400).json({ error: 'invalid_partner_binding', field: 'broadband_partner_id', message: 'Broadband partner invalid or does not serve region' });
+    }
   }
 
   const user = {
@@ -169,7 +188,26 @@ app.post('/api/auth/register-customer', (req, res) => {
 
   users.push(user);
   db.saveTable('users', users);
-  return res.json({ success: true, user });
+
+  let bindings = null;
+  if (cable_partner_id || broadband_partner_id) {
+    const customerPartnerBindings = db.getTable('customer_partner_bindings');
+    const now = new Date().toISOString();
+    bindings = {
+      customer_user_id: user.id,
+      cable_partner_id: cable_partner_id || null,
+      broadband_partner_id: broadband_partner_id || null,
+      created_at: now,
+      updated_at: now
+    };
+    customerPartnerBindings.push(bindings);
+    db.saveTable('customer_partner_bindings', customerPartnerBindings);
+    appendAudit(req, 'CREATE_PARTNER_BINDING', 'customer_partner_binding', user.id, null, bindings);
+  }
+
+  const resObj = { success: true, user };
+  if (bindings) resObj.bindings = bindings;
+  return res.json(resObj);
 });
 
 // Register new Stockist (PENDING KYC)
@@ -3864,22 +3902,22 @@ app.post('/api/customer/partner-bindings', (req, res) => {
   if (cable_partner_id) {
     const cp = partners.find(p => p.id === cable_partner_id && p.is_active !== false);
     if (!cp || !cp.service_types || !cp.service_types.includes('CABLE')) {
-      return res.status(400).json({ error: 'Invalid cable partner' });
+      return res.status(400).json({ error: 'invalid_partner_binding', message: 'Invalid cable partner' });
     }
     const servesRegion = partnerRegions.some(pr => pr.partner_id === cable_partner_id && pr.region_id === customer.region_id && pr.service_type === 'CABLE' && pr.is_active !== false);
     if (!servesRegion) {
-      return res.status(400).json({ error: 'Cable partner does not serve customer region' });
+      return res.status(400).json({ error: 'invalid_partner_binding', message: 'Cable partner does not serve customer region' });
     }
   }
 
   if (broadband_partner_id) {
     const bp = partners.find(p => p.id === broadband_partner_id && p.is_active !== false);
     if (!bp || !bp.service_types || !bp.service_types.includes('BROADBAND')) {
-      return res.status(400).json({ error: 'Invalid broadband partner' });
+      return res.status(400).json({ error: 'invalid_partner_binding', message: 'Invalid broadband partner' });
     }
     const servesRegion = partnerRegions.some(pr => pr.partner_id === broadband_partner_id && pr.region_id === customer.region_id && pr.service_type === 'BROADBAND' && pr.is_active !== false);
     if (!servesRegion) {
-      return res.status(400).json({ error: 'Broadband partner does not serve customer region' });
+      return res.status(400).json({ error: 'invalid_partner_binding', message: 'Broadband partner does not serve customer region' });
     }
   }
 
@@ -3913,6 +3951,88 @@ app.get('/api/customer/partner-bindings/:customer_user_id', (req, res) => {
   const bindings = db.getTable('customer_partner_bindings');
   const binding = bindings.find(b => b.customer_user_id === customer_user_id);
   return res.json(binding || null);
+});
+
+function getAvailablePartnersForRegion(regionId) {
+  if (!regionId) return { cable: [], broadband: [] };
+
+  const partners = db.getTable('partners');
+  const partnerRegions = db.getTable('partner_regions');
+
+  const activePartnersMap = new Map(
+    partners.filter(p => p.is_active !== false).map(p => [p.id, p])
+  );
+
+  const cableSet = new Map();
+  const broadbandSet = new Map();
+
+  const matchingRegions = partnerRegions.filter(
+    pr => pr.region_id === regionId && pr.is_active !== false && activePartnersMap.has(pr.partner_id)
+  );
+
+  for (const pr of matchingRegions) {
+    const ptr = activePartnersMap.get(pr.partner_id);
+    if (!ptr) continue;
+    const sanitized = {
+      id: ptr.id,
+      display_name: ptr.display_name,
+      service_types: ptr.service_types || []
+    };
+
+    if (pr.service_type === 'CABLE' && !cableSet.has(ptr.id)) {
+      cableSet.set(ptr.id, sanitized);
+    } else if (pr.service_type === 'BROADBAND' && !broadbandSet.has(ptr.id)) {
+      broadbandSet.set(ptr.id, sanitized);
+    }
+  }
+
+  return {
+    cable: Array.from(cableSet.values()),
+    broadband: Array.from(broadbandSet.values())
+  };
+}
+
+app.get('/api/customer/available-partners', (req, res) => {
+  const { region_id } = req.query;
+  if (!region_id) {
+    return res.status(400).json({ error: 'region_id is required' });
+  }
+  return res.json(getAvailablePartnersForRegion(region_id));
+});
+
+app.get('/api/customer/:id/profile', (req, res) => {
+  const { id } = req.params;
+  const users = db.getTable('users');
+  const user = users.find(u => u.id === id && u.role === 'CUSTOMER');
+  if (!user) return res.status(404).json({ error: 'Customer not found' });
+
+  const bindings = db.getTable('customer_partner_bindings');
+  const binding = bindings.find(b => b.customer_user_id === id) || null;
+
+  const available_partners = getAvailablePartnersForRegion(user.region_id);
+
+  return res.json({
+    user: sanitizeUser(user),
+    bindings: binding,
+    available_partners
+  });
+});
+
+app.post('/api/customer/:id/profile', (req, res) => {
+  const { id } = req.params;
+  const { name, address } = req.body;
+  const users = db.getTable('users');
+  const user = users.find(u => u.id === id && u.role === 'CUSTOMER');
+  if (!user) return res.status(404).json({ error: 'Customer not found' });
+
+  const before = { name: user.name, address: user.address || '' };
+  if (name && name.trim()) user.name = name.trim();
+  if (address !== undefined) user.address = address.trim();
+
+  db.saveTable('users', users);
+  appendAudit(req, 'EDIT_CUSTOMER_PROFILE', 'customer', id, before, { name: user.name, address: user.address });
+
+  return res.json({ success: true, user: sanitizeUser(user) });
 });
 
 app.get('/api/customer/partner-bindings/:customer_user_id/available', (req, res) => {
@@ -4008,7 +4128,7 @@ app.get('/api/admin/redemption-approvals/:id', (req, res) => {
   });
 });
 
-app.post('/api/admin/redemption-approvals/:id/approve', (req, res) => {
+app.post('/api/admin/redemption-approvals/:id/approve', async (req, res) => {
   const { id } = req.params;
   const { admin_id, notes } = req.body;
 
@@ -4028,6 +4148,42 @@ app.post('/api/admin/redemption-approvals/:id/approve', (req, res) => {
 
   db.saveTable('redemption_approvals', approvals);
   appendAudit(req, 'APPROVE_REDEMPTION', 'redemption_approval', id, { status: 'PENDING_ADMIN_APPROVAL' }, { status: approval.status }, notes);
+
+  // Send email to partner (non-blocking)
+  const partners = db.getTable('partners');
+  const targetPartner = partners.find(p => p.id === approval.partner_id);
+  const users = db.getTable('users');
+  const cust = users.find(u => u.id === approval.customer_user_id);
+  const custName = cust ? cust.name : (approval.customer_name || 'Customer');
+  const custPhone = cust ? cust.phone : (approval.customer_phone || '');
+  const pkgName = approval.package_name || 'Package';
+
+  if (targetPartner && targetPartner.contact_email) {
+    try {
+      await emailHelper.sendEmail(
+        targetPartner.contact_email,
+        `New redemption ready for you — ${custName}`,
+        `<p>Customer ${custName} (phone: ${custPhone}) has redeemed "${pkgName}". Please verify and mark fulfilled in your partner app. Approval ID: ${approval.id}</p>`,
+        `Customer ${custName} (phone: ${custPhone}) has redeemed "${pkgName}". Please verify and mark fulfilled in your partner app. Approval ID: ${approval.id}`
+      );
+    } catch (err) {
+      console.warn('Partner notification email sync error:', err);
+    }
+  }
+
+  // Add in-app notification for partner
+  const notifications = db.getTable('partner_notifications');
+  notifications.push({
+    id: 'pnt-' + generateId(),
+    partner_id: approval.partner_id,
+    kind: 'REDEMPTION_APPROVED',
+    title: 'New redemption to fulfill',
+    body: `Customer ${custName} (phone: ${custPhone}) has redeemed "${pkgName}". Please verify and mark fulfilled in your partner app. Approval ID: ${approval.id}`,
+    linked_id: approval.id,
+    is_read: false,
+    created_at: new Date().toISOString()
+  });
+  db.saveTable('partner_notifications', notifications);
 
   return res.json(approval);
 });
@@ -4100,6 +4256,20 @@ app.post('/api/admin/redemption-approvals/:id/resolve-dispute', (req, res) => {
   approval.admin_id = admin_id || 'u-admin';
   if (notes) approval.admin_notes = notes;
   approval.updated_at = new Date().toISOString();
+
+  // In-app notification for partner on dispute resolution
+  const notifications = db.getTable('partner_notifications');
+  notifications.push({
+    id: 'pnt-' + generateId(),
+    partner_id: approval.partner_id,
+    kind: 'DISPUTE_RESOLVED',
+    title: 'Dispute resolved',
+    body: `Redemption dispute resolved to ${outcome}`,
+    linked_id: approval.id,
+    is_read: false,
+    created_at: new Date().toISOString()
+  });
+  db.saveTable('partner_notifications', notifications);
 
   if (outcome === 'fulfill') {
     approval.status = 'FULFILLED';
@@ -4424,6 +4594,520 @@ app.get('/api/admin/health', (req, res) => {
   });
 });
 
+// --- Round P4a: Partner App Backend ---
+
+// Part 1: Partner Dashboard Summary
+app.get('/api/partner/dashboard', (req, res) => {
+  const session = getPartnerSession(req);
+  if (!session) return res.status(401).json({ error: 'Unauthorized or invalid session' });
+
+  const partnerId = session.partnerId;
+  const approvals = db.getTable('redemption_approvals');
+  const partnerApprovals = approvals.filter(a => a.partner_id === partnerId);
+
+  // IST date math
+  const now = new Date();
+  const istOffsetMs = 5.5 * 60 * 60 * 1000;
+  const istNow = new Date(now.getTime() + istOffsetMs);
+  const year = istNow.getUTCFullYear();
+  const month = istNow.getUTCMonth();
+  const date = istNow.getUTCDate();
+
+  const startOfTodayIST = new Date(Date.UTC(year, month, date) - istOffsetMs).toISOString();
+  const startOfMonthIST = new Date(Date.UTC(year, month, 1) - istOffsetMs).toISOString();
+
+  const todayRedemptions = partnerApprovals.filter(a =>
+    ['APPROVED_AWAITING_PARTNER', 'FULFILLED'].includes(a.status) && a.created_at >= startOfTodayIST
+  );
+  const todayFulfilled = partnerApprovals.filter(a =>
+    a.status === 'FULFILLED' && ((a.fulfilled_at || a.updated_at || a.created_at) >= startOfTodayIST)
+  );
+  const todayPending = partnerApprovals.filter(a => a.status === 'APPROVED_AWAITING_PARTNER');
+
+  const monthRedemptions = partnerApprovals.filter(a =>
+    a.created_at >= startOfMonthIST && a.status !== 'REJECTED'
+  );
+  const monthFulfilled = partnerApprovals.filter(a =>
+    a.status === 'FULFILLED' && ((a.fulfilled_at || a.updated_at || a.created_at) >= startOfMonthIST)
+  );
+
+  let faceValueTotalRupees = 0;
+  let expectedPayoutRupees = 0;
+
+  monthFulfilled.forEach(row => {
+    const faceVal = parseFloat(row.face_value_rupees || 0);
+    faceValueTotalRupees += faceVal;
+    const payoutInfo = calculatePartnerPayout(faceVal, row.stockist_id || null);
+    expectedPayoutRupees += payoutInfo.partnerPayout;
+  });
+
+  const openDisputes = partnerApprovals.filter(a => a.status === 'DISPUTED');
+
+  return res.json({
+    today: {
+      redemptions_count: todayRedemptions.length,
+      fulfilled_count: todayFulfilled.length,
+      pending_count: todayPending.length
+    },
+    month: {
+      redemptions_count: monthRedemptions.length,
+      fulfilled_count: monthFulfilled.length,
+      face_value_total_rupees: Math.round(faceValueTotalRupees * 100) / 100,
+      expected_payout_rupees: Math.round(expectedPayoutRupees * 100) / 100
+    },
+    disputes: {
+      open_count: openDisputes.length
+    }
+  });
+});
+
+// Part 2: Partner Region Self-Management
+app.get('/api/partner/regions', (req, res) => {
+  const session = getPartnerSession(req);
+  if (!session) return res.status(401).json({ error: 'Unauthorized or invalid session' });
+
+  const partnerRegions = db.getTable('partner_regions').filter(r => r.partner_id === session.partnerId);
+  const regions = db.getTable('regions');
+
+  const result = partnerRegions.map(pr => {
+    const reg = regions.find(r => r.id === pr.region_id);
+    return {
+      ...pr,
+      region_name: reg ? reg.name : '',
+      region_code: reg ? reg.code : ''
+    };
+  });
+
+  return res.json(result);
+});
+
+app.post('/api/partner/regions', (req, res) => {
+  const session = getPartnerSession(req);
+  if (!session) return res.status(401).json({ error: 'Unauthorized or invalid session' });
+
+  const { region_id, service_type } = req.body;
+  if (!region_id || !service_type) {
+    return res.status(400).json({ error: 'region_id and service_type are required' });
+  }
+
+  const partnerServiceTypes = session.partner.service_types || [];
+  if (!partnerServiceTypes.includes(service_type)) {
+    return res.status(400).json({ error: 'service_type not supported by partner' });
+  }
+
+  const regions = db.getTable('regions');
+  const regionExists = regions.some(r => r.id === region_id);
+  if (!regionExists) {
+    return res.status(400).json({ error: 'region_id does not exist' });
+  }
+
+  const partnerRegions = db.getTable('partner_regions');
+  const duplicate = partnerRegions.some(pr =>
+    pr.partner_id === session.partnerId && pr.region_id === region_id && pr.service_type === service_type
+  );
+  if (duplicate) {
+    return res.status(409).json({ error: 'Region mapping already exists for this service_type' });
+  }
+
+  const newRow = {
+    id: 'prg-' + generateId(),
+    partner_id: session.partnerId,
+    region_id,
+    service_type,
+    is_active: true,
+    created_at: new Date().toISOString()
+  };
+
+  partnerRegions.push(newRow);
+  db.saveTable('partner_regions', partnerRegions);
+  appendAudit(req, 'PARTNER_REGION_ADD', 'partner_region', newRow.id, null, newRow, session.userId);
+
+  return res.json(newRow);
+});
+
+app.post('/api/partner/regions/:regionRowId/deactivate', (req, res) => {
+  const session = getPartnerSession(req);
+  if (!session) return res.status(401).json({ error: 'Unauthorized or invalid session' });
+
+  const { regionRowId } = req.params;
+  const { confirm } = req.body || {};
+
+  const partnerRegions = db.getTable('partner_regions');
+  const row = partnerRegions.find(pr => pr.id === regionRowId);
+  if (!row) return res.status(404).json({ error: 'Region mapping not found' });
+
+  if (row.partner_id !== session.partnerId) {
+    return res.status(403).json({ error: 'Forbidden: region mapping does not belong to your partner account' });
+  }
+
+  const partnerPackages = db.getTable('partner_packages');
+  const referencingPackages = partnerPackages.filter(p =>
+    p.partner_id === session.partnerId &&
+    p.is_active !== false &&
+    Array.isArray(p.active_regions) &&
+    p.active_regions.includes(row.region_id)
+  );
+
+  if (referencingPackages.length > 0 && !confirm) {
+    return res.status(400).json({
+      warning: `Region is referenced by ${referencingPackages.length} active package(s)`,
+      requires_confirmation: true,
+      referencing_packages: referencingPackages.map(p => ({ id: p.id, name: p.name }))
+    });
+  }
+
+  row.is_active = false;
+  db.saveTable('partner_regions', partnerRegions);
+  appendAudit(req, 'PARTNER_REGION_DEACTIVATE', 'partner_region', regionRowId, { is_active: true }, { is_active: false }, session.userId);
+
+  return res.json(row);
+});
+
+app.post('/api/partner/regions/:regionRowId/reactivate', (req, res) => {
+  const session = getPartnerSession(req);
+  if (!session) return res.status(401).json({ error: 'Unauthorized or invalid session' });
+
+  const { regionRowId } = req.params;
+  const partnerRegions = db.getTable('partner_regions');
+  const row = partnerRegions.find(pr => pr.id === regionRowId);
+  if (!row) return res.status(404).json({ error: 'Region mapping not found' });
+
+  if (row.partner_id !== session.partnerId) {
+    return res.status(403).json({ error: 'Forbidden: region mapping does not belong to your partner account' });
+  }
+
+  row.is_active = true;
+  db.saveTable('partner_regions', partnerRegions);
+  appendAudit(req, 'PARTNER_REGION_REACTIVATE', 'partner_region', regionRowId, { is_active: false }, { is_active: true }, session.userId);
+
+  return res.json(row);
+});
+
+app.delete('/api/partner/regions/:regionRowId', (req, res) => {
+  const session = getPartnerSession(req);
+  if (!session) return res.status(401).json({ error: 'Unauthorized or invalid session' });
+
+  const { regionRowId } = req.params;
+  const partnerRegions = db.getTable('partner_regions');
+  const idx = partnerRegions.findIndex(pr => pr.id === regionRowId);
+  if (idx === -1) return res.status(404).json({ error: 'Region mapping not found' });
+
+  const row = partnerRegions[idx];
+  if (row.partner_id !== session.partnerId) {
+    return res.status(403).json({ error: 'Forbidden: region mapping does not belong to your partner account' });
+  }
+
+  const partnerPackages = db.getTable('partner_packages');
+  const referencingPackages = partnerPackages.filter(p =>
+    p.partner_id === session.partnerId &&
+    Array.isArray(p.active_regions) &&
+    p.active_regions.includes(row.region_id)
+  );
+
+  if (referencingPackages.length > 0) {
+    return res.status(400).json({ error: 'Cannot delete region referenced by packages' });
+  }
+
+  partnerRegions.splice(idx, 1);
+  db.saveTable('partner_regions', partnerRegions);
+  appendAudit(req, 'PARTNER_REGION_DELETE', 'partner_region', regionRowId, row, null, session.userId);
+
+  return res.json({ success: true, deleted_id: regionRowId });
+});
+
+// Part 3: Partner Profile
+app.get('/api/partner/me', (req, res) => {
+  const session = getPartnerSession(req);
+  if (!session) return res.status(401).json({ error: 'Unauthorized or invalid session' });
+
+  const partnerId = session.partnerId;
+  const partnerRegions = db.getTable('partner_regions').filter(r => r.partner_id === partnerId);
+  const regions = db.getTable('regions');
+  const denormRegions = partnerRegions.map(pr => {
+    const reg = regions.find(r => r.id === pr.region_id);
+    return {
+      ...pr,
+      region_name: reg ? reg.name : '',
+      region_code: reg ? reg.code : ''
+    };
+  });
+
+  const packages = db.getTable('partner_packages').filter(p => p.partner_id === partnerId);
+  const bindings = db.getTable('customer_partner_bindings').filter(b => b.cable_partner_id === partnerId || b.broadband_partner_id === partnerId);
+  const approvals = db.getTable('redemption_approvals').filter(a => a.partner_id === partnerId);
+  const disputesOpen = approvals.filter(a => a.status === 'DISPUTED');
+
+  return res.json({
+    partner: session.partner,
+    user: sanitizeUser(session.user),
+    regions: denormRegions,
+    packages,
+    counts: {
+      bound_customers: bindings.length,
+      redemptions_all_time: approvals.length,
+      disputes_open: disputesOpen.length
+    }
+  });
+});
+
+app.patch('/api/partner/me', (req, res) => {
+  const session = getPartnerSession(req);
+  if (!session) return res.status(401).json({ error: 'Unauthorized or invalid session' });
+
+  const forbiddenFields = ['legal_name', 'gst_number', 'service_types', 'is_active', 'promoted_from_lead_id'];
+  for (const f of forbiddenFields) {
+    if (req.body[f] !== undefined) {
+      return res.status(400).json({ error: `Forbidden field update: ${f} cannot be modified by partner` });
+    }
+  }
+
+  const { display_name, contact_phone, contact_email, address, confirm_phone_change } = req.body;
+  const partners = db.getTable('partners');
+  const users = db.getTable('users');
+
+  const partnerRow = partners.find(p => p.id === session.partnerId);
+  const userRow = users.find(u => u.id === session.userId);
+  if (!partnerRow || !userRow) return res.status(404).json({ error: 'Partner or user record not found' });
+
+  if (contact_email && contact_email.trim().toLowerCase() !== (partnerRow.contact_email || '').toLowerCase()) {
+    const normalized = contact_email.trim().toLowerCase();
+    const emailConflictUser = users.some(u => u.id !== userRow.id && u.email && u.email.trim().toLowerCase() === normalized);
+    const emailConflictPartner = partners.some(p => p.id !== partnerRow.id && p.contact_email && p.contact_email.trim().toLowerCase() === normalized);
+    if (emailConflictUser || emailConflictPartner) {
+      return res.status(409).json({ error: 'Email already registered' });
+    }
+  }
+
+  if (contact_phone && contact_phone !== partnerRow.contact_phone) {
+    const phoneConflictUser = users.some(u => u.id !== userRow.id && u.phone === contact_phone);
+    const phoneConflictPartner = partners.some(p => p.id !== partnerRow.id && p.contact_phone === contact_phone);
+    if (phoneConflictUser || phoneConflictPartner) {
+      return res.status(409).json({ error: 'Phone number already registered' });
+    }
+    if (!confirm_phone_change) {
+      return res.status(400).json({
+        warning: 'Changing phone number will change your login phone',
+        requires_confirmation: true,
+        confirm_field: 'confirm_phone_change'
+      });
+    }
+  }
+
+  const beforePartner = { ...partnerRow };
+
+  if (display_name) {
+    partnerRow.display_name = display_name;
+    userRow.name = display_name;
+  }
+  if (contact_phone) {
+    partnerRow.contact_phone = contact_phone;
+    userRow.phone = contact_phone;
+  }
+  if (contact_email) {
+    partnerRow.contact_email = contact_email.trim();
+    userRow.email = contact_email.trim();
+  }
+  if (address) {
+    partnerRow.address = address;
+    userRow.address = address;
+  }
+  partnerRow.updated_at = new Date().toISOString();
+
+  db.saveTable('partners', partners);
+  db.saveTable('users', users);
+
+  appendAudit(req, 'EDIT_PARTNER_PROFILE', 'partner', session.partnerId, beforePartner, partnerRow, session.userId);
+
+  return res.json({
+    partner: partnerRow,
+    user: sanitizeUser(userRow)
+  });
+});
+
+// Part 4: Partner Feedback
+app.post('/api/partner/feedback', (req, res) => {
+  const session = getPartnerSession(req);
+  if (!session) return res.status(401).json({ error: 'Unauthorized or invalid session' });
+
+  const { linked_type, linked_redemption_approval_id, category, subject, description } = req.body;
+  if (!subject || !description || description.trim().length < 20) {
+    return res.status(400).json({ error: 'description must be at least 20 characters' });
+  }
+
+  if (linked_type === 'REDEMPTION') {
+    if (!linked_redemption_approval_id) {
+      return res.status(400).json({ error: 'linked_redemption_approval_id is required for REDEMPTION linked_type' });
+    }
+    const approvals = db.getTable('redemption_approvals');
+    const approval = approvals.find(a => a.id === linked_redemption_approval_id);
+    if (!approval || approval.partner_id !== session.partnerId) {
+      return res.status(403).json({ error: 'Forbidden: linked redemption does not belong to this partner' });
+    }
+  }
+
+  const feedbackList = db.getTable('partner_feedback');
+  const newFeedback = {
+    id: 'pfb-' + generateId(),
+    partner_id: session.partnerId,
+    submitted_by_user_id: session.userId,
+    linked_type: linked_type || 'GENERAL',
+    linked_redemption_approval_id: linked_type === 'REDEMPTION' ? linked_redemption_approval_id : null,
+    category: category || 'GENERAL',
+    subject: subject.trim(),
+    description: description.trim(),
+    status: 'NEW',
+    admin_notes: null,
+    created_at: new Date().toISOString(),
+    resolved_at: null
+  };
+
+  feedbackList.push(newFeedback);
+  db.saveTable('partner_feedback', feedbackList);
+
+  return res.json(newFeedback);
+});
+
+app.get('/api/partner/feedback', (req, res) => {
+  const session = getPartnerSession(req);
+  if (!session) return res.status(401).json({ error: 'Unauthorized or invalid session' });
+
+  const feedbackList = db.getTable('partner_feedback');
+  const result = feedbackList
+    .filter(f => f.partner_id === session.partnerId)
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+  return res.json(result);
+});
+
+app.get('/api/admin/partner-feedback', (req, res) => {
+  const { status, partner_id, category } = req.query;
+  let feedbackList = db.getTable('partner_feedback');
+  const partners = db.getTable('partners');
+  const approvals = db.getTable('redemption_approvals');
+
+  if (status) feedbackList = feedbackList.filter(f => f.status === status);
+  if (partner_id) feedbackList = feedbackList.filter(f => f.partner_id === partner_id);
+  if (category) feedbackList = feedbackList.filter(f => f.category === category);
+
+  const result = feedbackList
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+    .map(f => {
+      const partner = partners.find(p => p.id === f.partner_id);
+      const approval = f.linked_redemption_approval_id ? approvals.find(a => a.id === f.linked_redemption_approval_id) : null;
+      return {
+        ...f,
+        partner_name: partner ? partner.display_name : '',
+        linked_redemption: approval ? { id: approval.id, customer_name: approval.customer_name, package_name: approval.package_name, status: approval.status } : null
+      };
+    });
+
+  return res.json(result);
+});
+
+app.post('/api/admin/partner-feedback/:id/status', (req, res) => {
+  const { id } = req.params;
+  const { status, admin_notes, admin_id } = req.body;
+
+  const validStatuses = ['NEW', 'REVIEWING', 'RESOLVED', 'DISMISSED'];
+  if (!status || !validStatuses.includes(status)) {
+    return res.status(400).json({ error: 'Valid status required (NEW, REVIEWING, RESOLVED, DISMISSED)' });
+  }
+
+  if (['RESOLVED', 'DISMISSED'].includes(status)) {
+    if (!admin_notes || admin_notes.trim().length < 10) {
+      return res.status(400).json({ error: 'admin_notes (at least 10 chars) are required for RESOLVED or DISMISSED status' });
+    }
+  }
+
+  const feedbackList = db.getTable('partner_feedback');
+  const feedback = feedbackList.find(f => f.id === id);
+  if (!feedback) return res.status(404).json({ error: 'Partner feedback not found' });
+
+  const oldStatus = feedback.status;
+  feedback.status = status;
+  if (admin_notes) feedback.admin_notes = admin_notes.trim();
+  if (['RESOLVED', 'DISMISSED'].includes(status)) {
+    feedback.resolved_at = new Date().toISOString();
+  }
+
+  db.saveTable('partner_feedback', feedbackList);
+  appendAudit(req, 'UPDATE_PARTNER_FEEDBACK', 'partner_feedback', id, { status: oldStatus }, { status, admin_notes: feedback.admin_notes }, admin_id || 'u-admin');
+
+  // Trigger in-app notification for partner
+  const notifications = db.getTable('partner_notifications');
+  notifications.push({
+    id: 'pnt-' + generateId(),
+    partner_id: feedback.partner_id,
+    kind: 'FEEDBACK_UPDATE',
+    title: 'Feedback status updated',
+    body: `Your feedback status changed to ${status}`,
+    linked_id: feedback.id,
+    is_read: false,
+    created_at: new Date().toISOString()
+  });
+  db.saveTable('partner_notifications', notifications);
+
+  return res.json(feedback);
+});
+
+// Part 5: Partner Notifications
+app.get('/api/partner/notifications', (req, res) => {
+  const session = getPartnerSession(req);
+  if (!session) return res.status(401).json({ error: 'Unauthorized or invalid session' });
+
+  let notifications = db.getTable('partner_notifications')
+    .filter(n => n.partner_id === session.partnerId);
+
+  if (req.query.unread_only === 'true') {
+    notifications = notifications.filter(n => !n.is_read);
+  }
+
+  const result = notifications
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+    .slice(0, 50);
+
+  return res.json(result);
+});
+
+app.post('/api/partner/notifications/mark-read', (req, res) => {
+  const session = getPartnerSession(req);
+  if (!session) return res.status(401).json({ error: 'Unauthorized or invalid session' });
+
+  const { notification_ids, mark_all } = req.body || {};
+  const notifications = db.getTable('partner_notifications');
+
+  if (mark_all === true) {
+    notifications.forEach(n => {
+      if (n.partner_id === session.partnerId) {
+        n.is_read = true;
+      }
+    });
+    db.saveTable('partner_notifications', notifications);
+    return res.json({ success: true });
+  }
+
+  if (!notification_ids || !Array.isArray(notification_ids)) {
+    return res.status(400).json({ error: 'notification_ids array or mark_all flag required' });
+  }
+
+  // Validate ownership for all requested IDs
+  for (const nid of notification_ids) {
+    const target = notifications.find(n => n.id === nid);
+    if (!target) return res.status(404).json({ error: `Notification ${nid} not found` });
+    if (target.partner_id !== session.partnerId) {
+      return res.status(403).json({ error: 'Forbidden: notification does not belong to your partner account' });
+    }
+  }
+
+  notifications.forEach(n => {
+    if (notification_ids.includes(n.id)) {
+      n.is_read = true;
+    }
+  });
+
+  db.saveTable('partner_notifications', notifications);
+  return res.json({ success: true });
+});
 
 // Reset DB
 app.post('/api/admin/reset-db', (req, res) => {
