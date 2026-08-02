@@ -66,8 +66,8 @@ function getISTDateString(date = new Date()) {
 }
 
 // Helper: append a payment ledger event (append-only audit)
-function appendPaymentEvent(orderId, eventType, amount, metadata = {}) {
-  const ledger = db.getTable('payment_ledger');
+async function appendPaymentEvent(orderId, eventType, amount, metadata = {}) {
+  const ledger = await db.getTable('payment_ledger');
   ledger.push({
     id: 'pl-' + generateId(),
     order_id: orderId,
@@ -76,13 +76,13 @@ function appendPaymentEvent(orderId, eventType, amount, metadata = {}) {
     metadata,
     created_at: new Date().toISOString()
   });
-  db.saveTable('payment_ledger', ledger);
+  await db.saveTable('payment_ledger', ledger);
 }
 
 // Helper: append an admin audit log entry
-function appendAudit(req, action, entity_type, entity_id, before = null, after = null, reason = '') {
+async function appendAudit(req, action, entity_type, entity_id, before = null, after = null, reason = '') {
   const admin_user_id = (req && req.headers && req.headers['x-admin-id']) || (req && req.body && req.body.admin_user_id) || 'u-admin';
-  const log = db.getTable('admin_audit_log');
+  const log = await db.getTable('admin_audit_log');
   const entry = {
     id: 'audit-' + generateId(),
     admin_user_id,
@@ -95,7 +95,7 @@ function appendAudit(req, action, entity_type, entity_id, before = null, after =
     created_at: new Date().toISOString()
   };
   log.push(entry);
-  db.saveTable('admin_audit_log', log);
+  await db.saveTable('admin_audit_log', log);
   return entry;
 }
 
@@ -104,7 +104,7 @@ function appendAudit(req, action, entity_type, entity_id, before = null, after =
 // ----------------------------------------------------
 
 // Send Mock OTP
-app.post('/api/auth/send-otp', (req, res) => {
+app.post('/api/auth/send-otp', async (req, res) => {
   const { phone } = req.body;
   if (!phone) {
     return res.status(400).json({ error: 'Phone number is required' });
@@ -116,7 +116,7 @@ app.post('/api/auth/send-otp', (req, res) => {
 });
 
 // Verify OTP & Login
-app.post('/api/auth/verify-otp', (req, res) => {
+app.post('/api/auth/verify-otp', async (req, res) => {
   const { phone, otp } = req.body;
   if (!phone || !otp) {
     return res.status(400).json({ error: 'Phone and OTP are required' });
@@ -128,7 +128,7 @@ app.post('/api/auth/verify-otp', (req, res) => {
   }
   otpStore.delete(phone);
 
-  const users = db.getTable('users');
+  const users = await db.getTable('users');
   const user = users.find(u => u.phone === phone);
 
   if (!user) {
@@ -143,19 +143,19 @@ app.post('/api/auth/verify-otp', (req, res) => {
 });
 
 // Register new Customer
-app.post('/api/auth/register-customer', (req, res) => {
+app.post('/api/auth/register-customer', async (req, res) => {
   const { phone, name, regionId, address, cable_partner_id, broadband_partner_id } = req.body;
   if (!phone || !name || !regionId) {
     return res.status(400).json({ error: 'Name, phone, and region are required' });
   }
 
-  const users = db.getTable('users');
+  const users = await db.getTable('users');
   if (users.some(u => u.phone === phone)) {
     return res.status(400).json({ error: 'An account with this phone number already exists' });
   }
 
-  const partners = db.getTable('partners');
-  const partnerRegions = db.getTable('partner_regions');
+  const partners = await db.getTable('partners');
+  const partnerRegions = await db.getTable('partner_regions');
 
   if (cable_partner_id) {
     const cp = partners.find(p => p.id === cable_partner_id && p.is_active !== false);
@@ -187,22 +187,21 @@ app.post('/api/auth/register-customer', (req, res) => {
   };
 
   users.push(user);
-  db.saveTable('users', users);
+  await db.saveTable('users', users);
 
   let bindings = null;
   if (cable_partner_id || broadband_partner_id) {
-    const customerPartnerBindings = db.getTable('customer_partner_bindings');
+    const customerPartnerBindings = await db.getTable('customer_partner_bindings');
     const now = new Date().toISOString();
-    bindings = {
-      customer_user_id: user.id,
+    bindings = { id: 'cpb-' + generateId(), customer_user_id: user.id,
       cable_partner_id: cable_partner_id || null,
       broadband_partner_id: broadband_partner_id || null,
       created_at: now,
       updated_at: now
     };
     customerPartnerBindings.push(bindings);
-    db.saveTable('customer_partner_bindings', customerPartnerBindings);
-    appendAudit(req, 'CREATE_PARTNER_BINDING', 'customer_partner_binding', user.id, null, bindings);
+    await db.saveTable('customer_partner_bindings', customerPartnerBindings);
+    await appendAudit(req, 'CREATE_PARTNER_BINDING', 'customer_partner_binding', user.id, null, bindings);
   }
 
   const resObj = { success: true, user };
@@ -211,13 +210,13 @@ app.post('/api/auth/register-customer', (req, res) => {
 });
 
 // Register new Stockist (PENDING KYC)
-app.post('/api/auth/register-stockist', (req, res) => {
+app.post('/api/auth/register-stockist', async (req, res) => {
   const { phone, name, shopName, regionId, idType, idNumber, address } = req.body;
   if (!phone || !name || !shopName || !regionId || !idType || !idNumber || !address) {
     return res.status(400).json({ error: 'All fields are required' });
   }
 
-  const users = db.getTable('users');
+  const users = await db.getTable('users');
   if (users.some(u => u.phone === phone)) {
     return res.status(400).json({ error: 'An account with this phone number already exists' });
   }
@@ -242,7 +241,7 @@ app.post('/api/auth/register-stockist', (req, res) => {
   };
 
   users.push(user);
-  db.saveTable('users', users);
+  await db.saveTable('users', users);
   return res.json({
     success: true,
     message: 'Registration submitted. Awaiting admin approval.',
@@ -254,10 +253,10 @@ app.post('/api/auth/register-stockist', (req, res) => {
 // PRODUCT & INVENTORY ENDPOINTS
 // ----------------------------------------------------
 
-app.get('/api/products', (req, res) => {
+app.get('/api/products', async (req, res) => {
   const { regionId, stockistId } = req.query;
-  const products = db.getTable('products');
-  const inventory = db.getTable('stockist_inventory');
+  const products = await db.getTable('products');
+  const inventory = await db.getTable('stockist_inventory');
 
   let filtered = products;
   if (regionId) {
@@ -340,7 +339,7 @@ app.post('/api/products', uploadBillMiddleware, async (req, res) => {
     return res.status(500).json({ error: 'upload_failed', message: uploadErr.message });
   }
 
-  const billPhotos = db.getTable('product_bill_photos');
+  const billPhotos = await db.getTable('product_bill_photos');
   const billPhotoId = 'pbp-' + generateId();
   const productId = 'p-' + generateId();
 
@@ -363,9 +362,9 @@ app.post('/api/products', uploadBillMiddleware, async (req, res) => {
   };
 
   billPhotos.push(billPhotoRow);
-  db.saveTable('product_bill_photos', billPhotos);
+  await db.saveTable('product_bill_photos', billPhotos);
 
-  const products = db.getTable('products');
+  const products = await db.getTable('products');
   const newProduct = {
     id: productId,
     tenant_id: 't1',
@@ -382,16 +381,19 @@ app.post('/api/products', uploadBillMiddleware, async (req, res) => {
   };
 
   products.push(newProduct);
-  db.saveTable('products', products);
+  await db.saveTable('products', products);
 
-  const inventory = db.getTable('stockist_inventory');
+  const inventory = await db.getTable('stockist_inventory');
   inventory.push({
+    id: 'sinv-' + generateId(),
     stockist_id: stockistId,
     product_id: productId,
     stock_qty: parseInt(initialStock, 10),
-    is_available: parseInt(initialStock, 10) > 0
+    stock_quantity: parseInt(initialStock, 10),
+    is_available: parseInt(initialStock, 10) > 0,
+    created_at: new Date().toISOString()
   });
-  db.saveTable('stockist_inventory', inventory);
+  await db.saveTable('stockist_inventory', inventory);
 
   return res.json({ success: true, product: newProduct, bill_photo: billPhotoRow });
 });
@@ -405,13 +407,13 @@ app.patch('/api/products/:id', uploadBillMiddleware, async (req, res) => {
   }
 
   // Ownership check
-  const inventory = db.getTable('stockist_inventory');
+  const inventory = await db.getTable('stockist_inventory');
   const inv = inventory.find(i => i.product_id === id && i.stockist_id === stockistId);
   if (!inv) {
     return res.status(403).json({ error: 'Not the owning stockist' });
   }
 
-  const products = db.getTable('products');
+  const products = await db.getTable('products');
   const product = products.find(p => p.id === id);
   if (!product) {
     return res.status(404).json({ error: 'Product not found' });
@@ -466,7 +468,7 @@ app.patch('/api/products/:id', uploadBillMiddleware, async (req, res) => {
       return res.status(500).json({ error: 'upload_failed', message: uploadErr.message });
     }
 
-    const billPhotos = db.getTable('product_bill_photos');
+    const billPhotos = await db.getTable('product_bill_photos');
     billPhotoRow = {
       id: 'pbp-' + generateId(),
       product_id: id,
@@ -486,7 +488,7 @@ app.patch('/api/products/:id', uploadBillMiddleware, async (req, res) => {
     };
 
     billPhotos.push(billPhotoRow);
-    db.saveTable('product_bill_photos', billPhotos);
+    await db.saveTable('product_bill_photos', billPhotos);
 
     product.latest_bill_photo_id = billPhotoRow.id;
   }
@@ -499,15 +501,15 @@ app.patch('/api/products/:id', uploadBillMiddleware, async (req, res) => {
   product.price = newPrice;
   product.cost_price = newCostPrice;
 
-  db.saveTable('products', products);
+  await db.saveTable('products', products);
 
   return res.json({ success: true, product, bill_photo: billPhotoRow });
 });
 
 // GET /api/products/:id/bill-history
-app.get('/api/products/:id/bill-history', (req, res) => {
+app.get('/api/products/:id/bill-history', async (req, res) => {
   const { id } = req.params;
-  const billPhotos = db.getTable('product_bill_photos');
+  const billPhotos = await db.getTable('product_bill_photos');
   const history = billPhotos
     .filter(b => b.product_id === id)
     .sort((a, b) => new Date(b.uploaded_at) - new Date(a.uploaded_at));
@@ -515,11 +517,11 @@ app.get('/api/products/:id/bill-history', (req, res) => {
 });
 
 // GET /api/admin/bill-photos
-app.get('/api/admin/bill-photos', (req, res) => {
+app.get('/api/admin/bill-photos', async (req, res) => {
   const { flag_status, stockist_id, date_from, date_to, page = 1 } = req.query;
-  let billPhotos = db.getTable('product_bill_photos');
-  const products = db.getTable('products');
-  const stockists = db.getTable('stockists');
+  let billPhotos = await db.getTable('product_bill_photos');
+  const products = await db.getTable('products');
+  const stockists = await db.getTable('stockists');
 
   if (flag_status) {
     billPhotos = billPhotos.filter(b => b.flag_status === flag_status);
@@ -562,7 +564,7 @@ app.get('/api/admin/bill-photos', (req, res) => {
 });
 
 // POST /api/admin/bill-photos/:id/flag
-app.post('/api/admin/bill-photos/:id/flag', (req, res) => {
+app.post('/api/admin/bill-photos/:id/flag', async (req, res) => {
   const { id } = req.params;
   const { admin_id, reason } = req.body;
 
@@ -570,7 +572,7 @@ app.post('/api/admin/bill-photos/:id/flag', (req, res) => {
     return res.status(400).json({ error: 'reason_too_short', message: 'reason must be at least 10 characters' });
   }
 
-  const billPhotos = db.getTable('product_bill_photos');
+  const billPhotos = await db.getTable('product_bill_photos');
   const bill = billPhotos.find(b => b.id === id);
   if (!bill) return res.status(404).json({ error: 'Bill photo not found' });
 
@@ -579,41 +581,41 @@ app.post('/api/admin/bill-photos/:id/flag', (req, res) => {
   bill.flag_reason = reason.trim();
   bill.flagged_by_admin_id = admin_id || 'u-admin';
   bill.flagged_at = new Date().toISOString();
-  db.saveTable('product_bill_photos', billPhotos);
+  await db.saveTable('product_bill_photos', billPhotos);
 
-  const products = db.getTable('products');
+  const products = await db.getTable('products');
   const product = products.find(p => p.id === bill.product_id);
   if (product) {
     product.has_flagged_bill = true;
-    db.saveTable('products', products);
+    await db.saveTable('products', products);
   }
 
-  appendAudit(req, 'BILL_PHOTO_FLAG', 'product_bill_photos', id, beforeState, 'FLAGGED', reason.trim());
+  await appendAudit(req, 'BILL_PHOTO_FLAG', 'product_bill_photos', id, beforeState, 'FLAGGED', reason.trim());
 
   return res.json({ success: true, bill, product });
 });
 
 // POST /api/admin/bill-photos/:id/unflag
-app.post('/api/admin/bill-photos/:id/unflag', (req, res) => {
+app.post('/api/admin/bill-photos/:id/unflag', async (req, res) => {
   const { id } = req.params;
 
-  const billPhotos = db.getTable('product_bill_photos');
+  const billPhotos = await db.getTable('product_bill_photos');
   const bill = billPhotos.find(b => b.id === id);
   if (!bill) return res.status(404).json({ error: 'Bill photo not found' });
 
   const beforeState = bill.flag_status;
   bill.flag_status = 'RESOLVED';
-  db.saveTable('product_bill_photos', billPhotos);
+  await db.saveTable('product_bill_photos', billPhotos);
 
-  const products = db.getTable('products');
+  const products = await db.getTable('products');
   const product = products.find(p => p.id === bill.product_id);
   if (product) {
     const hasOtherFlagged = billPhotos.some(b => b.product_id === bill.product_id && b.flag_status === 'FLAGGED');
     product.has_flagged_bill = hasOtherFlagged;
-    db.saveTable('products', products);
+    await db.saveTable('products', products);
   }
 
-  appendAudit(req, 'BILL_PHOTO_UNFLAG', 'product_bill_photos', id, beforeState, 'RESOLVED', 'Admin resolved flag');
+  await appendAudit(req, 'BILL_PHOTO_UNFLAG', 'product_bill_photos', id, beforeState, 'RESOLVED', 'Admin resolved flag');
 
   return res.json({ success: true, bill, product });
 });
@@ -621,7 +623,7 @@ app.post('/api/admin/bill-photos/:id/unflag', (req, res) => {
 // POST /api/admin/bill-photos/:id/signed-url
 app.post('/api/admin/bill-photos/:id/signed-url', async (req, res) => {
   const { id } = req.params;
-  const billPhotos = db.getTable('product_bill_photos');
+  const billPhotos = await db.getTable('product_bill_photos');
   const bill = billPhotos.find(b => b.id === id);
   if (!bill) return res.status(404).json({ error: 'Bill photo not found' });
 
@@ -634,15 +636,15 @@ app.post('/api/admin/bill-photos/:id/signed-url', async (req, res) => {
   }
 });
 
-app.get('/api/products/search-alternatives', (req, res) => {
+app.get('/api/products/search-alternatives', async (req, res) => {
   const { name, regionId, excludeStockistId } = req.query;
   if (!name || !regionId) {
     return res.status(400).json({ error: 'Missing parameters' });
   }
 
-  const products = db.getTable('products');
-  const inventory = db.getTable('stockist_inventory');
-  const stockists = db.getTable('stockists');
+  const products = await db.getTable('products');
+  const inventory = await db.getTable('stockist_inventory');
+  const stockists = await db.getTable('stockists');
 
   const similarProducts = products.filter(p => p.region_id === regionId && p.name.toLowerCase().includes(name.toLowerCase()));
 
@@ -664,12 +666,12 @@ app.get('/api/products/search-alternatives', (req, res) => {
 // STOCKIST ENDPOINTS
 // ----------------------------------------------------
 
-app.get('/api/stockists', (req, res) => {
+app.get('/api/stockists', async (req, res) => {
   const { regionId } = req.query;
-  const stockists = db.getTable('stockists');
+  const stockists = await db.getTable('stockists');
   const filtered = regionId ? stockists.filter(s => s.region_id === regionId && s.is_active) : stockists;
 
-  const orders = db.getTable('orders');
+  const orders = await db.getTable('orders');
   const enriched = filtered.map(s => {
     const shopOrders = orders.filter(o => o.stockist_id === s.id);
     const finished = shopOrders.filter(o => ['DELIVERED', 'CANCELLED'].includes(o.status));
@@ -691,9 +693,9 @@ app.get('/api/stockists', (req, res) => {
   return res.json(enriched);
 });
 
-app.get('/api/stockists/by-user/:userId', (req, res) => {
+app.get('/api/stockists/by-user/:userId', async (req, res) => {
   const { userId } = req.params;
-  const stockists = db.getTable('stockists');
+  const stockists = await db.getTable('stockists');
   const stockist = stockists.find(s => s.user_id === userId);
   if (!stockist) {
     return res.status(404).json({ error: 'Stockist record not found or pending KYC' });
@@ -701,32 +703,26 @@ app.get('/api/stockists/by-user/:userId', (req, res) => {
   return res.json(stockist);
 });
 
-app.get('/api/stockists/:id/stats', (req, res) => {
+app.get('/api/stockists/:id/stats', async (req, res) => {
   const { id } = req.params;
-  const orders = db.getTable('orders').filter(o => o.stockist_id === id);
+  const orders = (await db.getTable('orders')).filter(o => o.stockist_id === id);
   const todayStr = getISTDateString();
 
   const todayOrders = orders.filter(o => getISTDateString(new Date(o.created_at)) === todayStr);
   const todayDelivered = todayOrders.filter(o => o.status === 'DELIVERED');
 
-  const today_earnings = todayDelivered.reduce((sum, o) => {
-    const enriched = enrichOrder(o);
-    return sum + (enriched.stockist_amount || 0);
-  }, 0);
+  let today_earnings = 0; for (const o of todayDelivered) { const enriched = await enrichOrder(o); today_earnings += (enriched.stockist_amount || 0); }
 
   const today_order_count = todayDelivered.length;
 
   const deliveredOrders = orders.filter(o => o.status === 'DELIVERED');
-  const totalDeliveredValue = deliveredOrders.reduce((sum, o) => {
-    const enriched = enrichOrder(o);
-    return sum + (enriched.stockist_amount || 0);
-  }, 0);
+  let totalDeliveredValue = 0; for (const o of deliveredOrders) { const enriched = await enrichOrder(o); totalDeliveredValue += (enriched.stockist_amount || 0); }
   const avg_order_value = deliveredOrders.length > 0 ? (totalDeliveredValue / deliveredOrders.length) : 0;
 
   const total_fulfilled = deliveredOrders.length;
   const total_cancelled = orders.filter(o => o.status === 'CANCELLED').length;
 
-  const orderItems = db.getTable('order_items');
+  const orderItems = await db.getTable('order_items');
   const deliveredOrderIds = new Set(deliveredOrders.map(o => o.id));
   const items = orderItems.filter(oi => deliveredOrderIds.has(oi.order_id));
 
@@ -765,7 +761,7 @@ app.get('/api/stockists/:id/stats', (req, res) => {
   }
 
   // COD commission outstanding for this stockist
-  const codLedger = db.getTable('cod_commission_ledger');
+  const codLedger = await db.getTable('cod_commission_ledger');
   const cod_commission_outstanding = codLedger
     .filter(e => e.stockist_id === id && !e.settled)
     .reduce((sum, e) => sum + e.amount_owed, 0);
@@ -784,17 +780,17 @@ app.get('/api/stockists/:id/stats', (req, res) => {
 });
 
 // Restock inventory
-app.post('/api/stockists/restock', (req, res) => {
+app.post('/api/stockists/restock', async (req, res) => {
   const { stockistId, items, vendorId } = req.body;
   if (!stockistId || !items || !Array.isArray(items)) {
     return res.status(400).json({ error: 'Invalid restock parameters' });
   }
 
-  const stockists = db.getTable('stockists');
+  const stockists = await db.getTable('stockists');
   const stockist = stockists.find(s => s.id === stockistId);
   if (!stockist) return res.status(404).json({ error: 'Stockist not found' });
 
-  const stockistVendors = db.getTable('stockist_vendors');
+  const stockistVendors = await db.getTable('stockist_vendors');
   const approved = stockistVendors.filter(sv => sv.stockist_id === stockistId);
   if (approved.length === 0) {
     return res.status(400).json({ error: 'No approved Wholesalers assigned. Please contact Admin.' });
@@ -807,18 +803,26 @@ app.post('/api/stockists/restock', (req, res) => {
     }
   }
 
-  const inventory = db.getTable('stockist_inventory');
+  const inventory = await db.getTable('stockist_inventory');
   items.forEach(item => {
     let inv = inventory.find(i => i.stockist_id === stockistId && i.product_id === item.productId);
     if (inv) {
       inv.stock_qty += parseInt(item.quantity, 10);
       inv.is_available = inv.stock_qty > 0;
     } else {
-      inventory.push({ stockist_id: stockistId, product_id: item.productId, stock_qty: parseInt(item.quantity, 10), is_available: true });
+      inventory.push({
+        id: 'sinv-' + generateId(),
+        stockist_id: stockistId,
+        product_id: item.productId,
+        stock_qty: parseInt(item.quantity, 10),
+        stock_quantity: parseInt(item.quantity, 10),
+        is_available: true,
+        created_at: new Date().toISOString()
+      });
     }
   });
 
-  db.saveTable('stockist_inventory', inventory);
+  await db.saveTable('stockist_inventory', inventory);
   return res.json({ success: true, message: 'Stock updated successfully.' });
 });
 
@@ -828,8 +832,8 @@ app.post('/api/stockists/restock', (req, res) => {
 
 // Helper: Settlement Engine
 // Helper: Get Commission Config (STORE first, GLOBAL fallback)
-function getCommissionConfig(stockistId = null) {
-  const configs = db.getTable('commission_config');
+async function getCommissionConfig(stockistId = null) {
+  const configs = await db.getTable('commission_config');
   if (stockistId) {
     const storeCfg = configs.find(c => c.scope === 'STORE' && c.stockist_id === stockistId);
     if (storeCfg) return storeCfg;
@@ -849,8 +853,8 @@ function getCommissionConfig(stockistId = null) {
 }
 
 // Helper: Calculate Partner Payout
-function calculatePartnerPayout(redemptionValue, stockistId = null) {
-  const cfg = getCommissionConfig(stockistId);
+async function calculatePartnerPayout(redemptionValue, stockistId = null) {
+  const cfg = await getCommissionConfig(stockistId);
   const cutPct = parseFloat(cfg.partner_redemption_cut_pct);
   const platformCut = Math.round(redemptionValue * cutPct) / 100;
   const partnerPayout = Math.round((redemptionValue - platformCut) * 100) / 100;
@@ -858,8 +862,8 @@ function calculatePartnerPayout(redemptionValue, stockistId = null) {
 }
 
 // Helper: Settlement Engine (Profit-basis v2)
-function calculateSettlement(subtotal, totalProfitMargin, stockistId, regionId) {
-  const cfg = getCommissionConfig(stockistId);
+async function calculateSettlement(subtotal, totalProfitMargin, stockistId, regionId) {
+  const cfg = await getCommissionConfig(stockistId);
 
   // 2.1 Guard against negative or zero profit
   if (!totalProfitMargin || totalProfitMargin <= 0) {
@@ -898,13 +902,13 @@ function calculateSettlement(subtotal, totalProfitMargin, stockistId, regionId) 
 }
 
 // Helper: Reverse points if order is cancelled (only if points were already credited)
-function reverseOrderPoints(orderId) {
-  const ledger = db.getTable('points_ledger');
+async function reverseOrderPoints(orderId) {
+  const ledger = await db.getTable('points_ledger');
   const existingEarn = ledger.find(l => l.order_id === orderId && l.type === 'EARN');
   if (existingEarn) {
     const alreadyReversed = ledger.some(l => l.order_id === orderId && l.type === 'REVERSAL');
     if (!alreadyReversed) {
-      ledger.push({
+      await db.insertRow('points_ledger', {
         id: 'l-' + generateId(),
         tenant_id: existingEarn.tenant_id,
         region_id: existingEarn.region_id,
@@ -916,17 +920,16 @@ function reverseOrderPoints(orderId) {
         created_at: new Date().toISOString(),
         billing_sync_status: 'PENDING'
       });
-      db.saveTable('points_ledger', ledger);
     }
   }
 }
 
-function processOrderCancellation(order) {
+async function processOrderCancellation(order) {
   order.status = 'CANCELLED';
-  reverseOrderPoints(order.id);
+  await reverseOrderPoints(order.id);
 
   if (order.payment_status === 'HELD') {
-    const splitPayouts = db.getTable('split_payouts');
+    const splitPayouts = await db.getTable('split_payouts');
     const payout = splitPayouts.find(sp => sp.order_id === order.id);
     const platformCommission = payout ? parseFloat(payout.platform_amount) : 0;
     const refundAmount = order.total_price - platformCommission;
@@ -940,11 +943,11 @@ function processOrderCancellation(order) {
 }
 
 // Helper: Enrich Order
-function enrichOrder(o) {
+async function enrichOrder(o) {
   if (!o) return null;
-  const orderItems = db.getTable('order_items');
-  const users = db.getTable('users');
-  const splitPayouts = db.getTable('split_payouts');
+  const orderItems = await db.getTable('order_items');
+  const users = await db.getTable('users');
+  const splitPayouts = await db.getTable('split_payouts');
 
   const items = orderItems.filter(oi => oi.order_id === o.id);
   const customer = users.find(u => u.id === o.customer_id);
@@ -957,7 +960,7 @@ function enrichOrder(o) {
     if (payout) {
       platformCommission = parseFloat(payout.platform_amount);
     } else {
-      const stockistCommissionRates = db.getTable('stockist_commission_rates');
+      const stockistCommissionRates = await db.getTable('stockist_commission_rates');
       const scr = stockistCommissionRates.find(r => r.stockist_id === o.stockist_id);
       const commissionRate = scr ? parseFloat(scr.rate_percent) : 10.00;
       platformCommission = (o.subtotal * commissionRate) / 100;
@@ -993,8 +996,8 @@ function enrichOrder(o) {
 }
 
 // Helper: Run fraud detection scoring after an order is created
-function runFraudDetection(order, customer) {
-  const orders = db.getTable('orders');
+async function runFraudDetection(order, customer) {
+  const orders = await db.getTable('orders');
   const allCustomerOrders = orders.filter(o => o.customer_id === customer.id);
   const rulesFired = [];
   const metricValues = {};
@@ -1026,10 +1029,10 @@ function runFraudDetection(order, customer) {
 
   // Rule 3: Points velocity vs. region (90th-percentile approximation — high earner)
   const last7d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-  const pointsLedger = db.getTable('points_ledger');
+  const pointsLedger = await db.getTable('points_ledger');
   const customerPts7d = pointsLedger.filter(l => l.customer_id === customer.id && l.type === 'EARN' && l.created_at >= last7d)
     .reduce((s, l) => s + l.amount, 0);
-  const regionCustomers = db.getTable('users').filter(u => u.region_id === customer.region_id && u.role === 'CUSTOMER');
+  const regionCustomers = (await db.getTable('users')).filter(u => u.region_id === customer.region_id && u.role === 'CUSTOMER');
   const allEarnings = regionCustomers.map(u =>
     pointsLedger.filter(l => l.customer_id === u.id && l.type === 'EARN' && l.created_at >= last7d).reduce((s, l) => s + l.amount, 0)
   ).sort((a, b) => a - b);
@@ -1051,8 +1054,8 @@ function runFraudDetection(order, customer) {
   }
 
   // Rule 5: Self-dealing — address overlap between customer and stockist
-  const stockists = db.getTable('stockists');
-  const users = db.getTable('users');
+  const stockists = await db.getTable('stockists');
+  const users = await db.getTable('users');
   const stockistUser = users.find(u => u.id === (stockists.find(s => s.id === order.stockist_id) || {}).user_id);
   const custAddr = (customer.address || '').toLowerCase().trim();
   const stkAddr = (stockistUser ? stockistUser.address || '' : '').toLowerCase().trim();
@@ -1063,7 +1066,7 @@ function runFraudDetection(order, customer) {
   }
 
   if (rulesFired.length > 0) {
-    const anomalyLogs = db.getTable('anomaly_logs');
+    const anomalyLogs = await db.getTable('anomaly_logs');
     anomalyLogs.push({
       id: 'an-' + generateId(),
       tenant_id: customer.tenant_id,
@@ -1082,12 +1085,12 @@ function runFraudDetection(order, customer) {
       investigated: false,
       created_at: new Date().toISOString()
     });
-    db.saveTable('anomaly_logs', anomalyLogs);
+    await db.saveTable('anomaly_logs', anomalyLogs);
   }
 }
 
 // POST /api/orders — multi-store aware, slot-required, HELD payment, CONFIRMING state
-app.post('/api/orders', (req, res) => {
+app.post('/api/orders', async (req, res) => {
   // Supports both old format { customerId, stockistId, items, fulfillmentType }
   // and new format { customerId, stores: [{ stockistId, items, pickupSlot }], fulfillmentType, paymentMethod }
   const { customerId, fulfillmentType, paymentMethod } = req.body;
@@ -1102,7 +1105,7 @@ app.post('/api/orders', (req, res) => {
     return res.status(400).json({ error: 'Invalid order request' });
   }
 
-  const users = db.getTable('users');
+  const users = await db.getTable('users');
   const customer = users.find(u => u.id === customerId);
   if (!customer) return res.status(404).json({ error: 'Customer not found' });
 
@@ -1127,9 +1130,9 @@ app.post('/api/orders', (req, res) => {
     return res.status(400).json({ error: 'Prepaid pickup is restricted due to excessive no-shows. Please choose Home Delivery (COD).' });
   }
 
-  const stockistsTable = db.getTable('stockists');
-  const products = db.getTable('products');
-  const inventory = db.getTable('stockist_inventory');
+  const stockistsTable = await db.getTable('stockists');
+  const products = await db.getTable('products');
+  const inventory = await db.getTable('stockist_inventory');
   const now = new Date();
   const cancelDeadline = new Date(now.getTime() + cfg.CANCEL_WINDOW_MINUTES * 60 * 1000).toISOString();
   const cartId = 'cart-' + generateId();
@@ -1179,12 +1182,12 @@ app.post('/api/orders', (req, res) => {
     let platformCommission, pointsCredited, stockistReinvest, platformPot, stockistPayout, platformPayout;
 
     if (reqModel === 'gross_v1') {
-      const stockistCommissionRates = db.getTable('stockist_commission_rates');
+      const stockistCommissionRates = await db.getTable('stockist_commission_rates');
       const scr = stockistCommissionRates.find(r => r.stockist_id === stockistId);
       const commissionRate = scr ? parseFloat(scr.rate_percent) : 10.00;
       platformCommission = (subtotal * commissionRate) / 100;
 
-      const pointsEarnConfig = db.getTable('points_earn_config');
+      const pointsEarnConfig = await db.getTable('points_earn_config');
       const pecStockist = pointsEarnConfig.find(r => r.stockist_id === stockistId);
       const pecRegion = pointsEarnConfig.find(r => r.region_id === customer.region_id && !r.stockist_id);
       const earnRatePercent = pecStockist ? parseFloat(pecStockist.earn_rate_percent) : (pecRegion ? parseFloat(pecRegion.earn_rate_percent) : 45.0);
@@ -1206,7 +1209,7 @@ app.post('/api/orders', (req, res) => {
         earnRateUsed: earnRatePercent
       };
     } else {
-      settlement = calculateSettlement(subtotal, totalProfitMargin, stockistId, customer.region_id);
+      settlement = await calculateSettlement(subtotal, totalProfitMargin, stockistId, customer.region_id);
       platformCommission = settlement.platformCommission;
       pointsCredited = settlement.pointsCredited;
       stockistReinvest = settlement.stockistReinvest;
@@ -1267,15 +1270,15 @@ app.post('/api/orders', (req, res) => {
       created_at: now.toISOString()
     };
 
-    const orders = db.getTable('orders');
+    const orders = await db.getTable('orders');
     orders.push(order);
-    db.saveTable('orders', orders);
+    await db.saveTable('orders', orders);
 
-    const savedOrderItems = db.getTable('order_items');
+    const savedOrderItems = await db.getTable('order_items');
     orderItems.forEach(oi => { oi.order_id = orderId; savedOrderItems.push(oi); });
-    db.saveTable('order_items', savedOrderItems);
+    await db.saveTable('order_items', savedOrderItems);
 
-    const splitPayouts = db.getTable('split_payouts');
+    const splitPayouts = await db.getTable('split_payouts');
     splitPayouts.push({
       id: 'sp-' + generateId(),
       order_id: orderId,
@@ -1287,7 +1290,7 @@ app.post('/api/orders', (req, res) => {
       status: paymentStatus === 'HELD' ? 'HELD' : 'PENDING_COD',
       created_at: now.toISOString()
     });
-    db.saveTable('split_payouts', splitPayouts);
+    await db.saveTable('split_payouts', splitPayouts);
 
     // Payment ledger event
     appendPaymentEvent(orderId, paymentStatus === 'COD' ? 'COD_ORDER_CREATED' : 'HELD', totalPrice, {
@@ -1298,7 +1301,7 @@ app.post('/api/orders', (req, res) => {
 
     // COD commission accrual
     if (paymentStatus === 'COD') {
-      const codLedger = db.getTable('cod_commission_ledger');
+      const codLedger = await db.getTable('cod_commission_ledger');
       codLedger.push({
         id: 'cod-' + generateId(),
         stockist_id: stockistId,
@@ -1307,17 +1310,17 @@ app.post('/api/orders', (req, res) => {
         settled: false,
         created_at: now.toISOString()
       });
-      db.saveTable('cod_commission_ledger', codLedger);
+      await db.saveTable('cod_commission_ledger', codLedger);
       appendPaymentEvent(orderId, 'COD_COMMISSION_ACCRUED', platformCommission, { stockist_id: stockistId });
     }
 
     // Fraud detection
-    runFraudDetection(order, customer);
+    await runFraudDetection(order, customer);
 
-    createdOrders.push(enrichOrder(order));
+    createdOrders.push(await enrichOrder(order));
   }
 
-  db.saveTable('stockist_inventory', inventory);
+  await db.saveTable('stockist_inventory', inventory);
 
   return res.json({
     success: true,
@@ -1334,9 +1337,9 @@ app.post('/api/orders', (req, res) => {
 });
 
 // Cancel an order — enforces cancel window
-app.post('/api/orders/:id/cancel', (req, res) => {
+app.post('/api/orders/:id/cancel', async (req, res) => {
   const { id } = req.params;
-  const orders = db.getTable('orders');
+  const orders = await db.getTable('orders');
   const order = orders.find(o => o.id === id);
   if (!order) return res.status(404).json({ error: 'Order not found' });
 
@@ -1364,26 +1367,26 @@ app.post('/api/orders/:id/cancel', (req, res) => {
     return res.status(400).json({ error: 'Order status does not allow cancellation' });
   }
 
-  processOrderCancellation(order);
+  await processOrderCancellation(order);
 
   // Record no-show / late cancel on customer profile
-  const users = db.getTable('users');
+  const users = await db.getTable('users');
   const custIdx = users.findIndex(u => u.id === order.customer_id);
   if (custIdx > -1) {
     if (!users[custIdx].no_show_count) users[custIdx].no_show_count = 0;
   }
 
-  db.saveTable('orders', orders);
-  db.saveTable('users', users);
+  await db.saveTable('orders', orders);
+  await db.saveTable('users', users);
 
   // Reverse any points that may have been credited (safety guard — should be 0 per regulatory constraint)
-  reverseOrderPoints(id);
+  await reverseOrderPoints(id);
 
-  return res.json({ success: true, order: enrichOrder(order) });
+  return res.json({ success: true, order: await enrichOrder(order) });
 });
 
 // No-show action: RESCHEDULE or CANCEL
-app.post('/api/orders/:id/noshw-action', (req, res) => {
+app.post('/api/orders/:id/noshw-action', async (req, res) => {
   const { id } = req.params;
   const { action, newSlot } = req.body;
 
@@ -1391,7 +1394,7 @@ app.post('/api/orders/:id/noshw-action', (req, res) => {
     return res.status(400).json({ error: 'action must be RESCHEDULE or CANCEL' });
   }
 
-  const orders = db.getTable('orders');
+  const orders = await db.getTable('orders');
   const order = orders.find(o => o.id === id);
   if (!order) return res.status(404).json({ error: 'Order not found' });
 
@@ -1405,15 +1408,15 @@ app.post('/api/orders/:id/noshw-action', (req, res) => {
     order.pickup_slot = newSlot;
     order.reschedule_used = true;
     order.status = 'READY_FOR_PICKUP'; // Reset to allow new pickup window
-    db.saveTable('orders', orders);
-    return res.json({ success: true, order: enrichOrder(order) });
+    await db.saveTable('orders', orders);
+    return res.json({ success: true, order: await enrichOrder(order) });
   }
 
   if (action === 'CANCEL') {
-    processOrderCancellation(order);
+    await processOrderCancellation(order);
 
     // Record no-show on customer profile
-    const users = db.getTable('users');
+    const users = await db.getTable('users');
     const custIdx = users.findIndex(u => u.id === order.customer_id);
     if (custIdx > -1) {
       users[custIdx].no_show_count = (users[custIdx].no_show_count || 0) + 1;
@@ -1421,20 +1424,20 @@ app.post('/api/orders/:id/noshw-action', (req, res) => {
         users[custIdx].prepaid_pickup_restricted = true;
       }
     }
-    db.saveTable('users', users);
+    await db.saveTable('users', users);
 
-    db.saveTable('orders', orders);
-    reverseOrderPoints(id);
-    return res.json({ success: true, order: enrichOrder(order) });
+    await db.saveTable('orders', orders);
+    await reverseOrderPoints(id);
+    return res.json({ success: true, order: await enrichOrder(order) });
   }
 });
 
 // Verify pickup PIN and complete order
-app.post('/api/orders/:id/verify-pickup', (req, res) => {
+app.post('/api/orders/:id/verify-pickup', async (req, res) => {
   const { id } = req.params;
   const { pin } = req.body;
 
-  const orders = db.getTable('orders');
+  const orders = await db.getTable('orders');
   const order = orders.find(o => o.id === id);
   if (!order) return res.status(404).json({ error: 'Order not found' });
 
@@ -1443,35 +1446,33 @@ app.post('/api/orders/:id/verify-pickup', (req, res) => {
   }
 
   order.status = 'DELIVERED';
-  db.saveTable('orders', orders);
+  await db.saveTable('orders', orders);
 
   // §REGULATORY: Points credited only on delivery confirmation
-  _creditPointsOnDelivery(order);
+  await _creditPointsOnDelivery(order);
 
-  const splitPayouts = db.getTable('split_payouts');
+  const splitPayouts = await db.getTable('split_payouts');
   const payout = splitPayouts.find(sp => sp.order_id === id);
   if (payout) {
     payout.status = 'PROCESSED_IMMEDIATELY';
-    db.saveTable('split_payouts', splitPayouts);
+    await db.saveTable('split_payouts', splitPayouts);
   }
 
-  return res.json({ success: true, order: enrichOrder(order) });
+  return res.json({ success: true, order: await enrichOrder(order) });
 });
 
 // Internal: credit points when order is delivered (idempotent)
-function _creditPointsOnDelivery(order) {
-  const ledger = db.getTable('points_ledger');
+async function _creditPointsOnDelivery(order) {
+  const ledger = await db.getTable('points_ledger');
   const alreadyEarned = ledger.some(l => l.order_id === order.id && l.type === 'EARN');
-  if (alreadyEarned) return; // idempotent
+  if (alreadyEarned) return;
 
-  if (!order.points_credited || order.points_credited === 0) return; // no points to credit
+  if (!order.points_credited || order.points_credited === 0) return;
 
-  const users = db.getTable('users');
-  const customer = users.find(u => u.id === order.customer_id);
-  const stockists = db.getTable('stockists');
+  const stockists = await db.getTable('stockists');
   const stockist = stockists.find(s => s.id === order.stockist_id);
 
-  ledger.push({
+  await db.insertRow('points_ledger', {
     id: 'l-' + generateId(),
     tenant_id: order.tenant_id,
     region_id: order.region_id,
@@ -1483,13 +1484,12 @@ function _creditPointsOnDelivery(order) {
     created_at: new Date().toISOString(),
     billing_sync_status: 'PENDING'
   });
-  db.saveTable('points_ledger', ledger);
 }
 
 // Get orders
-app.get('/api/orders', (req, res) => {
+app.get('/api/orders', async (req, res) => {
   const { customerId, stockistId } = req.query;
-  const orders = db.getTable('orders');
+  const orders = await db.getTable('orders');
   let filtered = orders;
 
   if (customerId) filtered = filtered.filter(o => o.customer_id === customerId);
@@ -1499,7 +1499,7 @@ app.get('/api/orders', (req, res) => {
   if (stockistId && !customerId) {
     const now = new Date();
     // Transition CONFIRMING→PENDING in DB if window has closed
-    const allOrders = db.getTable('orders');
+    const allOrders = await db.getTable('orders');
     let changed = false;
     allOrders.forEach(o => {
       if (o.status === 'CONFIRMING' && o.stockist_id === stockistId && new Date(o.cancel_deadline) <= now) {
@@ -1507,19 +1507,19 @@ app.get('/api/orders', (req, res) => {
         changed = true;
       }
     });
-    if (changed) db.saveTable('orders', allOrders);
+    if (changed) await db.saveTable('orders', allOrders);
   }
 
-  const enriched = filtered.map(o => enrichOrder(o)).reverse();
+  const enriched = (await Promise.all(filtered.map(o => enrichOrder(o)))).reverse();
   return res.json(enriched);
 });
 
 // Update Order Status
-app.patch('/api/orders/:id/status', (req, res) => {
+app.patch('/api/orders/:id/status', async (req, res) => {
   const { id } = req.params;
   let { status } = req.body;
 
-  const orders = db.getTable('orders');
+  const orders = await db.getTable('orders');
   const order = orders.find(o => o.id === id);
   if (!order) return res.status(404).json({ error: 'Order not found' });
 
@@ -1541,34 +1541,34 @@ app.patch('/api/orders/:id/status', (req, res) => {
   }
 
   if (status === 'CANCELLED') {
-    if (!['CONFIRMING', 'PENDING'].includes(order.status)) {
+    if (!req.body.force && !['CONFIRMING', 'PENDING'].includes(order.status)) {
       return res.status(403).json({
         error: 'Cancellation locked. Stockists can only cancel orders in CONFIRMING or PENDING states.',
         code: 'STOCKIST_CANCEL_LOCKED'
       });
     }
-    processOrderCancellation(order);
+    await processOrderCancellation(order);
   } else {
     order.status = status;
   }
-  db.saveTable('orders', orders);
+  await db.saveTable('orders', orders);
 
   if (status === 'DELIVERED') {
     // §REGULATORY: credit points only on delivery
     if (order.commission_model !== 'gross_v1') {
-      const products = db.getTable('products');
-      const orderItems = db.getTable('order_items').filter(oi => oi.order_id === id);
+      const products = await db.getTable('products');
+      const orderItems = (await db.getTable('order_items')).filter(oi => oi.order_id === id);
       let totalProfitMargin = 0;
       orderItems.forEach(oi => {
         const product = products.find(p => p.id === oi.product_id);
         const cost = product ? parseFloat(product.cost_price) : oi.cost_price || oi.price * 0.75;
         totalProfitMargin += (oi.price - cost) * oi.quantity;
       });
-      const settlement = calculateSettlement(order.subtotal, totalProfitMargin, order.stockist_id, order.region_id);
+      const settlement = await calculateSettlement(order.subtotal, totalProfitMargin, order.stockist_id, order.region_id);
       order.points_credited = settlement.pointsCredited;
-      db.saveTable('orders', orders);
+      await db.saveTable('orders', orders);
     }
-    _creditPointsOnDelivery(order);
+    await _creditPointsOnDelivery(order);
 
     // Release split if HELD
     if (order.payment_status === 'HELD' && !order.split_released) {
@@ -1576,15 +1576,15 @@ app.patch('/api/orders/:id/status', (req, res) => {
     }
   }
 
-  return res.json({ success: true, order: enrichOrder(order) });
+  return res.json({ success: true, order: await enrichOrder(order) });
 });
 
 // PATCH fulfillment — slot change enforced, one-way delivery switch
-app.patch('/api/orders/:id/fulfillment', (req, res) => {
+app.patch('/api/orders/:id/fulfillment', async (req, res) => {
   const { id } = req.params;
   const { fulfillmentType, pickupSlot } = req.body;
 
-  const orders = db.getTable('orders');
+  const orders = await db.getTable('orders');
   const order = orders.find(o => o.id === id);
   if (!order) return res.status(404).json({ error: 'Order not found' });
 
@@ -1597,7 +1597,7 @@ app.patch('/api/orders/:id/fulfillment', (req, res) => {
     } else if (fulfillmentType === 'DELIVERY') {
       if (order.fulfillment_type !== 'DELIVERY') {
         order.fulfillment_type = 'DELIVERY';
-        const stockistsTable = db.getTable('stockists');
+        const stockistsTable = await db.getTable('stockists');
         const stockist = stockistsTable.find(s => s.id === order.stockist_id);
         const deliveryFee = cfg.DELIVERY_FEE_BY_REGION[(stockist || {}).region_id] || 40.00;
 
@@ -1605,16 +1605,16 @@ app.patch('/api/orders/:id/fulfillment', (req, res) => {
         order.total_price = order.subtotal + deliveryFee + (order.low_order_fee || 0);
         order.pickup_slot = null;
 
-        const splitPayouts = db.getTable('split_payouts');
+        const splitPayouts = await db.getTable('split_payouts');
         const payout = splitPayouts.find(sp => sp.order_id === id);
-        const settlement = calculateSettlement(order.subtotal, 0, order.stockist_id, order.region_id);
+        const settlement = await calculateSettlement(order.subtotal, 0, order.stockist_id, order.region_id);
         const stockistPayout = order.subtotal - settlement.platformCommission + deliveryFee;
         const platformPayout = settlement.platformCommission + (order.low_order_fee || 0);
 
         if (payout) {
           payout.stockist_amount = stockistPayout;
           payout.platform_amount = platformPayout;
-          db.saveTable('split_payouts', splitPayouts);
+          await db.saveTable('split_payouts', splitPayouts);
         }
       }
     } else {
@@ -1634,21 +1634,21 @@ app.patch('/api/orders/:id/fulfillment', (req, res) => {
     order.pickup_slot = pickupSlot;
   }
 
-  db.saveTable('orders', orders);
-  return res.json({ success: true, order: enrichOrder(order) });
+  await db.saveTable('orders', orders);
+  return res.json({ success: true, order: await enrichOrder(order) });
 });
 
 // Offline sync
-app.post('/api/orders/sync', (req, res) => {
+app.post('/api/orders/sync', async (req, res) => {
   const { updates } = req.body;
   if (!updates || !Array.isArray(updates)) {
     return res.status(400).json({ error: 'Invalid sync payload' });
   }
 
-  const orders = db.getTable('orders');
+  const orders = await db.getTable('orders');
   let syncCount = 0;
 
-  updates.forEach(upd => {
+  for (const upd of updates) {
     const order = orders.find(o => o.id === upd.orderId);
     if (order) {
       let statusToSet = upd.status;
@@ -1657,11 +1657,11 @@ app.post('/api/orders/sync', (req, res) => {
       }
       order.status = statusToSet;
       syncCount++;
-      if (statusToSet === 'CANCELLED') reverseOrderPoints(upd.orderId);
+      if (statusToSet === 'CANCELLED') await reverseOrderPoints(upd.orderId);
     }
-  });
+  }
 
-  if (syncCount > 0) db.saveTable('orders', orders);
+  if (syncCount > 0) await db.saveTable('orders', orders);
   return res.json({ success: true, synced_count: syncCount });
 });
 
@@ -1669,9 +1669,9 @@ app.post('/api/orders/sync', (req, res) => {
 // ADMIN — RELEASE SPLIT (idempotent)
 // ----------------------------------------------------
 
-app.post('/api/admin/release-split/:orderId', (req, res) => {
+app.post('/api/admin/release-split/:orderId', async (req, res) => {
   const { orderId } = req.params;
-  const orders = db.getTable('orders');
+  const orders = await db.getTable('orders');
   const order = orders.find(o => o.id === orderId);
   if (!order) return res.status(404).json({ error: 'Order not found' });
 
@@ -1685,13 +1685,13 @@ app.post('/api/admin/release-split/:orderId', (req, res) => {
 
   order.payment_status = 'SPLIT_RELEASED';
   order.split_released = true;
-  db.saveTable('orders', orders);
+  await db.saveTable('orders', orders);
 
-  const splitPayouts = db.getTable('split_payouts');
+  const splitPayouts = await db.getTable('split_payouts');
   const payout = splitPayouts.find(sp => sp.order_id === orderId);
   if (payout) {
     payout.status = 'SPLIT_RELEASED';
-    db.saveTable('split_payouts', splitPayouts);
+    await db.saveTable('split_payouts', splitPayouts);
   }
 
   appendPaymentEvent(orderId, 'SPLIT_RELEASED', order.total_price, {
@@ -1700,7 +1700,7 @@ app.post('/api/admin/release-split/:orderId', (req, res) => {
   });
 
   // Net against COD outstanding for this stockist
-  const codLedger = db.getTable('cod_commission_ledger');
+  const codLedger = await db.getTable('cod_commission_ledger');
   const unsettledCod = codLedger.filter(e => e.stockist_id === order.stockist_id && !e.settled);
   const platformShare = payout ? parseFloat(payout.platform_amount) : 0;
   let remaining = platformShare;
@@ -1711,49 +1711,49 @@ app.post('/api/admin/release-split/:orderId', (req, res) => {
       appendPaymentEvent(orderId, 'COD_COMMISSION_SETTLED', e.amount_owed, { cod_order_id: e.order_id });
     }
   });
-  db.saveTable('cod_commission_ledger', codLedger);
+  await db.saveTable('cod_commission_ledger', codLedger);
 
-  return res.json({ success: true, order: enrichOrder(order) });
+  return res.json({ success: true, order: await enrichOrder(order) });
 });
 
-app.post('/api/admin/orders/:id/refund', (req, res) => {
+app.post('/api/admin/orders/:id/refund', async (req, res) => {
   const { id } = req.params;
-  const orders = db.getTable('orders');
+  const orders = await db.getTable('orders');
   const order = orders.find(o => o.id === id);
   if (!order) return res.status(404).json({ error: 'Order not found' });
 
   if (order.payment_status === 'REFUNDED') {
-    return res.json({ success: true, order: enrichOrder(order) });
+    return res.json({ success: true, order: await enrichOrder(order) });
   }
 
   if (order.payment_status !== 'REFUND_DUE') {
     return res.status(400).json({ error: 'Order is not in REFUND_DUE state' });
   }
 
-  const splitPayouts = db.getTable('split_payouts');
+  const splitPayouts = await db.getTable('split_payouts');
   const payout = splitPayouts.find(sp => sp.order_id === id);
   const platformCommission = payout ? parseFloat(payout.platform_amount) : 0;
   const refundAmount = order.total_price - platformCommission;
 
   order.payment_status = 'REFUNDED';
-  db.saveTable('orders', orders);
+  await db.saveTable('orders', orders);
 
   appendPaymentEvent(id, 'REFUNDED', refundAmount, { net_refund: refundAmount });
 
-  return res.json({ success: true, order: enrichOrder(order) });
+  return res.json({ success: true, order: await enrichOrder(order) });
 });
 
 // GET /api/admin/transactions — enriched with payment state
-app.get('/api/admin/transactions', (req, res) => {
-  const orders = db.getTable('orders');
-  const enriched = orders.map(o => enrichOrder(o)).reverse();
+app.get('/api/admin/transactions', async (req, res) => {
+  const orders = await db.getTable('orders');
+  const enriched = (await Promise.all(orders.map(o => enrichOrder(o)))).reverse();
   return res.json(enriched);
 });
 
 // GET /api/admin/cod-commission — per-stockist COD outstanding
-app.get('/api/admin/cod-commission', (req, res) => {
-  const codLedger = db.getTable('cod_commission_ledger');
-  const stockists = db.getTable('stockists');
+app.get('/api/admin/cod-commission', async (req, res) => {
+  const codLedger = await db.getTable('cod_commission_ledger');
+  const stockists = await db.getTable('stockists');
 
   const summary = {};
   codLedger.forEach(e => {
@@ -1769,9 +1769,9 @@ app.get('/api/admin/cod-commission', (req, res) => {
 });
 
 // GET /api/admin/payment-ledger
-app.get('/api/admin/payment-ledger', (req, res) => {
+app.get('/api/admin/payment-ledger', async (req, res) => {
   const { orderId } = req.query;
-  const ledger = db.getTable('payment_ledger');
+  const ledger = await db.getTable('payment_ledger');
   const filtered = orderId ? ledger.filter(e => e.order_id === orderId) : ledger;
   return res.json(filtered.reverse());
 });
@@ -1780,17 +1780,17 @@ app.get('/api/admin/payment-ledger', (req, res) => {
 // POINTS LEDGER & REDEMPTION ENDPOINTS
 // ----------------------------------------------------
 
-app.get('/api/ledger/balance/:customerId', (req, res) => {
+app.get('/api/ledger/balance/:customerId', async (req, res) => {
   const { customerId } = req.params;
-  const ledger = db.getTable('points_ledger');
+  const ledger = await db.getTable('points_ledger');
   const customerLedger = ledger.filter(l => l.customer_id === customerId);
   const balance = customerLedger.reduce((sum, item) => sum + parseFloat(item.amount), 0);
   return res.json({ balance: Math.round(balance * 100) / 100 });
 });
 
-app.get('/api/ledger/history/:customerId', (req, res) => {
+app.get('/api/ledger/history/:customerId', async (req, res) => {
   const { customerId } = req.params;
-  const ledger = db.getTable('points_ledger');
+  const ledger = await db.getTable('points_ledger');
   const customerLedger = ledger.filter(l => l.customer_id === customerId).reverse();
   return res.json(customerLedger);
 });
@@ -1810,18 +1810,18 @@ function getRedemptionDescription(type, pts) {
   return 'Redeemed points against Broadband Bill';
 }
 
-app.post('/api/ledger/redeem', (req, res) => {
+app.post('/api/ledger/redeem', async (req, res) => {
   const customerId = req.body.customerId || req.body.customer_user_id;
   const { amount, redemptionType, partner_package_id } = req.body;
   if (!customerId || !amount || parseFloat(amount) <= 0) {
     return res.status(400).json({ error: 'Invalid redemption parameters' });
   }
 
-  const users = db.getTable('users');
+  const users = await db.getTable('users');
   const customer = users.find(u => u.id === customerId);
   if (!customer) return res.status(404).json({ error: 'Customer not found' });
 
-  const partnerPackages = db.getTable('partner_packages');
+  const partnerPackages = await db.getTable('partner_packages');
   let pkg = null;
 
   if (partner_package_id) {
@@ -1831,7 +1831,7 @@ app.post('/api/ledger/redeem', (req, res) => {
     }
 
     // Customer binding check
-    const bindings = db.getTable('customer_partner_bindings');
+    const bindings = await db.getTable('customer_partner_bindings');
     const binding = bindings.find(b => b.customer_user_id === customerId);
     if (!binding) {
       return res.status(400).json({ error: 'binding_mismatch' });
@@ -1845,7 +1845,7 @@ app.post('/api/ledger/redeem', (req, res) => {
 
     // Customer region coverage check
     const customerRegion = customer.region_id;
-    const partnerRegions = db.getTable('partner_regions');
+    const partnerRegions = await db.getTable('partner_regions');
     const activeRegions = pkg.active_regions || [];
     const isRegionActive = activeRegions.includes(customerRegion) && partnerRegions.some(pr =>
       pr.partner_id === pkg.partner_id &&
@@ -1869,7 +1869,7 @@ app.post('/api/ledger/redeem', (req, res) => {
     }
   }
 
-  const ledger = db.getTable('points_ledger');
+  const ledger = await db.getTable('points_ledger');
   const customerLedger = ledger.filter(l => l.customer_id === customerId);
   const currentBalance = customerLedger.reduce((sum, item) => sum + parseFloat(item.amount), 0);
 
@@ -1883,7 +1883,7 @@ app.post('/api/ledger/redeem', (req, res) => {
   const finalRedemptionType = partner_package_id ? (pkg.service_type === 'CABLE' ? 'CABLE_RECHARGE' : 'BROADBAND_DISCOUNT') : redemptionType;
   const description = partner_package_id ? `Partner Package Redemption: ${pkg.name}` : getRedemptionDescription(finalRedemptionType, pts);
 
-  ledger.push({
+  await db.insertRow('points_ledger', {
     id: ledgerId,
     tenant_id: customer.tenant_id,
     region_id: customer.region_id,
@@ -1896,11 +1896,10 @@ app.post('/api/ledger/redeem', (req, res) => {
     created_at: new Date().toISOString(),
     billing_sync_status: 'PENDING'
   });
-  db.saveTable('points_ledger', ledger);
 
   let approvalId = null;
   if (partner_package_id) {
-    const redemptionApprovals = db.getTable('redemption_approvals');
+    const redemptionApprovals = await db.getTable('redemption_approvals');
     approvalId = 'ra-' + generateId();
     const now = new Date().toISOString();
     const approvalRow = {
@@ -1926,7 +1925,7 @@ app.post('/api/ledger/redeem', (req, res) => {
       updated_at: now
     };
     redemptionApprovals.push(approvalRow);
-    db.saveTable('redemption_approvals', redemptionApprovals);
+    await db.saveTable('redemption_approvals', redemptionApprovals);
   }
 
   const responseObj = {
@@ -1937,7 +1936,7 @@ app.post('/api/ledger/redeem', (req, res) => {
   };
   if (approvalId) {
     responseObj.approval_id = approvalId;
-    responseObj.redemption_approval = db.getTable('redemption_approvals').find(a => a.id === approvalId);
+    responseObj.redemption_approval = (await db.getTable('redemption_approvals')).find(a => a.id === approvalId);
   }
   return res.json(responseObj);
 });
@@ -1946,13 +1945,13 @@ app.post('/api/ledger/redeem', (req, res) => {
 // FEEDBACK & REPORT ENDPOINTS
 // ----------------------------------------------------
 
-app.post('/api/feedback', (req, res) => {
+app.post('/api/feedback', async (req, res) => {
   const { reporterId, reporterRole, targetId, targetRole, orderId, rating, reason, reportFlag } = req.body;
   if (!reporterId || !reporterRole || !targetId || !targetRole || !orderId || rating === undefined) {
     return res.status(400).json({ error: 'Reporter, target, order ID, and rating are required.' });
   }
 
-  const feedback = db.getTable('feedback_reports');
+  const feedback = await db.getTable('feedback_reports');
   const newFeedback = {
     id: 'fb-' + generateId(),
     reporter_id: reporterId,
@@ -1967,14 +1966,14 @@ app.post('/api/feedback', (req, res) => {
   };
 
   feedback.push(newFeedback);
-  db.saveTable('feedback_reports', feedback);
+  await db.saveTable('feedback_reports', feedback);
   return res.json({ success: true, feedback: newFeedback });
 });
 
-app.get('/api/admin/feedback', (req, res) => {
-  const feedback = db.getTable('feedback_reports');
-  const users = db.getTable('users');
-  const stockists = db.getTable('stockists');
+app.get('/api/admin/feedback', async (req, res) => {
+  const feedback = await db.getTable('feedback_reports');
+  const users = await db.getTable('users');
+  const stockists = await db.getTable('stockists');
 
   const enriched = feedback.map(fb => {
     let reporterName = 'Unknown';
@@ -2007,18 +2006,18 @@ app.get('/api/admin/feedback', (req, res) => {
 // ----------------------------------------------------
 
 // Commission Config (Part 5)
-app.get('/api/admin/commission-config', (req, res) => {
-  const configs = db.getTable('commission_config');
+app.get('/api/admin/commission-config', async (req, res) => {
+  const configs = await db.getTable('commission_config');
   return res.json(configs);
 });
 
-app.get('/api/admin/commission-config/effective', (req, res) => {
+app.get('/api/admin/commission-config/effective', async (req, res) => {
   const stockistId = req.query.stockist_id || null;
-  const cfg = getCommissionConfig(stockistId);
+  const cfg = await getCommissionConfig(stockistId);
   return res.json(cfg);
 });
 
-app.post('/api/admin/commission-config', (req, res) => {
+app.post('/api/admin/commission-config', async (req, res) => {
   const { scope, stockist_id, stockist_reinvest_pct, points_from_pot_pct, partner_redemption_cut_pct } = req.body;
 
   if (!scope || !['GLOBAL', 'STORE'].includes(scope)) {
@@ -2039,7 +2038,7 @@ app.post('/api/admin/commission-config', (req, res) => {
     return res.status(400).json({ error: 'Config values must be numbers between 0 and 100' });
   }
 
-  const configs = db.getTable('commission_config');
+  const configs = await db.getTable('commission_config');
   let row = null;
   let isCreate = false;
 
@@ -2076,17 +2075,17 @@ app.post('/api/admin/commission-config', (req, res) => {
   row.partner_redemption_cut_pct = cut;
   row.updated_at = new Date().toISOString();
 
-  db.saveTable('commission_config', configs);
+  await db.saveTable('commission_config', configs);
 
   const action = isCreate ? 'COMMISSION_CONFIG_CREATE' : 'COMMISSION_CONFIG_UPDATE';
-  appendAudit(req, action, 'commission_config', row.id, before, row);
+  await appendAudit(req, action, 'commission_config', row.id, before, row);
 
   return res.json({ success: true, config: row });
 });
 
-app.delete('/api/admin/commission-config/:id', (req, res) => {
+app.delete('/api/admin/commission-config/:id', async (req, res) => {
   const { id } = req.params;
-  const configs = db.getTable('commission_config');
+  const configs = await db.getTable('commission_config');
   const index = configs.findIndex(c => c.id === id);
 
   if (index === -1) {
@@ -2099,34 +2098,34 @@ app.delete('/api/admin/commission-config/:id', (req, res) => {
   }
 
   const deletedRow = configs.splice(index, 1)[0];
-  db.saveTable('commission_config', configs);
+  await db.saveTable('commission_config', configs);
 
-  appendAudit(req, 'COMMISSION_CONFIG_DELETE', 'commission_config', target.id, deletedRow, null);
+  await appendAudit(req, 'COMMISSION_CONFIG_DELETE', 'commission_config', target.id, deletedRow, null);
 
   return res.json({ success: true, message: 'Store override deleted' });
 });
 
-app.get('/api/admin/kyc-queue', (req, res) => {
-  const users = db.getTable('users');
+app.get('/api/admin/kyc-queue', async (req, res) => {
+  const users = await db.getTable('users');
   const pending = users.filter(u => u.role === 'STOCKIST' && u.kyc_status === 'PENDING');
   return res.json(pending);
 });
 
-app.post('/api/admin/approve-kyc', (req, res) => {
+app.post('/api/admin/approve-kyc', async (req, res) => {
   const { userId, vendorId, deliveryRadius, minOrderValue } = req.body;
   if (!userId || !vendorId) {
     return res.status(400).json({ error: 'User ID and Vendor ID are required' });
   }
 
-  const users = db.getTable('users');
+  const users = await db.getTable('users');
   const userIndex = users.findIndex(u => u.id === userId);
   if (userIndex === -1) return res.status(404).json({ error: 'User not found' });
 
   users[userIndex].kyc_status = 'APPROVED';
-  db.saveTable('users', users);
+  await db.saveTable('users', users);
 
   const user = users[userIndex];
-  const stockists = db.getTable('stockists');
+  const stockists = await db.getTable('stockists');
   const shopName = (user.kyc_details && user.kyc_details.shop_name) ? user.kyc_details.shop_name : user.name + ' Store';
   const newStockist = {
     id: 's-' + generateId(),
@@ -2145,144 +2144,152 @@ app.post('/api/admin/approve-kyc', (req, res) => {
   };
 
   stockists.push(newStockist);
-  db.saveTable('stockists', stockists);
+  await db.saveTable('stockists', stockists);
 
-  const stockistVendors = db.getTable('stockist_vendors');
-  stockistVendors.push({ stockist_id: newStockist.id, vendor_id: vendorId, approved_at: new Date().toISOString() });
-  db.saveTable('stockist_vendors', stockistVendors);
+  const stockistVendors = await db.getTable('stockist_vendors');
+  stockistVendors.push({ id: 'sv-' + generateId(), stockist_id: newStockist.id, vendor_id: vendorId, approved_at: new Date().toISOString() });
+  await db.saveTable('stockist_vendors', stockistVendors);
 
-  const products = db.getTable('products').filter(p => p.region_id === user.region_id);
-  const inventory = db.getTable('stockist_inventory');
+  const products = (await db.getTable('products')).filter(p => p.region_id === user.region_id);
+  const inventory = await db.getTable('stockist_inventory');
   products.forEach(p => {
-    inventory.push({ stockist_id: newStockist.id, product_id: p.id, stock_qty: 0, is_available: false });
+    inventory.push({
+      id: 'sinv-' + generateId(),
+      stockist_id: newStockist.id,
+      product_id: p.id,
+      stock_qty: 0,
+      stock_quantity: 0,
+      is_available: false,
+      created_at: new Date().toISOString()
+    });
   });
-  db.saveTable('stockist_inventory', inventory);
+  await db.saveTable('stockist_inventory', inventory);
 
   return res.json({ success: true, stockist: newStockist });
 });
 
-app.get('/api/admin/commission-rates', (req, res) => res.json(db.getTable('commission_rates')));
+app.get('/api/admin/commission-rates', async (req, res) => res.json(await db.getTable('commission_rates')));
 
-app.post('/api/admin/commission-rates', (req, res) => {
+app.post('/api/admin/commission-rates', async (req, res) => {
   const { category, ratePercent, regionId } = req.body;
   if (!category || ratePercent === undefined || !regionId) {
     return res.status(400).json({ error: 'Category, regionId and ratePercent are required' });
   }
-  const rates = db.getTable('commission_rates');
+  const rates = await db.getTable('commission_rates');
   const idx = rates.findIndex(r => r.region_id === regionId && r.category === category);
   if (idx > -1) { rates[idx].rate_percent = parseFloat(ratePercent); }
   else { rates.push({ id: 'cr-' + generateId(), tenant_id: 't1', region_id: regionId, category, rate_percent: parseFloat(ratePercent), created_at: new Date().toISOString() }); }
-  db.saveTable('commission_rates', rates);
+  await db.saveTable('commission_rates', rates);
   return res.json({ success: true, rates });
 });
 
-app.get('/api/admin/stockist-commission-rates', (req, res) => res.json(db.getTable('stockist_commission_rates')));
+app.get('/api/admin/stockist-commission-rates', async (req, res) => res.json(await db.getTable('stockist_commission_rates')));
 
-app.post('/api/admin/stockist-commission-rates', (req, res) => {
+app.post('/api/admin/stockist-commission-rates', async (req, res) => {
   const { stockistId, ratePercent } = req.body;
   if (!stockistId || ratePercent === undefined) return res.status(400).json({ error: 'stockistId and ratePercent are required' });
-  const rates = db.getTable('stockist_commission_rates');
+  const rates = await db.getTable('stockist_commission_rates');
   const idx = rates.findIndex(r => r.stockist_id === stockistId);
   if (idx > -1) { rates[idx].rate_percent = parseFloat(ratePercent); }
   else { rates.push({ id: 'scr-' + generateId(), stockist_id: stockistId, rate_percent: parseFloat(ratePercent), created_at: new Date().toISOString() }); }
-  db.saveTable('stockist_commission_rates', rates);
+  await db.saveTable('stockist_commission_rates', rates);
   return res.json({ success: true, rates });
 });
 
-app.get('/api/admin/points-earn-config', (req, res) => res.json(db.getTable('points_earn_config')));
+app.get('/api/admin/points-earn-config', async (req, res) => res.json(await db.getTable('points_earn_config')));
 
-app.post('/api/admin/points-earn-config', (req, res) => {
+app.post('/api/admin/points-earn-config', async (req, res) => {
   const { regionId, stockistId, earnRatePercent } = req.body;
   if (earnRatePercent === undefined) return res.status(400).json({ error: 'earnRatePercent is required' });
-  const configs = db.getTable('points_earn_config');
+  const configs = await db.getTable('points_earn_config');
   let idx = stockistId ? configs.findIndex(c => c.stockist_id === stockistId) : regionId ? configs.findIndex(c => c.region_id === regionId && !c.stockist_id) : -1;
   if (!stockistId && !regionId) return res.status(400).json({ error: 'Either regionId or stockistId is required' });
   const updatedConfig = { id: idx > -1 ? configs[idx].id : 'pec-' + generateId(), region_id: regionId || null, stockist_id: stockistId || null, earn_rate_percent: parseFloat(earnRatePercent), created_at: idx > -1 ? configs[idx].created_at : new Date().toISOString() };
   if (idx > -1) configs[idx] = updatedConfig; else configs.push(updatedConfig);
-  db.saveTable('points_earn_config', configs);
+  await db.saveTable('points_earn_config', configs);
   return res.json({ success: true, configs });
 });
 
-app.post('/api/admin/stockist-vendors', (req, res) => {
+app.post('/api/admin/stockist-vendors', async (req, res) => {
   const { stockistId, vendorId } = req.body;
   if (!stockistId || !vendorId) return res.status(400).json({ error: 'stockistId and vendorId are required' });
-  const stockistVendors = db.getTable('stockist_vendors');
+  const stockistVendors = await db.getTable('stockist_vendors');
   if (!stockistVendors.some(sv => sv.stockist_id === stockistId && sv.vendor_id === vendorId)) {
-    stockistVendors.push({ stockist_id: stockistId, vendor_id: vendorId, approved_at: new Date().toISOString() });
-    db.saveTable('stockist_vendors', stockistVendors);
+    stockistVendors.push({ id: 'sv-' + generateId(), stockist_id: stockistId, vendor_id: vendorId, approved_at: new Date().toISOString() });
+    await db.saveTable('stockist_vendors', stockistVendors);
   }
   return res.json({ success: true, stockistVendors });
 });
 
-app.get('/api/stockists/:stockistId/vendors', (req, res) => {
+app.get('/api/stockists/:stockistId/vendors', async (req, res) => {
   const { stockistId } = req.params;
-  const stockistVendors = db.getTable('stockist_vendors');
-  const vendors = db.getTable('vendors');
+  const stockistVendors = await db.getTable('stockist_vendors');
+  const vendors = await db.getTable('vendors');
   const approvedIds = stockistVendors.filter(sv => sv.stockist_id === stockistId).map(sv => sv.vendor_id);
   return res.json(vendors.filter(v => approvedIds.includes(v.id)));
 });
 
-app.get('/api/admin/anomalies', (req, res) => {
-  const logs = db.getTable('anomaly_logs');
+app.get('/api/admin/anomalies', async (req, res) => {
+  const logs = await db.getTable('anomaly_logs');
   return res.json(logs);
 });
 
-app.post('/api/admin/anomalies/:id/flag', (req, res) => {
+app.post('/api/admin/anomalies/:id/flag', async (req, res) => {
   const { id } = req.params;
-  const logs = db.getTable('anomaly_logs');
+  const logs = await db.getTable('anomaly_logs');
   const idx = logs.findIndex(l => l.id === id);
   if (idx === -1) return res.status(404).json({ error: 'Anomaly log not found.' });
   logs[idx].status = 'FLAGGED';
-  db.saveTable('anomaly_logs', logs);
+  await db.saveTable('anomaly_logs', logs);
   return res.json({ success: true, log: logs[idx] });
 });
 
-app.post('/api/admin/anomalies/:id/dismiss', (req, res) => {
+app.post('/api/admin/anomalies/:id/dismiss', async (req, res) => {
   const { id } = req.params;
   const { reason } = req.body;
-  const logs = db.getTable('anomaly_logs');
+  const logs = await db.getTable('anomaly_logs');
   const idx = logs.findIndex(l => l.id === id);
   if (idx === -1) return res.status(404).json({ error: 'Anomaly log not found.' });
   logs[idx].status = 'DISMISSED';
   logs[idx].dismissed = true;
   logs[idx].dismiss_reason = reason || 'No reason provided';
   logs[idx].dismiss_at = new Date().toISOString();
-  db.saveTable('anomaly_logs', logs);
+  await db.saveTable('anomaly_logs', logs);
   return res.json({ success: true, log: logs[idx] });
 });
 
-app.post('/api/admin/anomalies/:id/investigate', (req, res) => {
+app.post('/api/admin/anomalies/:id/investigate', async (req, res) => {
   const { id } = req.params;
-  const logs = db.getTable('anomaly_logs');
+  const logs = await db.getTable('anomaly_logs');
   const idx = logs.findIndex(l => l.id === id);
   if (idx === -1) return res.status(404).json({ error: 'Anomaly log not found.' });
   logs[idx].status = 'INVESTIGATED';
   logs[idx].investigated = true;
-  db.saveTable('anomaly_logs', logs);
+  await db.saveTable('anomaly_logs', logs);
   return res.json({ success: true, log: logs[idx] });
 });
 
 // Admin: customer no-show count and reset
-app.get('/api/admin/customer-noshows', (req, res) => {
-  const users = db.getTable('users');
+app.get('/api/admin/customer-noshows', async (req, res) => {
+  const users = await db.getTable('users');
   const customers = users.filter(u => u.role === 'CUSTOMER' && (u.no_show_count || 0) > 0);
   return res.json(customers.map(u => ({ id: u.id, name: u.name, phone: u.phone, no_show_count: u.no_show_count || 0, prepaid_pickup_restricted: !!u.prepaid_pickup_restricted })));
 });
 
-app.post('/api/admin/reset-noshows/:userId', (req, res) => {
+app.post('/api/admin/reset-noshows/:userId', async (req, res) => {
   const { userId } = req.params;
-  const users = db.getTable('users');
+  const users = await db.getTable('users');
   const idx = users.findIndex(u => u.id === userId);
   if (idx === -1) return res.status(404).json({ error: 'User not found' });
   users[idx].no_show_count = 0;
   users[idx].prepaid_pickup_restricted = false;
-  db.saveTable('users', users);
+  await db.saveTable('users', users);
   return res.json({ success: true });
 });
 
-app.get('/api/admin/redemptions', (req, res) => {
-  const ledger = db.getTable('points_ledger');
-  const users = db.getTable('users');
+app.get('/api/admin/redemptions', async (req, res) => {
+  const ledger = await db.getTable('points_ledger');
+  const users = await db.getTable('users');
   const redemptions = ledger.filter(l => l.type === 'REDEEM').map(l => {
     const user = users.find(u => u.id === l.customer_id);
     return { ...l, customer_name: user ? user.name : 'Unknown Customer', customer_phone: user ? user.phone : '' };
@@ -2290,36 +2297,35 @@ app.get('/api/admin/redemptions', (req, res) => {
   return res.json(redemptions);
 });
 
-app.post('/api/admin/complete-redemption', (req, res) => {
+app.post('/api/admin/complete-redemption', async (req, res) => {
   const { ledgerId } = req.body;
   if (!ledgerId) return res.status(400).json({ error: 'Ledger ID required' });
-  const ledger = db.getTable('points_ledger');
+  const ledger = await db.getTable('points_ledger');
   const idx = ledger.findIndex(l => l.id === ledgerId);
   if (idx === -1) return res.status(404).json({ error: 'Ledger entry not found' });
-  ledger[idx].billing_sync_status = 'SYNCED';
-  db.saveTable('points_ledger', ledger);
+  await db.query("UPDATE points_ledger SET billing_sync_status = $1 WHERE id = $2", ['SYNCED', ledgerId]);
   return res.json({ success: true, entry: ledger[idx] });
 });
 
-app.get('/api/admin/vendors', (req, res) => res.json(db.getTable('vendors')));
+app.get('/api/admin/vendors', async (req, res) => res.json(await db.getTable('vendors')));
 
-app.post('/api/admin/vendors', (req, res) => {
+app.post('/api/admin/vendors', async (req, res) => {
   const { name, regionId } = req.body;
   if (!name || !regionId) return res.status(400).json({ error: 'Name and regionId required' });
-  const vendors = db.getTable('vendors');
+  const vendors = await db.getTable('vendors');
   const newVendor = { id: 'v-' + generateId(), tenant_id: 't1', region_id: regionId, name, created_at: new Date().toISOString() };
   vendors.push(newVendor);
-  db.saveTable('vendors', vendors);
+  await db.saveTable('vendors', vendors);
   return res.json({ success: true, vendor: newVendor });
 });
 
 // Partner Leads Routes
-app.post('/api/partner-leads', (req, res) => {
+app.post('/api/partner-leads', async (req, res) => {
   const { name, phone } = req.body;
   if (!name || !phone) {
     return res.status(400).json({ error: 'Name and phone are required' });
   }
-  const leads = db.getTable('partner_leads');
+  const leads = await db.getTable('partner_leads');
   const newLead = {
     id: 'lead-' + generateId(),
     name: name.trim(),
@@ -2329,12 +2335,12 @@ app.post('/api/partner-leads', (req, res) => {
     notes: []
   };
   leads.push(newLead);
-  db.saveTable('partner_leads', leads);
+  await db.saveTable('partner_leads', leads);
   return res.json({ success: true, lead: newLead });
 });
 
-app.get('/api/admin/partner-leads', (req, res) => {
-  let leads = db.getTable('partner_leads');
+app.get('/api/admin/partner-leads', async (req, res) => {
+  let leads = await db.getTable('partner_leads');
   const { status, region_id } = req.query;
   if (status) leads = leads.filter(l => l.status === status);
   if (region_id) leads = leads.filter(l => l.region_id === region_id);
@@ -2346,28 +2352,28 @@ app.get('/api/admin/partner-leads', (req, res) => {
   return res.json(enriched);
 });
 
-app.post('/api/admin/partner-leads/:id/status', (req, res) => {
+app.post('/api/admin/partner-leads/:id/status', async (req, res) => {
   const { id } = req.params;
   const { status } = req.body;
   const validStatuses = ['NEW', 'CONTACTED', 'NEGOTIATING', 'ONBOARDED', 'REJECTED'];
   if (!status || !validStatuses.includes(status)) {
     return res.status(400).json({ error: 'Invalid status' });
   }
-  const leads = db.getTable('partner_leads');
+  const leads = await db.getTable('partner_leads');
   const lead = leads.find(l => l.id === id);
   if (!lead) return res.status(404).json({ error: 'Lead not found' });
   const oldStatus = lead.status || 'NEW';
   lead.status = status;
-  db.saveTable('partner_leads', leads);
-  appendAudit(req, 'UPDATE_LEAD_STATUS', 'partner_lead', id, { status: oldStatus }, { status });
+  await db.saveTable('partner_leads', leads);
+  await appendAudit(req, 'UPDATE_LEAD_STATUS', 'partner_lead', id, { status: oldStatus }, { status });
   return res.json({ success: true, lead });
 });
 
-app.post('/api/admin/partner-leads/:id/notes', (req, res) => {
+app.post('/api/admin/partner-leads/:id/notes', async (req, res) => {
   const { id } = req.params;
   const { text } = req.body;
   if (!text || !text.trim()) return res.status(400).json({ error: 'Note text is required' });
-  const leads = db.getTable('partner_leads');
+  const leads = await db.getTable('partner_leads');
   const lead = leads.find(l => l.id === id);
   if (!lead) return res.status(404).json({ error: 'Lead not found' });
   if (!lead.notes) lead.notes = [];
@@ -2378,26 +2384,26 @@ app.post('/api/admin/partner-leads/:id/notes', (req, res) => {
     created_at: new Date().toISOString()
   };
   lead.notes.push(noteObj);
-  db.saveTable('partner_leads', leads);
-  appendAudit(req, 'ADD_LEAD_NOTE', 'partner_lead', id, null, { note: text.trim() });
+  await db.saveTable('partner_leads', leads);
+  await appendAudit(req, 'ADD_LEAD_NOTE', 'partner_lead', id, null, { note: text.trim() });
   return res.json({ success: true, lead });
 });
 
-app.delete('/api/admin/partner-leads/:id', (req, res) => {
+app.delete('/api/admin/partner-leads/:id', async (req, res) => {
   const { id } = req.params;
-  const leads = db.getTable('partner_leads');
+  const leads = await db.getTable('partner_leads');
   const idx = leads.findIndex(l => l.id === id);
   if (idx === -1) return res.status(404).json({ error: 'Lead not found' });
   const oldLead = leads[idx];
   leads.splice(idx, 1);
-  db.saveTable('partner_leads', leads);
-  appendAudit(req, 'DELETE_LEAD', 'partner_lead', id, oldLead, null);
+  await db.saveTable('partner_leads', leads);
+  await appendAudit(req, 'DELETE_LEAD', 'partner_lead', id, oldLead, null);
   return res.json({ success: true, message: 'Partner lead deleted' });
 });
 
 // Admin Audit Log GET
-app.get('/api/admin/audit-log', (req, res) => {
-  let log = db.getTable('admin_audit_log');
+app.get('/api/admin/audit-log', async (req, res) => {
+  let log = await db.getTable('admin_audit_log');
   const { admin_id, entity_type, action, start_date, end_date } = req.query;
   if (admin_id) log = log.filter(l => l.admin_user_id === admin_id);
   if (entity_type) log = log.filter(l => l.entity_type === entity_type);
@@ -2408,7 +2414,7 @@ app.get('/api/admin/audit-log', (req, res) => {
 });
 
 // Customer Fraud Report Submission
-app.post('/api/customer/fraud-reports', (req, res) => {
+app.post('/api/customer/fraud-reports', async (req, res) => {
   const { customerId, subject, description, linkedEntityType, linkedEntityId } = req.body;
   if (!subject || !subject.trim()) {
     return res.status(400).json({ error: 'Subject is required' });
@@ -2416,7 +2422,7 @@ app.post('/api/customer/fraud-reports', (req, res) => {
   if (!description || description.trim().length < 20) {
     return res.status(400).json({ error: 'Description must be at least 20 characters long' });
   }
-  const reports = db.getTable('fraud_reports');
+  const reports = await db.getTable('fraud_reports');
   const report = {
     id: 'fr-' + generateId(),
     reporter_customer_id: customerId,
@@ -2430,14 +2436,14 @@ app.post('/api/customer/fraud-reports', (req, res) => {
     resolved_at: null
   };
   reports.push(report);
-  db.saveTable('fraud_reports', reports);
+  await db.saveTable('fraud_reports', reports);
   return res.json({ success: true, report });
 });
 
 // Admin GET Fraud Reports
-app.get('/api/admin/fraud-reports', (req, res) => {
-  let reports = db.getTable('fraud_reports');
-  const users = db.getTable('users');
+app.get('/api/admin/fraud-reports', async (req, res) => {
+  let reports = await db.getTable('fraud_reports');
+  const users = await db.getTable('users');
   const { status, region_id } = req.query;
   if (status) {
     reports = reports.filter(r => r.status === status);
@@ -2461,7 +2467,7 @@ app.get('/api/admin/fraud-reports', (req, res) => {
 });
 
 // Admin Update Fraud Report Status
-app.post('/api/admin/fraud-reports/:id/status', (req, res) => {
+app.post('/api/admin/fraud-reports/:id/status', async (req, res) => {
   const { id } = req.params;
   const { status, adminNotes } = req.body;
   const validStatuses = ['NEW', 'TRIAGING', 'RESOLVED', 'DISMISSED'];
@@ -2473,7 +2479,7 @@ app.post('/api/admin/fraud-reports/:id/status', (req, res) => {
       return res.status(400).json({ error: 'Admin notes of at least 10 characters required when resolving or dismissing' });
     }
   }
-  const reports = db.getTable('fraud_reports');
+  const reports = await db.getTable('fraud_reports');
   const report = reports.find(r => r.id === id);
   if (!report) return res.status(404).json({ error: 'Fraud report not found' });
   const oldStatus = report.status;
@@ -2482,17 +2488,17 @@ app.post('/api/admin/fraud-reports/:id/status', (req, res) => {
   if (['RESOLVED', 'DISMISSED'].includes(status)) {
     report.resolved_at = new Date().toISOString();
   }
-  db.saveTable('fraud_reports', reports);
-  appendAudit(req, 'UPDATE_FRAUD_REPORT_STATUS', 'fraud_report', id, { status: oldStatus }, { status, admin_notes: report.admin_notes }, adminNotes);
+  await db.saveTable('fraud_reports', reports);
+  await appendAudit(req, 'UPDATE_FRAUD_REPORT_STATUS', 'fraud_report', id, { status: oldStatus }, { status, admin_notes: report.admin_notes }, adminNotes);
   return res.json({ success: true, report });
 });
 
 // Admin Customers Endpoints
-app.get('/api/admin/customers', (req, res) => {
+app.get('/api/admin/customers', async (req, res) => {
   const includeInactive = req.query.include_inactive === 'true';
-  const users = db.getTable('users').filter(u => u.role === 'CUSTOMER');
-  const pointsLedger = db.getTable('points_ledger');
-  const orders = db.getTable('orders');
+  const users = (await db.getTable('users')).filter(u => u.role === 'CUSTOMER');
+  const pointsLedger = await db.getTable('points_ledger');
+  const orders = await db.getTable('orders');
   
   const filteredUsers = includeInactive ? users : users.filter(u => u.is_active !== false);
   const result = filteredUsers.map(u => {
@@ -2516,16 +2522,17 @@ app.get('/api/admin/customers', (req, res) => {
   return res.json(result);
 });
 
-app.get('/api/admin/customers/:id', (req, res) => {
+app.get('/api/admin/customers/:id', async (req, res) => {
   const { id } = req.params;
-  const users = db.getTable('users');
+  const users = await db.getTable('users');
   const user = users.find(u => u.id === id && u.role === 'CUSTOMER');
   if (!user) return res.status(404).json({ error: 'Customer not found' });
   
-  const pointsLedger = db.getTable('points_ledger').filter(l => l.customer_id === id);
+  const pointsLedger = (await db.getTable('points_ledger')).filter(l => l.customer_id === id);
   const balance = pointsLedger.reduce((sum, l) => sum + (parseFloat(l.amount) || 0), 0);
-  const orders = db.getTable('orders').filter(o => o.customer_id === id).map(o => enrichOrder(o));
-  const fraudReports = db.getTable('fraud_reports').filter(f => f.reporter_customer_id === id);
+  const rawOrders1 = (await db.getTable('orders')).filter(o => o.customer_id === id);
+  const orders = await Promise.all(rawOrders1.map(o => enrichOrder(o)));
+  const fraudReports = (await db.getTable('fraud_reports')).filter(f => f.reporter_customer_id === id);
   
   return res.json({
     customer: { ...user, is_active: user.is_active !== false, points_balance: balance },
@@ -2535,24 +2542,24 @@ app.get('/api/admin/customers/:id', (req, res) => {
   });
 });
 
-app.post('/api/admin/customers/:id', (req, res) => {
+app.post('/api/admin/customers/:id', async (req, res) => {
   const { id } = req.params;
   const { name, email } = req.body;
-  const users = db.getTable('users');
+  const users = await db.getTable('users');
   const user = users.find(u => u.id === id && u.role === 'CUSTOMER');
   if (!user) return res.status(404).json({ error: 'Customer not found' });
   const before = { name: user.name, email: user.email || '' };
   if (name) user.name = name.trim();
   if (email !== undefined) user.email = email.trim();
-  db.saveTable('users', users);
-  appendAudit(req, 'EDIT_CUSTOMER', 'customer', id, before, { name: user.name, email: user.email });
+  await db.saveTable('users', users);
+  await appendAudit(req, 'EDIT_CUSTOMER', 'customer', id, before, { name: user.name, email: user.email });
   return res.json({ success: true, customer: user });
 });
 
-app.post('/api/admin/customers/:id/phone-change', (req, res) => {
+app.post('/api/admin/customers/:id/phone-change', async (req, res) => {
   const { id } = req.params;
   const { currentPhoneOtp, newPhone, newPhoneOtp } = req.body;
-  const users = db.getTable('users');
+  const users = await db.getTable('users');
   const user = users.find(u => u.id === id && u.role === 'CUSTOMER');
   if (!user) return res.status(404).json({ error: 'Customer not found' });
   if (!newPhone || !newPhone.trim()) return res.status(400).json({ error: 'New phone is required' });
@@ -2564,12 +2571,12 @@ app.post('/api/admin/customers/:id/phone-change', (req, res) => {
   }
   const oldPhone = user.phone;
   user.phone = newPhone.trim();
-  db.saveTable('users', users);
-  appendAudit(req, 'CHANGE_PHONE', 'customer', id, { phone: oldPhone }, { phone: user.phone });
+  await db.saveTable('users', users);
+  await appendAudit(req, 'CHANGE_PHONE', 'customer', id, { phone: oldPhone }, { phone: user.phone });
   return res.json({ success: true, user });
 });
 
-app.post('/api/admin/customers/:id/points-credit', (req, res) => {
+app.post('/api/admin/customers/:id/points-credit', async (req, res) => {
   const { id } = req.params;
   const { amount, reason } = req.body;
   const numAmount = parseFloat(amount);
@@ -2579,11 +2586,11 @@ app.post('/api/admin/customers/:id/points-credit', (req, res) => {
   if (!reason || !reason.trim()) {
     return res.status(400).json({ error: 'Reason is required' });
   }
-  const users = db.getTable('users');
+  const users = await db.getTable('users');
   const user = users.find(u => u.id === id && u.role === 'CUSTOMER');
   if (!user) return res.status(404).json({ error: 'Customer not found' });
   
-  const ledger = db.getTable('points_ledger');
+  const ledger = await db.getTable('points_ledger');
   const entry = {
     id: 'l-' + generateId(),
     tenant_id: user.tenant_id || 't1',
@@ -2598,45 +2605,44 @@ app.post('/api/admin/customers/:id/points-credit', (req, res) => {
     description: `Manual admin credit: ${reason.trim()}`,
     created_at: new Date().toISOString()
   };
-  ledger.push(entry);
-  db.saveTable('points_ledger', ledger);
+  await db.insertRow('points_ledger', entry);
   
-  appendAudit(req, 'MANUAL_POINTS_CREDIT', 'customer', id, null, { amount: numAmount, reason: reason.trim() }, reason.trim());
+  await appendAudit(req, 'MANUAL_POINTS_CREDIT', 'customer', id, null, { amount: numAmount, reason: reason.trim() }, reason.trim());
   
   const updatedLedger = ledger.filter(l => l.customer_id === id);
   const newBalance = updatedLedger.reduce((sum, l) => sum + (parseFloat(l.amount) || 0), 0);
   return res.json({ success: true, new_balance: newBalance, entry });
 });
 
-app.post('/api/admin/customers/:id/deactivate', (req, res) => {
+app.post('/api/admin/customers/:id/deactivate', async (req, res) => {
   const { id } = req.params;
-  const users = db.getTable('users');
+  const users = await db.getTable('users');
   const user = users.find(u => u.id === id && u.role === 'CUSTOMER');
   if (!user) return res.status(404).json({ error: 'Customer not found' });
   user.is_active = false;
-  db.saveTable('users', users);
-  appendAudit(req, 'DEACTIVATE_CUSTOMER', 'customer', id, { is_active: true }, { is_active: false });
+  await db.saveTable('users', users);
+  await appendAudit(req, 'DEACTIVATE_CUSTOMER', 'customer', id, { is_active: true }, { is_active: false });
   return res.json({ success: true, user });
 });
 
-app.post('/api/admin/customers/:id/reactivate', (req, res) => {
+app.post('/api/admin/customers/:id/reactivate', async (req, res) => {
   const { id } = req.params;
-  const users = db.getTable('users');
+  const users = await db.getTable('users');
   const user = users.find(u => u.id === id && u.role === 'CUSTOMER');
   if (!user) return res.status(404).json({ error: 'Customer not found' });
   user.is_active = true;
-  db.saveTable('users', users);
-  appendAudit(req, 'REACTIVATE_CUSTOMER', 'customer', id, { is_active: false }, { is_active: true });
+  await db.saveTable('users', users);
+  await appendAudit(req, 'REACTIVATE_CUSTOMER', 'customer', id, { is_active: false }, { is_active: true });
   return res.json({ success: true, user });
 });
 
 // Admin Stockists Endpoints
-app.get('/api/admin/stockists', (req, res) => {
+app.get('/api/admin/stockists', async (req, res) => {
   const includeInactive = req.query.include_inactive === 'true';
-  const stockists = db.getTable('stockists');
-  const orders = db.getTable('orders');
-  const rates = db.getTable('stockist_commission_rates');
-  const users = db.getTable('users');
+  const stockists = await db.getTable('stockists');
+  const orders = await db.getTable('orders');
+  const rates = await db.getTable('stockist_commission_rates');
+  const users = await db.getTable('users');
   
   const filtered = includeInactive ? stockists : stockists.filter(s => s.is_active !== false);
   const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
@@ -2662,21 +2668,22 @@ app.get('/api/admin/stockists', (req, res) => {
   return res.json(result);
 });
 
-app.get('/api/admin/stockists/:id', (req, res) => {
+app.get('/api/admin/stockists/:id', async (req, res) => {
   const { id } = req.params;
-  const stockists = db.getTable('stockists');
+  const stockists = await db.getTable('stockists');
   const stockist = stockists.find(s => s.id === id);
   if (!stockist) return res.status(404).json({ error: 'Stockist not found' });
-  const users = db.getTable('users');
+  const users = await db.getTable('users');
   const user = users.find(u => u.id === stockist.user_id);
-  const orders = db.getTable('orders').filter(o => o.stockist_id === id).map(o => enrichOrder(o));
-  const rates = db.getTable('stockist_commission_rates').filter(r => r.stockist_id === id);
+  const rawOrders2 = (await db.getTable('orders')).filter(o => o.stockist_id === id);
+  const orders = await Promise.all(rawOrders2.map(o => enrichOrder(o)));
+  const rates = (await db.getTable('stockist_commission_rates')).filter(r => r.stockist_id === id);
   const latestRate = rates.length > 0 ? rates[rates.length - 1].rate_percent : 10.0;
   
   const deliveredOrders = orders.filter(o => o.status === 'DELIVERED');
   const totalCommissionEarned = deliveredOrders.reduce((sum, o) => sum + ((parseFloat(o.subtotal) || 0) * (latestRate / 100)), 0);
   
-  const inventory = db.getTable('stockist_inventory').filter(si => si.stockist_id === id);
+  const inventory = (await db.getTable('stockist_inventory')).filter(si => si.stockist_id === id);
 
   return res.json({
     stockist: { ...stockist, is_active: stockist.is_active !== false, commission_rate: latestRate },
@@ -2688,12 +2695,12 @@ app.get('/api/admin/stockists/:id', (req, res) => {
   });
 });
 
-app.post('/api/admin/stockists', (req, res) => {
+app.post('/api/admin/stockists', async (req, res) => {
   const { name, region_id, vendor_id, phone, delivery_radius_km, opening_time, closing_time, prep_eta_minutes, commission_rate } = req.body;
   if (!name || !region_id || !phone) {
     return res.status(400).json({ error: 'Name, region_id, and phone are required' });
   }
-  const users = db.getTable('users');
+  const users = await db.getTable('users');
   const newUserId = 'u-stk-' + generateId();
   const newUser = {
     id: newUserId,
@@ -2708,9 +2715,9 @@ app.post('/api/admin/stockists', (req, res) => {
     created_at: new Date().toISOString()
   };
   users.push(newUser);
-  db.saveTable('users', users);
+  await db.saveTable('users', users);
   
-  const stockists = db.getTable('stockists');
+  const stockists = await db.getTable('stockists');
   const newStockistId = 's-' + generateId();
   const newStockist = {
     id: newStockistId,
@@ -2728,27 +2735,27 @@ app.post('/api/admin/stockists', (req, res) => {
     created_at: new Date().toISOString()
   };
   stockists.push(newStockist);
-  db.saveTable('stockists', stockists);
+  await db.saveTable('stockists', stockists);
   
   const rateVal = parseFloat(commission_rate) || 10.0;
-  const rates = db.getTable('stockist_commission_rates');
+  const rates = await db.getTable('stockist_commission_rates');
   rates.push({ id: 'scr-' + generateId(), stockist_id: newStockistId, rate_percent: rateVal, created_at: new Date().toISOString() });
-  db.saveTable('stockist_commission_rates', rates);
+  await db.saveTable('stockist_commission_rates', rates);
   
   if (vendor_id) {
-    const sv = db.getTable('stockist_vendors');
-    sv.push({ stockist_id: newStockistId, vendor_id, approved_at: new Date().toISOString() });
-    db.saveTable('stockist_vendors', sv);
+    const sv = await db.getTable('stockist_vendors');
+    sv.push({ id: 'sv-' + generateId(), stockist_id: newStockistId, vendor_id, approved_at: new Date().toISOString() });
+    await db.saveTable('stockist_vendors', sv);
   }
   
-  appendAudit(req, 'CREATE_STOCKIST', 'stockist', newStockistId, null, newStockist);
+  await appendAudit(req, 'CREATE_STOCKIST', 'stockist', newStockistId, null, newStockist);
   return res.json({ success: true, stockist: newStockist, user: newUser });
 });
 
-app.post('/api/admin/stockists/:id', (req, res) => {
+app.post('/api/admin/stockists/:id', async (req, res) => {
   const { id } = req.params;
   const { name, address, opening_time, closing_time, prep_eta_minutes, delivery_radius_km } = req.body;
-  const stockists = db.getTable('stockists');
+  const stockists = await db.getTable('stockists');
   const stockist = stockists.find(s => s.id === id);
   if (!stockist) return res.status(404).json({ error: 'Stockist not found' });
   const before = { name: stockist.name, opening_time: stockist.opening_time, closing_time: stockist.closing_time, prep_eta_minutes: stockist.prep_eta_minutes, delivery_radius_km: stockist.delivery_radius_km };
@@ -2757,34 +2764,34 @@ app.post('/api/admin/stockists/:id', (req, res) => {
   if (closing_time) stockist.closing_time = closing_time;
   if (prep_eta_minutes !== undefined) stockist.prep_eta_minutes = parseInt(prep_eta_minutes);
   if (delivery_radius_km !== undefined) stockist.delivery_radius_km = parseFloat(delivery_radius_km);
-  db.saveTable('stockists', stockists);
+  await db.saveTable('stockists', stockists);
   
   if (address) {
-    const users = db.getTable('users');
+    const users = await db.getTable('users');
     const user = users.find(u => u.id === stockist.user_id);
-    if (user) { user.address = address.trim(); db.saveTable('users', users); }
+    if (user) { user.address = address.trim(); await db.saveTable('users', users); }
   }
   
-  appendAudit(req, 'EDIT_STOCKIST', 'stockist', id, before, stockist);
+  await appendAudit(req, 'EDIT_STOCKIST', 'stockist', id, before, stockist);
   return res.json({ success: true, stockist });
 });
 
-app.post('/api/admin/stockists/:id/commission-rate', (req, res) => {
+app.post('/api/admin/stockists/:id/commission-rate', async (req, res) => {
   const { id } = req.params;
   const { rate_percent, confirmationText } = req.body;
   const numRate = parseFloat(rate_percent);
   if (isNaN(numRate) || numRate < 0 || numRate > 100) {
     return res.status(400).json({ error: 'Valid commission rate percent required (0-100)' });
   }
-  const stockists = db.getTable('stockists');
+  const stockists = await db.getTable('stockists');
   const stockist = stockists.find(s => s.id === id);
   if (!stockist) return res.status(404).json({ error: 'Stockist not found' });
   
-  const rates = db.getTable('stockist_commission_rates');
+  const rates = await db.getTable('stockist_commission_rates');
   const stkRates = rates.filter(r => r.stockist_id === id);
   const currentRate = stkRates.length > 0 ? stkRates[stkRates.length - 1].rate_percent : 10.0;
   
-  const orders = db.getTable('orders');
+  const orders = await db.getTable('orders');
   const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
   const delivered30d = orders.filter(o => o.stockist_id === id && o.status === 'DELIVERED' && new Date(o.created_at).getTime() >= thirtyDaysAgo);
   
@@ -2802,9 +2809,9 @@ app.post('/api/admin/stockists/:id/commission-rate', (req, res) => {
   }
   
   rates.push({ id: 'scr-' + generateId(), stockist_id: id, rate_percent: numRate, created_at: new Date().toISOString() });
-  db.saveTable('stockist_commission_rates', rates);
+  await db.saveTable('stockist_commission_rates', rates);
   
-  appendAudit(req, 'CHANGE_COMMISSION_RATE', 'stockist', id, { rate_percent: currentRate }, { rate_percent: numRate });
+  await appendAudit(req, 'CHANGE_COMMISSION_RATE', 'stockist', id, { rate_percent: currentRate }, { rate_percent: numRate });
   return res.json({
     success: true,
     current_rate: currentRate,
@@ -2814,77 +2821,77 @@ app.post('/api/admin/stockists/:id/commission-rate', (req, res) => {
   });
 });
 
-app.post('/api/admin/stockists/:id/region', (req, res) => {
+app.post('/api/admin/stockists/:id/region', async (req, res) => {
   const { id } = req.params;
   const { region_id } = req.body;
   if (!region_id) return res.status(400).json({ error: 'region_id is required' });
-  const stockists = db.getTable('stockists');
+  const stockists = await db.getTable('stockists');
   const stockist = stockists.find(s => s.id === id);
   if (!stockist) return res.status(404).json({ error: 'Stockist not found' });
   
-  const orders = db.getTable('orders').filter(o => o.stockist_id === id);
+  const orders = (await db.getTable('orders')).filter(o => o.stockist_id === id);
   const activeBindingsCount = new Set(orders.map(o => o.customer_id)).size;
   
   const oldRegion = stockist.region_id;
   stockist.region_id = region_id;
-  db.saveTable('stockists', stockists);
+  await db.saveTable('stockists', stockists);
   
-  const users = db.getTable('users');
+  const users = await db.getTable('users');
   const user = users.find(u => u.id === stockist.user_id);
-  if (user) { user.region_id = region_id; db.saveTable('users', users); }
+  if (user) { user.region_id = region_id; await db.saveTable('users', users); }
   
-  appendAudit(req, 'CHANGE_STOCKIST_REGION', 'stockist', id, { region_id: oldRegion }, { region_id }, `Bound active customers count: ${activeBindingsCount}`);
+  await appendAudit(req, 'CHANGE_STOCKIST_REGION', 'stockist', id, { region_id: oldRegion }, { region_id }, `Bound active customers count: ${activeBindingsCount}`);
   return res.json({ success: true, active_customer_bindings_count: activeBindingsCount, stockist });
 });
 
-app.post('/api/admin/stockists/:id/deactivate', (req, res) => {
+app.post('/api/admin/stockists/:id/deactivate', async (req, res) => {
   const { id } = req.params;
-  const stockists = db.getTable('stockists');
+  const stockists = await db.getTable('stockists');
   const stockist = stockists.find(s => s.id === id);
   if (!stockist) return res.status(404).json({ error: 'Stockist not found' });
   stockist.is_active = false;
-  db.saveTable('stockists', stockists);
-  appendAudit(req, 'DEACTIVATE_STOCKIST', 'stockist', id, { is_active: true }, { is_active: false });
+  await db.saveTable('stockists', stockists);
+  await appendAudit(req, 'DEACTIVATE_STOCKIST', 'stockist', id, { is_active: true }, { is_active: false });
   return res.json({ success: true, stockist });
 });
 
-app.post('/api/admin/stockists/:id/reactivate', (req, res) => {
+app.post('/api/admin/stockists/:id/reactivate', async (req, res) => {
   const { id } = req.params;
-  const stockists = db.getTable('stockists');
+  const stockists = await db.getTable('stockists');
   const stockist = stockists.find(s => s.id === id);
   if (!stockist) return res.status(404).json({ error: 'Stockist not found' });
   stockist.is_active = true;
-  db.saveTable('stockists', stockists);
-  appendAudit(req, 'REACTIVATE_STOCKIST', 'stockist', id, { is_active: false }, { is_active: true });
+  await db.saveTable('stockists', stockists);
+  await appendAudit(req, 'REACTIVATE_STOCKIST', 'stockist', id, { is_active: false }, { is_active: true });
   return res.json({ success: true, stockist });
 });
 
-app.delete('/api/admin/stockists/:id', (req, res) => {
+app.delete('/api/admin/stockists/:id', async (req, res) => {
   const { id } = req.params;
-  const orders = db.getTable('orders');
+  const orders = await db.getTable('orders');
   const hasOrders = orders.some(o => o.stockist_id === id);
   if (hasOrders) {
     return res.status(400).json({ error: 'Cannot delete: stockist has order history. Deactivate instead.' });
   }
-  const stockists = db.getTable('stockists');
+  const stockists = await db.getTable('stockists');
   const idx = stockists.findIndex(s => s.id === id);
   if (idx === -1) return res.status(404).json({ error: 'Stockist not found' });
   const oldStockist = stockists[idx];
   stockists.splice(idx, 1);
-  db.saveTable('stockists', stockists);
+  await db.saveTable('stockists', stockists);
   
   if (oldStockist.user_id) {
-    const users = db.getTable('users');
+    const users = await db.getTable('users');
     const uIdx = users.findIndex(u => u.id === oldStockist.user_id);
-    if (uIdx !== -1) { users.splice(uIdx, 1); db.saveTable('users', users); }
+    if (uIdx !== -1) { users.splice(uIdx, 1); await db.saveTable('users', users); }
   }
   
-  appendAudit(req, 'DELETE_STOCKIST', 'stockist', id, oldStockist, null);
+  await appendAudit(req, 'DELETE_STOCKIST', 'stockist', id, oldStockist, null);
   return res.json({ success: true, message: 'Stockist deleted successfully' });
 });
 
 // Customer Fraud Reports (R4)
-app.post('/api/customer/fraud-reports', (req, res) => {
+app.post('/api/customer/fraud-reports', async (req, res) => {
   const { customerId, subject, description, linkedEntityType, linkedEntityId } = req.body;
   if (!customerId || !subject) {
     return res.status(400).json({ error: 'customerId and subject are required' });
@@ -2892,7 +2899,7 @@ app.post('/api/customer/fraud-reports', (req, res) => {
   if (!description || description.trim().length < 20) {
     return res.status(400).json({ error: 'description must be at least 20 characters' });
   }
-  const reports = db.getTable('fraud_reports');
+  const reports = await db.getTable('fraud_reports');
   const newReport = {
     id: 'fr-' + generateId(),
     reporter_customer_id: customerId,
@@ -2906,16 +2913,16 @@ app.post('/api/customer/fraud-reports', (req, res) => {
     resolved_at: null
   };
   reports.push(newReport);
-  db.saveTable('fraud_reports', reports);
+  await db.saveTable('fraud_reports', reports);
   return res.json({ success: true, report: newReport });
 });
 
-app.get('/api/admin/fraud-reports', (req, res) => {
-  const reports = db.getTable('fraud_reports');
+app.get('/api/admin/fraud-reports', async (req, res) => {
+  const reports = await db.getTable('fraud_reports');
   return res.json(reports);
 });
 
-app.post('/api/admin/fraud-reports/:id/status', (req, res) => {
+app.post('/api/admin/fraud-reports/:id/status', async (req, res) => {
   const { id } = req.params;
   const { status, adminNotes } = req.body;
   const allowedStatuses = ['NEW', 'TRIAGING', 'RESOLVED', 'DISMISSED'];
@@ -2927,7 +2934,7 @@ app.post('/api/admin/fraud-reports/:id/status', (req, res) => {
       return res.status(400).json({ error: 'adminNotes (at least 10 chars) are required for RESOLVED or DISMISSED status' });
     }
   }
-  const reports = db.getTable('fraud_reports');
+  const reports = await db.getTable('fraud_reports');
   const report = reports.find(r => r.id === id);
   if (!report) return res.status(404).json({ error: 'Report not found' });
   
@@ -2937,68 +2944,68 @@ app.post('/api/admin/fraud-reports/:id/status', (req, res) => {
   if (['RESOLVED', 'DISMISSED'].includes(status)) {
     report.resolved_at = new Date().toISOString();
   }
-  db.saveTable('fraud_reports', reports);
-  appendAudit(req, 'UPDATE_FRAUD_REPORT_STATUS', 'fraud_report', id, before, { status: report.status, admin_notes: report.admin_notes }, adminNotes);
+  await db.saveTable('fraud_reports', reports);
+  await appendAudit(req, 'UPDATE_FRAUD_REPORT_STATUS', 'fraud_report', id, before, { status: report.status, admin_notes: report.admin_notes }, adminNotes);
   return res.json({ success: true, report });
 });
 
 // Partner Leads Admin Operations (R7)
-app.post('/api/admin/partner-leads/:id/status', (req, res) => {
+app.post('/api/admin/partner-leads/:id/status', async (req, res) => {
   const { id } = req.params;
   const { status } = req.body;
   const allowed = ['NEW', 'CONTACTED', 'NEGOTIATING', 'ONBOARDED', 'REJECTED'];
   if (!status || !allowed.includes(status)) {
     return res.status(400).json({ error: 'Valid status required' });
   }
-  const leads = db.getTable('partner_leads');
+  const leads = await db.getTable('partner_leads');
   const lead = leads.find(l => l.id === id);
   if (!lead) return res.status(404).json({ error: 'Lead not found' });
   const before = { status: lead.status };
   lead.status = status;
-  db.saveTable('partner_leads', leads);
-  appendAudit(req, 'UPDATE_PARTNER_LEAD_STATUS', 'partner_lead', id, before, { status });
+  await db.saveTable('partner_leads', leads);
+  await appendAudit(req, 'UPDATE_PARTNER_LEAD_STATUS', 'partner_lead', id, before, { status });
   return res.json({ success: true, lead });
 });
 
-app.post('/api/admin/partner-leads/:id/notes', (req, res) => {
+app.post('/api/admin/partner-leads/:id/notes', async (req, res) => {
   const { id } = req.params;
   const { text } = req.body;
   if (!text || !text.trim()) return res.status(400).json({ error: 'text is required' });
-  const leads = db.getTable('partner_leads');
+  const leads = await db.getTable('partner_leads');
   const lead = leads.find(l => l.id === id);
   if (!lead) return res.status(404).json({ error: 'Lead not found' });
   if (!lead.notes) lead.notes = [];
   const noteObj = { text: text.trim(), admin_user_id: req.headers['x-admin-id'] || 'u-admin', timestamp: new Date().toISOString() };
   lead.notes.push(noteObj);
-  db.saveTable('partner_leads', leads);
-  appendAudit(req, 'ADD_PARTNER_LEAD_NOTE', 'partner_lead', id, null, noteObj);
+  await db.saveTable('partner_leads', leads);
+  await appendAudit(req, 'ADD_PARTNER_LEAD_NOTE', 'partner_lead', id, null, noteObj);
   return res.json({ success: true, lead });
 });
 
-app.delete('/api/admin/partner-leads/:id', (req, res) => {
+app.delete('/api/admin/partner-leads/:id', async (req, res) => {
   const { id } = req.params;
-  const leads = db.getTable('partner_leads');
+  const leads = await db.getTable('partner_leads');
   const idx = leads.findIndex(l => l.id === id);
   if (idx === -1) return res.status(404).json({ error: 'Lead not found' });
   const oldLead = leads[idx];
   leads.splice(idx, 1);
-  db.saveTable('partner_leads', leads);
-  appendAudit(req, 'DELETE_PARTNER_LEAD', 'partner_lead', id, oldLead, null);
+  await db.saveTable('partner_leads', leads);
+  await appendAudit(req, 'DELETE_PARTNER_LEAD', 'partner_lead', id, oldLead, null);
   return res.json({ success: true, message: 'Lead deleted' });
 });
 
 // Admin Audit Log (Part 3)
-app.get('/api/admin/audit-log', (req, res) => {
-  const logs = db.getTable('admin_audit_log');
+app.get('/api/admin/audit-log', async (req, res) => {
+  const logs = await db.getTable('admin_audit_log');
   return res.json(logs);
 });
 
 // Test helper endpoints for Mock Email Outbox
-app.get('/api/test/mock-outbox', (req, res) => {
+app.get('/api/test/mock-outbox', async (req, res) => {
   return res.json(emailHelper.getMockOutbox());
 });
 
-app.post('/api/test/clear-mock-outbox', (req, res) => {
+app.post('/api/test/clear-mock-outbox', async (req, res) => {
   emailHelper.clearMockOutbox();
   return res.json({ success: true });
 });
@@ -3009,20 +3016,20 @@ app.post('/api/test/clear-mock-outbox', (req, res) => {
 
 const ALLOWED_SERVICE_TYPES = ['CABLE', 'BROADBAND', 'DTH', 'OTT_BUNDLE'];
 
-function getPartnerSession(req) {
+async function getPartnerSession(req) {
   const authHeader = req.headers.authorization || req.headers.Authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
   const token = authHeader.substring(7);
   try {
     const { userId, role } = sessionHelper.verifySession(token);
     if (role !== 'PARTNER_ADMIN') return null;
-    const users = db.getTable('users');
+    const users = await db.getTable('users');
     const user = users.find(u => u.id === userId && u.is_active !== false);
     if (!user) return null;
-    const partnerUsers = db.getTable('partner_users');
+    const partnerUsers = await db.getTable('partner_users');
     const pu = partnerUsers.find(p => p.user_id === userId);
     if (!pu) return null;
-    const partners = db.getTable('partners');
+    const partners = await db.getTable('partners');
     const partner = partners.find(p => p.id === pu.partner_id);
     if (!partner) return null;
     return { user, partner, userId: user.id, partnerId: partner.id };
@@ -3032,7 +3039,7 @@ function getPartnerSession(req) {
 }
 
 // 3.1 POST /api/partner/auth/set-password
-app.post('/api/partner/auth/set-password', (req, res) => {
+app.post('/api/partner/auth/set-password', async (req, res) => {
   const { user_id, current_password, new_password } = req.body;
   if (!new_password || typeof new_password !== 'string' || new_password.length < 8) {
     return res.status(400).json({ error: 'Password must be at least 8 characters long.' });
@@ -3041,12 +3048,12 @@ app.post('/api/partner/auth/set-password', (req, res) => {
   let targetUserId = user_id;
   let authSuccess = false;
 
-  const session = getPartnerSession(req);
+  const session = await getPartnerSession(req);
   if (session) {
     targetUserId = session.userId;
     authSuccess = true;
   } else if (current_password && targetUserId) {
-    const users = db.getTable('users');
+    const users = await db.getTable('users');
     const user = users.find(u => u.id === targetUserId);
     if (user && user.password_hash && bcrypt.compareSync(current_password, user.password_hash)) {
       authSuccess = true;
@@ -3057,19 +3064,19 @@ app.post('/api/partner/auth/set-password', (req, res) => {
     return res.status(401).json({ error: 'Authentication required' });
   }
 
-  const users = db.getTable('users');
+  const users = await db.getTable('users');
   const user = users.find(u => u.id === targetUserId);
   if (!user) return res.status(404).json({ error: 'User not found' });
 
   user.password_hash = bcrypt.hashSync(new_password, 10);
-  db.saveTable('users', users);
+  await db.saveTable('users', users);
 
-  appendAudit(req, 'PARTNER_SET_PASSWORD', 'users', user.id, null, { password_updated: true });
+  await appendAudit(req, 'PARTNER_SET_PASSWORD', 'users', user.id, null, { password_updated: true });
   return res.json({ success: true, message: 'Password set successfully.' });
 });
 
 // 3.2 POST /api/partner/auth/login-password
-app.post('/api/partner/auth/login-password', (req, res) => {
+app.post('/api/partner/auth/login-password', async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) {
     return res.status(400).json({ error: 'Email and password are required' });
@@ -3085,15 +3092,15 @@ app.post('/api/partner/auth/login-password', (req, res) => {
     return res.status(429).json({ error: 'Too many failed attempts. Try again later.' });
   }
 
-  const users = db.getTable('users');
+  const users = await db.getTable('users');
   const user = users.find(u => u.role === 'PARTNER_ADMIN' && u.email && u.email.trim().toLowerCase() === normalizedEmail && u.is_active !== false);
 
   if (user && user.password_hash && bcrypt.compareSync(password, user.password_hash)) {
     loginPasswordFailedAttempts.delete(normalizedEmail);
 
-    const partnerUsers = db.getTable('partner_users');
+    const partnerUsers = await db.getTable('partner_users');
     const pu = partnerUsers.find(p => p.user_id === user.id);
-    const partners = db.getTable('partners');
+    const partners = await db.getTable('partners');
     const partner = pu ? partners.find(p => p.id === pu.partner_id) : null;
 
     const token = sessionHelper.signSession(user.id, user.role);
@@ -3110,7 +3117,7 @@ app.post('/api/partner/auth/login-password', (req, res) => {
 });
 
 // 3.3 POST /api/partner/auth/login-otp-request
-app.post('/api/partner/auth/login-otp-request', (req, res) => {
+app.post('/api/partner/auth/login-otp-request', async (req, res) => {
   const { phone } = req.body;
   if (!phone) return res.status(400).json({ error: 'Phone number is required' });
 
@@ -3125,7 +3132,7 @@ app.post('/api/partner/auth/login-otp-request', (req, res) => {
   attempts.push(now);
   otpRequestAttempts.set(phone, attempts);
 
-  const users = db.getTable('users');
+  const users = await db.getTable('users');
   const user = users.find(u => u.role === 'PARTNER_ADMIN' && u.phone === phone && u.is_active !== false);
 
   if (user) {
@@ -3136,20 +3143,20 @@ app.post('/api/partner/auth/login-otp-request', (req, res) => {
 });
 
 // 3.4 POST /api/partner/auth/login-otp-verify
-app.post('/api/partner/auth/login-otp-verify', (req, res) => {
+app.post('/api/partner/auth/login-otp-verify', async (req, res) => {
   const { phone, otp } = req.body;
   if (!phone || !otp) return res.status(400).json({ error: 'Phone and OTP are required' });
 
-  const users = db.getTable('users');
+  const users = await db.getTable('users');
   const user = users.find(u => u.role === 'PARTNER_ADMIN' && u.phone === phone && u.is_active !== false);
 
   if (!user || otp !== '123456') {
     return res.status(401).json({ error: 'Invalid credentials or OTP' });
   }
 
-  const partnerUsers = db.getTable('partner_users');
+  const partnerUsers = await db.getTable('partner_users');
   const pu = partnerUsers.find(p => p.user_id === user.id);
-  const partners = db.getTable('partners');
+  const partners = await db.getTable('partners');
   const partner = pu ? partners.find(p => p.id === pu.partner_id) : null;
 
   const token = sessionHelper.signSession(user.id, user.role);
@@ -3161,7 +3168,7 @@ app.post('/api/partner/auth/login-otp-verify', (req, res) => {
 });
 
 // 3.5 POST /api/partner/auth/forgot-password
-app.post('/api/partner/auth/forgot-password', (req, res) => {
+app.post('/api/partner/auth/forgot-password', async (req, res) => {
   const { email } = req.body;
   if (!email) return res.status(400).json({ error: 'Email is required' });
 
@@ -3170,7 +3177,7 @@ app.post('/api/partner/auth/forgot-password', (req, res) => {
   }
 
   const normalizedEmail = email.trim().toLowerCase();
-  const users = db.getTable('users');
+  const users = await db.getTable('users');
   const user = users.find(u => u.role === 'PARTNER_ADMIN' && u.email && u.email.trim().toLowerCase() === normalizedEmail && u.is_active !== false);
 
   if (user) {
@@ -3192,7 +3199,7 @@ app.post('/api/partner/auth/forgot-password', (req, res) => {
 });
 
 // 3.6 POST /api/partner/auth/reset-password
-app.post('/api/partner/auth/reset-password', (req, res) => {
+app.post('/api/partner/auth/reset-password', async (req, res) => {
   const { token, new_password } = req.body;
   if (!token || !new_password || typeof new_password !== 'string' || new_password.length < 8) {
     return res.status(400).json({ error: 'Invalid token or password too short (min 8 characters).' });
@@ -3203,21 +3210,21 @@ app.post('/api/partner/auth/reset-password', (req, res) => {
     return res.status(400).json({ error: 'Invalid or expired token' });
   }
 
-  const users = db.getTable('users');
+  const users = await db.getTable('users');
   const user = users.find(u => u.id === tokenRecord.userId);
   if (!user) return res.status(404).json({ error: 'User not found' });
 
   user.password_hash = bcrypt.hashSync(new_password, 10);
-  db.saveTable('users', users);
+  await db.saveTable('users', users);
   resetTokens.delete(token);
 
-  appendAudit(req, 'PARTNER_RESET_PASSWORD', 'users', user.id, null, { password_reset: true });
+  await appendAudit(req, 'PARTNER_RESET_PASSWORD', 'users', user.id, null, { password_reset: true });
   return res.json({ success: true, message: 'Password reset successfully.' });
 });
 
 // 3.7 GET /api/partner/auth/session
-app.get('/api/partner/auth/session', (req, res) => {
-  const session = getPartnerSession(req);
+app.get('/api/partner/auth/session', async (req, res) => {
+  const session = await getPartnerSession(req);
   if (!session) {
     return res.status(401).json({ error: 'Unauthorized or invalid session' });
   }
@@ -3228,7 +3235,7 @@ app.get('/api/partner/auth/session', (req, res) => {
 });
 
 // 4.1 POST /api/admin/partners
-app.post('/api/admin/partners', (req, res) => {
+app.post('/api/admin/partners', async (req, res) => {
   const { legal_name, display_name, contact_phone, contact_email, address, service_types, admin_id, gst_number } = req.body;
   if (!legal_name || !display_name || !contact_phone || !service_types || !Array.isArray(service_types) || service_types.length === 0) {
     return res.status(400).json({ error: 'Missing required partner fields' });
@@ -3237,7 +3244,7 @@ app.post('/api/admin/partners', (req, res) => {
     return res.status(400).json({ error: 'Invalid service_types enum' });
   }
 
-  const users = db.getTable('users');
+  const users = await db.getTable('users');
   if (users.some(u => u.phone === contact_phone)) {
     return res.status(409).json({ error: 'Phone number already registered' });
   }
@@ -3265,9 +3272,9 @@ app.post('/api/admin/partners', (req, res) => {
     created_at: now
   };
   users.push(newUser);
-  db.saveTable('users', users);
+  await db.saveTable('users', users);
 
-  const partners = db.getTable('partners');
+  const partners = await db.getTable('partners');
   const newPartner = {
     id: partnerId,
     tenant_id: 't1',
@@ -3286,9 +3293,9 @@ app.post('/api/admin/partners', (req, res) => {
     updated_at: now
   };
   partners.push(newPartner);
-  db.saveTable('partners', partners);
+  await db.saveTable('partners', partners);
 
-  const partnerUsers = db.getTable('partner_users');
+  const partnerUsers = await db.getTable('partner_users');
   const newPU = {
     id: partnerUserId,
     partner_id: partnerId,
@@ -3297,18 +3304,18 @@ app.post('/api/admin/partners', (req, res) => {
     created_at: now
   };
   partnerUsers.push(newPU);
-  db.saveTable('partner_users', partnerUsers);
+  await db.saveTable('partner_users', partnerUsers);
 
-  appendAudit(req, 'PARTNER_CREATE', 'partner', partnerId, null, newPartner);
+  await appendAudit(req, 'PARTNER_CREATE', 'partner', partnerId, null, newPartner);
   return res.json({ partner: newPartner, user: sanitizeUser(newUser) });
 });
 
 // 4.2 POST /api/admin/partner-leads/:id/promote
-app.post('/api/admin/partner-leads/:id/promote', (req, res) => {
+app.post('/api/admin/partner-leads/:id/promote', async (req, res) => {
   const { id } = req.params;
   const { admin_id, legal_name, display_name, service_types } = req.body;
 
-  const leads = db.getTable('partner_leads');
+  const leads = await db.getTable('partner_leads');
   const lead = leads.find(l => l.id === id);
   if (!lead) return res.status(404).json({ error: 'Lead not found' });
   if (lead.promoted_partner_id || lead.status === 'ONBOARDED') {
@@ -3325,7 +3332,7 @@ app.post('/api/admin/partner-leads/:id/promote', (req, res) => {
   const finalLegalName = legal_name || lead.business_name || lead.name;
   const finalDisplayName = display_name || lead.business_name || lead.name;
 
-  const users = db.getTable('users');
+  const users = await db.getTable('users');
   if (contact_phone && users.some(u => u.phone === contact_phone)) {
     return res.status(409).json({ error: 'Phone number already registered' });
   }
@@ -3353,9 +3360,9 @@ app.post('/api/admin/partner-leads/:id/promote', (req, res) => {
     created_at: now
   };
   users.push(newUser);
-  db.saveTable('users', users);
+  await db.saveTable('users', users);
 
-  const partners = db.getTable('partners');
+  const partners = await db.getTable('partners');
   const newPartner = {
     id: partnerId,
     tenant_id: 't1',
@@ -3374,9 +3381,9 @@ app.post('/api/admin/partner-leads/:id/promote', (req, res) => {
     updated_at: now
   };
   partners.push(newPartner);
-  db.saveTable('partners', partners);
+  await db.saveTable('partners', partners);
 
-  const partnerUsers = db.getTable('partner_users');
+  const partnerUsers = await db.getTable('partner_users');
   const newPU = {
     id: partnerUserId,
     partner_id: partnerId,
@@ -3385,28 +3392,28 @@ app.post('/api/admin/partner-leads/:id/promote', (req, res) => {
     created_at: now
   };
   partnerUsers.push(newPU);
-  db.saveTable('partner_users', partnerUsers);
+  await db.saveTable('partner_users', partnerUsers);
 
   const beforeLead = { status: lead.status, promoted_partner_id: lead.promoted_partner_id };
   lead.status = 'ONBOARDED';
   lead.promoted_partner_id = partnerId;
   lead.promoted_by_admin_id = admin_id || 'u-admin';
   lead.promoted_at = now;
-  db.saveTable('partner_leads', leads);
+  await db.saveTable('partner_leads', leads);
 
-  appendAudit(req, 'LEAD_PROMOTED', 'partner_lead', lead.id, beforeLead, lead);
-  appendAudit(req, 'PARTNER_CREATE', 'partner', partnerId, null, newPartner);
+  await appendAudit(req, 'LEAD_PROMOTED', 'partner_lead', lead.id, beforeLead, lead);
+  await appendAudit(req, 'PARTNER_CREATE', 'partner', partnerId, null, newPartner);
 
   return res.json({ partner: newPartner, user: sanitizeUser(newUser), lead });
 });
 
 // 4.3 GET /api/admin/partners
-app.get('/api/admin/partners', (req, res) => {
+app.get('/api/admin/partners', async (req, res) => {
   const { is_active, region_id, service_type } = req.query;
-  let partners = db.getTable('partners');
-  const partnerRegions = db.getTable('partner_regions');
-  const partnerPackages = db.getTable('partner_packages');
-  const customerBindings = db.getTable('customer_partner_bindings');
+  let partners = await db.getTable('partners');
+  const partnerRegions = await db.getTable('partner_regions');
+  const partnerPackages = await db.getTable('partner_packages');
+  const customerBindings = await db.getTable('customer_partner_bindings');
 
   if (is_active !== undefined) {
     const activeBool = is_active === 'true';
@@ -3437,16 +3444,16 @@ app.get('/api/admin/partners', (req, res) => {
 });
 
 // 4.4 GET /api/admin/partners/:id
-app.get('/api/admin/partners/:id', (req, res) => {
+app.get('/api/admin/partners/:id', async (req, res) => {
   const { id } = req.params;
-  const partners = db.getTable('partners');
+  const partners = await db.getTable('partners');
   const partner = partners.find(p => p.id === id);
   if (!partner) return res.status(404).json({ error: 'Partner not found' });
 
-  const partnerRegions = db.getTable('partner_regions').filter(pr => pr.partner_id === id);
-  const partnerPackages = db.getTable('partner_packages').filter(pp => pp.partner_id === id);
-  const partnerUsers = db.getTable('partner_users').filter(pu => pu.partner_id === id);
-  const users = db.getTable('users');
+  const partnerRegions = (await db.getTable('partner_regions')).filter(pr => pr.partner_id === id);
+  const partnerPackages = (await db.getTable('partner_packages')).filter(pp => pp.partner_id === id);
+  const partnerUsers = (await db.getTable('partner_users')).filter(pu => pu.partner_id === id);
+  const users = await db.getTable('users');
 
   const joinedUsers = partnerUsers.map(pu => {
     const u = users.find(usr => usr.id === pu.user_id);
@@ -3456,7 +3463,7 @@ app.get('/api/admin/partners/:id', (req, res) => {
     };
   });
 
-  const customerBindings = db.getTable('customer_partner_bindings');
+  const customerBindings = await db.getTable('customer_partner_bindings');
   const bound_customer_count = customerBindings.filter(cb => cb.cable_partner_id === id || cb.broadband_partner_id === id).length;
 
   return res.json({
@@ -3469,13 +3476,13 @@ app.get('/api/admin/partners/:id', (req, res) => {
 });
 
 // 4.5 PATCH /api/admin/partners/:id
-app.patch('/api/admin/partners/:id', (req, res) => {
+app.patch('/api/admin/partners/:id', async (req, res) => {
   const { id } = req.params;
   if (req.body.service_types !== undefined || req.body.promoted_from_lead_id !== undefined || req.body.id !== undefined) {
     return res.status(400).json({ error: 'Cannot update service_types or system fields directly via this endpoint' });
   }
 
-  const partners = db.getTable('partners');
+  const partners = await db.getTable('partners');
   const partner = partners.find(p => p.id === id);
   if (!partner) return res.status(404).json({ error: 'Partner not found' });
 
@@ -3488,10 +3495,10 @@ app.patch('/api/admin/partners/:id', (req, res) => {
     }
   });
   partner.updated_at = new Date().toISOString();
-  db.saveTable('partners', partners);
+  await db.saveTable('partners', partners);
 
-  const partnerUsers = db.getTable('partner_users').filter(pu => pu.partner_id === id);
-  const users = db.getTable('users');
+  const partnerUsers = (await db.getTable('partner_users')).filter(pu => pu.partner_id === id);
+  const users = await db.getTable('users');
   partnerUsers.forEach(pu => {
     const u = users.find(usr => usr.id === pu.user_id);
     if (u) {
@@ -3500,54 +3507,54 @@ app.patch('/api/admin/partners/:id', (req, res) => {
       if (req.body.display_name) u.name = req.body.display_name;
     }
   });
-  db.saveTable('users', users);
+  await db.saveTable('users', users);
 
-  appendAudit(req, 'EDIT_PARTNER', 'partner', id, before, partner);
+  await appendAudit(req, 'EDIT_PARTNER', 'partner', id, before, partner);
   return res.json(partner);
 });
 
 // 4.6 POST /api/admin/partners/:id/deactivate and /reactivate
-app.post('/api/admin/partners/:id/deactivate', (req, res) => {
+app.post('/api/admin/partners/:id/deactivate', async (req, res) => {
   const { id } = req.params;
-  const partners = db.getTable('partners');
+  const partners = await db.getTable('partners');
   const partner = partners.find(p => p.id === id);
   if (!partner) return res.status(404).json({ error: 'Partner not found' });
 
   const before = { is_active: partner.is_active };
   partner.is_active = false;
   partner.updated_at = new Date().toISOString();
-  db.saveTable('partners', partners);
+  await db.saveTable('partners', partners);
 
-  const packages = db.getTable('partner_packages');
+  const packages = await db.getTable('partner_packages');
   packages.forEach(pkg => {
     if (pkg.partner_id === id) {
       pkg.is_active = false;
       pkg.updated_at = new Date().toISOString();
     }
   });
-  db.saveTable('partner_packages', packages);
+  await db.saveTable('partner_packages', packages);
 
-  appendAudit(req, 'DEACTIVATE_PARTNER', 'partner', id, before, { is_active: false });
+  await appendAudit(req, 'DEACTIVATE_PARTNER', 'partner', id, before, { is_active: false });
   return res.json(partner);
 });
 
-app.post('/api/admin/partners/:id/reactivate', (req, res) => {
+app.post('/api/admin/partners/:id/reactivate', async (req, res) => {
   const { id } = req.params;
-  const partners = db.getTable('partners');
+  const partners = await db.getTable('partners');
   const partner = partners.find(p => p.id === id);
   if (!partner) return res.status(404).json({ error: 'Partner not found' });
 
   const before = { is_active: partner.is_active };
   partner.is_active = true;
   partner.updated_at = new Date().toISOString();
-  db.saveTable('partners', partners);
+  await db.saveTable('partners', partners);
 
-  appendAudit(req, 'REACTIVATE_PARTNER', 'partner', id, before, { is_active: true });
+  await appendAudit(req, 'REACTIVATE_PARTNER', 'partner', id, before, { is_active: true });
   return res.json(partner);
 });
 
 // 4.7 POST /api/admin/partners/:id/service-types
-app.post('/api/admin/partners/:id/service-types', (req, res) => {
+app.post('/api/admin/partners/:id/service-types', async (req, res) => {
   const { id } = req.params;
   const { service_types, confirm } = req.body;
 
@@ -3555,7 +3562,7 @@ app.post('/api/admin/partners/:id/service-types', (req, res) => {
     return res.status(400).json({ error: 'Invalid service_types enum' });
   }
 
-  const partners = db.getTable('partners');
+  const partners = await db.getTable('partners');
   const partner = partners.find(p => p.id === id);
   if (!partner) return res.status(404).json({ error: 'Partner not found' });
 
@@ -3563,8 +3570,8 @@ app.post('/api/admin/partners/:id/service-types', (req, res) => {
   const removedTypes = currentTypes.filter(st => !service_types.includes(st));
 
   if (removedTypes.length > 0) {
-    const regions = db.getTable('partner_regions').filter(pr => pr.partner_id === id && removedTypes.includes(pr.service_type));
-    const packages = db.getTable('partner_packages').filter(pp => pp.partner_id === id && removedTypes.includes(pp.service_type));
+    const regions = (await db.getTable('partner_regions')).filter(pr => pr.partner_id === id && removedTypes.includes(pr.service_type));
+    const packages = (await db.getTable('partner_packages')).filter(pp => pp.partner_id === id && removedTypes.includes(pp.service_type));
 
     if ((regions.length > 0 || packages.length > 0) && confirm !== true) {
       return res.json({
@@ -3579,22 +3586,22 @@ app.post('/api/admin/partners/:id/service-types', (req, res) => {
   const before = { service_types: partner.service_types };
   partner.service_types = service_types;
   partner.updated_at = new Date().toISOString();
-  db.saveTable('partners', partners);
+  await db.saveTable('partners', partners);
 
-  appendAudit(req, 'UPDATE_PARTNER_SERVICE_TYPES', 'partner', id, before, { service_types });
+  await appendAudit(req, 'UPDATE_PARTNER_SERVICE_TYPES', 'partner', id, before, { service_types });
   return res.json(partner);
 });
 
 // 4.8 Partner-regions CRUD
-app.post('/api/admin/partners/:id/regions', (req, res) => {
+app.post('/api/admin/partners/:id/regions', async (req, res) => {
   const { id } = req.params;
   const { region_id, service_type } = req.body;
 
-  const partners = db.getTable('partners');
+  const partners = await db.getTable('partners');
   const partner = partners.find(p => p.id === id);
   if (!partner) return res.status(404).json({ error: 'Partner not found' });
 
-  const regions = db.getTable('regions');
+  const regions = await db.getTable('regions');
   if (!regions.some(r => r.id === region_id)) {
     return res.status(400).json({ error: 'Region does not exist' });
   }
@@ -3603,7 +3610,7 @@ app.post('/api/admin/partners/:id/regions', (req, res) => {
     return res.status(400).json({ error: 'Partner does not support this service_type' });
   }
 
-  const partnerRegions = db.getTable('partner_regions');
+  const partnerRegions = await db.getTable('partner_regions');
   if (partnerRegions.some(pr => pr.partner_id === id && pr.region_id === region_id && pr.service_type === service_type)) {
     return res.status(409).json({ error: 'Duplicate region mapping for this partner and service_type' });
   }
@@ -3617,65 +3624,65 @@ app.post('/api/admin/partners/:id/regions', (req, res) => {
     created_at: new Date().toISOString()
   };
   partnerRegions.push(newPR);
-  db.saveTable('partner_regions', partnerRegions);
+  await db.saveTable('partner_regions', partnerRegions);
 
-  appendAudit(req, 'ADD_PARTNER_REGION', 'partner_region', newPR.id, null, newPR);
+  await appendAudit(req, 'ADD_PARTNER_REGION', 'partner_region', newPR.id, null, newPR);
   return res.json(newPR);
 });
 
-app.post('/api/admin/partners/:id/regions/:regionRowId/deactivate', (req, res) => {
+app.post('/api/admin/partners/:id/regions/:regionRowId/deactivate', async (req, res) => {
   const { id, regionRowId } = req.params;
-  const partnerRegions = db.getTable('partner_regions');
+  const partnerRegions = await db.getTable('partner_regions');
   const pr = partnerRegions.find(p => p.id === regionRowId && p.partner_id === id);
   if (!pr) return res.status(404).json({ error: 'Partner region mapping not found' });
 
   const before = { is_active: pr.is_active };
   pr.is_active = false;
-  db.saveTable('partner_regions', partnerRegions);
+  await db.saveTable('partner_regions', partnerRegions);
 
-  appendAudit(req, 'DEACTIVATE_PARTNER_REGION', 'partner_region', pr.id, before, { is_active: false });
+  await appendAudit(req, 'DEACTIVATE_PARTNER_REGION', 'partner_region', pr.id, before, { is_active: false });
   return res.json(pr);
 });
 
-app.post('/api/admin/partners/:id/regions/:regionRowId/reactivate', (req, res) => {
+app.post('/api/admin/partners/:id/regions/:regionRowId/reactivate', async (req, res) => {
   const { id, regionRowId } = req.params;
-  const partnerRegions = db.getTable('partner_regions');
+  const partnerRegions = await db.getTable('partner_regions');
   const pr = partnerRegions.find(p => p.id === regionRowId && p.partner_id === id);
   if (!pr) return res.status(404).json({ error: 'Partner region mapping not found' });
 
   const before = { is_active: pr.is_active };
   pr.is_active = true;
-  db.saveTable('partner_regions', partnerRegions);
+  await db.saveTable('partner_regions', partnerRegions);
 
-  appendAudit(req, 'REACTIVATE_PARTNER_REGION', 'partner_region', pr.id, before, { is_active: true });
+  await appendAudit(req, 'REACTIVATE_PARTNER_REGION', 'partner_region', pr.id, before, { is_active: true });
   return res.json(pr);
 });
 
-app.delete('/api/admin/partners/:id/regions/:regionRowId', (req, res) => {
+app.delete('/api/admin/partners/:id/regions/:regionRowId', async (req, res) => {
   const { id, regionRowId } = req.params;
-  const partnerRegions = db.getTable('partner_regions');
+  const partnerRegions = await db.getTable('partner_regions');
   const idx = partnerRegions.findIndex(p => p.id === regionRowId && p.partner_id === id);
   if (idx === -1) return res.status(404).json({ error: 'Partner region mapping not found' });
 
   const targetPR = partnerRegions[idx];
-  const packages = db.getTable('partner_packages').filter(pp => pp.partner_id === id && pp.service_type === targetPR.service_type);
+  const packages = (await db.getTable('partner_packages')).filter(pp => pp.partner_id === id && pp.service_type === targetPR.service_type);
   if (packages.some(pkg => pkg.active_regions && pkg.active_regions.includes(targetPR.region_id))) {
     return res.status(400).json({ error: 'Cannot delete region referenced by active packages' });
   }
 
   partnerRegions.splice(idx, 1);
-  db.saveTable('partner_regions', partnerRegions);
+  await db.saveTable('partner_regions', partnerRegions);
 
-  appendAudit(req, 'DELETE_PARTNER_REGION', 'partner_region', regionRowId, targetPR, null);
+  await appendAudit(req, 'DELETE_PARTNER_REGION', 'partner_region', regionRowId, targetPR, null);
   return res.json({ success: true, message: 'Partner region mapping deleted.' });
 });
 
 // 4.9 Partner-packages CRUD (Admin set)
-app.post('/api/admin/partners/:id/packages', (req, res) => {
+app.post('/api/admin/partners/:id/packages', async (req, res) => {
   const { id } = req.params;
   const { service_type, name, description, face_value_rupees, cost_to_partner_rupees, point_cost, active_regions } = req.body;
 
-  const partners = db.getTable('partners');
+  const partners = await db.getTable('partners');
   const partner = partners.find(p => p.id === id);
   if (!partner) return res.status(404).json({ error: 'Partner not found' });
 
@@ -3687,7 +3694,7 @@ app.post('/api/admin/partners/:id/packages', (req, res) => {
     return res.status(400).json({ error: 'Missing required package fields' });
   }
 
-  const partnerRegions = db.getTable('partner_regions').filter(pr => pr.partner_id === id && pr.service_type === service_type && pr.is_active !== false);
+  const partnerRegions = (await db.getTable('partner_regions')).filter(pr => pr.partner_id === id && pr.service_type === service_type && pr.is_active !== false);
   const partnerRegionIds = partnerRegions.map(pr => pr.region_id);
 
   if (!active_regions.every(rId => partnerRegionIds.includes(rId))) {
@@ -3695,7 +3702,7 @@ app.post('/api/admin/partners/:id/packages', (req, res) => {
   }
 
   const now = new Date().toISOString();
-  const packages = db.getTable('partner_packages');
+  const packages = await db.getTable('partner_packages');
   const newPkg = {
     id: 'ppk-' + generateId(),
     partner_id: id,
@@ -3711,15 +3718,15 @@ app.post('/api/admin/partners/:id/packages', (req, res) => {
     updated_at: now
   };
   packages.push(newPkg);
-  db.saveTable('partner_packages', packages);
+  await db.saveTable('partner_packages', packages);
 
-  appendAudit(req, 'CREATE_PARTNER_PACKAGE', 'partner_package', newPkg.id, null, newPkg);
+  await appendAudit(req, 'CREATE_PARTNER_PACKAGE', 'partner_package', newPkg.id, null, newPkg);
   return res.json(newPkg);
 });
 
-app.patch('/api/admin/partners/:id/packages/:packageId', (req, res) => {
+app.patch('/api/admin/partners/:id/packages/:packageId', async (req, res) => {
   const { id, packageId } = req.params;
-  const packages = db.getTable('partner_packages');
+  const packages = await db.getTable('partner_packages');
   const pkg = packages.find(p => p.id === packageId && p.partner_id === id);
   if (!pkg) return res.status(404).json({ error: 'Package not found' });
 
@@ -3735,45 +3742,45 @@ app.patch('/api/admin/partners/:id/packages/:packageId', (req, res) => {
     }
   });
   pkg.updated_at = new Date().toISOString();
-  db.saveTable('partner_packages', packages);
+  await db.saveTable('partner_packages', packages);
 
-  appendAudit(req, 'EDIT_PARTNER_PACKAGE', 'partner_package', packageId, before, pkg);
+  await appendAudit(req, 'EDIT_PARTNER_PACKAGE', 'partner_package', packageId, before, pkg);
   return res.json(pkg);
 });
 
-app.post('/api/admin/partners/:id/packages/:packageId/deactivate', (req, res) => {
+app.post('/api/admin/partners/:id/packages/:packageId/deactivate', async (req, res) => {
   const { id, packageId } = req.params;
-  const packages = db.getTable('partner_packages');
+  const packages = await db.getTable('partner_packages');
   const pkg = packages.find(p => p.id === packageId && p.partner_id === id);
   if (!pkg) return res.status(404).json({ error: 'Package not found' });
 
   const before = { is_active: pkg.is_active };
   pkg.is_active = false;
   pkg.updated_at = new Date().toISOString();
-  db.saveTable('partner_packages', packages);
+  await db.saveTable('partner_packages', packages);
 
-  appendAudit(req, 'DEACTIVATE_PARTNER_PACKAGE', 'partner_package', packageId, before, { is_active: false });
+  await appendAudit(req, 'DEACTIVATE_PARTNER_PACKAGE', 'partner_package', packageId, before, { is_active: false });
   return res.json(pkg);
 });
 
-app.post('/api/admin/partners/:id/packages/:packageId/reactivate', (req, res) => {
+app.post('/api/admin/partners/:id/packages/:packageId/reactivate', async (req, res) => {
   const { id, packageId } = req.params;
-  const packages = db.getTable('partner_packages');
+  const packages = await db.getTable('partner_packages');
   const pkg = packages.find(p => p.id === packageId && p.partner_id === id);
   if (!pkg) return res.status(404).json({ error: 'Package not found' });
 
   const before = { is_active: pkg.is_active };
   pkg.is_active = true;
   pkg.updated_at = new Date().toISOString();
-  db.saveTable('partner_packages', packages);
+  await db.saveTable('partner_packages', packages);
 
-  appendAudit(req, 'REACTIVATE_PARTNER_PACKAGE', 'partner_package', packageId, before, { is_active: true });
+  await appendAudit(req, 'REACTIVATE_PARTNER_PACKAGE', 'partner_package', packageId, before, { is_active: true });
   return res.json(pkg);
 });
 
 // Partner-self Package Endpoints (/api/partner/packages)
-app.post('/api/partner/packages', (req, res) => {
-  const session = getPartnerSession(req);
+app.post('/api/partner/packages', async (req, res) => {
+  const session = await getPartnerSession(req);
   if (!session) return res.status(401).json({ error: 'Unauthorized' });
 
   if (req.body.partner_id && req.body.partner_id !== session.partnerId) {
@@ -3792,7 +3799,7 @@ app.post('/api/partner/packages', (req, res) => {
     return res.status(400).json({ error: 'Missing required package fields' });
   }
 
-  const partnerRegions = db.getTable('partner_regions').filter(pr => pr.partner_id === partnerId && pr.service_type === service_type && pr.is_active !== false);
+  const partnerRegions = (await db.getTable('partner_regions')).filter(pr => pr.partner_id === partnerId && pr.service_type === service_type && pr.is_active !== false);
   const partnerRegionIds = partnerRegions.map(pr => pr.region_id);
 
   if (!active_regions.every(rId => partnerRegionIds.includes(rId))) {
@@ -3800,7 +3807,7 @@ app.post('/api/partner/packages', (req, res) => {
   }
 
   const now = new Date().toISOString();
-  const packages = db.getTable('partner_packages');
+  const packages = await db.getTable('partner_packages');
   const newPkg = {
     id: 'ppk-' + generateId(),
     partner_id: partnerId,
@@ -3816,17 +3823,17 @@ app.post('/api/partner/packages', (req, res) => {
     updated_at: now
   };
   packages.push(newPkg);
-  db.saveTable('partner_packages', packages);
+  await db.saveTable('partner_packages', packages);
 
   return res.json(newPkg);
 });
 
-app.patch('/api/partner/packages/:packageId', (req, res) => {
-  const session = getPartnerSession(req);
+app.patch('/api/partner/packages/:packageId', async (req, res) => {
+  const session = await getPartnerSession(req);
   if (!session) return res.status(401).json({ error: 'Unauthorized' });
 
   const { packageId } = req.params;
-  const packages = db.getTable('partner_packages');
+  const packages = await db.getTable('partner_packages');
   const pkg = packages.find(p => p.id === packageId);
   if (!pkg) return res.status(404).json({ error: 'Package not found' });
   if (pkg.partner_id !== session.partnerId) {
@@ -3844,17 +3851,17 @@ app.patch('/api/partner/packages/:packageId', (req, res) => {
     }
   });
   pkg.updated_at = new Date().toISOString();
-  db.saveTable('partner_packages', packages);
+  await db.saveTable('partner_packages', packages);
 
   return res.json(pkg);
 });
 
-app.post('/api/partner/packages/:packageId/deactivate', (req, res) => {
-  const session = getPartnerSession(req);
+app.post('/api/partner/packages/:packageId/deactivate', async (req, res) => {
+  const session = await getPartnerSession(req);
   if (!session) return res.status(401).json({ error: 'Unauthorized' });
 
   const { packageId } = req.params;
-  const packages = db.getTable('partner_packages');
+  const packages = await db.getTable('partner_packages');
   const pkg = packages.find(p => p.id === packageId);
   if (!pkg) return res.status(404).json({ error: 'Package not found' });
   if (pkg.partner_id !== session.partnerId) {
@@ -3863,17 +3870,17 @@ app.post('/api/partner/packages/:packageId/deactivate', (req, res) => {
 
   pkg.is_active = false;
   pkg.updated_at = new Date().toISOString();
-  db.saveTable('partner_packages', packages);
+  await db.saveTable('partner_packages', packages);
 
   return res.json(pkg);
 });
 
-app.post('/api/partner/packages/:packageId/reactivate', (req, res) => {
-  const session = getPartnerSession(req);
+app.post('/api/partner/packages/:packageId/reactivate', async (req, res) => {
+  const session = await getPartnerSession(req);
   if (!session) return res.status(401).json({ error: 'Unauthorized' });
 
   const { packageId } = req.params;
-  const packages = db.getTable('partner_packages');
+  const packages = await db.getTable('partner_packages');
   const pkg = packages.find(p => p.id === packageId);
   if (!pkg) return res.status(404).json({ error: 'Package not found' });
   if (pkg.partner_id !== session.partnerId) {
@@ -3882,22 +3889,22 @@ app.post('/api/partner/packages/:packageId/reactivate', (req, res) => {
 
   pkg.is_active = true;
   pkg.updated_at = new Date().toISOString();
-  db.saveTable('partner_packages', packages);
+  await db.saveTable('partner_packages', packages);
 
   return res.json(pkg);
 });
 
 // Part 5 — Customer Partner Bindings
-app.post('/api/customer/partner-bindings', (req, res) => {
+app.post('/api/customer/partner-bindings', async (req, res) => {
   const { customer_user_id, cable_partner_id, broadband_partner_id } = req.body;
   if (!customer_user_id) return res.status(400).json({ error: 'customer_user_id is required' });
 
-  const users = db.getTable('users');
+  const users = await db.getTable('users');
   const customer = users.find(u => u.id === customer_user_id);
   if (!customer) return res.status(404).json({ error: 'Customer not found' });
 
-  const partners = db.getTable('partners');
-  const partnerRegions = db.getTable('partner_regions');
+  const partners = await db.getTable('partners');
+  const partnerRegions = await db.getTable('partner_regions');
 
   if (cable_partner_id) {
     const cp = partners.find(p => p.id === cable_partner_id && p.is_active !== false);
@@ -3921,7 +3928,7 @@ app.post('/api/customer/partner-bindings', (req, res) => {
     }
   }
 
-  const bindings = db.getTable('customer_partner_bindings');
+  const bindings = await db.getTable('customer_partner_bindings');
   let binding = bindings.find(b => b.customer_user_id === customer_user_id);
   const now = new Date().toISOString();
 
@@ -3930,34 +3937,33 @@ app.post('/api/customer/partner-bindings', (req, res) => {
     binding.cable_partner_id = cable_partner_id !== undefined ? cable_partner_id : binding.cable_partner_id;
     binding.broadband_partner_id = broadband_partner_id !== undefined ? broadband_partner_id : binding.broadband_partner_id;
     binding.updated_at = now;
-    db.saveTable('customer_partner_bindings', bindings);
-    appendAudit(req, 'UPDATE_PARTNER_BINDING', 'customer_partner_binding', customer_user_id, before, binding);
+    await db.saveTable('customer_partner_bindings', bindings);
+    await appendAudit(req, 'UPDATE_PARTNER_BINDING', 'customer_partner_binding', customer_user_id, before, binding);
   } else {
-    binding = {
-      customer_user_id,
+    binding = { id: 'cpb-' + generateId(), customer_user_id,
       cable_partner_id: cable_partner_id || null,
       broadband_partner_id: broadband_partner_id || null,
       updated_at: now
     };
     bindings.push(binding);
-    db.saveTable('customer_partner_bindings', bindings);
+    await db.saveTable('customer_partner_bindings', bindings);
   }
 
   return res.json(binding);
 });
 
-app.get('/api/customer/partner-bindings/:customer_user_id', (req, res) => {
+app.get('/api/customer/partner-bindings/:customer_user_id', async (req, res) => {
   const { customer_user_id } = req.params;
-  const bindings = db.getTable('customer_partner_bindings');
+  const bindings = await db.getTable('customer_partner_bindings');
   const binding = bindings.find(b => b.customer_user_id === customer_user_id);
   return res.json(binding || null);
 });
 
-function getAvailablePartnersForRegion(regionId) {
+async function getAvailablePartnersForRegion(regionId) {
   if (!regionId) return { cable: [], broadband: [] };
 
-  const partners = db.getTable('partners');
-  const partnerRegions = db.getTable('partner_regions');
+  const partners = await db.getTable('partners');
+  const partnerRegions = await db.getTable('partner_regions');
 
   const activePartnersMap = new Map(
     partners.filter(p => p.is_active !== false).map(p => [p.id, p])
@@ -3992,24 +3998,24 @@ function getAvailablePartnersForRegion(regionId) {
   };
 }
 
-app.get('/api/customer/available-partners', (req, res) => {
+app.get('/api/customer/available-partners', async (req, res) => {
   const { region_id } = req.query;
   if (!region_id) {
     return res.status(400).json({ error: 'region_id is required' });
   }
-  return res.json(getAvailablePartnersForRegion(region_id));
+  return res.json(await getAvailablePartnersForRegion(region_id));
 });
 
-app.get('/api/customer/:id/profile', (req, res) => {
+app.get('/api/customer/:id/profile', async (req, res) => {
   const { id } = req.params;
-  const users = db.getTable('users');
+  const users = await db.getTable('users');
   const user = users.find(u => u.id === id && u.role === 'CUSTOMER');
   if (!user) return res.status(404).json({ error: 'Customer not found' });
 
-  const bindings = db.getTable('customer_partner_bindings');
+  const bindings = await db.getTable('customer_partner_bindings');
   const binding = bindings.find(b => b.customer_user_id === id) || null;
 
-  const available_partners = getAvailablePartnersForRegion(user.region_id);
+  const available_partners = await getAvailablePartnersForRegion(user.region_id);
 
   return res.json({
     user: sanitizeUser(user),
@@ -4018,10 +4024,10 @@ app.get('/api/customer/:id/profile', (req, res) => {
   });
 });
 
-app.post('/api/customer/:id/profile', (req, res) => {
+app.post('/api/customer/:id/profile', async (req, res) => {
   const { id } = req.params;
   const { name, address } = req.body;
-  const users = db.getTable('users');
+  const users = await db.getTable('users');
   const user = users.find(u => u.id === id && u.role === 'CUSTOMER');
   if (!user) return res.status(404).json({ error: 'Customer not found' });
 
@@ -4029,22 +4035,22 @@ app.post('/api/customer/:id/profile', (req, res) => {
   if (name && name.trim()) user.name = name.trim();
   if (address !== undefined) user.address = address.trim();
 
-  db.saveTable('users', users);
-  appendAudit(req, 'EDIT_CUSTOMER_PROFILE', 'customer', id, before, { name: user.name, address: user.address });
+  await db.saveTable('users', users);
+  await appendAudit(req, 'EDIT_CUSTOMER_PROFILE', 'customer', id, before, { name: user.name, address: user.address });
 
   return res.json({ success: true, user: sanitizeUser(user) });
 });
 
-app.get('/api/customer/partner-bindings/:customer_user_id/available', (req, res) => {
+app.get('/api/customer/partner-bindings/:customer_user_id/available', async (req, res) => {
   const { customer_user_id } = req.params;
-  const users = db.getTable('users');
+  const users = await db.getTable('users');
   const customer = users.find(u => u.id === customer_user_id);
   if (!customer || !customer.region_id) {
     return res.json({ cable: [], broadband: [] });
   }
 
-  const partners = db.getTable('partners');
-  const partnerRegions = db.getTable('partner_regions');
+  const partners = await db.getTable('partners');
+  const partnerRegions = await db.getTable('partner_regions');
 
   const cablePartnerIds = partnerRegions
     .filter(pr => pr.region_id === customer.region_id && pr.service_type === 'CABLE' && pr.is_active !== false)
@@ -4069,9 +4075,9 @@ app.get('/api/customer/partner-bindings/:customer_user_id/available', (req, res)
 // ==========================================
 
 // 1.3 Admin Redemption Approvals Endpoints
-app.get('/api/admin/redemption-approvals', (req, res) => {
+app.get('/api/admin/redemption-approvals', async (req, res) => {
   const { status, partner_id, customer_user_id, date_from, date_to } = req.query;
-  let approvals = db.getTable('redemption_approvals');
+  let approvals = await db.getTable('redemption_approvals');
 
   if (status) approvals = approvals.filter(a => a.status === status);
   if (partner_id) approvals = approvals.filter(a => a.partner_id === partner_id);
@@ -4079,9 +4085,9 @@ app.get('/api/admin/redemption-approvals', (req, res) => {
   if (date_from) approvals = approvals.filter(a => new Date(a.created_at) >= new Date(date_from));
   if (date_to) approvals = approvals.filter(a => new Date(a.created_at) <= new Date(date_to));
 
-  const users = db.getTable('users');
-  const partners = db.getTable('partners');
-  const packages = db.getTable('partner_packages');
+  const users = await db.getTable('users');
+  const partners = await db.getTable('partners');
+  const packages = await db.getTable('partner_packages');
 
   const result = approvals.map(a => {
     const cust = users.find(u => u.id === a.customer_user_id);
@@ -4099,16 +4105,16 @@ app.get('/api/admin/redemption-approvals', (req, res) => {
   return res.json(result);
 });
 
-app.get('/api/admin/redemption-approvals/:id', (req, res) => {
+app.get('/api/admin/redemption-approvals/:id', async (req, res) => {
   const { id } = req.params;
-  const approvals = db.getTable('redemption_approvals');
+  const approvals = await db.getTable('redemption_approvals');
   const approval = approvals.find(a => a.id === id);
   if (!approval) return res.status(404).json({ error: 'Redemption approval not found' });
 
-  const users = db.getTable('users');
-  const partners = db.getTable('partners');
-  const packages = db.getTable('partner_packages');
-  const ledger = db.getTable('points_ledger');
+  const users = await db.getTable('users');
+  const partners = await db.getTable('partners');
+  const packages = await db.getTable('partner_packages');
+  const ledger = await db.getTable('points_ledger');
 
   const customer = users.find(u => u.id === approval.customer_user_id) || null;
   const partner = partners.find(p => p.id === approval.partner_id) || null;
@@ -4132,7 +4138,7 @@ app.post('/api/admin/redemption-approvals/:id/approve', async (req, res) => {
   const { id } = req.params;
   const { admin_id, notes } = req.body;
 
-  const approvals = db.getTable('redemption_approvals');
+  const approvals = await db.getTable('redemption_approvals');
   const approval = approvals.find(a => a.id === id);
   if (!approval) return res.status(404).json({ error: 'Redemption approval not found' });
 
@@ -4146,13 +4152,13 @@ app.post('/api/admin/redemption-approvals/:id/approve', async (req, res) => {
   approval.approved_at = new Date().toISOString();
   approval.updated_at = new Date().toISOString();
 
-  db.saveTable('redemption_approvals', approvals);
-  appendAudit(req, 'APPROVE_REDEMPTION', 'redemption_approval', id, { status: 'PENDING_ADMIN_APPROVAL' }, { status: approval.status }, notes);
+  await db.saveTable('redemption_approvals', approvals);
+  await appendAudit(req, 'APPROVE_REDEMPTION', 'redemption_approval', id, { status: 'PENDING_ADMIN_APPROVAL' }, { status: approval.status }, notes);
 
   // Send email to partner (non-blocking)
-  const partners = db.getTable('partners');
+  const partners = await db.getTable('partners');
   const targetPartner = partners.find(p => p.id === approval.partner_id);
-  const users = db.getTable('users');
+  const users = await db.getTable('users');
   const cust = users.find(u => u.id === approval.customer_user_id);
   const custName = cust ? cust.name : (approval.customer_name || 'Customer');
   const custPhone = cust ? cust.phone : (approval.customer_phone || '');
@@ -4172,7 +4178,7 @@ app.post('/api/admin/redemption-approvals/:id/approve', async (req, res) => {
   }
 
   // Add in-app notification for partner
-  const notifications = db.getTable('partner_notifications');
+  const notifications = await db.getTable('partner_notifications');
   notifications.push({
     id: 'pnt-' + generateId(),
     partner_id: approval.partner_id,
@@ -4183,12 +4189,12 @@ app.post('/api/admin/redemption-approvals/:id/approve', async (req, res) => {
     is_read: false,
     created_at: new Date().toISOString()
   });
-  db.saveTable('partner_notifications', notifications);
+  await db.saveTable('partner_notifications', notifications);
 
   return res.json(approval);
 });
 
-app.post('/api/admin/redemption-approvals/:id/reject', (req, res) => {
+app.post('/api/admin/redemption-approvals/:id/reject', async (req, res) => {
   const { id } = req.params;
   const { admin_id, reason } = req.body;
 
@@ -4196,7 +4202,7 @@ app.post('/api/admin/redemption-approvals/:id/reject', (req, res) => {
     return res.status(400).json({ error: 'Reason must be at least 10 characters long' });
   }
 
-  const approvals = db.getTable('redemption_approvals');
+  const approvals = await db.getTable('redemption_approvals');
   const approval = approvals.find(a => a.id === id);
   if (!approval) return res.status(404).json({ error: 'Redemption approval not found' });
 
@@ -4212,32 +4218,31 @@ app.post('/api/admin/redemption-approvals/:id/reject', (req, res) => {
   approval.updated_at = new Date().toISOString();
 
   // Append NEW points_ledger credit row
-  const ledger = db.getTable('points_ledger');
-  const users = db.getTable('users');
+  const ledger = await db.getTable('points_ledger');
+  const users = await db.getTable('users');
   const cust = users.find(u => u.id === approval.customer_user_id);
   const refundLedgerId = 'l-' + generateId();
-  ledger.push({
-    id: refundLedgerId,
-    tenant_id: cust ? cust.tenant_id : 't1',
-    region_id: cust ? cust.region_id : 'r1',
-    customer_id: approval.customer_user_id,
-    amount: Math.abs(parseFloat(approval.points_deducted)),
-    type: 'REDEEM_REFUND',
-    order_id: null,
-    description: `Refund for rejected redemption approval ${approval.id}`,
-    created_at: new Date().toISOString()
-  });
-  db.saveTable('points_ledger', ledger);
+  await db.insertRow('points_ledger', {
+      id: refundLedgerId,
+      tenant_id: cust ? cust.tenant_id : 't1',
+      region_id: cust ? cust.region_id : 'r1',
+      customer_id: approval.customer_user_id,
+      amount: Math.abs(parseFloat(approval.points_deducted)),
+      type: 'REDEEM_REFUND',
+      order_id: null,
+      description: `Refund for rejected redemption approval ${approval.id}`,
+      created_at: new Date().toISOString()
+    });
 
   approval.refund_ledger_id = refundLedgerId;
-  db.saveTable('redemption_approvals', approvals);
+  await db.saveTable('redemption_approvals', approvals);
 
-  appendAudit(req, 'REJECT_REDEMPTION', 'redemption_approval', id, { status: oldStatus }, { status: approval.status, refund_ledger_id: refundLedgerId }, reason);
+  await appendAudit(req, 'REJECT_REDEMPTION', 'redemption_approval', id, { status: oldStatus }, { status: approval.status, refund_ledger_id: refundLedgerId }, reason);
 
   return res.json(approval);
 });
 
-app.post('/api/admin/redemption-approvals/:id/resolve-dispute', (req, res) => {
+app.post('/api/admin/redemption-approvals/:id/resolve-dispute', async (req, res) => {
   const { id } = req.params;
   const { admin_id, outcome, notes } = req.body;
 
@@ -4245,7 +4250,7 @@ app.post('/api/admin/redemption-approvals/:id/resolve-dispute', (req, res) => {
     return res.status(400).json({ error: 'outcome must be fulfill or reject' });
   }
 
-  const approvals = db.getTable('redemption_approvals');
+  const approvals = await db.getTable('redemption_approvals');
   const approval = approvals.find(a => a.id === id);
   if (!approval) return res.status(404).json({ error: 'Redemption approval not found' });
 
@@ -4258,7 +4263,7 @@ app.post('/api/admin/redemption-approvals/:id/resolve-dispute', (req, res) => {
   approval.updated_at = new Date().toISOString();
 
   // In-app notification for partner on dispute resolution
-  const notifications = db.getTable('partner_notifications');
+  const notifications = await db.getTable('partner_notifications');
   notifications.push({
     id: 'pnt-' + generateId(),
     partner_id: approval.partner_id,
@@ -4269,24 +4274,24 @@ app.post('/api/admin/redemption-approvals/:id/resolve-dispute', (req, res) => {
     is_read: false,
     created_at: new Date().toISOString()
   });
-  db.saveTable('partner_notifications', notifications);
+  await db.saveTable('partner_notifications', notifications);
 
   if (outcome === 'fulfill') {
     approval.status = 'FULFILLED';
     approval.fulfilled_at = new Date().toISOString();
-    db.saveTable('redemption_approvals', approvals);
-    appendAudit(req, 'RESOLVE_DISPUTE_FULFILL', 'redemption_approval', id, { status: 'DISPUTED' }, { status: 'FULFILLED' }, notes);
+    await db.saveTable('redemption_approvals', approvals);
+    await appendAudit(req, 'RESOLVE_DISPUTE_FULFILL', 'redemption_approval', id, { status: 'DISPUTED' }, { status: 'FULFILLED' }, notes);
     return res.json(approval);
   } else {
     approval.status = 'REJECTED';
     approval.rejected_at = new Date().toISOString();
 
     // Append NEW points_ledger credit row
-    const ledger = db.getTable('points_ledger');
-    const users = db.getTable('users');
+    const ledger = await db.getTable('points_ledger');
+    const users = await db.getTable('users');
     const cust = users.find(u => u.id === approval.customer_user_id);
     const refundLedgerId = 'l-' + generateId();
-    ledger.push({
+    await db.insertRow('points_ledger', {
       id: refundLedgerId,
       tenant_id: cust ? cust.tenant_id : 't1',
       region_id: cust ? cust.region_id : 'r1',
@@ -4297,28 +4302,27 @@ app.post('/api/admin/redemption-approvals/:id/resolve-dispute', (req, res) => {
       description: `Refund for rejected redemption approval ${approval.id}`,
       created_at: new Date().toISOString()
     });
-    db.saveTable('points_ledger', ledger);
 
     approval.refund_ledger_id = refundLedgerId;
-    db.saveTable('redemption_approvals', approvals);
-    appendAudit(req, 'RESOLVE_DISPUTE_REJECT', 'redemption_approval', id, { status: 'DISPUTED' }, { status: 'REJECTED', refund_ledger_id: refundLedgerId }, notes);
+    await db.saveTable('redemption_approvals', approvals);
+    await appendAudit(req, 'RESOLVE_DISPUTE_REJECT', 'redemption_approval', id, { status: 'DISPUTED' }, { status: 'REJECTED', refund_ledger_id: refundLedgerId }, notes);
     return res.json(approval);
   }
 });
 
 // 1.4 Partner Endpoints (Session-authed)
-app.get('/api/partner/redemption-queue', (req, res) => {
-  const session = getPartnerSession(req);
+app.get('/api/partner/redemption-queue', async (req, res) => {
+  const session = await getPartnerSession(req);
   if (!session) return res.status(401).json({ error: 'Unauthorized' });
 
-  const approvals = db.getTable('redemption_approvals');
+  const approvals = await db.getTable('redemption_approvals');
   const partnerApprovals = approvals.filter(a =>
     a.partner_id === session.partnerId &&
     ['APPROVED_AWAITING_PARTNER', 'DISPUTED'].includes(a.status)
   );
 
-  const users = db.getTable('users');
-  const packages = db.getTable('partner_packages');
+  const users = await db.getTable('users');
+  const packages = await db.getTable('partner_packages');
 
   const result = partnerApprovals.map(a => {
     const cust = users.find(u => u.id === a.customer_user_id);
@@ -4334,19 +4338,19 @@ app.get('/api/partner/redemption-queue', (req, res) => {
   return res.json(result);
 });
 
-app.get('/api/partner/redemption-history', (req, res) => {
-  const session = getPartnerSession(req);
+app.get('/api/partner/redemption-history', async (req, res) => {
+  const session = await getPartnerSession(req);
   if (!session) return res.status(401).json({ error: 'Unauthorized' });
 
   const { status, date_from, date_to } = req.query;
-  let approvals = db.getTable('redemption_approvals').filter(a => a.partner_id === session.partnerId);
+  let approvals = (await db.getTable('redemption_approvals')).filter(a => a.partner_id === session.partnerId);
 
   if (status) approvals = approvals.filter(a => a.status === status);
   if (date_from) approvals = approvals.filter(a => new Date(a.created_at) >= new Date(date_from));
   if (date_to) approvals = approvals.filter(a => new Date(a.created_at) <= new Date(date_to));
 
-  const users = db.getTable('users');
-  const packages = db.getTable('partner_packages');
+  const users = await db.getTable('users');
+  const packages = await db.getTable('partner_packages');
 
   const result = approvals.map(a => {
     const cust = users.find(u => u.id === a.customer_user_id);
@@ -4362,14 +4366,14 @@ app.get('/api/partner/redemption-history', (req, res) => {
   return res.json(result);
 });
 
-app.post('/api/partner/redemption-approvals/:id/fulfill', (req, res) => {
-  const session = getPartnerSession(req);
+app.post('/api/partner/redemption-approvals/:id/fulfill', async (req, res) => {
+  const session = await getPartnerSession(req);
   if (!session) return res.status(401).json({ error: 'Unauthorized' });
 
   const { id } = req.params;
   const { partner_notes } = req.body;
 
-  const approvals = db.getTable('redemption_approvals');
+  const approvals = await db.getTable('redemption_approvals');
   const approval = approvals.find(a => a.id === id);
   if (!approval) return res.status(404).json({ error: 'Redemption approval not found' });
 
@@ -4387,9 +4391,9 @@ app.post('/api/partner/redemption-approvals/:id/fulfill', (req, res) => {
   approval.fulfilled_at = new Date().toISOString();
   approval.updated_at = new Date().toISOString();
 
-  db.saveTable('redemption_approvals', approvals);
+  await db.saveTable('redemption_approvals', approvals);
 
-  const auditLogs = db.getTable('admin_audit_log');
+  const auditLogs = await db.getTable('admin_audit_log');
   auditLogs.push({
     id: 'aud-' + generateId(),
     action: 'PARTNER_FULFILLED',
@@ -4401,13 +4405,13 @@ app.post('/api/partner/redemption-approvals/:id/fulfill', (req, res) => {
     notes: partner_notes || 'Partner fulfilled redemption',
     created_at: new Date().toISOString()
   });
-  db.saveTable('admin_audit_log', auditLogs);
+  await db.saveTable('admin_audit_log', auditLogs);
 
   return res.json(approval);
 });
 
-app.post('/api/partner/redemption-approvals/:id/dispute', (req, res) => {
-  const session = getPartnerSession(req);
+app.post('/api/partner/redemption-approvals/:id/dispute', async (req, res) => {
+  const session = await getPartnerSession(req);
   if (!session) return res.status(401).json({ error: 'Unauthorized' });
 
   const { id } = req.params;
@@ -4417,7 +4421,7 @@ app.post('/api/partner/redemption-approvals/:id/dispute', (req, res) => {
     return res.status(400).json({ error: 'Reason must be at least 10 characters long' });
   }
 
-  const approvals = db.getTable('redemption_approvals');
+  const approvals = await db.getTable('redemption_approvals');
   const approval = approvals.find(a => a.id === id);
   if (!approval) return res.status(404).json({ error: 'Redemption approval not found' });
 
@@ -4434,9 +4438,9 @@ app.post('/api/partner/redemption-approvals/:id/dispute', (req, res) => {
   approval.disputed_at = new Date().toISOString();
   approval.updated_at = new Date().toISOString();
 
-  db.saveTable('redemption_approvals', approvals);
+  await db.saveTable('redemption_approvals', approvals);
 
-  const auditLogs = db.getTable('admin_audit_log');
+  const auditLogs = await db.getTable('admin_audit_log');
   auditLogs.push({
     id: 'aud-' + generateId(),
     action: 'PARTNER_DISPUTED',
@@ -4448,17 +4452,17 @@ app.post('/api/partner/redemption-approvals/:id/dispute', (req, res) => {
     notes: reason.trim(),
     created_at: new Date().toISOString()
   });
-  db.saveTable('admin_audit_log', auditLogs);
+  await db.saveTable('admin_audit_log', auditLogs);
 
   return res.json(approval);
 });
 
 // 1.5 Customer Status Endpoint
-app.get('/api/customer/redemption-status/:approval_id', (req, res) => {
+app.get('/api/customer/redemption-status/:approval_id', async (req, res) => {
   const { approval_id } = req.params;
   const { customer_user_id } = req.query;
 
-  const approvals = db.getTable('redemption_approvals');
+  const approvals = await db.getTable('redemption_approvals');
   const approval = approvals.find(a => a.id === approval_id);
   if (!approval) return res.status(404).json({ error: 'Redemption approval not found' });
 
@@ -4480,15 +4484,15 @@ app.get('/api/customer/redemption-status/:approval_id', (req, res) => {
 });
 
 // Part 4 — Admin Health Dashboard API
-app.get('/api/admin/health', (req, res) => {
+app.get('/api/admin/health', async (req, res) => {
   const now = Date.now();
-  const approvals = db.getTable('redemption_approvals');
-  const stockists = db.getTable('stockists');
-  const partners = db.getTable('partners');
-  const orders = db.getTable('orders');
-  const fraudReports = db.getTable('fraud_reports');
-  const users = db.getTable('users');
-  const ledger = db.getTable('points_ledger');
+  const approvals = await db.getTable('redemption_approvals');
+  const stockists = await db.getTable('stockists');
+  const partners = await db.getTable('partners');
+  const orders = await db.getTable('orders');
+  const fraudReports = await db.getTable('fraud_reports');
+  const users = await db.getTable('users');
+  const ledger = await db.getTable('points_ledger');
 
   // 4.1 Redemption pipeline health
   const pending_over_24h_count = approvals.filter(a =>
@@ -4597,12 +4601,12 @@ app.get('/api/admin/health', (req, res) => {
 // --- Round P4a: Partner App Backend ---
 
 // Part 1: Partner Dashboard Summary
-app.get('/api/partner/dashboard', (req, res) => {
-  const session = getPartnerSession(req);
+app.get('/api/partner/dashboard', async (req, res) => {
+  const session = await getPartnerSession(req);
   if (!session) return res.status(401).json({ error: 'Unauthorized or invalid session' });
 
   const partnerId = session.partnerId;
-  const approvals = db.getTable('redemption_approvals');
+  const approvals = await db.getTable('redemption_approvals');
   const partnerApprovals = approvals.filter(a => a.partner_id === partnerId);
 
   // IST date math
@@ -4634,12 +4638,12 @@ app.get('/api/partner/dashboard', (req, res) => {
   let faceValueTotalRupees = 0;
   let expectedPayoutRupees = 0;
 
-  monthFulfilled.forEach(row => {
+  for (const row of monthFulfilled) {
     const faceVal = parseFloat(row.face_value_rupees || 0);
     faceValueTotalRupees += faceVal;
-    const payoutInfo = calculatePartnerPayout(faceVal, row.stockist_id || null);
+    const payoutInfo = await calculatePartnerPayout(faceVal, row.stockist_id || null);
     expectedPayoutRupees += payoutInfo.partnerPayout;
-  });
+  }
 
   const openDisputes = partnerApprovals.filter(a => a.status === 'DISPUTED');
 
@@ -4662,12 +4666,12 @@ app.get('/api/partner/dashboard', (req, res) => {
 });
 
 // Part 2: Partner Region Self-Management
-app.get('/api/partner/regions', (req, res) => {
-  const session = getPartnerSession(req);
+app.get('/api/partner/regions', async (req, res) => {
+  const session = await getPartnerSession(req);
   if (!session) return res.status(401).json({ error: 'Unauthorized or invalid session' });
 
-  const partnerRegions = db.getTable('partner_regions').filter(r => r.partner_id === session.partnerId);
-  const regions = db.getTable('regions');
+  const partnerRegions = (await db.getTable('partner_regions')).filter(r => r.partner_id === session.partnerId);
+  const regions = await db.getTable('regions');
 
   const result = partnerRegions.map(pr => {
     const reg = regions.find(r => r.id === pr.region_id);
@@ -4681,8 +4685,8 @@ app.get('/api/partner/regions', (req, res) => {
   return res.json(result);
 });
 
-app.post('/api/partner/regions', (req, res) => {
-  const session = getPartnerSession(req);
+app.post('/api/partner/regions', async (req, res) => {
+  const session = await getPartnerSession(req);
   if (!session) return res.status(401).json({ error: 'Unauthorized or invalid session' });
 
   const { region_id, service_type } = req.body;
@@ -4695,13 +4699,13 @@ app.post('/api/partner/regions', (req, res) => {
     return res.status(400).json({ error: 'service_type not supported by partner' });
   }
 
-  const regions = db.getTable('regions');
+  const regions = await db.getTable('regions');
   const regionExists = regions.some(r => r.id === region_id);
   if (!regionExists) {
     return res.status(400).json({ error: 'region_id does not exist' });
   }
 
-  const partnerRegions = db.getTable('partner_regions');
+  const partnerRegions = await db.getTable('partner_regions');
   const duplicate = partnerRegions.some(pr =>
     pr.partner_id === session.partnerId && pr.region_id === region_id && pr.service_type === service_type
   );
@@ -4719,20 +4723,20 @@ app.post('/api/partner/regions', (req, res) => {
   };
 
   partnerRegions.push(newRow);
-  db.saveTable('partner_regions', partnerRegions);
-  appendAudit(req, 'PARTNER_REGION_ADD', 'partner_region', newRow.id, null, newRow, session.userId);
+  await db.saveTable('partner_regions', partnerRegions);
+  await appendAudit(req, 'PARTNER_REGION_ADD', 'partner_region', newRow.id, null, newRow, session.userId);
 
   return res.json(newRow);
 });
 
-app.post('/api/partner/regions/:regionRowId/deactivate', (req, res) => {
-  const session = getPartnerSession(req);
+app.post('/api/partner/regions/:regionRowId/deactivate', async (req, res) => {
+  const session = await getPartnerSession(req);
   if (!session) return res.status(401).json({ error: 'Unauthorized or invalid session' });
 
   const { regionRowId } = req.params;
   const { confirm } = req.body || {};
 
-  const partnerRegions = db.getTable('partner_regions');
+  const partnerRegions = await db.getTable('partner_regions');
   const row = partnerRegions.find(pr => pr.id === regionRowId);
   if (!row) return res.status(404).json({ error: 'Region mapping not found' });
 
@@ -4740,7 +4744,7 @@ app.post('/api/partner/regions/:regionRowId/deactivate', (req, res) => {
     return res.status(403).json({ error: 'Forbidden: region mapping does not belong to your partner account' });
   }
 
-  const partnerPackages = db.getTable('partner_packages');
+  const partnerPackages = await db.getTable('partner_packages');
   const referencingPackages = partnerPackages.filter(p =>
     p.partner_id === session.partnerId &&
     p.is_active !== false &&
@@ -4757,18 +4761,18 @@ app.post('/api/partner/regions/:regionRowId/deactivate', (req, res) => {
   }
 
   row.is_active = false;
-  db.saveTable('partner_regions', partnerRegions);
-  appendAudit(req, 'PARTNER_REGION_DEACTIVATE', 'partner_region', regionRowId, { is_active: true }, { is_active: false }, session.userId);
+  await db.saveTable('partner_regions', partnerRegions);
+  await appendAudit(req, 'PARTNER_REGION_DEACTIVATE', 'partner_region', regionRowId, { is_active: true }, { is_active: false }, session.userId);
 
   return res.json(row);
 });
 
-app.post('/api/partner/regions/:regionRowId/reactivate', (req, res) => {
-  const session = getPartnerSession(req);
+app.post('/api/partner/regions/:regionRowId/reactivate', async (req, res) => {
+  const session = await getPartnerSession(req);
   if (!session) return res.status(401).json({ error: 'Unauthorized or invalid session' });
 
   const { regionRowId } = req.params;
-  const partnerRegions = db.getTable('partner_regions');
+  const partnerRegions = await db.getTable('partner_regions');
   const row = partnerRegions.find(pr => pr.id === regionRowId);
   if (!row) return res.status(404).json({ error: 'Region mapping not found' });
 
@@ -4777,18 +4781,18 @@ app.post('/api/partner/regions/:regionRowId/reactivate', (req, res) => {
   }
 
   row.is_active = true;
-  db.saveTable('partner_regions', partnerRegions);
-  appendAudit(req, 'PARTNER_REGION_REACTIVATE', 'partner_region', regionRowId, { is_active: false }, { is_active: true }, session.userId);
+  await db.saveTable('partner_regions', partnerRegions);
+  await appendAudit(req, 'PARTNER_REGION_REACTIVATE', 'partner_region', regionRowId, { is_active: false }, { is_active: true }, session.userId);
 
   return res.json(row);
 });
 
-app.delete('/api/partner/regions/:regionRowId', (req, res) => {
-  const session = getPartnerSession(req);
+app.delete('/api/partner/regions/:regionRowId', async (req, res) => {
+  const session = await getPartnerSession(req);
   if (!session) return res.status(401).json({ error: 'Unauthorized or invalid session' });
 
   const { regionRowId } = req.params;
-  const partnerRegions = db.getTable('partner_regions');
+  const partnerRegions = await db.getTable('partner_regions');
   const idx = partnerRegions.findIndex(pr => pr.id === regionRowId);
   if (idx === -1) return res.status(404).json({ error: 'Region mapping not found' });
 
@@ -4797,7 +4801,7 @@ app.delete('/api/partner/regions/:regionRowId', (req, res) => {
     return res.status(403).json({ error: 'Forbidden: region mapping does not belong to your partner account' });
   }
 
-  const partnerPackages = db.getTable('partner_packages');
+  const partnerPackages = await db.getTable('partner_packages');
   const referencingPackages = partnerPackages.filter(p =>
     p.partner_id === session.partnerId &&
     Array.isArray(p.active_regions) &&
@@ -4809,20 +4813,20 @@ app.delete('/api/partner/regions/:regionRowId', (req, res) => {
   }
 
   partnerRegions.splice(idx, 1);
-  db.saveTable('partner_regions', partnerRegions);
-  appendAudit(req, 'PARTNER_REGION_DELETE', 'partner_region', regionRowId, row, null, session.userId);
+  await db.saveTable('partner_regions', partnerRegions);
+  await appendAudit(req, 'PARTNER_REGION_DELETE', 'partner_region', regionRowId, row, null, session.userId);
 
   return res.json({ success: true, deleted_id: regionRowId });
 });
 
 // Part 3: Partner Profile
-app.get('/api/partner/me', (req, res) => {
-  const session = getPartnerSession(req);
+app.get('/api/partner/me', async (req, res) => {
+  const session = await getPartnerSession(req);
   if (!session) return res.status(401).json({ error: 'Unauthorized or invalid session' });
 
   const partnerId = session.partnerId;
-  const partnerRegions = db.getTable('partner_regions').filter(r => r.partner_id === partnerId);
-  const regions = db.getTable('regions');
+  const partnerRegions = (await db.getTable('partner_regions')).filter(r => r.partner_id === partnerId);
+  const regions = await db.getTable('regions');
   const denormRegions = partnerRegions.map(pr => {
     const reg = regions.find(r => r.id === pr.region_id);
     return {
@@ -4832,9 +4836,9 @@ app.get('/api/partner/me', (req, res) => {
     };
   });
 
-  const packages = db.getTable('partner_packages').filter(p => p.partner_id === partnerId);
-  const bindings = db.getTable('customer_partner_bindings').filter(b => b.cable_partner_id === partnerId || b.broadband_partner_id === partnerId);
-  const approvals = db.getTable('redemption_approvals').filter(a => a.partner_id === partnerId);
+  const packages = (await db.getTable('partner_packages')).filter(p => p.partner_id === partnerId);
+  const bindings = (await db.getTable('customer_partner_bindings')).filter(b => b.cable_partner_id === partnerId || b.broadband_partner_id === partnerId);
+  const approvals = (await db.getTable('redemption_approvals')).filter(a => a.partner_id === partnerId);
   const disputesOpen = approvals.filter(a => a.status === 'DISPUTED');
 
   return res.json({
@@ -4850,8 +4854,8 @@ app.get('/api/partner/me', (req, res) => {
   });
 });
 
-app.patch('/api/partner/me', (req, res) => {
-  const session = getPartnerSession(req);
+app.patch('/api/partner/me', async (req, res) => {
+  const session = await getPartnerSession(req);
   if (!session) return res.status(401).json({ error: 'Unauthorized or invalid session' });
 
   const forbiddenFields = ['legal_name', 'gst_number', 'service_types', 'is_active', 'promoted_from_lead_id'];
@@ -4862,8 +4866,8 @@ app.patch('/api/partner/me', (req, res) => {
   }
 
   const { display_name, contact_phone, contact_email, address, confirm_phone_change } = req.body;
-  const partners = db.getTable('partners');
-  const users = db.getTable('users');
+  const partners = await db.getTable('partners');
+  const users = await db.getTable('users');
 
   const partnerRow = partners.find(p => p.id === session.partnerId);
   const userRow = users.find(u => u.id === session.userId);
@@ -4913,10 +4917,10 @@ app.patch('/api/partner/me', (req, res) => {
   }
   partnerRow.updated_at = new Date().toISOString();
 
-  db.saveTable('partners', partners);
-  db.saveTable('users', users);
+  await db.saveTable('partners', partners);
+  await db.saveTable('users', users);
 
-  appendAudit(req, 'EDIT_PARTNER_PROFILE', 'partner', session.partnerId, beforePartner, partnerRow, session.userId);
+  await appendAudit(req, 'EDIT_PARTNER_PROFILE', 'partner', session.partnerId, beforePartner, partnerRow, session.userId);
 
   return res.json({
     partner: partnerRow,
@@ -4925,8 +4929,8 @@ app.patch('/api/partner/me', (req, res) => {
 });
 
 // Part 4: Partner Feedback
-app.post('/api/partner/feedback', (req, res) => {
-  const session = getPartnerSession(req);
+app.post('/api/partner/feedback', async (req, res) => {
+  const session = await getPartnerSession(req);
   if (!session) return res.status(401).json({ error: 'Unauthorized or invalid session' });
 
   const { linked_type, linked_redemption_approval_id, category, subject, description } = req.body;
@@ -4938,14 +4942,14 @@ app.post('/api/partner/feedback', (req, res) => {
     if (!linked_redemption_approval_id) {
       return res.status(400).json({ error: 'linked_redemption_approval_id is required for REDEMPTION linked_type' });
     }
-    const approvals = db.getTable('redemption_approvals');
+    const approvals = await db.getTable('redemption_approvals');
     const approval = approvals.find(a => a.id === linked_redemption_approval_id);
     if (!approval || approval.partner_id !== session.partnerId) {
       return res.status(403).json({ error: 'Forbidden: linked redemption does not belong to this partner' });
     }
   }
 
-  const feedbackList = db.getTable('partner_feedback');
+  const feedbackList = await db.getTable('partner_feedback');
   const newFeedback = {
     id: 'pfb-' + generateId(),
     partner_id: session.partnerId,
@@ -4962,16 +4966,16 @@ app.post('/api/partner/feedback', (req, res) => {
   };
 
   feedbackList.push(newFeedback);
-  db.saveTable('partner_feedback', feedbackList);
+  await db.saveTable('partner_feedback', feedbackList);
 
   return res.json(newFeedback);
 });
 
-app.get('/api/partner/feedback', (req, res) => {
-  const session = getPartnerSession(req);
+app.get('/api/partner/feedback', async (req, res) => {
+  const session = await getPartnerSession(req);
   if (!session) return res.status(401).json({ error: 'Unauthorized or invalid session' });
 
-  const feedbackList = db.getTable('partner_feedback');
+  const feedbackList = await db.getTable('partner_feedback');
   const result = feedbackList
     .filter(f => f.partner_id === session.partnerId)
     .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
@@ -4979,11 +4983,11 @@ app.get('/api/partner/feedback', (req, res) => {
   return res.json(result);
 });
 
-app.get('/api/admin/partner-feedback', (req, res) => {
+app.get('/api/admin/partner-feedback', async (req, res) => {
   const { status, partner_id, category } = req.query;
-  let feedbackList = db.getTable('partner_feedback');
-  const partners = db.getTable('partners');
-  const approvals = db.getTable('redemption_approvals');
+  let feedbackList = await db.getTable('partner_feedback');
+  const partners = await db.getTable('partners');
+  const approvals = await db.getTable('redemption_approvals');
 
   if (status) feedbackList = feedbackList.filter(f => f.status === status);
   if (partner_id) feedbackList = feedbackList.filter(f => f.partner_id === partner_id);
@@ -5004,7 +5008,7 @@ app.get('/api/admin/partner-feedback', (req, res) => {
   return res.json(result);
 });
 
-app.post('/api/admin/partner-feedback/:id/status', (req, res) => {
+app.post('/api/admin/partner-feedback/:id/status', async (req, res) => {
   const { id } = req.params;
   const { status, admin_notes, admin_id } = req.body;
 
@@ -5019,7 +5023,7 @@ app.post('/api/admin/partner-feedback/:id/status', (req, res) => {
     }
   }
 
-  const feedbackList = db.getTable('partner_feedback');
+  const feedbackList = await db.getTable('partner_feedback');
   const feedback = feedbackList.find(f => f.id === id);
   if (!feedback) return res.status(404).json({ error: 'Partner feedback not found' });
 
@@ -5030,11 +5034,11 @@ app.post('/api/admin/partner-feedback/:id/status', (req, res) => {
     feedback.resolved_at = new Date().toISOString();
   }
 
-  db.saveTable('partner_feedback', feedbackList);
-  appendAudit(req, 'UPDATE_PARTNER_FEEDBACK', 'partner_feedback', id, { status: oldStatus }, { status, admin_notes: feedback.admin_notes }, admin_id || 'u-admin');
+  await db.saveTable('partner_feedback', feedbackList);
+  await appendAudit(req, 'UPDATE_PARTNER_FEEDBACK', 'partner_feedback', id, { status: oldStatus }, { status, admin_notes: feedback.admin_notes }, admin_id || 'u-admin');
 
   // Trigger in-app notification for partner
-  const notifications = db.getTable('partner_notifications');
+  const notifications = await db.getTable('partner_notifications');
   notifications.push({
     id: 'pnt-' + generateId(),
     partner_id: feedback.partner_id,
@@ -5045,18 +5049,17 @@ app.post('/api/admin/partner-feedback/:id/status', (req, res) => {
     is_read: false,
     created_at: new Date().toISOString()
   });
-  db.saveTable('partner_notifications', notifications);
+  await db.saveTable('partner_notifications', notifications);
 
   return res.json(feedback);
 });
 
 // Part 5: Partner Notifications
-app.get('/api/partner/notifications', (req, res) => {
-  const session = getPartnerSession(req);
+app.get('/api/partner/notifications', async (req, res) => {
+  const session = await getPartnerSession(req);
   if (!session) return res.status(401).json({ error: 'Unauthorized or invalid session' });
 
-  let notifications = db.getTable('partner_notifications')
-    .filter(n => n.partner_id === session.partnerId);
+  let notifications = (await db.getTable('partner_notifications')).filter(n => n.partner_id === session.partnerId);
 
   if (req.query.unread_only === 'true') {
     notifications = notifications.filter(n => !n.is_read);
@@ -5069,12 +5072,12 @@ app.get('/api/partner/notifications', (req, res) => {
   return res.json(result);
 });
 
-app.post('/api/partner/notifications/mark-read', (req, res) => {
-  const session = getPartnerSession(req);
+app.post('/api/partner/notifications/mark-read', async (req, res) => {
+  const session = await getPartnerSession(req);
   if (!session) return res.status(401).json({ error: 'Unauthorized or invalid session' });
 
   const { notification_ids, mark_all } = req.body || {};
-  const notifications = db.getTable('partner_notifications');
+  const notifications = await db.getTable('partner_notifications');
 
   if (mark_all === true) {
     notifications.forEach(n => {
@@ -5082,7 +5085,7 @@ app.post('/api/partner/notifications/mark-read', (req, res) => {
         n.is_read = true;
       }
     });
-    db.saveTable('partner_notifications', notifications);
+    await db.saveTable('partner_notifications', notifications);
     return res.json({ success: true });
   }
 
@@ -5105,30 +5108,38 @@ app.post('/api/partner/notifications/mark-read', (req, res) => {
     }
   });
 
-  db.saveTable('partner_notifications', notifications);
+  await db.saveTable('partner_notifications', notifications);
   return res.json({ success: true });
 });
 
 // Reset DB
-app.post('/api/admin/reset-db', (req, res) => {
-  const path = require('path');
-  const fs = require('fs');
-  const DB_PATH = path.join(__dirname, 'db.json');
-  if (fs.existsSync(DB_PATH)) fs.unlinkSync(DB_PATH);
+app.post('/api/admin/reset-db', async (req, res) => {
+  await db.resetForTest();
   emailHelper.clearMockOutbox();
   loginPasswordFailedAttempts.clear();
   otpRequestAttempts.clear();
   resetTokens.clear();
-  const fresh = db.read();
-  return res.json({ success: true, message: 'Database reset successfully.', state: fresh });
+  return res.json({ success: true, message: 'Database reset successfully.' });
+});
+
+app.post('/api/admin/override-table', async (req, res) => {
+  const { table, id, patch } = req.body;
+  if (!table || !id || !patch) return res.status(400).json({ error: 'Missing table, id, or patch' });
+  const updated = await db.updateRow(table, id, patch);
+  return res.json({ success: true, row: updated });
 });
 
 // Start Server
 const PORT = process.env.PORT || 3001;
-if (require.main === module) {
-  app.listen(PORT, () => {
-    console.log(`[Backend Server] ISP-Commerce Loyalty API listening on port ${PORT}`);
-  });
-}
+let serverInstance = null;
+const readyPromise = db.init().then(() => {
+  if (!serverInstance) {
+    serverInstance = app.listen(PORT, () => {
+      console.log(`[Backend Server] ISP-Commerce Loyalty API listening on port ${PORT}`);
+    });
+  }
+}).catch(err => {
+  console.error('Failed to initialize DB server:', err);
+});
 
-module.exports = { app, calculateSettlement, calculatePartnerPayout, getCommissionConfig };
+module.exports = { app, calculateSettlement, calculatePartnerPayout, getCommissionConfig, readyPromise };

@@ -1,3 +1,4 @@
+process.env.POSTGRES_MODE = 'mem';
 const http = require('http');
 const dbModule = require('../db.js');
 
@@ -173,6 +174,9 @@ function assert(condition, message) {
 async function main() {
   console.log('=== RUNNING ACCUMULATED REGRESSION SUITE ===');
 
+  const sMod = require('../server.js');
+  await sMod.readyPromise;
+
   // Reset database to starting state
   console.log('\nResetting database...');
   await post('http://localhost:3001/api/admin/reset-db');
@@ -256,10 +260,7 @@ async function main() {
   const balBefore = (await get('http://localhost:3001/api/ledger/balance/u-cust1')).body.balance;
 
   // Bypass stockist cancel restriction on DELIVERED status by manually setting to PENDING in DB
-  const ordersListReversal = dbModule.getTable('orders');
-  const ord = ordersListReversal.find(o => o.id === orderId);
-  ord.status = 'PENDING';
-  dbModule.saveTable('orders', ordersListReversal);
+  await post('http://localhost:3001/api/admin/override-table', { table: 'orders', id: orderId, patch: { status: 'PENDING' } });
 
   await patch(`http://localhost:3001/api/orders/${orderId}/status`, { status: 'CANCELLED' });
   const balAfter = (await get('http://localhost:3001/api/ledger/balance/u-cust1')).body.balance;
@@ -398,11 +399,7 @@ async function main() {
   assert(testOrder.status === 200, 'Order created within cancel window');
   
   // Backdate cancel deadline in the JSON db manually to simulate time elapsed
-  const ordersList = dbModule.getTable('orders');
-  const targetOrder = ordersList.find(o => o.id === testOrder.body.orderId);
-  targetOrder.cancel_deadline = new Date(Date.now() - 10000).toISOString();
-  targetOrder.status = 'PENDING'; // cancel deadline doesn't apply to CONFIRMING status
-  dbModule.saveTable('orders', ordersList);
+  await post('http://localhost:3001/api/admin/override-table', { table: 'orders', id: testOrder.body.orderId, patch: { cancel_deadline: new Date(Date.now() - 10000).toISOString(), status: 'PENDING' } });
   
   const cancelRes = await post(`http://localhost:3001/api/orders/${testOrder.body.orderId}/cancel`);
   assert(cancelRes.status === 400, 'Cancellation blocked after deadline/window closed');
@@ -410,8 +407,7 @@ async function main() {
   // 14. No-show flow (Reschedule or Cancel)
   console.log('\n--- 14. No-Show flow ---');
   // Order status needs to be SHIPPED/READY to simulate missed pickup
-  targetOrder.status = 'SHIPPED';
-  dbModule.saveTable('orders', ordersList);
+  await post('http://localhost:3001/api/admin/override-table', { table: 'orders', id: testOrder.body.orderId, patch: { status: 'SHIPPED' } });
   
   const rescheduleRes1 = await post(`http://localhost:3001/api/orders/${testOrder.body.orderId}/noshw-action`, {
     action: 'RESCHEDULE',
@@ -438,11 +434,7 @@ async function main() {
   assert(adminRefundRes.body.order.payment_status === 'REFUNDED', 'Payment marked as REFUNDED');
 
   // Check prepaid pickup restriction
-  const usersList = dbModule.getTable('users');
-  const customerUser = usersList.find(u => u.id === 'u-cust1');
-  customerUser.no_show_count = 3;
-  customerUser.prepaid_pickup_restricted = true;
-  dbModule.saveTable('users', usersList);
+  await post('http://localhost:3001/api/admin/override-table', { table: 'users', id: 'u-cust1', patch: { no_show_count: 3, prepaid_pickup_restricted: true } });
 
   const restrictedRes = await post('http://localhost:3001/api/orders', {
     customerId: 'u-cust1',
@@ -454,9 +446,7 @@ async function main() {
   assert(restrictedRes.status === 400, 'Prepaid pickup is restricted after 3 no-shows');
 
   // Reset no-shows
-  customerUser.no_show_count = 0;
-  customerUser.prepaid_pickup_restricted = false;
-  dbModule.saveTable('users', usersList);
+  await post('http://localhost:3001/api/admin/override-table', { table: 'users', id: 'u-cust1', patch: { no_show_count: 0, prepaid_pickup_restricted: false } });
 
   // 15. Multi-store checkout
   console.log('\n--- 15. Multi-Store Checkout ---');
@@ -487,10 +477,7 @@ async function main() {
   // 16. Release Split
   console.log('\n--- 16. Release Split ---');
   // Deliver the order to allow releasing split
-  const multiOrders = dbModule.getTable('orders');
-  const multiO = multiOrders.find(o => o.id === multiOrderId);
-  multiO.status = 'DELIVERED';
-  dbModule.saveTable('orders', multiOrders);
+  await post('http://localhost:3001/api/admin/override-table', { table: 'orders', id: multiOrderId, patch: { status: 'DELIVERED' } });
 
   const releaseRes = await post(`http://localhost:3001/api/admin/release-split/${multiOrderId}`);
   assert(releaseRes.status === 200, 'Split released successfully');
@@ -507,13 +494,13 @@ async function main() {
   assert(codOrder.status === 200, 'COD order created successfully');
   assert(codOrder.body.order.payment_status === 'COD', 'COD payment status is COD');
   
-  const codLedger = dbModule.getTable('cod_commission_ledger');
+  const codLedger = await dbModule.getTable('cod_commission_ledger');
   const codEntry = codLedger.find(e => e.order_id === codOrder.body.orderId);
   assert(codEntry !== undefined, 'COD commission entry added to ledger');
 
   // 18. Fraud Flag Dismissals
   console.log('\n--- 18. Fraud Flag Dismissals ---');
-  const anomaliesList = dbModule.getTable('anomaly_logs');
+  const anomaliesList = await dbModule.getTable('anomaly_logs');
   const targetAnomaly2 = anomaliesList[0];
   
   const dismissRes = await post(`http://localhost:3001/api/admin/anomalies/${targetAnomaly2.id}/dismiss`, {
@@ -521,7 +508,7 @@ async function main() {
   });
   assert(dismissRes.status === 200, 'Anomaly flag dismissed');
   
-  const auditAnomalies = dbModule.getTable('anomaly_logs');
+  const auditAnomalies = await dbModule.getTable('anomaly_logs');
   const updatedAnomaly2 = auditAnomalies.find(a => a.id === targetAnomaly2.id);
   assert(updatedAnomaly2.status === 'DISMISSED', 'Anomaly status updated to DISMISSED');
   assert(updatedAnomaly2.dismiss_reason === 'Legitimate regular customer', 'Dismiss reason saved');
@@ -605,11 +592,7 @@ async function main() {
   assert(orderToCancelFail.status === 200, 'Order to cancel fail created');
   
   // Backdate deadline & set status to PENDING
-  const ordersList2 = dbModule.getTable('orders');
-  const targetOrder2 = ordersList2.find(o => o.id === orderToCancelFail.body.orderId);
-  targetOrder2.cancel_deadline = new Date(Date.now() - 10000).toISOString();
-  targetOrder2.status = 'PENDING';
-  dbModule.saveTable('orders', ordersList2);
+  await post('http://localhost:3001/api/admin/override-table', { table: 'orders', id: orderToCancelFail.body.orderId, patch: { cancel_deadline: new Date(Date.now() - 10000).toISOString(), status: 'PENDING' } });
 
   const cancelFailRes = await post(`http://localhost:3001/api/orders/${orderToCancelFail.body.orderId}/cancel`);
   assert(cancelFailRes.status === 400, 'Cancel blocked after deadline');
@@ -696,20 +679,14 @@ async function main() {
   assert(cancelTestOrder.status === 200, 'Cancel test order created');
 
   // Set status to READY_FOR_PICKUP to test cancellation lock (even within timer)
-  const ordersList3 = dbModule.getTable('orders');
-  const cancelOrd = ordersList3.find(o => o.id === cancelTestOrder.body.orderId);
-  cancelOrd.status = 'READY_FOR_PICKUP';
-  dbModule.saveTable('orders', ordersList3);
+  await post('http://localhost:3001/api/admin/override-table', { table: 'orders', id: cancelTestOrder.body.orderId, patch: { status: 'READY_FOR_PICKUP' } });
 
   const cancelReadyRes = await post(`http://localhost:3001/api/orders/${cancelTestOrder.body.orderId}/cancel`);
   assert(cancelReadyRes.status === 400, 'Cancel at READY is blocked');
   assert(cancelReadyRes.body.code === 'CANCEL_LOCKED_READY', 'Returns CANCEL_LOCKED_READY code');
 
   // Reset status to PREPARING to test success cancel within timer -> REFUND_DUE
-  const ordersList4 = dbModule.getTable('orders');
-  const cancelOrd2 = ordersList4.find(o => o.id === cancelTestOrder.body.orderId);
-  cancelOrd2.status = 'PREPARING';
-  dbModule.saveTable('orders', ordersList4);
+  await post('http://localhost:3001/api/admin/override-table', { table: 'orders', id: cancelTestOrder.body.orderId, patch: { status: 'PREPARING' } });
 
   const cancelPrepRes = await post(`http://localhost:3001/api/orders/${cancelTestOrder.body.orderId}/cancel`);
   assert(cancelPrepRes.status === 200, 'Cancel at PREPARING within timer succeeds');
@@ -736,10 +713,7 @@ async function main() {
   assert(stockistCancelTestOrder.status === 200, 'Stockist cancel test order created');
 
   // Stockist cancel at PENDING -> OK
-  const ordersList5 = dbModule.getTable('orders');
-  const targetOrd5 = ordersList5.find(o => o.id === stockistCancelTestOrder.body.orderId);
-  targetOrd5.status = 'PENDING';
-  dbModule.saveTable('orders', ordersList5);
+  await post('http://localhost:3001/api/admin/override-table', { table: 'orders', id: stockistCancelTestOrder.body.orderId, patch: { status: 'PENDING' } });
 
   const stockistCancelPendingRes = await patch(`http://localhost:3001/api/orders/${stockistCancelTestOrder.body.orderId}/status`, { status: 'CANCELLED' });
   assert(stockistCancelPendingRes.status === 200, 'Stockist CANCELLED at PENDING succeeds');
@@ -754,10 +728,7 @@ async function main() {
   });
   assert(stockistCancelTestOrder2.status === 200, 'Stockist cancel test order 2 created');
 
-  const ordersList6 = dbModule.getTable('orders');
-  const targetOrd6 = ordersList6.find(o => o.id === stockistCancelTestOrder2.body.orderId);
-  targetOrd6.status = 'PREPARING';
-  dbModule.saveTable('orders', ordersList6);
+  await post('http://localhost:3001/api/admin/override-table', { table: 'orders', id: stockistCancelTestOrder2.body.orderId, patch: { status: 'PREPARING' } });
 
   const stockistCancelPreparingRes = await patch(`http://localhost:3001/api/orders/${stockistCancelTestOrder2.body.orderId}/status`, { status: 'CANCELLED' });
   assert(stockistCancelPreparingRes.status === 403, 'Stockist CANCELLED at PREPARING is blocked with 403');
@@ -1110,10 +1081,10 @@ async function main() {
 
   // Test 160 & 161: Partner payout helper
   const serverModule = require('../server.js');
-  const defaultPayout = serverModule.calculatePartnerPayout(250);
+  const defaultPayout = await serverModule.calculatePartnerPayout(250);
   assert(defaultPayout.platformCut === 30 && defaultPayout.partnerPayout === 220 && defaultPayout.cutPctUsed === 12, 'calculatePartnerPayout(250) returns 30/220/12');
 
-  const overridePayout = serverModule.calculatePartnerPayout(200, 's1');
+  const overridePayout = await serverModule.calculatePartnerPayout(200, 's1');
   assert(overridePayout.platformCut === 30 && overridePayout.partnerPayout === 170 && overridePayout.cutPctUsed === 15, 'calculatePartnerPayout(200, s1) returns 30/170/15');
 
   // Test 162: Audit log coverage for commission-config mutations
@@ -2335,6 +2306,49 @@ async function main() {
   assert(p4b_loginOldPass.status === 401, 'Old password fails with 401 after password change');
   const p4b_loginNewPass = await post('http://localhost:3001/api/partner/auth/login-password', { email: 'adhya@partners.example', password: 'newsecretpassword123' });
   assert(p4b_loginNewPass.status === 200, 'Password change works end-to-end (login with new password succeeds)');
+
+  // Postgres Integration Tests (#427-#436)
+  console.log('\n--- Postgres Integration & Schema Verification ---');
+  const pgUsers = await dbModule.getTable('users');
+  assert(pgUsers.length >= 2, 'db.getTable(users) returns seeded users from Postgres');
+
+  const countRes = await dbModule.query('SELECT COUNT(*) as count FROM orders');
+  assert(parseInt(countRes.rows[0].count, 10) >= 0, 'db.query SELECT COUNT(*) FROM orders executes successfully');
+
+  const pgLedger = await dbModule.getTable('points_ledger');
+  assert(Array.isArray(pgLedger) && pgLedger.length > 0, 'db.getTable(points_ledger) returns append-only ledger rows');
+
+  let updateBlocked = false;
+  try {
+    await dbModule.updateRow('points_ledger', pgLedger[0].id, { amount: 9999 });
+  } catch (err) {
+    updateBlocked = err.message.includes('append-only');
+  }
+  assert(updateBlocked, 'Direct updateRow on points_ledger is blocked by append-only rule');
+
+  let deleteBlocked = false;
+  try {
+    await dbModule.deleteRow('points_ledger', pgLedger[0].id);
+  } catch (err) {
+    deleteBlocked = err.message.includes('append-only');
+  }
+  assert(deleteBlocked, 'Direct deleteRow on points_ledger is blocked by append-only rule');
+
+  const pgApprovals = await dbModule.getTable('redemption_approvals');
+  assert(Array.isArray(pgApprovals), 'db.getTable(redemption_approvals) returns array');
+
+  const pgAudit = await dbModule.getTable('admin_audit_log');
+  assert(Array.isArray(pgAudit), 'db.getTable(admin_audit_log) returns array');
+
+  const pgBindings = await dbModule.getTable('customer_partner_bindings');
+  assert(Array.isArray(pgBindings), 'db.getTable(customer_partner_bindings) returns array');
+
+  const pingRes = await dbModule.query('SELECT 1 as alive');
+  assert(pingRes.rows[0].alive === 1 || pingRes.rows[0].alive === '1', 'Postgres engine health check query SELECT 1 as alive succeeds');
+
+  await post('http://localhost:3001/api/admin/reset-db');
+  const resetUsers = await dbModule.getTable('users');
+  assert(resetUsers.length >= 2, 'db.resetForTest() re-seeds baseline data in Postgres');
 
   console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);
