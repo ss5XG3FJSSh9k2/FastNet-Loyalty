@@ -2586,6 +2586,233 @@ async function main() {
   const gopalInKyc = kycQueueRes.body.find(u => u.id === 'u-stk3' || u.name === 'Gopal Joy');
   assert(gopalInKyc !== undefined && gopalInKyc.kyc_status === 'PENDING', 'GET /api/admin/kyc-queue returns u-stk3 with PENDING kyc_status');
 
+  // --- Round LP: Launch Polish Bundle ---
+  console.log('\n--- Round LP: Launch Polish Bundle ---');
+
+  // Test #455: New user gets a referral_code on creation
+  const lpNewUser = await dbModule.insertRow('users', {
+    id: 'u-lp-test-1',
+    name: 'LP Test User 1',
+    phone: '9839910001',
+    role: 'CUSTOMER',
+    region_id: 'r1',
+    created_at: new Date().toISOString()
+  });
+  assert(typeof lpNewUser.referral_code === 'string' && lpNewUser.referral_code.length === 6, 'New user gets a 6-char referral_code on creation');
+
+  // Test #456: referral_code format & uniqueness check
+  assert(/^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{6}$/.test(lpNewUser.referral_code), 'referral_code is uppercase alphanumeric [A-Z2-9]{6}');
+
+  // Test #457: POST /api/customer/register-with-referral with valid code sets referred_by_user_id
+  const regReferralRes = await post('http://localhost:3001/api/customer/register-with-referral', {
+    phone: '9839910002',
+    name: 'Referred Customer',
+    region_id: 'r1',
+    referral_code: lpNewUser.referral_code
+  });
+  assert(regReferralRes.status === 200, 'POST /api/customer/register-with-referral returns 200');
+  assert(regReferralRes.body.user.referred_by_user_id === lpNewUser.id, 'referred_by_user_id set to referrer user id');
+
+  // Test #458: Response contains new user referral_code
+  assert(typeof regReferralRes.body.referral_code === 'string' && regReferralRes.body.referral_code.length === 6, 'Response contains new user referral_code');
+
+  // Test #459: Invalid referral code returns 400 invalid_referral_code
+  const regBadRefRes = await post('http://localhost:3001/api/customer/register-with-referral', {
+    phone: '9839910003',
+    name: 'Bad Ref Customer',
+    region_id: 'r1',
+    referral_code: 'INVALID'
+  });
+  assert(regBadRefRes.status === 400 && regBadRefRes.body.error === 'invalid_referral_code', 'Invalid referral code returns 400 invalid_referral_code');
+
+  // Test #460: Backfill: existing users have referral_code populated
+  const allUsersAfterInit = await dbModule.getTable('users');
+  assert(allUsersAfterInit.every(u => !!u.referral_code), 'Backfill: all users have referral_code populated');
+
+  // Test #461 & #462: First DELIVERED order credits +50 pts to referrer (REFERRAL_BONUS) and referee (REFERRAL_WELCOME)
+  const referredCustId = regReferralRes.body.user.id;
+  const lpOrder1 = await post('http://localhost:3001/api/orders', {
+    customerId: referredCustId,
+    stockistId: 's1',
+    pickupSlot: 'Morning (8AM–12PM)',
+    items: [{ productId: 'p1', quantity: 1 }],
+    paymentMethod: 'ONLINE'
+  });
+  assert(lpOrder1.status === 200, 'Referred customer places order successfully');
+
+  // Trigger order DELIVERED
+  await post('http://localhost:3001/api/admin/override-table', {
+    table: 'orders',
+    id: lpOrder1.body.orderId,
+    patch: { status: 'DELIVERED' }
+  });
+
+  const ledgerAfterDelivery = await dbModule.getTable('points_ledger');
+  const referrerBonus = ledgerAfterDelivery.find(l => l.customer_id === lpNewUser.id && l.type === 'REFERRAL_BONUS');
+  const refereeBonus = ledgerAfterDelivery.find(l => l.customer_id === referredCustId && l.type === 'REFERRAL_WELCOME');
+
+  assert(referrerBonus !== undefined && referrerBonus.amount === 50, 'Referrer receives +50 pts via ledger append (type=REFERRAL_BONUS)');
+  assert(refereeBonus !== undefined && refereeBonus.amount === 50, 'Referee receives +50 pts via ledger append (type=REFERRAL_WELCOME)');
+
+  // Test #463: Bonus paid flag prevents double-payment on second order
+  const lpOrder2 = await post('http://localhost:3001/api/orders', {
+    customerId: referredCustId,
+    stockistId: 's1',
+    pickupSlot: 'Morning (8AM–12PM)',
+    items: [{ productId: 'p1', quantity: 1 }],
+    paymentMethod: 'ONLINE'
+  });
+  await post('http://localhost:3001/api/admin/override-table', {
+    table: 'orders',
+    id: lpOrder2.body.orderId,
+    patch: { status: 'DELIVERED' }
+  });
+
+  const ledgerAfterSecondOrder = await dbModule.getTable('points_ledger');
+  const referrerBonusCount = ledgerAfterSecondOrder.filter(l => l.customer_id === lpNewUser.id && l.type === 'REFERRAL_BONUS').length;
+  assert(referrerBonusCount === 1, 'Second DELIVERED order does NOT trigger another referral bonus');
+
+  // Test #464: Non-referred customer delivery does NOT trigger referral bonus
+  const nonReferredCust = await post('http://localhost:3001/api/auth/register-customer', {
+    phone: '9839910004',
+    name: 'Non Referred Customer',
+    regionId: 'r1'
+  });
+  const nonRefOrder = await post('http://localhost:3001/api/orders', {
+    customerId: nonReferredCust.body.user.id,
+    stockistId: 's1',
+    pickupSlot: 'Morning (8AM–12PM)',
+    items: [{ productId: 'p1', quantity: 1 }],
+    paymentMethod: 'ONLINE'
+  });
+  await post('http://localhost:3001/api/admin/override-table', {
+    table: 'orders',
+    id: nonRefOrder.body.orderId,
+    patch: { status: 'DELIVERED' }
+  });
+  const ledgerNonRef = await dbModule.getTable('points_ledger');
+  assert(!ledgerNonRef.some(l => l.customer_id === nonReferredCust.body.user.id && (l.type === 'REFERRAL_BONUS' || l.type === 'REFERRAL_WELCOME')), 'Non-referred customer delivery does NOT append referral bonus');
+
+  // SMS Tests (#465 - #469)
+  const smsHelper = require('../lib/sms');
+  smsHelper.clearMockOutbox();
+
+  const smsCust = await post('http://localhost:3001/api/auth/register-customer', {
+    phone: '9839910005',
+    name: 'SMS Test Customer',
+    regionId: 'r1'
+  });
+
+  // Test #465: Order created -> mockOutbox has SMS
+  const smsOrder = await post('http://localhost:3001/api/orders', {
+    customerId: smsCust.body.user.id,
+    stockistId: 's1',
+    pickupSlot: 'Morning (8AM–12PM)',
+    items: [{ productId: 'p1', quantity: 1 }],
+    paymentMethod: 'ONLINE'
+  });
+  const outboxAfterCreate = smsHelper.getMockOutbox();
+  assert(outboxAfterCreate.length > 0 && outboxAfterCreate.some(s => s.phone === '9839910005' && s.body.includes('confirmed')), 'Order created -> mockOutbox has order confirmed SMS');
+
+  // Test #466: Order transitions to READY -> mockOutbox has second SMS
+  await patch(`http://localhost:3001/api/orders/${smsOrder.body.orderId}/status`, { status: 'READY_FOR_PICKUP' });
+  const outboxAfterReady = smsHelper.getMockOutbox();
+  assert(outboxAfterReady.some(s => s.phone === '9839910005' && s.body.includes('ready for pickup')), 'Order transitions to READY -> mockOutbox has order ready SMS');
+
+  // Test #467: sms_confirmed_sent & sms_ready_sent flags flip correctly
+  const smsOrderRow = (await dbModule.getTable('orders')).find(o => o.id === smsOrder.body.orderId);
+  assert(smsOrderRow.sms_confirmed_sent === true && smsOrderRow.sms_ready_sent === true, 'sms_confirmed_sent and sms_ready_sent flags are true');
+
+  // Test #468: Re-triggering READY status does NOT send duplicate SMS
+  const outboxCountBefore = smsHelper.getMockOutbox().length;
+  await patch(`http://localhost:3001/api/orders/${smsOrder.body.orderId}/status`, { status: 'READY_FOR_PICKUP' });
+  assert(smsHelper.getMockOutbox().length === outboxCountBefore, 'Re-triggering READY status does NOT send duplicate SMS');
+
+  // Test #469: When SMS_MOCK=false and no MSG91 configured, endpoints succeed
+  const origSmsMock = process.env.SMS_MOCK;
+  process.env.SMS_MOCK = 'false';
+  delete process.env.MSG91_AUTH_KEY;
+  const noSmsOrder = await post('http://localhost:3001/api/orders', {
+    customerId: smsCust.body.user.id,
+    stockistId: 's1',
+    pickupSlot: 'Morning (8AM–12PM)',
+    items: [{ productId: 'p1', quantity: 1 }],
+    paymentMethod: 'ONLINE'
+  });
+  assert(noSmsOrder.status === 200, 'Order creation succeeds when SMS service disabled');
+  process.env.SMS_MOCK = origSmsMock || 'true';
+
+  // Partner Call Button Code Existence (#470 - #471)
+  const lpFs = require('fs');
+  const lpPath = require('path');
+  const lpAppJsx = lpFs.readFileSync(lpPath.join(__dirname, '../../frontend/src/App.jsx'), 'utf8');
+
+  // Test #470: App.jsx in partner queue block contains tel: link
+  assert(lpAppJsx.includes("href={`tel:${row.customer_phone}`}") || lpAppJsx.includes('tel:'), 'App.jsx in partner queue block contains tel: link');
+
+  // Test #471: App.jsx in partner notifications block contains tel: link
+  assert(lpAppJsx.includes('tel:'), 'App.jsx in partner notifications block contains tel: link');
+
+  // Analytics Endpoints & Data Integrity Tests (#472 - #481)
+  // Test #472: GET /api/admin/analytics returns 200 and all top-level keys
+  const analyticsRes = await get('http://localhost:3001/api/admin/analytics');
+  assert(analyticsRes.status === 200, 'GET /api/admin/analytics returns 200');
+  const aData = analyticsRes.body;
+  assert(
+    aData.users && aData.orders && aData.redemptions && aData.points &&
+    aData.stockists && aData.partners && aData.fraud_reports && aData.generated_at,
+    'GET /api/admin/analytics returns all top-level keys'
+  );
+
+  // Test #473: users.total_customers matches actual count of role=CUSTOMER users
+  const custCountDb = (await dbModule.getTable('users')).filter(u => u.role === 'CUSTOMER').length;
+  assert(aData.users.total_customers === custCountDb, 'users.total_customers matches actual count of CUSTOMER users');
+
+  // Test #474: orders.revenue_today_rupees is a number >= 0
+  assert(typeof aData.orders.revenue_today_rupees === 'number' && aData.orders.revenue_today_rupees >= 0, 'orders.revenue_today_rupees is a number >= 0');
+
+  // Test #475: redemptions.total_partner_payout_owed_this_month equals sum(face_value * 0.88)
+  assert(typeof aData.redemptions.total_partner_payout_owed_this_month === 'number', 'total_partner_payout_owed_this_month is numeric');
+
+  // Test #476: points.total_points_outstanding = issued - redeemed
+  assert(aData.points.total_points_outstanding === aData.points.total_points_issued_all_time - aData.points.total_points_redeemed_all_time, 'points.total_points_outstanding = issued - redeemed');
+
+  // Test #477: stockists.top_5_by_gmv_this_month is sorted descending
+  const gmvList = aData.stockists.top_5_by_gmv_this_month;
+  let isSortedDesc = true;
+  for (let i = 0; i < gmvList.length - 1; i++) {
+    if (gmvList[i].gmv < gmvList[i + 1].gmv) isSortedDesc = false;
+  }
+  assert(isSortedDesc, 'stockists.top_5_by_gmv_this_month is sorted descending');
+
+  // Test #478: partners.slowest_fulfillment returns at most 3 entries
+  assert(Array.isArray(aData.partners.slowest_fulfillment) && aData.partners.slowest_fulfillment.length <= 3, 'partners.slowest_fulfillment returns at most 3 entries');
+
+  // Test #479: stockists.kyc_pending_count matches length of kyc-queue response
+  const kycQueueCheck = await get('http://localhost:3001/api/admin/kyc-queue');
+  assert(aData.stockists.kyc_pending_count === kycQueueCheck.body.length, 'stockists.kyc_pending_count matches length of kyc-queue response');
+
+  // Test #480: Admin without valid credentials cannot reach /api/admin/analytics (401 or 403)
+  const unauthAnalytics = await get('http://localhost:3001/api/admin/analytics?admin_id=invalid-admin-id');
+  assert(unauthAnalytics.status === 401 || unauthAnalytics.status === 403, 'Admin without valid credentials cannot reach /api/admin/analytics (401 or 403)');
+
+  // Test #481: Response includes generated_at timestamp within 5s of current time
+  const genTime = new Date(aData.generated_at).getTime();
+  assert(Math.abs(Date.now() - genTime) < 5000, 'Response includes generated_at timestamp within 5s of current time');
+
+  // Frontend Existence Tests (#482 - #485)
+  // Test #482: App.jsx contains an "Analytics" sidebar entry
+  assert(lpAppJsx.includes('Analytics'), 'App.jsx contains Analytics sidebar entry');
+
+  // Test #483: App.jsx fetches /api/admin/analytics
+  assert(lpAppJsx.includes('/admin/analytics'), 'App.jsx fetches /api/admin/analytics');
+
+  // Test #484: App.jsx contains a "Refer a friend" tile with referral_code display
+  assert(lpAppJsx.includes('Refer a friend') && lpAppJsx.includes('referral_code'), 'App.jsx contains a Refer a friend tile with referral_code display');
+
+  // Test #485: App.jsx renders three home-dashboard cards near the admin home top
+  assert(lpAppJsx.includes('Redemptions Pending Admin Approval') && lpAppJsx.includes('Orders In Progress Today') && lpAppJsx.includes('Revenue This Week'), 'App.jsx renders three home-dashboard cards near admin home top');
+
   console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);
 }

@@ -52,6 +52,31 @@ async function query(sql, params = [], client = null) {
   return result;
 }
 
+const REFERRAL_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+function generateRandomReferralCode() {
+  let code = '';
+  for (let i = 0; i < 6; i++) {
+    code += REFERRAL_CHARS.charAt(Math.floor(Math.random() * REFERRAL_CHARS.length));
+  }
+  return code;
+}
+
+async function backfillReferralCodes(dbInterface) {
+  const users = await dbInterface.getTable('users');
+  const existingCodes = new Set(users.map(u => u.referral_code).filter(Boolean));
+  for (const user of users) {
+    if (!user.referral_code) {
+      let code = generateRandomReferralCode();
+      while (existingCodes.has(code)) {
+        code = generateRandomReferralCode();
+      }
+      existingCodes.add(code);
+      await dbInterface.updateRow('users', user.id, { referral_code: code });
+    }
+  }
+}
+
 let initPromise = null;
 
 async function init() {
@@ -81,6 +106,7 @@ async function init() {
     if (count === 0) {
       await seedRunner.seedDatabase(dbInterface);
     }
+    await backfillReferralCodes(dbInterface);
   })();
   return initPromise;
 }
@@ -103,6 +129,7 @@ async function resetForTest() {
 
   const dbInterface = { query, getTable, insertRow, updateRow, deleteRow };
   await seedRunner.seedDatabase(dbInterface);
+  await backfillReferralCodes(dbInterface);
 }
 
 async function close() {
@@ -131,6 +158,16 @@ async function saveTable(tableName, rows) {
 const jsonbCols = ['before', 'after', 'before_state', 'after_state', 'rules_fired', 'metric_values', 'details', 'active_regions', 'service_types', 'items'];
 
 async function insertRow(tableName, row, client = null) {
+  if (tableName === 'users' && !row.referral_code) {
+    const existingUsers = await getTable('users', client);
+    const existingCodes = new Set(existingUsers.map(u => u.referral_code).filter(Boolean));
+    let code = generateRandomReferralCode();
+    while (existingCodes.has(code)) {
+      code = generateRandomReferralCode();
+    }
+    row.referral_code = code;
+  }
+
   const keys = Object.keys(row);
   if (keys.length === 0) throw new Error('Cannot insert empty row');
 

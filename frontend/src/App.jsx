@@ -23,6 +23,7 @@ import {
   Truck,
   Store,
   Key,
+  Share2,
   User,
   RefreshCw,
   MessageSquare,
@@ -291,6 +292,8 @@ export default function App() {
   const [hasBroadband, setHasBroadband] = useState(false);
   const [signupBroadbandPartnerId, setSignupBroadbandPartnerId] = useState('');
   const [noBroadbandProvider, setNoBroadbandProvider] = useState(false);
+  const [signupReferralCode, setSignupReferralCode] = useState('');
+  const [analyticsData, setAnalyticsData] = useState(null);
   const [availablePartners, setAvailablePartners] = useState({ cable: [], broadband: [] });
 
   const [profileName, setProfileName] = useState('');
@@ -1182,6 +1185,21 @@ export default function App() {
     }
   };
 
+  const fetchAnalytics = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/analytics`, {
+        headers: { 'x-admin-id': 'u-admin' }
+      });
+      const data = await res.json();
+      logApi('GET', '/admin/analytics', null, res.status, data);
+      if (res.ok) {
+        setAnalyticsData(data);
+      }
+    } catch (err) {
+      console.error('Error fetching analytics:', err);
+    }
+  };
+
   const openPromoteLeadModal = (lead) => {
     setSelectedLeadToPromote(lead);
     setPromoteDisplayName(lead.name || lead.business_name || '');
@@ -1515,6 +1533,9 @@ export default function App() {
       loadStockistData();
     } else if (currentUser && currentUser.role === 'PARTNER_ADMIN') {
       loadPartnerAppData();
+    }
+    if (activeRole === 'admin') {
+      fetchAnalytics();
     }
     syncInspectorTable();
   }, [currentUser, activeRole, showDevSettings]);
@@ -2113,15 +2134,21 @@ export default function App() {
         payload.broadband_partner_id = signupBroadbandPartnerId;
       }
 
-      const res = await fetch(`${API_BASE}/auth/register-customer`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      let endpoint = `${API_BASE}/auth/register-customer`;
+      if (signupReferralCode && signupReferralCode.trim()) {
+        payload.referral_code = signupReferralCode.trim();
+        endpoint = `${API_BASE}/customer/register-with-referral`;
+      }
+
+      const res = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       const data = await res.json();
-      logApi('POST', '/auth/register-customer', payload, res.status, data);
+      logApi('POST', endpoint.replace(API_BASE, ''), payload, res.status, data);
       if (res.ok) {
         setCurrentUser(data.user);
         setSelectedRegionId(data.user.region_id);
         showToast(t(`Welcome, ${data.user.name}!`, `स्वागत, ${data.user.name}!`, `স্বাগতম, ${data.user.name}!`));
         setShowCustomerSignup(false);
-        setRegName(''); setRegAddress(''); setOtpSent(false);
+        setRegName(''); setRegAddress(''); setOtpSent(false); setSignupReferralCode('');
         setSignupCablePartnerId(''); setNoCableProvider(false);
         setHasBroadbandAnswered(false); setHasBroadband(false);
         setSignupBroadbandPartnerId(''); setNoBroadbandProvider(false);
@@ -3534,6 +3561,10 @@ export default function App() {
               <label className="input-label">{t('Delivery Address (Optional)', 'डिलीवरी पता', 'ডেলিভারি ঠিকানা')}</label>
               <input type="text" placeholder="e.g. 12 Main Road, Garia" className="text-input" value={regAddress} onChange={e => setRegAddress(e.target.value)} />
             </div>
+            <div className="input-group">
+              <label className="input-label">{t('Referral Code (Optional)', 'रेफरल कोड (वैकल्पिक)', 'রেফারেল কোড (ঐচ্ছিক)')}</label>
+              <input type="text" placeholder="e.g. ABC123" className="text-input" value={signupReferralCode} onChange={e => setSignupReferralCode(e.target.value.toUpperCase())} />
+            </div>
             <div style={{ display: 'flex', gap: '0.5rem' }}>
               <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => { setShowCustomerSignup(false); setOtpSent(false); }}>← {t('Back', 'वापस', 'ফিরে')}</button>
               <button className="btn btn-accent" style={{ flex: 2 }} onClick={handleCustomerRegister}>{t('Create Account', 'खाता बनाएं', 'অ্যাকাউন্ট তৈরি')}</button>
@@ -4455,7 +4486,16 @@ export default function App() {
                       style={{ padding: '0.4rem', borderBottom: '1px dashed var(--border-color)', cursor: 'pointer', background: n.is_read ? 'transparent' : 'rgba(99,102,241,0.1)' }}
                     >
                       <div style={{ fontWeight: 'bold', fontSize: '0.75rem' }}>{n.title} {!n.is_read && <span style={{ color: 'var(--danger)' }}>●</span>}</div>
-                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{n.body}</div>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                        {n.body}
+                        {(n.customer_phone || n.phone) && (
+                          <div style={{ marginTop: '0.25rem' }}>
+                            <a href={`tel:${n.customer_phone || n.phone}`} className="btn btn-secondary" style={{ fontSize: '0.6rem', padding: '0.15rem 0.4rem', textDecoration: 'none' }} onClick={e => e.stopPropagation()}>
+                              📞 Call
+                            </a>
+                          </div>
+                        )}
+                      </div>
                       <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', textAlign: 'right' }}>{new Date(n.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
                     </div>
                   ))}
@@ -6080,6 +6120,42 @@ export default function App() {
                                 <div style={{ fontSize: '0.6rem', color: '#818cf8', marginTop: '0.35rem' }}>{t('Redeemable across FastNet broadband, wifi, and cable TV plans', 'फास्टनेट ब्रॉडबैंड, वाईफाई और केबल टीवी प्लान में रिडीम करने योग्य', 'ফাস্টনেট ব্রডব্যান্ড, ওয়াইফাই এবং কেবল টিভি প্ল্যানে রিডিম করার যোগ্য')}</div>
                               </div>
 
+                              {/* Refer a friend Tile */}
+                              <div className="referral-tile" style={{ background: 'linear-gradient(135deg, rgba(34,197,94,0.15) 0%, rgba(16,185,129,0.05) 100%)', border: '1px solid rgba(34,197,94,0.3)', borderRadius: '12px', padding: '0.85rem' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.35rem' }}>
+                                  <Share2 size={16} style={{ color: '#22c55e' }} />
+                                  <span style={{ fontSize: '0.8rem', fontWeight: 'bold', color: 'white' }}>
+                                    {t('Refer a friend', 'रेफर करें और कमाएं', 'বন্ধুকে রেফার করুন')}
+                                  </span>
+                                </div>
+                                <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginBottom: '0.5rem', lineHeight: 1.3 }}>
+                                  {t(
+                                    'Share your code with friends. You both get +50 points when they complete their first order!',
+                                    'अपने दोस्तों के साथ अपना कोड साझा करें। उनके पहला ऑर्डर पूरा करने पर आप दोनों को +50 अंक मिलते हैं!',
+                                    'বন্ধুদের সাথে আপনার কোড শেয়ার করুন। তাদের প্রথম অর্ডার সম্পন্ন হলে আপনারা দুজনই +৫০ পয়েন্ট পাবেন!'
+                                  )}
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(0,0,0,0.3)', padding: '0.5rem 0.75rem', borderRadius: '8px', border: '1px dashed rgba(34,197,94,0.4)' }}>
+                                  <div>
+                                    <div style={{ fontSize: '0.55rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>{t('Your Referral Code', 'आपका रेफरल कोड', 'আপনার রেফারেল কোড')}</div>
+                                    <div style={{ fontSize: '1.1rem', fontWeight: 'bold', letterSpacing: '0.1em', color: '#4ade80' }}>
+                                      {currentUser?.referral_code || '------'}
+                                    </div>
+                                  </div>
+                                  <button
+                                    onClick={() => {
+                                      if (currentUser?.referral_code) {
+                                        navigator.clipboard.writeText(currentUser.referral_code);
+                                        showToast(t('Referral code copied!', 'रेफरल कोड कॉपी हो गया!', 'रेফারেল কোড কপি হয়েছে!'));
+                                      }
+                                    }}
+                                    style={{ background: 'rgba(34,197,94,0.2)', border: '1px solid #22c55e', color: 'white', padding: '0.3rem 0.6rem', borderRadius: '6px', fontSize: '0.65rem', cursor: 'pointer', fontWeight: '600' }}
+                                  >
+                                    {t('Copy Code', 'कोड कॉपी करें', 'কোড কপি করুন')}
+                                  </button>
+                                </div>
+                              </div>
+
                               {/* Cable Recharges Section */}
                               {renderRewardSection(
                                 t('Cable Recharges', 'केबल रिचार्ज', 'কেবল রিচার্জ'),
@@ -7492,6 +7568,9 @@ export default function App() {
 
           <div className="admin-grid">
             <div className="admin-sidebar">
+              <button className={`admin-nav-item ${adminTab === 'analytics' ? 'active' : ''}`} onClick={() => { setAdminTab('analytics'); fetchAnalytics(); }}>
+                <TrendingUp size={16} /> Analytics
+              </button>
               <button className={`admin-nav-item ${adminTab === 'health' ? 'active' : ''}`} onClick={() => { setAdminTab('health'); fetchHealthData(); }}>
                 <TrendingUp size={16} /> Health
               </button>
@@ -7540,6 +7619,230 @@ export default function App() {
             </div>
 
             <div className="admin-content">
+              {/* Top 3 Admin Summary Cards */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem', marginBottom: '1.25rem' }}>
+                <div 
+                  onClick={() => { setAdminTab('redemption_approvals'); fetchRedemptionApprovals(); }}
+                  style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)', padding: '0.85rem', borderRadius: '10px', cursor: 'pointer', transition: 'all 0.2s' }}
+                >
+                  <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: '600', textTransform: 'uppercase' }}>
+                    {t('Redemptions Pending Admin Approval', 'प्रशासक अनुमोदन लंबित रिडीम', 'অ্যাডমিন অনুমোদনের অপেক্ষায় রিডিম')}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.35rem' }}>
+                    <span style={{ fontSize: '1.4rem', fontWeight: 'bold', color: 'var(--warning)' }}>
+                      {adminRedemptionApprovals.filter(r => r.status === 'PENDING_ADMIN_APPROVAL').length}
+                    </span>
+                    <span className="badge badge-warning" style={{ fontSize: '0.65rem' }}>Pending</span>
+                  </div>
+                </div>
+
+                <div 
+                  onClick={() => setAdminTab('transactions')}
+                  style={{ background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)', padding: '0.85rem', borderRadius: '10px', cursor: 'pointer', transition: 'all 0.2s' }}
+                >
+                  <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: '600', textTransform: 'uppercase' }}>
+                    {t('Orders In Progress Today', 'आज प्रगति में ऑर्डर', 'আজকের প্রসেসিংয়ে থাকা অর্ডার')}
+                  </div>
+                  <div style={{ fontSize: '1.4rem', fontWeight: 'bold', color: 'var(--primary)', marginTop: '0.35rem' }}>
+                    {analyticsData?.orders?.total_today || 0}
+                  </div>
+                </div>
+
+                <div 
+                  onClick={() => { setAdminTab('analytics'); fetchAnalytics(); }}
+                  style={{ background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.2)', padding: '0.85rem', borderRadius: '10px', cursor: 'pointer', transition: 'all 0.2s' }}
+                >
+                  <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: '600', textTransform: 'uppercase' }}>
+                    {t('Revenue This Week', 'इस सप्ताह का राजस्व', 'এই সপ্তাহের মোট রাজস্ব')}
+                  </div>
+                  <div style={{ fontSize: '1.4rem', fontWeight: 'bold', color: '#4ade80', marginTop: '0.35rem' }}>
+                    ₹{analyticsData?.orders?.revenue_this_week_rupees || 0}
+                  </div>
+                </div>
+              </div>
+
+              {adminTab === 'analytics' && (
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+                    <div>
+                      <h2 style={{ fontSize: '1.4rem', margin: 0 }}>Analytics Dashboard</h2>
+                      {analyticsData?.generated_at && (
+                        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                          Last updated: {new Date(analyticsData.generated_at).toLocaleString()}
+                        </span>
+                      )}
+                    </div>
+                    <button className="btn btn-primary" style={{ fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }} onClick={fetchAnalytics}>
+                      <RefreshCw size={14} /> Refresh
+                    </button>
+                  </div>
+
+                  {analyticsData ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                      {/* Section 1: Users Overview */}
+                      <div>
+                        <h3 style={{ fontSize: '1rem', color: 'var(--primary)', marginBottom: '0.5rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.25rem' }}>Users Overview</h3>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.75rem' }}>
+                          <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)', padding: '0.75rem', borderRadius: '8px' }}>
+                            <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Total Customers</div>
+                            <div style={{ fontSize: '1.4rem', fontWeight: 'bold', color: 'white' }}>{analyticsData.users?.total_customers || 0}</div>
+                          </div>
+                          <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)', padding: '0.75rem', borderRadius: '8px' }}>
+                            <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Approved Stockists</div>
+                            <div style={{ fontSize: '1.4rem', fontWeight: 'bold', color: '#4ade80' }}>{analyticsData.users?.total_stockists_approved || 0}</div>
+                          </div>
+                          <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)', padding: '0.75rem', borderRadius: '8px' }}>
+                            <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Active Partners</div>
+                            <div style={{ fontSize: '1.4rem', fontWeight: 'bold', color: '#818cf8' }}>{analyticsData.users?.total_partners_active || 0}</div>
+                          </div>
+                          <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)', padding: '0.75rem', borderRadius: '8px' }}>
+                            <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>DAU / WAU / MAU</div>
+                            <div style={{ fontSize: '1.1rem', fontWeight: 'bold', color: 'white' }}>
+                              {analyticsData.users?.dau_customers || 0} / {analyticsData.users?.wau_customers || 0} / {analyticsData.users?.mau_customers || 0}
+                            </div>
+                          </div>
+                          <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)', padding: '0.75rem', borderRadius: '8px' }}>
+                            <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>New Customers (Week / Month)</div>
+                            <div style={{ fontSize: '1.1rem', fontWeight: 'bold', color: 'white' }}>
+                              {analyticsData.users?.new_customers_this_week || 0} / {analyticsData.users?.new_customers_this_month || 0}
+                            </div>
+                          </div>
+                          <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)', padding: '0.75rem', borderRadius: '8px' }}>
+                            <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Customers With Bindings</div>
+                            <div style={{ fontSize: '1.4rem', fontWeight: 'bold', color: '#f472b6' }}>{analyticsData.users?.customers_with_bindings || 0}</div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Section 2: Orders & Revenue */}
+                      <div>
+                        <h3 style={{ fontSize: '1rem', color: 'var(--primary)', marginBottom: '0.5rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.25rem' }}>Orders & Revenue</h3>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.75rem' }}>
+                          <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)', padding: '0.75rem', borderRadius: '8px' }}>
+                            <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Total Orders All-time</div>
+                            <div style={{ fontSize: '1.4rem', fontWeight: 'bold', color: 'white' }}>{analyticsData.orders?.total_all_time || 0}</div>
+                          </div>
+                          <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)', padding: '0.75rem', borderRadius: '8px' }}>
+                            <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Revenue Today / Week / Month</div>
+                            <div style={{ fontSize: '1rem', fontWeight: 'bold', color: '#4ade80' }}>
+                              ₹{analyticsData.orders?.revenue_today_rupees || 0} / ₹{analyticsData.orders?.revenue_this_week_rupees || 0} / ₹{analyticsData.orders?.revenue_this_month_rupees || 0}
+                            </div>
+                          </div>
+                          <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)', padding: '0.75rem', borderRadius: '8px' }}>
+                            <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Average Order Value (Month)</div>
+                            <div style={{ fontSize: '1.4rem', fontWeight: 'bold', color: '#38bdf8' }}>₹{analyticsData.orders?.average_order_value_this_month || 0}</div>
+                          </div>
+                          <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)', padding: '0.75rem', borderRadius: '8px' }}>
+                            <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Orders Status Breakdown</div>
+                            <div style={{ fontSize: '0.75rem', color: 'white', marginTop: '0.2rem' }}>
+                              Pending: <strong>{analyticsData.orders?.orders_pending || 0}</strong> | Ready: <strong>{analyticsData.orders?.orders_ready || 0}</strong> | Delivered Week: <strong>{analyticsData.orders?.orders_delivered_this_week || 0}</strong>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Section 3: Redemptions & Payouts */}
+                      <div>
+                        <h3 style={{ fontSize: '1rem', color: 'var(--primary)', marginBottom: '0.5rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.25rem' }}>Redemptions & Partner Payouts</h3>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.75rem' }}>
+                          <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)', padding: '0.75rem', borderRadius: '8px' }}>
+                            <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Total Approvals All-time</div>
+                            <div style={{ fontSize: '1.4rem', fontWeight: 'bold', color: 'white' }}>{analyticsData.redemptions?.total_approvals_all_time || 0}</div>
+                          </div>
+                          <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)', padding: '0.75rem', borderRadius: '8px' }}>
+                            <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Pending Admin Approval</div>
+                            <div style={{ fontSize: '1.4rem', fontWeight: 'bold', color: 'var(--warning)' }}>{analyticsData.redemptions?.pending_approvals || 0}</div>
+                          </div>
+                          <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)', padding: '0.75rem', borderRadius: '8px' }}>
+                            <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Points Redeemed (Month)</div>
+                            <div style={{ fontSize: '1.4rem', fontWeight: 'bold', color: '#c084fc' }}>{analyticsData.redemptions?.total_points_redeemed_this_month || 0} pts</div>
+                          </div>
+                          <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)', padding: '0.75rem', borderRadius: '8px' }}>
+                            <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Partner Payout Owed (Month 88%)</div>
+                            <div style={{ fontSize: '1.4rem', fontWeight: 'bold', color: '#4ade80' }}>₹{analyticsData.redemptions?.total_partner_payout_owed_this_month || 0}</div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Section 4: Points Ledgers */}
+                      <div>
+                        <h3 style={{ fontSize: '1rem', color: 'var(--primary)', marginBottom: '0.5rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.25rem' }}>Points Ledger Breakdown</h3>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.75rem' }}>
+                          <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)', padding: '0.75rem', borderRadius: '8px' }}>
+                            <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Total Points Issued All-time</div>
+                            <div style={{ fontSize: '1.4rem', fontWeight: 'bold', color: '#4ade80' }}>{analyticsData.points?.total_points_issued_all_time || 0}</div>
+                          </div>
+                          <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)', padding: '0.75rem', borderRadius: '8px' }}>
+                            <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Total Points Redeemed All-time</div>
+                            <div style={{ fontSize: '1.4rem', fontWeight: 'bold', color: '#f43f5e' }}>{analyticsData.points?.total_points_redeemed_all_time || 0}</div>
+                          </div>
+                          <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)', padding: '0.75rem', borderRadius: '8px' }}>
+                            <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Total Points Outstanding</div>
+                            <div style={{ fontSize: '1.4rem', fontWeight: 'bold', color: '#fbbf24' }}>{analyticsData.points?.total_points_outstanding || 0}</div>
+                          </div>
+                          <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)', padding: '0.75rem', borderRadius: '8px' }}>
+                            <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Total Referral Bonuses Paid</div>
+                            <div style={{ fontSize: '1.4rem', fontWeight: 'bold', color: '#818cf8' }}>{analyticsData.points?.total_referral_bonuses_paid || 0} pts</div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Section 5: Top Stockists & Partners Tables */}
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                        <div>
+                          <h3 style={{ fontSize: '0.9rem', color: 'var(--primary)', marginBottom: '0.5rem' }}>Top 5 Stockists by GMV (This Month)</h3>
+                          <table style={{ width: '100%', fontSize: '0.75rem', borderCollapse: 'collapse' }}>
+                            <thead>
+                              <tr style={{ borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)', textAlign: 'left' }}>
+                                <th style={{ padding: '0.35rem' }}>Stockist</th>
+                                <th style={{ padding: '0.35rem' }}>Region</th>
+                                <th style={{ padding: '0.35rem' }}>GMV</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {(analyticsData.stockists?.top_5_by_gmv_this_month || []).map((s, idx) => (
+                                <tr key={idx} style={{ borderBottom: '1px dashed var(--border-color)' }}>
+                                  <td style={{ padding: '0.35rem', fontWeight: 'bold' }}>{s.name}</td>
+                                  <td style={{ padding: '0.35rem', color: 'var(--text-muted)' }}>{s.region}</td>
+                                  <td style={{ padding: '0.35rem', color: '#4ade80', fontWeight: 'bold' }}>₹{s.gmv}</td>
+                                </tr>
+                              ))}
+                              {(analyticsData.stockists?.top_5_by_gmv_this_month || []).length === 0 && (
+                                <tr><td colSpan="3" style={{ padding: '0.5rem', color: 'var(--text-muted)', textAlign: 'center' }}>No stockist sales this month.</td></tr>
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+
+                        <div>
+                          <h3 style={{ fontSize: '0.9rem', color: 'var(--primary)', marginBottom: '0.5rem' }}>Top 5 Partners by Redemptions</h3>
+                          <table style={{ width: '100%', fontSize: '0.75rem', borderCollapse: 'collapse' }}>
+                            <thead>
+                              <tr style={{ borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)', textAlign: 'left' }}>
+                                <th style={{ padding: '0.35rem' }}>Partner</th>
+                                <th style={{ padding: '0.35rem' }}>Redemptions</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {(analyticsData.partners?.top_5_by_redemptions_this_month || []).map((p, idx) => (
+                                <tr key={idx} style={{ borderBottom: '1px dashed var(--border-color)' }}>
+                                  <td style={{ padding: '0.35rem', fontWeight: 'bold' }}>{p.name}</td>
+                                  <td style={{ padding: '0.35rem', color: '#818cf8', fontWeight: 'bold' }}>{p.count}</td>
+                                </tr>
+                              ))}
+                              {(analyticsData.partners?.top_5_by_redemptions_this_month || []).length === 0 && (
+                                <tr><td colSpan="2" style={{ padding: '0.5rem', color: 'var(--text-muted)', textAlign: 'center' }}>No partner redemptions this month.</td></tr>
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>Loading analytics data...</div>
+                  )}
+                </div>
+              )}
               
               {adminTab === 'customers' && (
                 <div>
