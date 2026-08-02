@@ -922,6 +922,48 @@ export default function App() {
 
   const handleResetTour = () => performReset(false);
 
+  const switchViewToRole = async (targetRole) => {
+    setActiveRole(targetRole);
+    try {
+      if (targetRole === 'customer' && (!currentUser || currentUser.role !== 'CUSTOMER')) {
+        const res = await fetch(`${API_BASE}/auth/verify-otp`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone: '9830012345', otp: '123456' })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          setCurrentUser(data.user);
+          setSelectedRegionId(data.user.region_id);
+        }
+      } else if (targetRole === 'stockist' && (!currentUser || currentUser.role !== 'STOCKIST')) {
+        const res = await fetch(`${API_BASE}/auth/verify-otp`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone: '7654321098', otp: '123456' })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          setCurrentUser(data.user);
+          setSelectedRegionId(data.user.region_id);
+        }
+      } else if (targetRole === 'admin' && (!currentUser || currentUser.role !== 'ADMIN')) {
+        const res = await fetch(`${API_BASE}/auth/verify-otp`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone: '9999999999', otp: '123456' })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          setCurrentUser(data.user);
+          setSelectedRegionId(data.user.region_id);
+        }
+      }
+    } catch (err) {
+      console.error('Error switching view role session:', err);
+    }
+  };
+
   const renderTourBanner = () => {
     const stepsInfo = {
       1: {
@@ -983,20 +1025,7 @@ export default function App() {
           <button 
             className="btn btn-secondary" 
             style={{ fontSize: '0.75rem', padding: '0.45rem 0.8rem', height: '32px' }}
-            onClick={() => {
-              if (step.role === 'customer' && (!currentUser || currentUser.role !== 'CUSTOMER')) {
-                // Trigger auto login
-                handleAutoTourStep();
-              } else if (step.role === 'stockist' && (!currentUser || currentUser.role !== 'STOCKIST')) {
-                // Trigger auto login
-                handleAutoTourStep();
-              } else if (step.role === 'admin' && (!currentUser || currentUser.role !== 'ADMIN')) {
-                // Trigger auto login
-                handleAutoTourStep();
-              } else {
-                setActiveRole(step.role);
-              }
-            }}
+            onClick={() => switchViewToRole(step.role)}
           >
             Switch View
           </button>
@@ -9200,23 +9229,23 @@ export default function App() {
 
         {/* Global Surface Switcher */}
         <div className="role-switcher">
-          <button className={`role-tab ${activeRole === 'marketing' ? 'active' : ''}`} onClick={() => setActiveRole('marketing')}>
+          <button className={`role-tab ${activeRole === 'marketing' ? 'active' : ''}`} onClick={() => switchViewToRole('marketing')}>
             B2B Site
           </button>
-          <button className={`role-tab ${activeRole === 'customer' ? 'active' : ''}`} onClick={() => setActiveRole('customer')}>
+          <button className={`role-tab ${activeRole === 'customer' ? 'active' : ''}`} onClick={() => switchViewToRole('customer')}>
             Customer App
           </button>
-          <button className={`role-tab ${activeRole === 'stockist' ? 'active' : ''}`} onClick={() => setActiveRole('stockist')}>
+          <button className={`role-tab ${activeRole === 'stockist' ? 'active' : ''}`} onClick={() => switchViewToRole('stockist')}>
             Stockist App
           </button>
-          <button className={`role-tab ${activeRole === 'admin' ? 'active' : ''}`} onClick={() => setActiveRole('admin')}>
+          <button className={`role-tab ${activeRole === 'admin' ? 'active' : ''}`} onClick={() => switchViewToRole('admin')}>
             Admin Portal
           </button>
-          <button className={`role-tab ${activeRole === 'partner' ? 'active' : ''}`} onClick={() => setActiveRole('partner')}>
+          <button className={`role-tab ${activeRole === 'partner' ? 'active' : ''}`} onClick={() => switchViewToRole('partner')}>
             Partner App
           </button>
           {showDevSettings && (
-            <button className={`role-tab ${activeRole === 'db' ? 'active' : ''}`} onClick={() => setActiveRole('db')}>
+            <button className={`role-tab ${activeRole === 'db' ? 'active' : ''}`} onClick={() => switchViewToRole('db')}>
               DB Inspector
             </button>
           )}

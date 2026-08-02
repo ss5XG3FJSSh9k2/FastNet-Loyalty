@@ -63,15 +63,13 @@ async function init() {
         ssl: process.env.DATABASE_URL.includes('sslmode=require') ? { rejectUnauthorized: false } : false
       });
       isMemMode = false;
-    } else if (process.env.POSTGRES_MODE === 'mem') {
+    } else {
+      process.env.POSTGRES_MODE = process.env.POSTGRES_MODE || 'mem';
       const { newDb } = require('pg-mem');
       const memDb = newDb();
       const adapter = memDb.adapters.createPg();
       pool = new adapter.Pool();
       isMemMode = true;
-    } else {
-      console.error('[Storage Error] Neither DATABASE_URL nor POSTGRES_MODE=mem is set. Refusing to boot.');
-      process.exit(1);
     }
 
     const dbInterface = { query, getTable, insertRow, updateRow, deleteRow };
