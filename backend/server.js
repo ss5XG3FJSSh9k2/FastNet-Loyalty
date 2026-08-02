@@ -1826,39 +1826,32 @@ app.post('/api/ledger/redeem', async (req, res) => {
 
   if (partner_package_id) {
     pkg = partnerPackages.find(p => p.id === partner_package_id);
-    if (!pkg || pkg.is_active === false) {
-      return res.status(400).json({ error: 'Package missing or inactive' });
+    if (!pkg || pkg.status === 'INACTIVE' || pkg.is_active === false) {
+      return res.status(404).json({ error: 'Package missing or inactive' });
     }
 
     // Customer binding check
     const bindings = await db.getTable('customer_partner_bindings');
-    const binding = bindings.find(b => b.customer_user_id === customerId);
-    if (!binding) {
-      return res.status(400).json({ error: 'binding_mismatch' });
+    const customerBindings = bindings.filter(b => b.customer_user_id === customerId || b.customer_id === customerId);
+    let isBound = false;
+    const pkgStLower = (pkg.service_type || '').toLowerCase();
+    for (const b of customerBindings) {
+      if (pkgStLower === 'cable' && (b.cable_partner_id === pkg.partner_id || (b.service_type?.toLowerCase() === 'cable' && b.partner_id === pkg.partner_id))) {
+        isBound = true;
+      }
+      if (pkgStLower === 'broadband' && (b.broadband_partner_id === pkg.partner_id || (b.service_type?.toLowerCase() === 'broadband' && b.partner_id === pkg.partner_id))) {
+        isBound = true;
+      }
+      if (b.partner_id === pkg.partner_id && (!b.service_type || b.service_type.toLowerCase() === pkgStLower)) {
+        isBound = true;
+      }
     }
-    if (pkg.service_type === 'CABLE' && binding.cable_partner_id !== pkg.partner_id) {
-      return res.status(400).json({ error: 'binding_mismatch' });
-    }
-    if (pkg.service_type === 'BROADBAND' && binding.broadband_partner_id !== pkg.partner_id) {
-      return res.status(400).json({ error: 'binding_mismatch' });
-    }
-
-    // Customer region coverage check
-    const customerRegion = customer.region_id;
-    const partnerRegions = await db.getTable('partner_regions');
-    const activeRegions = pkg.active_regions || [];
-    const isRegionActive = activeRegions.includes(customerRegion) && partnerRegions.some(pr =>
-      pr.partner_id === pkg.partner_id &&
-      pr.region_id === customerRegion &&
-      pr.service_type === pkg.service_type &&
-      pr.is_active !== false
-    );
-    if (!isRegionActive) {
-      return res.status(400).json({ error: 'partner_region_inactive' });
+    if (!isBound) {
+      return res.status(400).json({ error: 'binding_mismatch', code: 'binding_mismatch' });
     }
 
     // Amount match check
-    if (parseFloat(amount) !== parseFloat(pkg.point_cost)) {
+    if (amount && parseFloat(amount) !== parseFloat(pkg.point_cost)) {
       return res.status(400).json({ error: 'amount_mismatch' });
     }
   } else {
@@ -1873,14 +1866,17 @@ app.post('/api/ledger/redeem', async (req, res) => {
   const customerLedger = ledger.filter(l => l.customer_id === customerId);
   const currentBalance = customerLedger.reduce((sum, item) => sum + parseFloat(item.amount), 0);
 
-  if (currentBalance < parseFloat(amount)) {
-    return res.status(400).json({ error: 'Insufficient points balance' });
+  const reqAmount = pkg ? parseFloat(pkg.point_cost) : parseFloat(amount);
+
+  if (currentBalance < reqAmount) {
+    return res.status(400).json({ error: 'Insufficient points balance', code: 'INSUFFICIENT_POINTS' });
   }
 
-  const redeemAmount = -Math.abs(parseFloat(amount));
+  const redeemAmount = -Math.abs(reqAmount);
   const ledgerId = 'l-' + generateId();
-  const pts = parseFloat(amount);
-  const finalRedemptionType = partner_package_id ? (pkg.service_type === 'CABLE' ? 'CABLE_RECHARGE' : 'BROADBAND_DISCOUNT') : redemptionType;
+  const pts = reqAmount;
+  const pkgStUpper = pkg ? (pkg.service_type || '').toUpperCase() : '';
+  const finalRedemptionType = partner_package_id ? (pkgStUpper === 'CABLE' ? 'CABLE_RECHARGE' : 'BROADBAND_DISCOUNT') : redemptionType;
   const description = partner_package_id ? `Partner Package Redemption: ${pkg.name}` : getRedemptionDescription(finalRedemptionType, pts);
 
   await db.insertRow('points_ledger', {
@@ -1898,18 +1894,25 @@ app.post('/api/ledger/redeem', async (req, res) => {
   });
 
   let approvalId = null;
+  let approvalRow = null;
   if (partner_package_id) {
     const redemptionApprovals = await db.getTable('redemption_approvals');
     approvalId = 'ra-' + generateId();
     const now = new Date().toISOString();
-    const approvalRow = {
+    approvalRow = {
       id: approvalId,
       ledger_id: ledgerId,
       customer_user_id: customer.id,
+      customer_id: customer.id,
+      customer_name: customer.name || customer.phone || 'Customer',
       partner_id: pkg.partner_id,
       partner_package_id: pkg.id,
+      package_id: pkg.id,
+      package_name: pkg.name,
       face_value_rupees: pkg.face_value_rupees,
+      rupees_value: pkg.face_value_rupees,
       points_deducted: pkg.point_cost,
+      points_redeemed: pkg.point_cost,
       status: 'PENDING_ADMIN_APPROVAL',
       admin_notes: null,
       partner_notes: null,
@@ -1936,9 +1939,115 @@ app.post('/api/ledger/redeem', async (req, res) => {
   };
   if (approvalId) {
     responseObj.approval_id = approvalId;
-    responseObj.redemption_approval = (await db.getTable('redemption_approvals')).find(a => a.id === approvalId);
+    responseObj.redemption_approval = approvalRow;
   }
   return res.json(responseObj);
+});
+
+app.get(['/api/customer/rewards/available/:customerUserId', '/api/customer/available-rewards'], async (req, res) => {
+  try {
+    const customerId = req.params.customerUserId || req.query.customerId;
+    if (!customerId) {
+      return res.status(400).json({ error: 'customerId parameter or query is required' });
+    }
+    const users = await db.getTable('users');
+    const customer = users.find(u => u.id === customerId);
+    if (!customer) {
+      return res.status(404).json({ error: 'Customer not found' });
+    }
+
+    const customerRegion = customer.region_id;
+    const bindingsList = await db.getTable('customer_partner_bindings');
+    const customerBindings = bindingsList.filter(b => b.customer_id === customerId || b.customer_user_id === customerId);
+
+    let cablePartnerId = null;
+    let broadbandPartnerId = null;
+
+    for (const b of customerBindings) {
+      if (b.cable_partner_id) cablePartnerId = b.cable_partner_id;
+      if (b.broadband_partner_id) broadbandPartnerId = b.broadband_partner_id;
+      const st = (b.service_type || '').toLowerCase();
+      if (st === 'cable' && b.partner_id) cablePartnerId = b.partner_id;
+      if (st === 'broadband' && b.partner_id) broadbandPartnerId = b.partner_id;
+    }
+
+    const partners = await db.getTable('partners');
+    const partnerPackages = await db.getTable('partner_packages');
+
+    const resolveAvailable = (partnerId, serviceType) => {
+      if (!partnerId) {
+        return { reason: 'no_binding', list: [] };
+      }
+
+      const partner = partners.find(p => p.id === partnerId);
+      if (!partner || partner.status === 'INACTIVE' || partner.is_active === false) {
+        return { reason: 'partner_inactive', list: [] };
+      }
+
+      if (partner.region_id && customerRegion && partner.region_id !== customerRegion) {
+        return { reason: 'partner_inactive', list: [] };
+      }
+
+      const stLower = serviceType.toLowerCase();
+      const matching = partnerPackages.filter(pkg => {
+        if (pkg.partner_id !== partnerId) return false;
+        const pkgSt = (pkg.service_type || '').toLowerCase();
+        if (pkgSt !== stLower) return false;
+        if (pkg.status === 'INACTIVE' || pkg.is_active === false) return false;
+
+        let regions = pkg.active_regions || [];
+        if (typeof regions === 'string') {
+          try { regions = JSON.parse(regions); } catch (e) { regions = []; }
+        }
+        if (Array.isArray(regions) && regions.length > 0 && customerRegion && !regions.includes(customerRegion)) return false;
+        return true;
+      });
+
+      if (matching.length === 0) {
+        return { reason: 'no_packages', list: [] };
+      }
+
+      matching.sort((a, b) => (a.point_cost || 0) - (b.point_cost || 0));
+
+      const sanitizedPartner = {
+        id: partner.id,
+        display_name: partner.display_name
+      };
+
+      const list = matching.map(pkg => ({
+        package: {
+          id: pkg.id,
+          name: pkg.name,
+          description: pkg.description,
+          service_type: pkg.service_type,
+          face_value_rupees: parseFloat(pkg.face_value_rupees),
+          point_cost: parseInt(pkg.point_cost, 10)
+        },
+        partner: sanitizedPartner
+      }));
+
+      return { reason: null, list };
+    };
+
+    const cableRes = resolveAvailable(cablePartnerId, 'cable');
+    const broadbandRes = resolveAvailable(broadbandPartnerId, 'broadband');
+
+    return res.json({
+      cable: cableRes.list,
+      broadband: broadbandRes.list,
+      bindings: {
+        cable_partner_id: cablePartnerId || null,
+        broadband_partner_id: broadbandPartnerId || null
+      },
+      empty_reasons: {
+        cable: cableRes.reason,
+        broadband: broadbandRes.reason
+      }
+    });
+  } catch (err) {
+    console.error('Error in GET /api/customer/rewards/available:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 // ----------------------------------------------------

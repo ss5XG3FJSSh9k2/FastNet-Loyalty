@@ -1988,9 +1988,34 @@ export default function App() {
     }
   };
 
+  const [availableRewards, setAvailableRewards] = useState(null);
+  const [redemptionSuccessModal, setRedemptionSuccessModal] = useState(null);
+
+  const fetchAvailableRewards = async () => {
+    if (!currentUser || currentUser.role !== 'CUSTOMER') return;
+    try {
+      const res = await fetch(`${API_BASE}/customer/rewards/available/${currentUser.id}`);
+      if (res.ok) {
+        const data = await res.json();
+        setAvailableRewards(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch available rewards', err);
+    }
+  };
+
   useEffect(() => {
     if (currentUser && currentUser.role === 'CUSTOMER') {
       fetchCustomerProfileData();
+    }
+  }, [currentUser?.id, customerAppTab]);
+
+  useEffect(() => {
+    if (currentUser && currentUser.role === 'CUSTOMER' && (customerAppTab === 'pointshop' || customerAppTab === 'rewards')) {
+      fetchAvailableRewards();
+      const onFocus = () => fetchAvailableRewards();
+      window.addEventListener('focus', onFocus);
+      return () => window.removeEventListener('focus', onFocus);
     }
   }, [currentUser?.id, customerAppTab]);
 
@@ -5797,61 +5822,261 @@ export default function App() {
                             </div>
                           )}
 
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', borderTop: '1px solid var(--border-color)', paddingTop: '0.4rem', maxHeight: '100px', overflowY: 'auto' }}>
-                            {customerCart.map(item => (
-                              <div key={`${item.product.id}-${item.stockistId}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.7rem' }}>
-                                <span style={{ textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', width: '130px' }}>{item.product.name} ({item.stockistName})</span>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                                  <button onClick={() => updateCartQty(item.product.id, item.stockistId, -1)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}><Minus size={10} /></button>
-                                  <span>{item.quantity}</span>
-                                  <button onClick={() => updateCartQty(item.product.id, item.stockistId, 1)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}><Plus size={10} /></button>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', borderTop: '1px solid var(--border-color)', paddingTop: '0.4rem', maxHeight: '100px', overflowY: 'auto' }}>
+                                  {customerCart.map(item => (
+                                    <div key={`${item.product.id}-${item.stockistId}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.7rem' }}>
+                                      <span style={{ textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', width: '130px' }}>{item.product.name} ({item.stockistName})</span>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                        <button onClick={() => updateCartQty(item.product.id, item.stockistId, -1)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}><Minus size={10} /></button>
+                                        <span>{item.quantity}</span>
+                                        <button onClick={() => updateCartQty(item.product.id, item.stockistId, 1)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}><Plus size={10} /></button>
+                                      </div>
+                                    </div>
+                                  ))}
                                 </div>
-                              </div>
-                            ))}
-                          </div>
-                          {/* §E13: Compulsory Pickup Slot Picker (PICKUP only, per store) */}
-                          {cartFulfillment === 'PICKUP' && (() => {
-                            const groups = {};
-                            customerCart.forEach(item => {
-                              if (!groups[item.stockistId]) groups[item.stockistId] = item.stockistName;
-                            });
-                            return (
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', borderTop: '1px dashed rgba(255,255,255,0.08)', paddingTop: '0.5rem' }}>
-                                <div style={{ fontSize: '0.65rem', color: slotError ? 'var(--danger)' : 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.25rem', fontWeight: slotError ? 'bold' : 'normal' }}>
-                                  <Clock size={10} /> {t('Select Pickup Slot (Required)', 'पिकअप समय चुनें (आवश्यक)', 'পিকআপ সময় নির্বাচন করুন (প্রয়োজনীয়)')}
-                                </div>
-                                {Object.entries(groups).map(([sid, sName]) => {
-                                  const stockist = customerStockists.find(s => s.id === sid) || { id: sid, opening_time: '08:00', closing_time: '20:00', prep_eta_minutes: 10 };
-                                  const SLOTS = getAvailableSlots(stockist);
+                                {/* §E13: Compulsory Pickup Slot Picker (PICKUP only, per store) */}
+                                {cartFulfillment === 'PICKUP' && (() => {
+                                  const groups = {};
+                                  customerCart.forEach(item => {
+                                    if (!groups[item.stockistId]) groups[item.stockistId] = item.stockistName;
+                                  });
                                   return (
-                                    <div key={sid} style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                                      <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)' }}>{sName}:</div>
-                                      <select
-                                        className="text-input"
-                                        style={{ fontSize: '0.7rem', padding: '0.3rem 0.5rem', border: slotError && !cartPickupSlots[sid] ? '1px solid var(--danger)' : '1px solid var(--border-color)' }}
-                                        value={cartPickupSlots[sid] || ''}
-                                        onChange={e => { setCartPickupSlots(prev => ({ ...prev, [sid]: e.target.value })); setSlotError(false); }}
-                                      >
-                                        <option value="">{t('-- Pick a time slot --', '-- समय स्लॉट चुनें --', '-- সময় স্লট বেছে নিন --')}</option>
-                                        {SLOTS.map(slot => <option key={slot} value={slot}>{slot}</option>)}
-                                      </select>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', borderTop: '1px dashed rgba(255,255,255,0.08)', paddingTop: '0.5rem' }}>
+                                      <div style={{ fontSize: '0.65rem', color: slotError ? 'var(--danger)' : 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.25rem', fontWeight: slotError ? 'bold' : 'normal' }}>
+                                        <Clock size={10} /> {t('Select Pickup Slot (Required)', 'पिकअप समय चुनें (आवश्यक)', 'পিকআপ সময় নির্বাচন করুন (প্রয়োজনীয়)')}
+                                      </div>
+                                      {Object.entries(groups).map(([sid, sName]) => {
+                                        const stockist = customerStockists.find(s => s.id === sid) || { id: sid, opening_time: '08:00', closing_time: '20:00', prep_eta_minutes: 10 };
+                                        const SLOTS = getAvailableSlots(stockist);
+                                        return (
+                                          <div key={sid} style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                                            <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)' }}>{sName}:</div>
+                                            <select
+                                              className="text-input"
+                                              style={{ fontSize: '0.7rem', padding: '0.3rem 0.5rem', border: slotError && !cartPickupSlots[sid] ? '1px solid var(--danger)' : '1px solid var(--border-color)' }}
+                                              value={cartPickupSlots[sid] || ''}
+                                              onChange={e => { setCartPickupSlots(prev => ({ ...prev, [sid]: e.target.value })); setSlotError(false); }}
+                                            >
+                                              <option value="">{t('-- Pick a time slot --', '-- समय स्लॉट चुनें --', '-- সময় स्लॉट বেছে নিন --')}</option>
+                                              {SLOTS.map(slot => <option key={slot} value={slot}>{slot}</option>)}
+                                            </select>
+                                          </div>
+                                        );
+                                      })}
                                     </div>
                                   );
                                 })}
+                                
+                                <button className="btn" style={{ width: '100%', fontSize: '0.8rem', border: slotError ? '2px solid var(--danger)' : undefined }} onClick={handleCheckout}>
+                                  {cartFulfillment === 'PICKUP'
+                                    ? <><Key size={14} style={{ marginRight: '0.25rem' }} />{t('Place Pickup Order', 'पिकअप ऑर्डर दें', 'পিকআপ অর্ডার দিন')}</>
+                                    : <><Truck size={14} style={{ marginRight: '0.25rem' }} />{t('Place Delivery Order (COD)', 'डिलीवरी ऑर्डर (COD)', 'ডেলিভারি অর্ডার (COD)')}</>
+                                  }
+                                </button>
+                              </div>
+                            )}
+                          </>
+                        )}
+
+                        {(customerAppTab === 'pointshop' || customerAppTab === 'rewards') && (() => {
+                          const cableItems = availableRewards?.cable || [];
+                          const broadbandItems = availableRewards?.broadband || [];
+                          const emptyReasons = availableRewards?.empty_reasons || {};
+                          const bindingsObj = availableRewards?.bindings || {};
+
+                          const handleRedeemPackage = (pkg, partner) => {
+                            if (customerBalance < pkg.point_cost) {
+                              showToast(`Need ${formatPoints(pkg.point_cost)} — you have ${formatPoints(customerBalance)}`, 'error');
+                              return;
+                            }
+
+                            triggerConfirmModal(
+                              t('Redeem Package', 'पैकेज रिडीम करें', 'প্যাকেজ রিডিম করুন'),
+                              t(
+                                `Redeem ${formatPoints(pkg.point_cost)} for ${pkg.name}?`,
+                                `क्या आप ${pkg.name} के लिए ${formatPoints(pkg.point_cost)} रिडीम करना चाहते हैं?`,
+                                `আপনি কি ${pkg.name} এর জন্য ${formatPoints(pkg.point_cost)} রিডিম করতে চান?`
+                              ),
+                              async () => {
+                                try {
+                                  const res = await fetch(`${API_BASE}/ledger/redeem`, {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({
+                                      customerId: currentUser.id,
+                                      amount: pkg.point_cost,
+                                      redemptionType: pkg.service_type,
+                                      partner_package_id: pkg.id
+                                    })
+                                  });
+
+                                  const data = await res.json();
+                                  if (res.ok) {
+                                    setRedemptionSuccessModal({
+                                      partnerName: partner.display_name,
+                                      pkgName: pkg.name
+                                    });
+                                    loadCustomerData();
+                                    fetchAvailableRewards();
+                                  } else {
+                                    showToast(data.error || 'Redemption failed', 'error');
+                                  }
+                                } catch (err) {
+                                  showToast('Redemption error', 'error');
+                                }
+                              },
+                              false,
+                              t('Redeem', 'रिडीम', 'রিডিম'),
+                              t('Cancel', 'रद्द करें', 'বাতিল')
+                            );
+                          };
+
+                          const renderRewardSection = (title, color, items, emptyReason, partnerName, serviceTypeKey) => {
+                            const isCable = serviceTypeKey === 'cable';
+                            const typeLabelEn = isCable ? 'cable' : 'broadband';
+                            const typeLabelHi = isCable ? 'केबल' : 'ब्रॉडबैंड';
+                            const typeLabelBn = isCable ? 'কেবল' : 'ব্রডব্যান্ড';
+
+                            return (
+                              <div style={{ marginBottom: '1.25rem' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
+                                  <div style={{ width: '3px', height: '14px', borderRadius: '2px', background: color }} />
+                                  <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'white' }}>{title}</span>
+                                </div>
+
+                                {emptyReason ? (
+                                  <div style={{ padding: '0.85rem', borderRadius: '10px', background: 'rgba(255,255,255,0.02)', border: '1px dashed rgba(255,255,255,0.08)', fontSize: '0.7rem', color: 'var(--text-muted)', lineHeight: 1.4 }}>
+                                    {emptyReason === 'no_binding' && (
+                                      <span>
+                                        {t(
+                                          `You haven't selected a ${typeLabelEn} provider yet. Go to Profile > Partners to choose one, or check back later when your local provider joins FastNet.`,
+                                          `आपने अभी तक कोई ${typeLabelHi} प्रदाता नहीं चुना है। एक चुनने के लिए प्रोफाइल > पार्टनर्स पर जाएं, या बाद में जांचें जब आपका स्थानीय प्रदाता फास्टनेट में शामिल हो जाए।`,
+                                          `আপনি এখনও কোনো ${typeLabelBn} প্রদানকারী নির্বাচন করেননি। একটি নির্বাচন করতে প্রোফাইল > পার্টনার্সে যান, অথবা আপনার স্থানীয় প্রদানকারী ফাস্টনেটে যোগ দিলে পরে দেখুন।`
+                                        )}
+                                      </span>
+                                    )}
+                                    {emptyReason === 'partner_inactive' && (
+                                      <span>
+                                        {t(
+                                          `Your ${typeLabelEn} provider (${partnerName || t('your provider', 'आपका प्रदाता', 'আপনার প্রদানকারী')}) is currently paused. Please contact FastNet support or select a different provider in Profile > Partners.`,
+                                          `आपका ${typeLabelHi} प्रदाता (${partnerName || t('आपका प्रदाता', 'आपका प्रदाता', 'আপনার প্রদানকারী')}) वर्तमान में रुका हुआ है। कृपया फास्टनेट सहायता से संपर्क करें या प्रोफाइल > पार्टनर्स में एक अलग प्रदाता चुनें।`,
+                                          `আপনার ${typeLabelBn} প্রদানকারী (${partnerName || t('আপনার প্রদানকারী', 'आपका प्रदाता', 'আপনার প্রদানকারী')}) বর্তমানে সাময়িকভাবে বন্ধ রয়েছে। অনুগ্রহ করে ফাস্টনেট সহায়তার সাথে যোগাযোগ করুন অথবা প্রোফাইল > পার্টনার্সে অন্য প্রদানকারী বাছুন।`
+                                        )}
+                                      </span>
+                                    )}
+                                    {emptyReason === 'no_packages' && (
+                                      <span>
+                                        {t(
+                                          "Your provider hasn't added recharge packages yet. They'll appear here once available.",
+                                          "आपके प्रदाता ने अभी तक रिचार्ज पैकेज नहीं जोड़े हैं। उपलब्ध होने पर वे यहां दिखाई देंगे।",
+                                          "আপনার প্রদানকারী এখনও রিচার্জ প্যাকেজ যোগ করেননি। উপলব্ধ হলে সেগুলি এখানে দেখাবে।"
+                                        )}
+                                      </span>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                    {items.map(entry => {
+                                      const pkg = entry.package;
+                                      const partner = entry.partner;
+                                      const canAfford = customerBalance >= pkg.point_cost;
+
+                                      return (
+                                        <div
+                                          key={pkg.id}
+                                          style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '0.65rem',
+                                            padding: '0.65rem 0.75rem',
+                                            borderRadius: '10px',
+                                            background: canAfford ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.01)',
+                                            border: `1px solid ${canAfford ? color + '33' : 'rgba(255,255,255,0.05)'}`,
+                                            opacity: canAfford ? 1 : 0.55,
+                                            transition: 'all 0.2s'
+                                          }}
+                                        >
+                                          <div style={{ flexShrink: 0, width: '32px', display: 'flex', justifyContent: 'center' }}>
+                                            {isCable ? <Tv size={20} style={{ color }} /> : <Signal size={20} style={{ color }} />}
+                                          </div>
+                                          <div style={{ flex: 1, minWidth: 0 }}>
+                                            <div style={{ fontSize: '0.75rem', fontWeight: '600', color: 'white', lineHeight: 1.2 }}>{pkg.name}</div>
+                                            {pkg.description && (
+                                              <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', marginTop: '0.15rem' }}>{pkg.description}</div>
+                                            )}
+                                            <div style={{ fontSize: '0.6rem', color: '#818cf8', marginTop: '0.15rem' }}>
+                                              {t(`from ${partner.display_name}`, `प्रदाता: ${partner.display_name}`, `প্রদানকারী: ${partner.display_name}`)}
+                                            </div>
+                                            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginTop: '0.2rem' }}>
+                                              <span style={{ fontSize: '0.7rem', fontWeight: 'bold', color }}>{formatPoints(pkg.point_cost)}</span>
+                                              <span style={{ fontSize: '0.6rem', color: 'var(--text-muted)' }}>
+                                                {t(`worth ₹${pkg.face_value_rupees}`, `मूल्य ₹${pkg.face_value_rupees}`, `मूल्य ₹${pkg.face_value_rupees}`)}
+                                              </span>
+                                            </div>
+                                          </div>
+                                          <button
+                                            id={`redeem-${pkg.id}`}
+                                            disabled={!canAfford}
+                                            onClick={() => handleRedeemPackage(pkg, partner)}
+                                            style={{
+                                              flexShrink: 0,
+                                              padding: '0.35rem 0.6rem',
+                                              fontSize: '0.65rem',
+                                              fontWeight: 'bold',
+                                              borderRadius: '8px',
+                                              border: 'none',
+                                              cursor: canAfford ? 'pointer' : 'not-allowed',
+                                              background: canAfford ? color : 'rgba(255,255,255,0.1)',
+                                              color: canAfford ? 'white' : 'var(--text-muted)',
+                                              transition: 'all 0.2s'
+                                            }}
+                                          >
+                                            {t('Redeem', 'रिडीम', 'রিডিম')}
+                                          </button>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                )}
                               </div>
                             );
-                          })()}
-                          
-                          <button className="btn" style={{ width: '100%', fontSize: '0.8rem', border: slotError ? '2px solid var(--danger)' : undefined }} onClick={handleCheckout}>
-                            {cartFulfillment === 'PICKUP'
-                              ? <><Key size={14} style={{ marginRight: '0.25rem' }} />{t('Place Pickup Order', 'पिकअप ऑर्डर दें', 'পিকআপ অর্ডার দিন')}</>
-                              : <><Truck size={14} style={{ marginRight: '0.25rem' }} />{t('Place Delivery Order (COD)', 'डिलीवरी ऑर्डर (COD)', 'ডেলিভারি অর্ডার (COD)')}</>
-                            }
-                          </button>
-                        </div>
-                      )}
-                    </>
-                  )}
+                          };
+
+                          return (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                              {/* Header Hero */}
+                              <div style={{ background: 'linear-gradient(135deg, rgba(99,102,241,0.25) 0%, rgba(236,72,153,0.15) 100%)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: '14px', padding: '1rem', textAlign: 'center' }}>
+                                <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: '0.2rem' }}>{t('Your Balance', 'आपका बैलेंस', 'আপনার ব্যালেন্স')}</div>
+                                <div style={{ fontSize: '2rem', fontWeight: '800', color: 'white', lineHeight: 1 }}>{formatPoints(customerBalance)}</div>
+                                <div style={{ fontSize: '0.6rem', color: '#818cf8', marginTop: '0.35rem' }}>{t('Redeemable across FastNet broadband, wifi, and cable TV plans', 'फास्टनेट ब्रॉडबैंड, वाईफाई और केबल टीवी प्लान में रिडीम करने योग्य', 'ফাস্টনেট ব্রডব্যান্ড, ওয়াইফাই এবং কেবল টিভি প্ল্যানে রিডিম করার যোগ্য')}</div>
+                              </div>
+
+                              {/* Cable Recharges Section */}
+                              {renderRewardSection(
+                                t('Cable Recharges', 'केबल रिचार्ज', 'কেবল রিচার্জ'),
+                                '#ec4899',
+                                cableItems,
+                                emptyReasons.cable,
+                                bindingsObj.cable_partner_name,
+                                'cable'
+                              )}
+
+                              {/* Broadband Recharges Section */}
+                              {renderRewardSection(
+                                t('Broadband Recharges', 'ब्रॉडबैंड रिचार्ज', 'ব্রডব্যান্ড রিচার্জ'),
+                                '#6366f1',
+                                broadbandItems,
+                                emptyReasons.broadband,
+                                bindingsObj.broadband_partner_name,
+                                'broadband'
+                              )}
+
+                              <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', textAlign: 'center', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '0.75rem' }}>
+                                Points earned from FastNet grocery orders · Redeemable against FastNet services only · Non-transferable
+                              </div>
+                            </div>
+                          );
+                        })()}
 
                   {customerAppTab === 'ledger' && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
@@ -5862,7 +6087,7 @@ export default function App() {
                         </span>
                         <h1 style={{ fontSize: '1.75rem', margin: '0.25rem 0', color: 'white', fontWeight: 'bold' }}>{formatPoints(customerBalance)}</h1>
                         <p style={{ fontSize: '0.6rem', color: 'var(--text-muted)', margin: 0 }}>
-                          {t('Closed-loop points redeemable in the Rewards tab.', 'पुरस्कार टैब में रिडीम करने योग्य पॉइंट्स।', 'রিওয়ার্ডস ট্যাবে রিডিম করার যোগ্য পয়েন্ট।')}
+                          {t('Closed-loop points redeemable in the Rewards tab.', 'पुरस्कार टैब में रिडीम करने योग्य पॉइंट्स।', 'রিওয়ার্ডस ট্যাবে রিডিম করার যোগ্য পয়েন্ট।')}
                         </p>
                       </div>
 
@@ -5877,7 +6102,7 @@ export default function App() {
                           onClick={() => setShowFraudReportModal(true)}
                         >
                           <ShieldAlert size={12} style={{ color: 'var(--warning)' }} />
-                          {t('Report a problem', 'समस्या रिपोर्ट करें', 'সমস্যা রিপোর্ট করুন')}
+                          {t('Report a problem', 'समस्या रिपोर्ट करें', 'সমস্যা रिपोर्ट करें')}
                         </button>
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
@@ -5894,107 +6119,12 @@ export default function App() {
                         ))}
                         {customerLedger.length === 0 && (
                           <p style={{ color: 'var(--text-muted)', fontSize: '0.7rem', textAlign: 'center' }}>
-                            {t('No transactions recorded.', 'कोई लेन-देन दर्ज नहीं है।', 'কোনো লেনদেন রেকর্ড করা হয়নি।')}
+                            {t('No transactions recorded.', 'कोई लेन-देन दर्ज नहीं है।', 'কোনो লেনদেন রেকর্ড করা হয়নি।')}
                           </p>
                         )}
                       </div>
                     </div>
                   )}
-
-                  {customerAppTab === 'pointshop' && (() => {
-                    const redeemItem = async (cost, type, label) => {
-                      if (customerBalance < cost) { showToast(`Need ${formatPoints(cost)} — you have ${formatPoints(customerBalance)}`, 'error'); return; }
-                      try {
-                        const res = await fetch(`${API_BASE}/ledger/redeem`, {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ customerId: currentUser.id, amount: cost, redemptionType: type })
-                        });
-                        if (res.ok) { showToast(`Success: ${label} redeemed!`); loadCustomerData(); }
-                        else { const d = await res.json(); showToast(d.error || 'Redemption failed', 'error'); }
-                      } catch (e) { showToast('Redemption error', 'error'); }
-                    };
-
-                    const shopItems = [
-                      {
-                        category: t('Broadband & WiFi', 'ब्रॉडबैंड और वाईफाई', 'ব্রডব্যান্ড ও ওয়াইফাই'),
-                        color: '#6366f1',
-                        items: [
-                          { label: t('Bill Discount — ₹50 off', 'बिल डिस्काउंट — ₹50 छूट', 'বিল ডিসকাউন্ট — ₹৫০ ছাড়'), sub: t('Instantly off your next monthly broadband bill', 'अगले मासिक ब्रॉडबैंड बिल से तुरंत छूट', 'আপনার পরবর্তী ব্রডব্যান্ড বিল থেকে সাথে সাথে ছাড়'), pts: 50, type: 'BROADBAND_DISCOUNT_50', icon: 'bill' },
-                          { label: t('Bill Discount — ₹100 off', 'बिल डिस्काउंट — ₹100 छूट', 'বিল ডিসকাউন্ট — ₹১০০ ছাড়'), sub: t('For power users. Cuts bill by ₹100 this month', 'पावर उपयोगकर्ताओं के लिए। इस महीने बिल ₹100 कम करें', 'পাওয়ার ইউজারদের জন্য। এই মাসের বিলে ১০০ টাকা ছাড়'), pts: 100, type: 'BROADBAND_DISCOUNT_100', icon: 'bill' },
-                          { label: t('Speed Booster 48h (100 Mbps)', 'स्पीड बूस्टर 48h (100 Mbps)', 'স্পিড বুস্টার ৪৮ ঘণ্টা (১০০ Mbps)'), sub: t('2 days of priority bandwidth. No throttling.', '२ दिनों की प्राथमिकता बैंडविड्थ। कोई सीमा नहीं।', '২ দিন হাই স্পিড ব্যান্ডউইডথ পাবেন।'), pts: 150, type: 'WIFI_TOPUP', icon: 'wifi' },
-                          { label: t('Data Top-up 10 GB', 'डेटा टॉप-अप 10 GB', 'ডাটা টপ-আপ ১০ জিবি'), sub: t('Extra 10 GB added to your plan instantly', 'आपके प्लान में तुरंत १० जीबी अतिरिक्त जोड़ा गया', 'আপনার অ্যাকাউন্টে সরাসরি ১০ জিবি ডাটা যোগ হবে'), pts: 80, type: 'DATA_TOPUP', icon: 'wifi' },
-                        ]
-                      },
-                      {
-                        category: t('Cable TV', 'केबल टीवी', 'কেবল টিভি'),
-                        color: '#ec4899',
-                        items: [
-                          { label: t('Basic Pack — 1 Month Free', 'बुनियादी पैक — १ महीना मुफ्त', 'বেসিক প্যাক — ১ মাস ফ্রি'), sub: t('30 days of regional & local channels', 'क्षेत्रीय और स्थानीय चैनलों के ३० दिन', '৩০ দিন সব লোকাল ও আঞ্চলিক চ্যানেল দেখতে পাবেন'), pts: 100, type: 'CABLE_RECHARGE', icon: 'tv' },
-                          { label: t('HD Premium Pack — 1 Month', 'एचडी प्रीमियम पैक — १ महीना', 'এইচডি প্রিমিয়াম প্যাক — ১ মাস'), sub: t('Sports, Movies, News HD channels', 'खेल, सिनेमा, समाचार एचडी चैनल', 'সব স্পোর্টস, মুভি ও নিউজ এইচডি চ্যানেল পাবেন'), pts: 250, type: 'CABLE_RECHARGE', icon: 'tv' },
-                          { label: t('Kids & Family Bundle', 'किड्स एंड फैमिली बंडल', 'কিডস ও ফ্যামিলি বান্ডেল'), sub: t('Cartoon Network, Pogo & family channels', 'कार्टून नेटवर्क, पोगो और पारिवारिक चैनल', 'কার্টুন নেটওয়ার্ক, পোগো ও ফ্যামিলি চ্যানেল প্যাক'), pts: 120, type: 'CABLE_RECHARGE', icon: 'tv' },
-                        ]
-                      },
-                    ];
-
-                    return (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-
-                        {/* Header Hero */}
-                        <div style={{ background: 'linear-gradient(135deg, rgba(99,102,241,0.25) 0%, rgba(236,72,153,0.15) 100%)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: '14px', padding: '1rem', textAlign: 'center' }}>
-                          <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: '0.2rem' }}>{t('Your Balance', 'आपका बैलेंस', 'আপনার ব্যালেন্স')}</div>
-                          <div style={{ fontSize: '2rem', fontWeight: '800', color: 'white', lineHeight: 1 }}>{formatPoints(customerBalance)}</div>
-                          <div style={{ fontSize: '0.6rem', color: '#818cf8', marginTop: '0.35rem' }}>{t('Redeemable across FastNet broadband, wifi, and cable TV plans', 'फास्टनेट ब्रॉडबैंड, वाईफाई और केबल टीवी प्लान में रिडीम करने योग्य', 'ফাস্টনেট ব্রডব্যান্ড, ওয়াইফাই এবং কেবল টিভি প্ল্যানে রিডিম করার যোগ্য')}</div>
-                          <div style={{ marginTop: '0.5rem', display: 'flex', justifyContent: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-                            {shopItems.map(cat => (
-                              <span key={cat.category} style={{ fontSize: '0.55rem', padding: '0.15rem 0.5rem', borderRadius: '99px', background: cat.color + '22', color: cat.color, border: `1px solid ${cat.color}44` }}>{cat.category}</span>
-                            ))}
-                          </div>
-                        </div>
-
-                        {/* Catalog Sections */}
-                        {shopItems.map(cat => (
-                          <div key={cat.category}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
-                              <div style={{ width: '3px', height: '14px', borderRadius: '2px', background: cat.color }} />
-                              <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'white' }}>{cat.category}</span>
-                            </div>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                              {cat.items.map(item => {
-                                const canAfford = customerBalance >= item.pts;
-                                return (
-                                  <div key={item.label} style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', padding: '0.65rem 0.75rem', borderRadius: '10px', background: canAfford ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.01)', border: `1px solid ${canAfford ? cat.color + '33' : 'rgba(255,255,255,0.05)'}`, opacity: canAfford ? 1 : 0.55, transition: 'all 0.2s' }}>
-                                    <div style={{ flexShrink: 0, width: '32px', display: 'flex', justifyContent: 'center' }}>
-                                      {item.icon === 'bill' && <FileText size={20} style={{ color: cat.color }} />}
-                                      {item.icon === 'wifi' && <Signal size={20} style={{ color: cat.color }} />}
-                                      {item.icon === 'tv' && <Tv size={20} style={{ color: cat.color }} />}
-                                    </div>
-                                    <div style={{ flex: 1, minWidth: 0 }}>
-                                      <div style={{ fontSize: '0.75rem', fontWeight: '600', color: 'white', lineHeight: 1.2 }}>{item.label}</div>
-                                      <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', marginTop: '0.15rem' }}>{item.sub}</div>
-                                      <div style={{ fontSize: '0.7rem', fontWeight: 'bold', color: cat.color, marginTop: '0.2rem' }}>{formatPoints(item.pts)}</div>
-                                    </div>
-                                    <button
-                                      id={`redeem-${item.type}`}
-                                      disabled={!canAfford}
-                                      onClick={() => redeemItem(item.pts, item.type, item.label)}
-                                      style={{ flexShrink: 0, padding: '0.35rem 0.6rem', fontSize: '0.65rem', fontWeight: 'bold', borderRadius: '8px', border: 'none', cursor: canAfford ? 'pointer' : 'not-allowed', background: canAfford ? cat.color : 'rgba(255,255,255,0.1)', color: canAfford ? 'white' : 'var(--text-muted)', transition: 'all 0.2s' }}
-                                    >
-                                      {t('Redeem', 'रिडीम', 'রিডিম')}
-                                    </button>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        ))}
-
-                        <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', textAlign: 'center', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '0.75rem' }}>
-                          Points earned from FastNet grocery orders · Redeemable against FastNet services only · Non-transferable
-                        </div>
-                      </div>
-                    );
-                  })()}
 
                   {customerAppTab === 'orders' && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -6221,6 +6351,28 @@ export default function App() {
                             Cancel
                           </button>
                         </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Customer Redemption Success Modal Overlay */}
+                  {redemptionSuccessModal && (
+                    <div style={{ position: 'absolute', inset: 0, background: 'rgba(11,14,20,0.96)', zIndex: 110, display: 'flex', flexDirection: 'column', padding: '1.5rem', justifyContent: 'center', alignItems: 'center' }}>
+                      <div className="glass-card" style={{ padding: '1.5rem', textAlign: 'center', display: 'flex', flexDirection: 'column', gap: '1rem', width: '100%', maxWidth: '300px' }}>
+                        <div style={{ width: '48px', height: '48px', borderRadius: '50%', background: 'rgba(16,185,129,0.2)', border: '2px solid var(--accent)', color: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto' }}>
+                          <Check size={28} />
+                        </div>
+                        <h3 style={{ fontSize: '1rem', color: 'white', margin: 0 }}>{t('Redemption Requested!', 'रिडेम्पशन का अनुरोध किया गया!', 'রিডিমশন অনুরোধ করা হয়েছে!')}</h3>
+                        <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.4, margin: 0 }}>
+                          {t(
+                            `Your partner ${redemptionSuccessModal.partnerName} will contact you soon to activate ${redemptionSuccessModal.pkgName}.`,
+                            `आपका प्रदाता ${redemptionSuccessModal.partnerName} शीघ्र ही ${redemptionSuccessModal.pkgName} को सक्रिय करने के लिए आपसे संपर्क करेगा।`,
+                            `আপনার প্রদানকারী ${redemptionSuccessModal.partnerName} শীঘ্রই ${redemptionSuccessModal.pkgName} সক্রিয় করতে আপনার সাথে যোগাযোগ করবে।`
+                          )}
+                        </p>
+                        <button className="btn btn-accent" onClick={() => setRedemptionSuccessModal(null)} style={{ width: '100%' }}>
+                          {t('Done', 'हो गया', 'সম্পন্ন')}
+                        </button>
                       </div>
                     </div>
                   )}
@@ -7314,6 +7466,9 @@ export default function App() {
               <button className={`admin-nav-item ${adminTab === 'health' ? 'active' : ''}`} onClick={() => { setAdminTab('health'); fetchHealthData(); }}>
                 <TrendingUp size={16} /> Health
               </button>
+              <button className={`admin-nav-item ${adminTab === 'kyc' ? 'active' : ''}`} onClick={() => setAdminTab('kyc')}>
+                <UserCheck size={16} /> Pending KYC {pendingKyc.length > 0 && <span className="badge badge-danger" style={{ marginLeft: '0.25rem', fontSize: '0.65rem' }}>{pendingKyc.length}</span>}
+              </button>
               <button className={`admin-nav-item ${adminTab === 'customers' ? 'active' : ''}`} onClick={() => setAdminTab('customers')}>
                 <UserCheck size={16} /> All Customers ({adminCustomers.length})
               </button>
@@ -7334,9 +7489,6 @@ export default function App() {
               </button>
               <button className={`admin-nav-item ${adminTab === 'audit_log' ? 'active' : ''}`} onClick={() => setAdminTab('audit_log')}>
                 <FileText size={16} /> Audit Log
-              </button>
-              <button className={`admin-nav-item ${adminTab === 'kyc' ? 'active' : ''}`} onClick={() => setAdminTab('kyc')}>
-                <UserCheck size={16} /> Shop Approvals Queue ({pendingKyc.length})
               </button>
               <button className={`admin-nav-item ${adminTab === 'rates' ? 'active' : ''}`} onClick={() => setAdminTab('rates')}>
                 <Settings size={16} /> Commission & Points Config
@@ -8307,7 +8459,7 @@ export default function App() {
 
               {adminTab === 'kyc' && (
                 <div>
-                  <h2 style={{ fontSize: '1.4rem', marginBottom: '1rem' }}>Shopkeeper Registration Queue</h2>
+                  <h2 style={{ fontSize: '1.4rem', marginBottom: '1rem' }}>Pending KYC Approvals</h2>
                   <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
                     Verify local grocery stores applying to open shops on the FastNet Hyperlocal Marketplace. Approve to assign local wholesale suppliers.
                   </p>
@@ -8320,30 +8472,44 @@ export default function App() {
                         <th>Region</th>
                         <th>ID Type</th>
                         <th>ID Number</th>
-                        <th>Address</th>
+                        <th>Shop Name</th>
+                        <th>Shop Address</th>
                         <th>Actions</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {pendingKyc.map(u => (
-                        <tr key={u.id}>
-                          <td>{u.name}</td>
-                          <td>{u.phone}</td>
-                          <td>{u.region_id === 'r1' ? 'Kolkata South' : 'Rural Bishnupur'}</td>
-                          <td>{u.kyc_details?.id_type}</td>
-                          <td>{u.kyc_details?.id_number}</td>
-                          <td>{u.kyc_details?.shop_address}</td>
-                          <td>
-                            <button className="btn btn-accent" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }} onClick={() => handleApproveKyc(u.id)}>
-                              Approve Shop
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
+                      {pendingKyc.map(u => {
+                        let kyc = u.kyc_details || {};
+                        if (typeof kyc === 'string') {
+                          try { kyc = JSON.parse(kyc); } catch (e) { kyc = {}; }
+                        }
+                        return (
+                          <tr key={u.id}>
+                            <td>{u.name}</td>
+                            <td>{u.phone}</td>
+                            <td>{u.region_id === 'r1' ? 'Kolkata South' : 'Rural Bishnupur'}</td>
+                            <td>{kyc.id_type || u.kyc_id_type || '-'}</td>
+                            <td>{kyc.id_number || u.kyc_id_number || '-'}</td>
+                            <td>{kyc.shop_name || u.shop_name || `${u.name} Store`}</td>
+                            <td>{kyc.shop_address || u.shop_address || u.address || '-'}</td>
+                            <td>
+                              <button className="btn btn-accent" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }} onClick={() => {
+                                triggerConfirmModal({
+                                  title: 'Approve Stockist KYC',
+                                  message: `Approve ${u.name} as stockist? A vendor will be auto-assigned based on their region.`,
+                                  onConfirm: () => handleApproveKyc(u.id)
+                                });
+                              }}>
+                                Approve
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
                       {pendingKyc.length === 0 && (
                         <tr>
-                          <td colSpan="7" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
-                            No pending registrations found.
+                          <td colSpan="8" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
+                            No stockists awaiting KYC approval right now.
                           </td>
                         </tr>
                       )}
