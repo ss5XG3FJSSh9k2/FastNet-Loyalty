@@ -98,7 +98,7 @@ const DEFAULT_DB = {
   customer_partner_bindings: [
     {
       id: 'cpb-cust1',
-      customer_id: 'u-cust1',
+      customer_user_id: 'u-cust1',
       cable_partner_id: 'ptr-adhya',
       broadband_partner_id: 'ptr-jio',
       updated_at: '2026-08-01T00:00:00.000Z'

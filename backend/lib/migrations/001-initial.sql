@@ -410,7 +410,6 @@ CREATE TABLE IF NOT EXISTS partner_users (
 
 CREATE TABLE IF NOT EXISTS customer_partner_bindings (
   id TEXT PRIMARY KEY,
-  customer_id TEXT,
   customer_user_id TEXT,
   cable_partner_id TEXT,
   broadband_partner_id TEXT,
