@@ -2350,6 +2350,242 @@ async function main() {
   const resetUsers = await dbModule.getTable('users');
   assert(resetUsers.length >= 2, 'db.resetForTest() re-seeds baseline data in Postgres');
 
+  // Round CR: Customer Rewards from Partner Packages (#437-#450)
+  console.log('\n--- Round CR: Customer Rewards from Partner Packages ---');
+  
+  // Set up seed data for partner packages and bindings to test empty_reasons and package retrieval
+  const pCableId = 'part-cr-cable-1';
+  const pBroadbandId = 'part-cr-broadband-1';
+  const pInactiveId = 'part-cr-inactive-1';
+
+  await dbModule.insertRow('partners', {
+    id: pCableId,
+    legal_name: 'CR Cable Partner Ltd',
+    display_name: 'CR Cable Provider',
+    contact_phone: '9839900001',
+    is_active: true,
+    created_at: new Date().toISOString()
+  });
+
+  await dbModule.insertRow('partners', {
+    id: pBroadbandId,
+    legal_name: 'CR Broadband Partner Ltd',
+    display_name: 'CR Broadband Provider',
+    contact_phone: '9839900002',
+    is_active: true,
+    created_at: new Date().toISOString()
+  });
+
+  await dbModule.insertRow('partners', {
+    id: pInactiveId,
+    legal_name: 'CR Inactive Partner Ltd',
+    display_name: 'CR Inactive Provider',
+    contact_phone: '9839900003',
+    is_active: false,
+    created_at: new Date().toISOString()
+  });
+
+  // Create users for specific test cases
+  const custValidBinding = 'u-cust-valid-binding';
+  await dbModule.insertRow('users', {
+    id: custValidBinding,
+    name: 'Customer Valid Binding',
+    phone: '9839900008',
+    role: 'CUSTOMER',
+    region_id: 'r1',
+    is_active: true,
+    created_at: new Date().toISOString()
+  });
+  await dbModule.insertRow('customer_partner_bindings', {
+    id: 'bind-cr-valid',
+    customer_user_id: custValidBinding,
+    cable_partner_id: 'ptr-adhya',
+    broadband_partner_id: 'ptr-jio',
+    created_at: new Date().toISOString()
+  });
+
+  const custNoBinding = 'u-cust-nobinding';
+  await dbModule.insertRow('users', {
+    id: custNoBinding,
+    name: 'Customer No Binding',
+    phone: '9839900004',
+    role: 'CUSTOMER',
+    region_id: 'r1',
+    is_active: true,
+    created_at: new Date().toISOString()
+  });
+
+  const custInactiveBinding = 'u-cust-inactive-binding';
+  await dbModule.insertRow('users', {
+    id: custInactiveBinding,
+    name: 'Customer Inactive Binding',
+    phone: '9839900005',
+    role: 'CUSTOMER',
+    region_id: 'r1',
+    is_active: true,
+    created_at: new Date().toISOString()
+  });
+  await dbModule.insertRow('customer_partner_bindings', {
+    id: 'bind-cr-1',
+    customer_user_id: custInactiveBinding,
+    cable_partner_id: pInactiveId,
+    broadband_partner_id: null,
+    created_at: new Date().toISOString()
+  });
+
+  const custNoPkgBinding = 'u-cust-nopkg-binding';
+  await dbModule.insertRow('users', {
+    id: custNoPkgBinding,
+    name: 'Customer No Package Binding',
+    phone: '9839900006',
+    role: 'CUSTOMER',
+    region_id: 'r1',
+    is_active: true,
+    created_at: new Date().toISOString()
+  });
+  await dbModule.insertRow('customer_partner_bindings', {
+    id: 'bind-cr-2',
+    customer_user_id: custNoPkgBinding,
+    cable_partner_id: pCableId,
+    broadband_partner_id: null,
+    created_at: new Date().toISOString()
+  });
+
+  // Test #437: Customer with valid bindings + adhya has packages -> response has non-empty cable, empty_reasons.cable = null
+  const resValid = await get(`http://localhost:3001/api/customer/rewards/available/${custValidBinding}`);
+  assert(resValid.status === 200, 'GET /api/customer/rewards/available/:id returns 200');
+  assert(resValid.body.cable.length > 0 && resValid.body.empty_reasons.cable === null, 'Customer with valid bindings + adhya packages has non-empty cable and null empty_reasons');
+
+  // Test #438: Customer with no binding -> empty_reasons.cable = 'no_binding', empty array
+  const resNoBinding = await get(`http://localhost:3001/api/customer/rewards/available/${custNoBinding}`);
+  assert(resNoBinding.body.empty_reasons.cable === 'no_binding' && resNoBinding.body.cable.length === 0, 'Customer with no binding gets empty_reasons.cable = no_binding');
+
+  // Test #439: Customer bound to inactive partner -> empty_reasons.cable = 'partner_inactive'
+  const resInactive = await get(`http://localhost:3001/api/customer/rewards/available/${custInactiveBinding}`);
+  assert(resInactive.body.empty_reasons.cable === 'partner_inactive' && resInactive.body.cable.length === 0, 'Customer bound to inactive partner gets empty_reasons.cable = partner_inactive');
+
+  // Test #440: Customer bound but partner has no packages in customer's region -> empty_reasons.cable = 'no_packages'
+  const resNoPkg = await get(`http://localhost:3001/api/customer/rewards/available/${custNoPkgBinding}`);
+  assert(resNoPkg.body.empty_reasons.cable === 'no_packages' && resNoPkg.body.cable.length === 0, 'Customer bound to partner with no packages gets empty_reasons.cable = no_packages');
+
+  // Test #441: Response does NOT expose partner contact_email, contact_phone, gst_number, or cost_to_partner_rupees
+  const samplePkg = resValid.body.cable[0];
+  assert(samplePkg.partner.contact_email === undefined && samplePkg.partner.contact_phone === undefined && samplePkg.partner.gst_number === undefined && samplePkg.package.cost_to_partner_rupees === undefined, 'Response does NOT expose sensitive partner or cost fields');
+
+  // Now create active package pkgCable1Id for pCableId
+  const pkgCable1Id = 'pkg-cr-cable-100';
+  await dbModule.insertRow('partner_packages', {
+    id: pkgCable1Id,
+    partner_id: pCableId,
+    name: 'Cable Monthly HD Pack',
+    description: '100+ HD Channels for 30 days',
+    service_type: 'CABLE',
+    face_value_rupees: 250,
+    cost_to_partner_rupees: 200,
+    point_cost: 100,
+    active_regions: JSON.stringify(['r1']),
+    is_active: true,
+    created_at: new Date().toISOString()
+  });
+
+  // Give custNoPkgBinding points and update binding to pCableId (which has pkgCable1Id)
+  const custRedeemUser = 'u-cust-redeem-test';
+  await dbModule.insertRow('users', {
+    id: custRedeemUser,
+    name: 'Customer Redeem Test',
+    phone: '9839900007',
+    role: 'CUSTOMER',
+    region_id: 'r1',
+    is_active: true,
+    created_at: new Date().toISOString()
+  });
+  await dbModule.insertRow('customer_partner_bindings', {
+    id: 'bind-cr-redeem',
+    customer_user_id: custRedeemUser,
+    cable_partner_id: pCableId,
+    broadband_partner_id: null,
+    created_at: new Date().toISOString()
+  });
+  await dbModule.insertRow('points_ledger', {
+    id: 'l-cr-pts-1',
+    customer_id: custRedeemUser,
+    type: 'EARN',
+    amount: 500,
+    description: 'Test points for CR redemption',
+    created_at: new Date().toISOString()
+  });
+
+  // Test #442: Customer redeems a partner package via the endpoint -> redemption_approval row created
+  const redeemRes = await post('http://localhost:3001/api/ledger/redeem', {
+    customerId: custRedeemUser,
+    amount: 100,
+    redemptionType: 'CABLE',
+    partner_package_id: pkgCable1Id
+  });
+  assert(redeemRes.status === 200, 'POST /api/ledger/redeem with partner_package_id returns 200');
+  assert(redeemRes.body.redemption_approval !== undefined && redeemRes.body.redemption_approval.partner_package_id === pkgCable1Id, 'redemption_approval row created with partner_package_id');
+
+  // Test #443: Customer attempts to redeem a package they see with wrong point amount -> 400
+  const redeemWrongAmount = await post('http://localhost:3001/api/ledger/redeem', {
+    customerId: custRedeemUser,
+    amount: 999,
+    redemptionType: 'CABLE',
+    partner_package_id: pkgCable1Id
+  });
+  assert(redeemWrongAmount.status === 400 && redeemWrongAmount.body.error === 'amount_mismatch', 'Redeem with wrong point amount returns 400 amount_mismatch');
+
+  // Test #444: Customer attempts to redeem a package their binding doesn't match -> binding_mismatch
+  const custUnboundRedeem = 'u-cust-unbound-redeem';
+  await dbModule.insertRow('users', {
+    id: custUnboundRedeem,
+    name: 'Customer Unbound Redeem',
+    phone: '9839900009',
+    role: 'CUSTOMER',
+    region_id: 'r1',
+    is_active: true,
+    created_at: new Date().toISOString()
+  });
+  await dbModule.insertRow('points_ledger', {
+    id: 'l-cr-pts-2',
+    customer_id: custUnboundRedeem,
+    type: 'EARN',
+    amount: 500,
+    description: 'Test points for unbound redemption',
+    created_at: new Date().toISOString()
+  });
+  const redeemMismatch = await post('http://localhost:3001/api/ledger/redeem', {
+    customerId: custUnboundRedeem,
+    amount: 100,
+    redemptionType: 'CABLE',
+    partner_package_id: pkgCable1Id
+  });
+  assert(redeemMismatch.status === 400 || redeemMismatch.status === 403, 'Redeem for unbound partner returns 400/403');
+  assert(redeemMismatch.body.error === 'binding_mismatch', 'Error is binding_mismatch');
+
+  // Test #445: App.jsx does NOT contain BROADBAND_DISCOUNT_50
+  const crFs = require('fs');
+  const crPath = require('path');
+  const crAppJsx = crFs.readFileSync(crPath.join(__dirname, '../../frontend/src/App.jsx'), 'utf8');
+  assert(!crAppJsx.includes('BROADBAND_DISCOUNT_50'), 'App.jsx does NOT contain BROADBAND_DISCOUNT_50');
+
+  // Test #446: App.jsx contains a call to /api/customer/rewards/available/
+  assert(crAppJsx.includes('/customer/rewards/available/'), 'App.jsx contains call to /api/customer/rewards/available/');
+
+  // Test #447: App.jsx handles all four empty_reasons states
+  assert(crAppJsx.includes('no_binding') && crAppJsx.includes('partner_inactive') && crAppJsx.includes('no_packages'), 'App.jsx handles no_binding, partner_inactive, and no_packages empty_reasons');
+
+  // Test #448: App.jsx renders partner.display_name in rewards section
+  assert(crAppJsx.includes('partner.display_name') || crAppJsx.includes('partnerName'), 'App.jsx renders partner.display_name in rewards section');
+
+  // Test #449: App.jsx contains a visible sidebar/nav entry with exact string Pending KYC and references pendingKyc.length
+  assert(crAppJsx.includes('Pending KYC') && crAppJsx.includes('pendingKyc.length'), 'App.jsx contains Pending KYC sidebar button and checks pendingKyc.length');
+
+  // Test #450: GET /api/admin/kyc-queue returns Gopal Joy (u-stk3) in seed with kyc_status='PENDING'
+  const kycQueueRes = await get('http://localhost:3001/api/admin/kyc-queue');
+  assert(kycQueueRes.status === 200 && Array.isArray(kycQueueRes.body), 'GET /api/admin/kyc-queue returns 200 array');
+  const gopalInKyc = kycQueueRes.body.find(u => u.id === 'u-stk3' || u.name === 'Gopal Joy');
+  assert(gopalInKyc !== undefined && gopalInKyc.kyc_status === 'PENDING', 'GET /api/admin/kyc-queue returns u-stk3 with PENDING kyc_status');
+
   console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);
 }
