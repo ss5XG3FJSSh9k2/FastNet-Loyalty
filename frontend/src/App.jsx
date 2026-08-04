@@ -5910,8 +5910,8 @@ export default function App() {
                                     if (!groups[item.stockistId]) groups[item.stockistId] = item.stockistName;
                                   });
                                   return (
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', borderTop: '1px dashed rgba(255,255,255,0.08)', paddingTop: '0.5rem' }}>
-                                      <div style={{ fontSize: '0.65rem', color: slotError ? 'var(--danger)' : 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.25rem', fontWeight: slotError ? 'bold' : 'normal' }}>
+                                    <div className="pickup-slot-picker-block" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', border: slotError ? '1px solid var(--danger)' : '1px dashed rgba(255,255,255,0.15)', borderRadius: '6px', padding: '0.75rem', backgroundColor: 'rgba(255,255,255,0.03)', marginTop: '0.25rem' }}>
+                                      <div className="pickup-slot-label" style={{ fontSize: '0.85rem', color: slotError ? 'var(--danger)' : 'white', display: 'flex', alignItems: 'center', gap: '0.35rem', fontWeight: 'bold' }}>
                                         <Clock size={10} /> {t('Select Pickup Slot (Required)', 'पिकअप समय चुनें (आवश्यक)', 'পিকআপ সময় নির্বাচন করুন (প্রয়োজনীয়)')}
                                       </div>
                                       {Object.entries(groups).map(([sid, sName]) => {
@@ -8042,6 +8042,30 @@ export default function App() {
                   <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
                     Key operational health indicators across customer redemptions, partner fulfillment, stockist volume, and platform fraud signals.
                   </p>
+
+                  {pendingKyc.length > 0 && (
+                    <div
+                      className="glass-card alert-kyc-pending"
+                      style={{
+                        marginBottom: '1.5rem',
+                        padding: '0.85rem 1.25rem',
+                        borderColor: 'rgba(239, 68, 68, 0.5)',
+                        background: 'rgba(239, 68, 68, 0.1)',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        cursor: 'pointer'
+                      }}
+                      onClick={() => { setAdminTab('kyc'); fetchDbState(); }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'white', fontWeight: 'bold', fontSize: '0.9rem' }}>
+                        <span>⚠️ {pendingKyc.length} stockists awaiting KYC approval</span>
+                      </div>
+                      <button className="btn btn-danger" style={{ padding: '0.25rem 0.75rem', fontSize: '0.75rem' }} onClick={(e) => { e.stopPropagation(); setAdminTab('kyc'); fetchDbState(); }}>
+                        Review & Approve KYC Queue →
+                      </button>
+                    </div>
+                  )}
 
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1.5rem', marginBottom: '1.5rem' }}>
                     <div className="glass-card" style={{ padding: '1rem' }}>

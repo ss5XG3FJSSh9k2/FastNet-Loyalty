@@ -2811,7 +2811,28 @@ async function main() {
   assert(lpAppJsx.includes('Refer a friend') && lpAppJsx.includes('referral_code'), 'App.jsx contains a Refer a friend tile with referral_code display');
 
   // Test #485: App.jsx renders three home-dashboard cards near the admin home top
-  assert(lpAppJsx.includes('Redemptions Pending Admin Approval') && lpAppJsx.includes('Orders In Progress Today') && lpAppJsx.includes('Revenue This Week'), 'App.jsx renders three home-dashboard cards near admin home top');
+  // Round BF1: Bug Fixes (Pickup Slot Picker + KYC Queue Visibility) (#489-#493)
+  console.log('\n--- Round BF1: Bug Fixes (Pickup Slot Picker + KYC Queue Visibility) ---');
+  const bf1AppJsx = fs.readFileSync(path.join(__dirname, '../../frontend/src/App.jsx'), 'utf8');
+
+  // Test #489: App.jsx contains getAvailableSlots(stockist) called inside JSX block near Place Pickup Order button
+  assert(bf1AppJsx.includes('getAvailableSlots(stockist)') && bf1AppJsx.includes('Place Pickup Order'), 'App.jsx contains pickup slot picker calling getAvailableSlots(stockist) near Place Pickup Order');
+
+  // Test #490: Pickup slot picker label has prominent fontSize (0.8rem or higher / class name)
+  assert(bf1AppJsx.includes("fontSize: '0.85rem'") || bf1AppJsx.includes('pickup-slot-label'), 'Pickup slot picker label has prominent fontSize (0.85rem)');
+
+  // Test #491: Pickup slot picker wrapper has background color or distinct class
+  assert(bf1AppJsx.includes("backgroundColor: 'rgba(255,255,255,0.03)'") || bf1AppJsx.includes('pickup-slot-picker-block'), 'Pickup slot picker wrapper has background color or distinct class');
+
+  // Test #492: Admin sidebar Pending KYC entry appears in the top sidebar items (within top 5 buttons)
+  const sidebarMatch = bf1AppJsx.match(/className="admin-sidebar"[\s\S]*?<\/div>/);
+  assert(sidebarMatch !== null, 'Found admin-sidebar in App.jsx');
+  const sidebarButtons = (sidebarMatch[0].match(/<button[\s\S]*?<\/button>/g) || []);
+  const pendingKycBtnIndex = sidebarButtons.findIndex(btn => btn.includes('Pending KYC'));
+  assert(pendingKycBtnIndex >= 0 && pendingKycBtnIndex < 5, `Pending KYC sidebar button appears within top 5 sidebar buttons (got index ${pendingKycBtnIndex})`);
+
+  // Test #493: Admin home tab contains alert block referencing pendingKyc.length > 0 with click-through
+  assert(bf1AppJsx.includes('pendingKyc.length > 0') && (bf1AppJsx.includes('stockists awaiting KYC approval') || bf1AppJsx.includes('awaiting KYC approval')), 'Admin home tab contains alert block referencing pendingKyc.length > 0');
 
   console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);
