@@ -2834,7 +2834,81 @@ async function main() {
   // Test #493: Admin home tab contains alert block referencing pendingKyc.length > 0 with click-through
   assert(bf1AppJsx.includes('pendingKyc.length > 0') && (bf1AppJsx.includes('stockists awaiting KYC approval') || bf1AppJsx.includes('awaiting KYC approval')), 'Admin home tab contains alert block referencing pendingKyc.length > 0');
 
-  console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
+    // --- Round BF2: Order Status Enum + Partner Package Fixes (#494-#502) ---
+  console.log('\n--- Round BF2: Order Status Enum + Partner Package Fixes ---');
+  const bf2AppJsx = fs.readFileSync(path.join(__dirname, '../../frontend/src/App.jsx'), 'utf8');
+
+  // Test #494: App.jsx contains ZERO references to o.status === 'ACCEPTED' or order.status === 'ACCEPTED'
+  assert(!bf2AppJsx.includes("o.status === 'ACCEPTED'") && !bf2AppJsx.includes("order.status === 'ACCEPTED'"), 'App.jsx contains ZERO references to o.status === ACCEPTED or order.status === ACCEPTED');
+
+  // Test #495: App.jsx contains ZERO references to 'PREPARING' in any context
+  assert(!bf2AppJsx.includes("'PREPARING'"), "App.jsx contains ZERO references to 'PREPARING'");
+
+  // Test #496: App.jsx contains ZERO references to 'READY_FOR_PICKUP' in an order status conditional
+  assert(!bf2AppJsx.includes("status === 'READY_FOR_PICKUP'"), "App.jsx contains ZERO references to 'READY_FOR_PICKUP' in order status conditional");
+
+  // Test #497: Endpoint test: Place an order -> transition through backend to READY -> returned order.status equals 'READY'
+  const bf2OrderRes = await post('http://localhost:3001/api/orders', {
+    customerId: 'u-cust1',
+    stockistId: 's1',
+    fulfillmentType: 'PICKUP',
+    pickupSlot: 'Morning (8AM–12PM)',
+    items: [{ productId: 'p1', quantity: 1 }]
+  });
+  assert(bf2OrderRes.status === 200, 'Placed test order for BF2 status check');
+  const bf2OrderId = bf2OrderRes.body.orderId;
+  assert(bf2OrderId !== undefined, 'Got test order ID');
+
+  // Transition CONFIRMING -> RECEIVED -> READY
+  await patch(`http://localhost:3001/api/orders/${bf2OrderId}/status`, { status: 'RECEIVED' });
+  await patch(`http://localhost:3001/api/orders/${bf2OrderId}/status`, { status: 'READY' });
+  const bf2ReadyOrder = (await get('http://localhost:3001/api/orders')).body.find(o => o.id === bf2OrderId);
+  assert(bf2ReadyOrder && bf2ReadyOrder.status === 'READY', `Returned order.status equals 'READY' exactly (got '${bf2ReadyOrder ? bf2ReadyOrder.status : 'undefined'}')`);
+
+  // Test #498: Auto-recovery block near boot references CONFIRMING, RECEIVED, or READY
+  assert(bf2AppJsx.includes("['CONFIRMING', 'RECEIVED', 'READY']") || (bf2AppJsx.includes("'CONFIRMING'") && bf2AppJsx.includes("'RECEIVED'") && bf2AppJsx.includes("'READY'")), 'Auto-recovery block references CONFIRMING, RECEIVED, or READY');
+
+  // Test #499: Log in as adhya (partner), POST new package with active_regions: ['r1'] -> 200
+  const adhyaSessionRes = await post('http://localhost:3001/api/partner/auth/login-password', { email: 'adhya@partners.example', password: 'partner123' });
+  assert(adhyaSessionRes.status === 200, 'Adhya partner login succeeds');
+  const adhyaToken = adhyaSessionRes.body.session_token;
+
+  const validPkgRes = await post('http://localhost:3001/api/partner/packages', {
+    name: 'BF2 Test Package Valid',
+    service_type: 'CABLE',
+    face_value_rupees: 300,
+    cost_to_partner_rupees: 280,
+    point_cost: 300,
+    active_regions: ['r1']
+  }, { headers: { Authorization: `Bearer ${adhyaToken}` } });
+  assert(validPkgRes.status === 200 && (validPkgRes.body.name === 'BF2 Test Package Valid' || (validPkgRes.body.package && validPkgRes.body.package.name === 'BF2 Test Package Valid')), 'POST valid package with active_regions: [r1] returns 200 created package');
+
+  // Test #500: POST same shape but active_regions: [] -> 400 with "At least one active region" error
+  const emptyPkgRes = await post('http://localhost:3001/api/partner/packages', {
+    name: 'BF2 Test Package Empty',
+    service_type: 'CABLE',
+    face_value_rupees: 300,
+    cost_to_partner_rupees: 280,
+    point_cost: 300,
+    active_regions: []
+  }, { headers: { Authorization: `Bearer ${adhyaToken}` } });
+  assert(emptyPkgRes.status === 400 && emptyPkgRes.body.error === 'At least one active region is required for this package', 'POST package with active_regions: [] returns 400 error');
+
+  // Test #501: App.jsx does NOT contain r.region_code || r.region_id in package region picker context
+  assert(!bf2AppJsx.includes("const rCode = r.region_code || r.region_id;"), 'App.jsx does not contain r.region_code || r.region_id in package region picker context');
+
+  // Test #502: Add Package modal contains at least 3 inline help strings
+  const helpStrings = [
+    "What customers will see",
+    "actual cost to provide",
+    "loyalty points a customer",
+    "Tick the regions",
+    "rupee value the customer"
+  ];
+  const matchedHelpStrings = helpStrings.filter(s => bf2AppJsx.includes(s));
+  assert(matchedHelpStrings.length >= 3, `Add Package modal contains at least 3 inline help strings (found ${matchedHelpStrings.length})`);
+
+console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);
 }
 

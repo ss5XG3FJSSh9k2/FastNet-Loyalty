@@ -1728,7 +1728,7 @@ app.patch('/api/orders/:id/status', async (req, res) => {
     status = order.fulfillment_type === 'PICKUP' ? 'READY_FOR_PICKUP' : 'OUT_FOR_DELIVERY';
   }
 
-  const validStatuses = ['CONFIRMING', 'PENDING', 'ACCEPTED', 'PREPARING', 'READY_FOR_PICKUP', 'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED'];
+  const validStatuses = ['CONFIRMING', 'PENDING', 'ACCEPTED', 'PREPARING', 'READY_FOR_PICKUP', 'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED', 'RECEIVED', 'READY'];
 
   if (!status || !validStatuses.includes(status)) {
     return res.status(400).json({ error: 'Invalid order status' });
@@ -4005,8 +4005,8 @@ app.post('/api/admin/partners/:id/packages', async (req, res) => {
     return res.status(400).json({ error: 'Service type must match one of partner service_types' });
   }
 
-  if (!name || face_value_rupees === undefined || !active_regions || !Array.isArray(active_regions)) {
-    return res.status(400).json({ error: 'Missing required package fields' });
+  if (!name || face_value_rupees === undefined || !active_regions || !Array.isArray(active_regions) || active_regions.length === 0) {
+    return res.status(400).json({ error: 'At least one active region is required for this package' });
   }
 
   const partnerRegions = (await db.getTable('partner_regions')).filter(pr => pr.partner_id === id && pr.service_type === service_type && pr.is_active !== false);
@@ -4110,8 +4110,8 @@ app.post('/api/partner/packages', async (req, res) => {
     return res.status(400).json({ error: 'Service type must match one of partner service_types' });
   }
 
-  if (!name || face_value_rupees === undefined || !active_regions || !Array.isArray(active_regions)) {
-    return res.status(400).json({ error: 'Missing required package fields' });
+  if (!name || face_value_rupees === undefined || !active_regions || !Array.isArray(active_regions) || active_regions.length === 0) {
+    return res.status(400).json({ error: 'At least one active region is required for this package' });
   }
 
   const partnerRegions = (await db.getTable('partner_regions')).filter(pr => pr.partner_id === partnerId && pr.service_type === service_type && pr.is_active !== false);

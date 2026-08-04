@@ -684,23 +684,14 @@ export default function App() {
     if (status === 'CONFIRMING') {
       return t('Received', 'प्राप्त', 'গৃহীত');
     }
-    if (status === 'PENDING') {
-      return t('Pending', 'लंबित', 'অপেক্ষারত');
+    if (status === 'RECEIVED') {
+      return t('Received', 'प्राप्त', 'গৃহীত');
     }
-    if (status === 'ACCEPTED') {
-      return t('Accepted', 'स्वीकृत', 'স্বীকৃত');
-    }
-    if (status === 'PREPARING') {
-      return t('Preparing', 'तैयार किया जा रहा है', 'প্রস্তুত করা হচ্ছে');
-    }
-    if (status === 'READY_FOR_PICKUP') {
-      return t('Ready for Pickup', 'पिकअप के लिए तैयार', 'পিকআপের জন্য প্রস্তুত');
-    }
-    if (status === 'OUT_FOR_DELIVERY') {
-      return t('Out for Delivery', 'वितरण के लिए बाहर', 'ডেলিভারির জন্য পাঠানো হয়েছে');
+    if (status === 'READY') {
+      return isPickup ? t('Ready for Pickup', 'पिकअप के लिए तैयार', 'পিকআপের জন্য প্রস্তুত') : t('Ready for Delivery', 'वितरण के लिए तैयार', 'ডেলিভারির জন্য প্রস্তুত');
     }
     if (status === 'DELIVERED') {
-      return isPickup ? t('Picked Up', 'পিকআপ করা হয়েছে', 'পিকআপ সম্পন্ন') : t('Delivered', 'वितरित', 'ডেলিভারি সম্পন্ন');
+      return isPickup ? t('Picked Up', 'পিকআপ किया गया', 'পিকআপ সম্পন্ন') : t('Delivered', 'वितरित', 'ডেলিভারি সম্পন্ন');
     }
     if (status === 'CANCELLED') {
       return t('Cancelled', 'रद्द', 'বাতিল');
@@ -821,7 +812,7 @@ export default function App() {
             setStockistOrders(oData);
             
             // Cycle latest order straight to DELIVERED
-            const pendingOrder = oData.find(o => o.status === 'PENDING' || o.status === 'ACCEPTED' || o.status === 'PREPARING' || o.status === 'READY_FOR_PICKUP' || o.status === 'OUT_FOR_DELIVERY');
+            const pendingOrder = oData.find(o => ['CONFIRMING', 'RECEIVED', 'READY'].includes(o.status));
             if (pendingOrder) {
               await fetch(`${API_BASE}/orders/${pendingOrder.id}/status`, {
                 method: 'PATCH',
@@ -4037,7 +4028,7 @@ export default function App() {
     setPkgFaceValue('');
     setPkgCostToPartner('');
     setPkgPointCost('');
-    setPkgActiveRegions((partnerRegionsList || []).map(r => r.region_code || r.region_id));
+    setPkgActiveRegions((partnerRegionsList || []).map(r => r.region_id));
     setShowPkgModal(true);
   };
 
@@ -4967,19 +4958,25 @@ export default function App() {
         {/* PACKAGE MODAL */}
         {showPkgModal && (
           <div className="modal-overlay">
-            <div className="modal-content" style={{ maxWidth: '450px' }}>
+            <div className="modal-content" style={{ maxWidth: '480px' }}>
               <h4>{editingPkg ? 'Edit Package' : 'Add Package'}</h4>
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem', marginTop: '0.25rem', marginBottom: '0.75rem' }}>
+                Packages are the rewards your customers can redeem with their loyalty points. Customers bound to you will see these in the app's Rewards section.
+              </p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', marginTop: '0.5rem' }}>
                 <div className="input-group">
                   <label className="input-label">Package Name *</label>
+                  <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', marginTop: '-0.25rem', marginBottom: '0.5rem' }}>What customers will see. Example: '₹250 Cable Basic Monthly'.</div>
                   <input type="text" className="text-input" value={pkgName} onChange={e => setPkgName(e.target.value)} />
                 </div>
                 <div className="input-group">
                   <label className="input-label">Description</label>
+                  <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', marginTop: '-0.25rem', marginBottom: '0.5rem' }}>A short line about what's included. Optional.</div>
                   <textarea className="text-input" value={pkgDesc} onChange={e => setPkgDesc(e.target.value)} />
                 </div>
                 <div className="input-group">
                   <label className="input-label">Service Type</label>
+                  <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', marginTop: '-0.25rem', marginBottom: '0.5rem' }}>Which of your services this package delivers.</div>
                   <select className="text-input" value={pkgServiceType} onChange={e => setPkgServiceType(e.target.value)}>
                     {(partnerData?.service_types || ['CABLE', 'BROADBAND']).map(st => (
                       <option key={st} value={st}>{st}</option>
@@ -4989,22 +4986,26 @@ export default function App() {
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
                   <div className="input-group">
                     <label className="input-label">Face Value ₹ *</label>
+                    <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', marginTop: '-0.25rem', marginBottom: '0.5rem' }}>The rupee value the customer perceives. What you'd normally charge them for this.</div>
                     <input type="number" className="text-input" value={pkgFaceValue} onChange={e => setPkgFaceValue(e.target.value)} />
                   </div>
                   <div className="input-group">
                     <label className="input-label">Cost to Partner ₹</label>
+                    <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', marginTop: '-0.25rem', marginBottom: '0.5rem' }}>Your actual cost to provide it. Used to calculate your platform payout. Defaults to Face Value if empty.</div>
                     <input type="number" className="text-input" value={pkgCostToPartner} onChange={e => setPkgCostToPartner(e.target.value)} placeholder={pkgFaceValue} />
                   </div>
                 </div>
                 <div className="input-group">
                   <label className="input-label">Point Cost *</label>
+                  <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', marginTop: '-0.25rem', marginBottom: '0.5rem' }}>How many loyalty points a customer must spend to redeem this. Usually 1 point = ₹1, so equal to Face Value.</div>
                   <input type="number" className="text-input" value={pkgPointCost} onChange={e => setPkgPointCost(e.target.value)} placeholder={pkgFaceValue} />
                 </div>
                 <div className="input-group">
                   <label className="input-label">Active Regions</label>
+                  <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', marginTop: '-0.25rem', marginBottom: '0.5rem' }}>Tick the regions where you'll fulfill this package. Customers outside these regions won't see it.</div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', marginTop: '0.25rem' }}>
                     {(partnerRegionsList || []).filter(r => r.service_type === pkgServiceType).map(r => {
-                      const rCode = r.region_code || r.region_id;
+                      const rCode = r.region_id;
                       const checked = pkgActiveRegions.includes(rCode);
                       return (
                         <label key={r.id} style={{ fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
@@ -5016,7 +5017,7 @@ export default function App() {
                               else setPkgActiveRegions(prev => prev.filter(c => c !== rCode));
                             }} 
                           />
-                          {r.region_name || rCode} ({rCode})
+                          {r.region_name || r.region_code || rCode} ({rCode})
                         </label>
                       );
                     })}
@@ -6278,7 +6279,7 @@ export default function App() {
                                       {t('Selected Slot:', 'चुना गया स्लॉट:', 'নির্ধারিত স্লট:')} <strong style={{ color: 'white' }}>{o.pickup_slot || t('None', 'कोई नहीं', 'কোনোটি না')}</strong>
                                     </span>
                                     
-                                    {!['READY_FOR_PICKUP', 'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED'].includes(o.status) && (
+                                    {!['READY', 'DELIVERED', 'CANCELLED'].includes(o.status) && (
                                       <button
                                         className="btn btn-secondary"
                                         style={{ padding: '0.1rem 0.35rem', fontSize: '0.55rem', minHeight: '20px', height: '20px' }}
@@ -6324,7 +6325,7 @@ export default function App() {
                               {renderCancelButtonOrClosed(o)}
 
                               {/* §F19: No-show alert for missed pickup */}
-                              {o.status === 'READY_FOR_PICKUP' && o.fulfillment_type === 'PICKUP' && (
+                              {o.status === 'READY' && o.fulfillment_type === 'PICKUP' && (
                                 <button
                                   className="btn btn-secondary"
                                   style={{ width: '100%', padding: '0.35rem', fontSize: '0.65rem', marginTop: '0.2rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.25rem', background: 'rgba(245,158,11,0.1)', color: 'var(--warning)', border: '1px solid var(--warning)' }}
@@ -6722,12 +6723,9 @@ export default function App() {
     const renderOrderProgressBar = (status, fulfillmentType = 'DELIVERY') => {
       const isPickup = fulfillmentType === 'PICKUP';
       const steps = [
-        { key: 'PENDING', label: t('Received', 'प्राप्त', 'গৃহীত') },
-        { key: 'ACCEPTED', label: t('Accepted', 'स्वीकृत', 'স্বীকৃত') },
-        { key: 'PREPARING', label: t('Packing', 'पैकिंग', 'প্যাকিং') },
-        isPickup 
-          ? { key: 'READY_FOR_PICKUP', label: t('Ready for Pickup', 'पिकअप के लिए तैयार', 'পিকআপের জন্য প্রস্তুত') }
-          : { key: 'OUT_FOR_DELIVERY', label: t('Out for Delivery', 'वितरण के लिए बाहर', 'ডেলিভারির জন্য পাঠানো হয়েছে') },
+        { key: 'CONFIRMING', label: t('Order Placed', 'ऑर्डर दिया गया', 'অর্ডার দেওয়া হয়েছে') },
+        { key: 'RECEIVED', label: t('Received', 'प्राप्त', 'গৃহীত') },
+        { key: 'READY', label: isPickup ? t('Ready for Pickup', 'पिकअप के लिए तैयार', 'পিকআপের জন্য প্রস্তুত') : t('Ready for Delivery', 'वितरण के लिए तैयार', 'ডেলিভারির জন্য প্রস্তুত') },
         { key: 'DELIVERED', label: isPickup ? t('Picked Up', 'পিকআপ করা হয়েছে', 'পিকআপ সম্পন্ন') : t('Delivered', 'वितरित', 'ডেলিভারি সম্পন্ন') }
       ];
 
@@ -6881,7 +6879,7 @@ export default function App() {
                       </h3>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                         {stockistOrders.map(o => {
-                          const isNew = ['PENDING', 'CONFIRMING'].includes(o.status);
+                          const isNew = o.status === 'CONFIRMING';
                           return (
                             <div 
                               key={o.id} 
@@ -6974,22 +6972,17 @@ export default function App() {
                               {/* Action Buttons */}
                               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', marginTop: '0.25rem' }}>
                                 <div style={{ display: 'flex', gap: '0.25rem' }}>
-                                  {['PENDING', 'CONFIRMING'].includes(o.status) && (
-                                    <button className="btn" style={{ flex: 1, padding: '0.35rem 0', fontSize: '0.7rem' }} onClick={() => handleUpdateOrderStatus(o.id, 'ACCEPTED')}>
-                                      {t('Accept', 'स्वीकार करें', 'গ্রহণ করুন')}
+                                  {o.status === 'CONFIRMING' && (
+                                    <button className="btn" style={{ flex: 1, padding: '0.35rem 0', fontSize: '0.7rem' }} onClick={() => handleUpdateOrderStatus(o.id, 'RECEIVED')}>
+                                      {t('Accept Order', 'स्वीकार करें', 'গ্রহণ করুন')}
                                     </button>
                                   )}
-                                  {o.status === 'ACCEPTED' && (
-                                    <button className="btn btn-accent" style={{ flex: 1, padding: '0.35rem 0', fontSize: '0.7rem' }} onClick={() => handleUpdateOrderStatus(o.id, 'PREPARING')}>
-                                      {t('Prepare', 'तैयार करें', 'প্যাক করুন')}
+                                  {o.status === 'RECEIVED' && (
+                                    <button className="btn btn-accent" style={{ flex: 1, padding: '0.35rem 0', fontSize: '0.7rem' }} onClick={() => handleUpdateOrderStatus(o.id, 'READY')}>
+                                      {o.fulfillment_type === 'PICKUP' ? t('Mark Ready', 'तैयार चिह्नित करें', 'রেডি চিহ্নিত করুন') : t('Mark Ready for Delivery', 'वितरण के लिए तैयार', 'ডেলিভারির জন্য তৈরি')}
                                     </button>
                                   )}
-                                  {o.status === 'PREPARING' && (
-                                    <button className="btn btn-accent" style={{ flex: 1, padding: '0.35rem 0', fontSize: '0.7rem' }} onClick={() => handleUpdateOrderStatus(o.id, o.fulfillment_type === 'PICKUP' ? 'READY_FOR_PICKUP' : 'OUT_FOR_DELIVERY')}>
-                                      {o.fulfillment_type === 'PICKUP' ? t('Mark Ready', 'तैयार चिह्नित करें', 'রেডি চিহ্নিত করুন') : t('Deliver', 'वितरण करें', 'ডেলিভারি করুন')}
-                                    </button>
-                                  )}
-                                  {['READY_FOR_PICKUP', 'OUT_FOR_DELIVERY'].includes(o.status) && (
+                                  {o.status === 'READY' && (
                                     <div style={{ display: 'flex', gap: '0.25rem', width: '100%' }}>
                                       <input 
                                         type="text" 
@@ -7009,7 +7002,7 @@ export default function App() {
                                       </button>
                                     </div>
                                   )}
-                                  {['PENDING', 'CONFIRMING'].includes(o.status) && (
+                                  {o.status === 'CONFIRMING' && (
                                     <button className="btn btn-danger" style={{ flex: 1, padding: '0.35rem 0', fontSize: '0.7rem' }} onClick={() => handleUpdateOrderStatus(o.id, 'CANCELLED')}>{t('Cancel', 'रद्द करें', 'বাতিল करें')}</button>
                                   )}
                                 </div>
