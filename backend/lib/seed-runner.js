@@ -105,8 +105,8 @@ const DEFAULT_DB = {
     }
   ],
   vendors: [
-    { id: 'v1', tenant_id: 't1', region_id: 'r1', name: 'Kolkata Wholesale Mart', created_at: new Date().toISOString() },
-    { id: 'v2', tenant_id: 't1', region_id: 'r2', name: 'Bishnupur Agro Suppliers', created_at: new Date().toISOString() }
+    { id: 'v1', name: 'Kolkata Wholesale Mart', region_id: 'r1', created_at: new Date().toISOString() },
+    { id: 'v2', name: 'Bishnupur Agro Suppliers', region_id: 'r2', created_at: new Date().toISOString() }
   ],
   stockists: [
     { id: 's1', name: 'Madan Grocers', region_id: 'r1', contact_name: 'Madan Shaw', contact_phone: '7654321098', is_active: true, created_at: new Date().toISOString() },
