@@ -2897,7 +2897,7 @@ async function main() {
   // Test #501: App.jsx does NOT contain r.region_code || r.region_id in package region picker context
   assert(!bf2AppJsx.includes("const rCode = r.region_code || r.region_id;"), 'App.jsx does not contain r.region_code || r.region_id in package region picker context');
 
-  // Test #502: Add Package modal contains at least 3 inline help strings
+  // Test #505: Add Package modal contains at least 3 inline help strings
   const helpStrings = [
     "What customers will see",
     "actual cost to provide",
@@ -2907,6 +2907,109 @@ async function main() {
   ];
   const matchedHelpStrings = helpStrings.filter(s => bf2AppJsx.includes(s));
   assert(matchedHelpStrings.length >= 3, `Add Package modal contains at least 3 inline help strings (found ${matchedHelpStrings.length})`);
+
+  // --- Round BF3: Consolidated Bug Fixes ---
+  console.log('\n--- Round BF3: Consolidated Bug Fixes ---');
+  const bf3AppJsx = fs.readFileSync(path.join(__dirname, '../../frontend/src/App.jsx'), 'utf8');
+
+  // Test #506: Grep test: App.jsx contains ZERO instances of triggerConfirmModal({
+  assert(!bf3AppJsx.includes('triggerConfirmModal({'), 'App.jsx contains ZERO instances of triggerConfirmModal({');
+
+  // Reset database before stateful endpoint tests
+  await post('http://localhost:3001/api/admin/reset-db', {});
+
+  // Test #507: Endpoint test: POST /api/admin/approve-kyc for u-stk3 -> 200, removed from kyc-queue
+  const approveKycRes = await post('http://localhost:3001/api/admin/approve-kyc', {
+    userId: 'u-stk3',
+    vendorId: 'v2',
+    deliveryRadius: 6.0,
+    minOrderValue: 100
+  });
+  assert(approveKycRes.status === 200, 'POST /api/admin/approve-kyc returns 200');
+
+  const bf3KycQueueRes = await get('http://localhost:3001/api/admin/kyc-queue');
+  const inKycQueue = bf3KycQueueRes.body.some(u => u.id === 'u-stk3');
+  assert(!inKycQueue, 'u-stk3 is no longer present in GET /api/admin/kyc-queue after approval');
+
+  // Test #508: Endpoint test: Users row for u-stk3 post-approval has kyc_status='APPROVED'
+  const allUsers = await dbModule.getTable('users');
+  const uStk3User = allUsers.find(u => u.id === 'u-stk3');
+  assert(uStk3User && uStk3User.kyc_status === 'APPROVED', 'u-stk3 kyc_status is APPROVED');
+
+  // Test #509: Endpoint test: GET /api/regions (no auth) -> 200 with 3 items matching seed IDs (r1, r2, r3)
+  const regionsRes = await get('http://localhost:3001/api/regions');
+  assert(regionsRes.status === 200, 'GET /api/regions returns 200');
+  assert(Array.isArray(regionsRes.body) && regionsRes.body.length === 3, 'GET /api/regions returns 3 items');
+  const regionIds = regionsRes.body.map(r => r.id).sort();
+  assert(JSON.stringify(regionIds) === JSON.stringify(['r1', 'r2', 'r3']), 'Regions match seed IDs r1, r2, r3');
+
+  // Test #510: Endpoint test: Response items contain exactly {id, name, code} - no tenant_id, no created_at
+  const firstReg = regionsRes.body[0];
+  const keys = Object.keys(firstReg).sort();
+  assert(JSON.stringify(keys) === JSON.stringify(['code', 'id', 'name']), 'Response items contain exactly {id, name, code}');
+  assert(firstReg.tenant_id === undefined && firstReg.created_at === undefined, 'No tenant_id or created_at in /api/regions response');
+
+  // Test #511: Grep test: App.jsx does NOT contain hardcoded fallback array with 'Kolkata South (Garia)' in setAllSystemRegions
+  assert(!bf3AppJsx.includes("setAllSystemRegions([{ id: 'r1', name: 'Kolkata South (Garia)'"), 'App.jsx does NOT contain hardcoded region fallback in setAllSystemRegions');
+
+  // Test #512: Grep test: App.jsx contains confirmModal.onConfirm?.() (with optional chaining)
+  assert(bf3AppJsx.includes('confirmModal.onConfirm?.()'), 'App.jsx contains confirmModal.onConfirm?.() with optional chaining');
+
+  // Test #513: Endpoint test: GET /api/customer/redemptions/u-cust1 returns an array
+  const custRedemptionsRes = await get('http://localhost:3001/api/customer/redemptions/u-cust1');
+  assert(custRedemptionsRes.status === 200 && Array.isArray(custRedemptionsRes.body), 'GET /api/customer/redemptions/u-cust1 returns 200 array');
+
+  // Test #514: Endpoint test: After u-cust1 redeems a package, the new redemption_approval appears with status PENDING_ADMIN_APPROVAL
+  await post('http://localhost:3001/api/admin/customers/u-cust1/points-credit', { amount: 2000, reason: 'Test setup' });
+  await post('http://localhost:3001/api/customer/partner-bindings', {
+    customer_user_id: 'u-cust1',
+    cable_partner_id: 'ptr-adhya'
+  });
+  const adhyaDetail = await get('http://localhost:3001/api/admin/partners/ptr-adhya');
+  const targetPkg = adhyaDetail.body.packages ? adhyaDetail.body.packages.find(p => p.is_active) : null;
+  const targetPkgId = targetPkg ? targetPkg.id : 'ppk-adhya-basic';
+  const targetPkgCost = targetPkg ? targetPkg.point_cost : 300;
+
+  const p3RedeemRes = await post('http://localhost:3001/api/ledger/redeem', {
+    customer_user_id: 'u-cust1',
+    partner_package_id: targetPkgId,
+    amount: targetPkgCost
+  });
+  assert(p3RedeemRes.status === 200, 'u-cust1 redeems package successfully');
+  const p3ApprovalId = p3RedeemRes.body.redemption_approval ? p3RedeemRes.body.redemption_approval.id : null;
+  assert(p3ApprovalId !== null, 'Redemption created approval row');
+
+  const custRedemptionsPostRes = await get('http://localhost:3001/api/customer/redemptions/u-cust1');
+  const newRedemptionRow = custRedemptionsPostRes.body.find(r => r.id === p3ApprovalId);
+  assert(newRedemptionRow && newRedemptionRow.status === 'PENDING_ADMIN_APPROVAL', 'New redemption appears in endpoint with status PENDING_ADMIN_APPROVAL');
+
+  // Test #515: Endpoint test: After admin approves, response shows status APPROVED_AWAITING_PARTNER
+  await post(`http://localhost:3001/api/admin/redemption-approvals/${p3ApprovalId}/approve`, { admin_id: 'u-admin', notes: 'Approved by admin test' });
+  const custRedemptionsApprovedRes = await get('http://localhost:3001/api/customer/redemptions/u-cust1');
+  const approvedRedemptionRow = custRedemptionsApprovedRes.body.find(r => r.id === p3ApprovalId);
+  assert(approvedRedemptionRow && approvedRedemptionRow.status === 'APPROVED_AWAITING_PARTNER', 'Approved redemption shows status APPROVED_AWAITING_PARTNER');
+
+  // Test #516: Endpoint test: Endpoint does NOT expose partner internal fields (contact_email, gst_number)
+  assert(approvedRedemptionRow.contact_email === undefined && approvedRedemptionRow.gst_number === undefined, 'Endpoint does NOT expose partner internal fields (contact_email, gst_number)');
+
+  // Test #517: Grep test: App.jsx contains status key labels for PENDING_ADMIN_APPROVAL, APPROVED_AWAITING_PARTNER, FULFILLED, REJECTED
+  assert(
+    bf3AppJsx.includes('PENDING_ADMIN_APPROVAL') &&
+    bf3AppJsx.includes('APPROVED_AWAITING_PARTNER') &&
+    bf3AppJsx.includes('FULFILLED') &&
+    bf3AppJsx.includes('REJECTED'),
+    'App.jsx contains status keys PENDING_ADMIN_APPROVAL, APPROVED_AWAITING_PARTNER, FULFILLED, REJECTED'
+  );
+
+  // Test #518: Grep test: All other confirmation modal call sites in App.jsx use positional args
+  const modalCallsCount = (bf3AppJsx.match(/triggerConfirmModal\(/g) || []).length;
+  assert(modalCallsCount >= 6, `Count of triggerConfirmModal( calls matches expectation (found ${modalCallsCount})`);
+
+  // Test #519: Grep test: App.jsx does NOT contain any triggerConfirmModal(\s*\{ pattern
+  assert(!/triggerConfirmModal\s*\{/.test(bf3AppJsx), 'App.jsx does NOT contain triggerConfirmModal(\\s*\\{ pattern');
+
+  // Test #520: Grep test: handleApproveKyc handler is still defined and still hits /admin/approve-kyc
+  assert(bf3AppJsx.includes('handleApproveKyc') && bf3AppJsx.includes('/admin/approve-kyc'), 'handleApproveKyc handler is defined and hits /admin/approve-kyc');
 
 console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);

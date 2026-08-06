@@ -4798,6 +4798,31 @@ app.get('/api/customer/redemption-status/:approval_id', async (req, res) => {
   });
 });
 
+app.get('/api/customer/redemptions/:customerUserId', async (req, res) => {
+  const { customerUserId } = req.params;
+  const approvals = await db.getTable('redemption_approvals');
+  const partners = await db.getTable('partners');
+  const packages = await db.getTable('partner_packages');
+
+  const customerApprovals = approvals
+    .filter(a => a.customer_user_id === customerUserId)
+    .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0))
+    .slice(0, 20);
+
+  const result = customerApprovals.map(a => {
+    const partner = partners.find(p => p.id === a.partner_id);
+    const pkg = packages.find(p => p.id === a.partner_package_id);
+    return {
+      ...a,
+      package_name: pkg ? pkg.name : (a.package_name || 'Unknown Package'),
+      partner_display_name: partner ? partner.display_name : (a.partner_display_name || partner?.name || 'Partner'),
+      partner_name: partner ? partner.display_name : (a.partner_display_name || partner?.name || 'Partner')
+    };
+  });
+
+  return res.json(result);
+});
+
 // Part 4 — Admin Health Dashboard API
 app.get('/api/admin/health', async (req, res) => {
   const now = Date.now();
@@ -4978,6 +5003,15 @@ app.get('/api/partner/dashboard', async (req, res) => {
       open_count: openDisputes.length
     }
   });
+});
+
+// Public Region List (BF3 Fix)
+app.get('/api/regions', async (req, res) => {
+  const regions = await db.getTable('regions');
+  const clean = regions
+    .filter(r => !r.tenant_id || r.tenant_id === 't1')
+    .map(r => ({ id: r.id, name: r.name, code: r.code }));
+  res.json(clean);
 });
 
 // Part 2: Partner Region Self-Management

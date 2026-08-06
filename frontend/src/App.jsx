@@ -2030,6 +2030,7 @@ export default function App() {
   };
 
   const [availableRewards, setAvailableRewards] = useState(null);
+  const [customerRedemptions, setCustomerRedemptions] = useState([]);
   const [redemptionSuccessModal, setRedemptionSuccessModal] = useState(null);
 
   const fetchAvailableRewards = async () => {
@@ -2045,6 +2046,19 @@ export default function App() {
     }
   };
 
+  const fetchCustomerRedemptions = async () => {
+    if (!currentUser || currentUser.role !== 'CUSTOMER') return;
+    try {
+      const res = await fetch(`${API_BASE}/customer/redemptions/${currentUser.id}`);
+      if (res.ok) {
+        const data = await res.json();
+        setCustomerRedemptions(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch customer redemptions', err);
+    }
+  };
+
   useEffect(() => {
     if (currentUser && currentUser.role === 'CUSTOMER') {
       fetchCustomerProfileData();
@@ -2054,7 +2068,11 @@ export default function App() {
   useEffect(() => {
     if (currentUser && currentUser.role === 'CUSTOMER' && (customerAppTab === 'pointshop' || customerAppTab === 'rewards')) {
       fetchAvailableRewards();
-      const onFocus = () => fetchAvailableRewards();
+      fetchCustomerRedemptions();
+      const onFocus = () => {
+        fetchAvailableRewards();
+        fetchCustomerRedemptions();
+      };
       window.addEventListener('focus', onFocus);
       return () => window.removeEventListener('focus', onFocus);
     }
@@ -3752,7 +3770,7 @@ export default function App() {
         const regData = await regRes.json();
         setAllSystemRegions(regData);
       } else {
-        setAllSystemRegions([{ id: 'r1', name: 'Kolkata South (Garia)', code: 'r1' }, { id: 'r2', name: 'South 24 Parganas (Bishnupur)', code: 'r2' }, { id: 'r3', name: 'Barasat North', code: 'r3' }]);
+        setAllSystemRegions([]);
       }
     } catch (err) {
       console.error('Error fetching partner regions:', err);
@@ -6176,6 +6194,72 @@ export default function App() {
                                 bindingsObj.broadband_partner_name,
                                 'broadband'
                               )}
+
+                              {/* My Redemptions Section */}
+                              <div style={{ marginTop: '0.5rem', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '1rem' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.75rem' }}>
+                                  <div style={{ width: '3px', height: '14px', borderRadius: '2px', background: '#a855f7' }} />
+                                  <span style={{ fontSize: '0.8rem', fontWeight: 'bold', color: 'white' }}>
+                                    {t('My Redemptions', 'मेरे रिडेम्पशन', 'আমার রিডেম্পশন')}
+                                  </span>
+                                </div>
+                                {customerRedemptions.length === 0 ? (
+                                  <div style={{ padding: '1rem', borderRadius: '10px', background: 'rgba(255,255,255,0.02)', border: '1px dashed rgba(255,255,255,0.08)', fontSize: '0.75rem', color: 'var(--text-muted)', textAlign: 'center' }}>
+                                    {t("You haven't redeemed any rewards yet.", "आपने अभी तक कोई इनाम भुनाया नहीं है।", "আপনি এখনও কোনো পুরষ্কার রিডিম করেননি।")}
+                                  </div>
+                                ) : (
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                                    {customerRedemptions.map(item => {
+                                      const partnerDisplayName = item.partner_display_name || item.partner_name || t('Partner', 'साझेदार', 'পার্টনার');
+                                      let statusLabel = item.status;
+                                      if (item.status === 'PENDING_ADMIN_APPROVAL') {
+                                        statusLabel = t('Waiting for FastNet approval', 'फास्टनेट की मंजूरी का इंतजार', 'ফাস্টনেট অনুমোদনের জন্য অপেক্ষা করা হচ্ছে');
+                                      } else if (item.status === 'APPROVED_AWAITING_PARTNER') {
+                                        statusLabel = t(`${partnerDisplayName} will contact you soon`, `${partnerDisplayName} आपसे जल्द ही संपर्क करेंगे`, `${partnerDisplayName} শীঘ্রই আপনার সাথে যোগাযোগ করবে`);
+                                      } else if (item.status === 'FULFILLED') {
+                                        statusLabel = t('Delivered ✓', 'डिलिवर हुआ ✓', 'ডেলিভার করা হয়েছে ✓');
+                                      } else if (item.status === 'REJECTED') {
+                                        statusLabel = t('Rejected — points refunded', 'अस्वीकृत — अंक वापस किए गए', 'বাতিল — পয়েন্ট ফেরত দেওয়া হয়েছে');
+                                      } else if (item.status === 'DISPUTED') {
+                                        statusLabel = t('Under review', 'समीक्षाधीन', 'পুনর্বিবেचनाधीन');
+                                      }
+
+                                      const statusColor = item.status === 'FULFILLED' ? '#22c55e' : item.status === 'REJECTED' ? '#9ca3af' : item.status === 'APPROVED_AWAITING_PARTNER' ? '#3b82f6' : '#eab308';
+                                      
+                                      let timestamp = item.created_at;
+                                      if (item.status === 'APPROVED_AWAITING_PARTNER' && item.approved_at) timestamp = item.approved_at;
+                                      else if (item.status === 'FULFILLED' && item.fulfilled_at) timestamp = item.fulfilled_at;
+                                      else if (item.status === 'REJECTED' && item.rejected_at) timestamp = item.rejected_at;
+                                      else if (item.status === 'DISPUTED' && item.disputed_at) timestamp = item.disputed_at;
+
+                                      const formattedTime = timestamp ? new Date(timestamp).toLocaleString() : '';
+
+                                      return (
+                                        <div key={item.id} className="glass-card" style={{ padding: '0.75rem 0.85rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                          <div>
+                                            <div style={{ fontSize: '0.8rem', fontWeight: 'bold', color: 'white' }}>
+                                              {item.package_name || 'Package'} <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 'normal' }}>• {partnerDisplayName}</span>
+                                            </div>
+                                            <div style={{ fontSize: '0.7rem', color: statusColor, marginTop: '0.2rem', fontWeight: '600' }}>
+                                              {statusLabel}
+                                            </div>
+                                            {formattedTime && (
+                                              <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', marginTop: '0.15rem' }}>
+                                                {formattedTime}
+                                              </div>
+                                            )}
+                                          </div>
+                                          <div style={{ textAlign: 'right' }}>
+                                            <div style={{ fontSize: '0.85rem', fontWeight: 'bold', color: '#ec4899' }}>
+                                              -{formatPoints(item.points_deducted || item.amount || 0)}
+                                            </div>
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </div>
 
                               <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', textAlign: 'center', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '0.75rem' }}>
                                 Points earned from FastNet grocery orders · Redeemable against FastNet services only · Non-transferable
@@ -8843,11 +8927,11 @@ export default function App() {
                             <td>{kyc.shop_address || u.shop_address || u.address || '-'}</td>
                             <td>
                               <button className="btn btn-accent" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }} onClick={() => {
-                                triggerConfirmModal({
-                                  title: 'Approve Stockist KYC',
-                                  message: `Approve ${u.name} as stockist? A vendor will be auto-assigned based on their region.`,
-                                  onConfirm: () => handleApproveKyc(u.id)
-                                });
+                                triggerConfirmModal(
+                                  'Approve Stockist KYC',
+                                  `Approve ${u.name} as stockist? A vendor will be auto-assigned based on their region.`,
+                                  () => handleApproveKyc(u.id)
+                                );
                               }}>
                                 Approve
                               </button>
@@ -9586,7 +9670,7 @@ export default function App() {
                 className={confirmModal.danger ? 'btn btn-danger' : 'btn btn-accent'} 
                 style={{ padding: '0.5rem 1rem', fontSize: '0.8rem' }}
                 onClick={() => {
-                  confirmModal.onConfirm();
+                  confirmModal.onConfirm?.();
                   setConfirmModal(null);
                 }}
               >
