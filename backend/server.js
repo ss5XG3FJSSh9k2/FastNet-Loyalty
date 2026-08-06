@@ -10,6 +10,57 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// HTTP Request Logging Middleware (Part 3.3)
+app.use((req, res, next) => {
+  const start = Date.now();
+  const rawPath = req.path || req.originalUrl?.split('?')[0] || req.url?.split('?')[0];
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+    const isoString = new Date().toISOString();
+    console.log(`[HTTP] ${isoString} ${req.method} ${rawPath} ${res.statusCode} ${duration}ms`);
+  });
+  next();
+});
+
+// Health Check Endpoint (Part 3.2)
+app.get('/api/health', async (req, res) => {
+  let dbStatus = 'connected';
+  try {
+    const alive = await db.query('SELECT 1 as alive').catch(() => null);
+    if (!alive) {
+      const users = await db.getTable('users');
+      if (!Array.isArray(users)) dbStatus = 'error';
+    }
+  } catch (e) {
+    dbStatus = 'error';
+  }
+  res.json({
+    status: 'ok',
+    db: dbStatus,
+    uptime_seconds: Math.floor(process.uptime()),
+    version: process.env.APP_VERSION || 'unknown'
+  });
+});
+
+// Boot-Time Missing-Config Warnings (Part 3.1)
+function checkConfigWarnings() {
+  if (!process.env.DATABASE_URL) {
+    console.log('[Config] WARNING: DATABASE_URL missing — set DATABASE_URL for production or fallback to mem in dev.');
+  }
+  if (!process.env.JWT_SECRET) {
+    console.log('[Config] WARNING: JWT_SECRET missing — set JWT_SECRET for production.');
+  }
+  if (!process.env.EMAIL_MOCK && !process.env.SENDGRID_API_KEY) {
+    console.log('[Config] WARNING: Email delivery disabled — set EMAIL_MOCK=true for dev, or SENDGRID_API_KEY for production.');
+  }
+  if (!process.env.SMS_MOCK && !process.env.MSG91_AUTH_KEY) {
+    console.log('[Config] WARNING: SMS delivery disabled — set SMS_MOCK=true for dev, or MSG91_AUTH_KEY for production.');
+  }
+  if (!process.env.R2_MOCK && !process.env.R2_ACCESS_KEY_ID) {
+    console.log('[Config] WARNING: R2 storage disabled — set R2_MOCK=true for dev, or R2_ACCESS_KEY_ID for production.');
+  }
+}
+
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 8 * 1024 * 1024 }
@@ -5832,6 +5883,7 @@ app.get('/api/admin/analytics', async (req, res) => {
 const PORT = process.env.PORT || 3001;
 let serverInstance = null;
 const readyPromise = db.init().then(() => {
+  checkConfigWarnings();
   if (!serverInstance) {
     serverInstance = app.listen(PORT, () => {
       console.log(`[Backend Server] ISP-Commerce Loyalty API listening on port ${PORT}`);

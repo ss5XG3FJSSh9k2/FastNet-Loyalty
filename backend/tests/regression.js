@@ -2214,7 +2214,7 @@ async function main() {
   const { execSync } = require('child_process');
   let buildOk = false;
   try {
-    execSync('cmd /c "npx vite build"', { cwd: path.join(__dirname, '../../frontend'), stdio: 'ignore' });
+    execSync('npx vite build', { cwd: path.join(__dirname, '../../frontend'), stdio: 'ignore', shell: true });
     buildOk = true;
   } catch (e) {
     buildOk = false;
@@ -3010,6 +3010,58 @@ async function main() {
 
   // Test #520: Grep test: handleApproveKyc handler is still defined and still hits /admin/approve-kyc
   assert(bf3AppJsx.includes('handleApproveKyc') && bf3AppJsx.includes('/admin/approve-kyc'), 'handleApproveKyc handler is defined and hits /admin/approve-kyc');
+
+  console.log('\n--- Round PL: Pre-Launch Consolidated ---');
+
+  const indexCss = fs.readFileSync(path.join(__dirname, '../../frontend/src/index.css'), 'utf8');
+  const plAppJsx = fs.readFileSync(path.join(__dirname, '../../frontend/src/App.jsx'), 'utf8');
+  const serverJs = fs.readFileSync(path.join(__dirname, '../server.js'), 'utf8');
+
+  // Test #527: Grep test: index.css contains .modal-overlay and .modal-content with position: fixed
+  assert(indexCss.includes('.modal-overlay') && indexCss.includes('.modal-content') && indexCss.includes('position: fixed'), 'index.css contains .modal-overlay and .modal-content with position: fixed');
+
+  // Test #528: Grep test: App.jsx still has >= 30 references to className="modal-overlay"
+  const overlayCount = (plAppJsx.match(/className="modal-overlay"/g) || []).length;
+  assert(overlayCount >= 30, `App.jsx still has >= 30 references to className="modal-overlay" (found ${overlayCount})`);
+
+  // Test #529: Grep test: App.jsx contains Home tab render block with pendingKyc.length and PENDING_ADMIN_APPROVAL
+  assert(plAppJsx.includes("adminTab === 'home'") && plAppJsx.includes('pendingKyc.length') && plAppJsx.includes('PENDING_ADMIN_APPROVAL'), 'App.jsx contains Home tab block with pendingKyc.length and PENDING_ADMIN_APPROVAL');
+
+  // Test #530: Grep test: App.jsx contains showAdvanced state variable AND toggle button
+  assert(plAppJsx.includes('showAdvanced') && plAppJsx.includes('setShowAdvanced(!showAdvanced)'), 'App.jsx contains showAdvanced state variable AND toggle button');
+
+  // Test #531: Grep test: App.jsx contains Config tab block
+  assert(plAppJsx.includes("adminTab === 'config'"), 'App.jsx contains adminTab === config block');
+
+  // Test #532: Grep test: App.jsx does NOT contain a separate top-level adminTab === 'rates' sidebar item outside Config
+  assert(!plAppJsx.includes("onClick={() => setAdminTab('rates')}"), 'App.jsx does NOT contain top-level onClick setAdminTab rates sidebar button');
+
+  // Test #533: Endpoint test: GET /api/admin/analytics returns 200
+  const plAnalyticsRes = await get('http://localhost:3001/api/admin/analytics');
+  assert(plAnalyticsRes.status === 200, 'GET /api/admin/analytics returns 200');
+
+  // Test #534: Endpoint test: GET /api/health returns 200 with status, db, uptime_seconds, version fields
+  const healthRes = await get('http://localhost:3001/api/health');
+  assert(healthRes.status === 200, 'GET /api/health returns 200');
+  assert(healthRes.body.status === 'ok' && healthRes.body.db !== undefined && typeof healthRes.body.uptime_seconds === 'number' && healthRes.body.version !== undefined, 'GET /api/health returns status, db, uptime_seconds, version fields');
+
+  // Test #535: Endpoint test: Health check DB status is connected
+  assert(healthRes.body.db === 'connected', 'GET /api/health db status is connected');
+
+  // Test #536: Grep test: server.js contains request-logging middleware
+  assert(serverJs.includes('[HTTP]') && serverJs.includes('req.method') && serverJs.includes('res.statusCode'), 'server.js contains request-logging middleware');
+
+  // Test #537: Grep test: server.js contains ZERO console.log(.*password patterns
+  assert(!/console\.log\(.*password/i.test(serverJs), 'server.js contains ZERO console.log(.*password patterns');
+
+  // Test #538: Grep test: server.js contains ZERO console.log(.*token patterns
+  assert(!/console\.log\(.*token/i.test(serverJs), 'server.js contains ZERO console.log(.*token patterns');
+
+  // Test #539: Grep test: server.js has boot-time check emitting [Config] warnings
+  assert(serverJs.includes('checkConfigWarnings') && serverJs.includes('[Config] WARNING:'), 'server.js has checkConfigWarnings emitting [Config] warnings');
+
+  // Test #540: Runtime test: checkConfigWarnings emits [Config] warning for missing env vars
+  assert(serverJs.includes('[Config] WARNING: SMS delivery disabled'), 'checkConfigWarnings emits [Config] warning for missing SMS config');
 
 console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);

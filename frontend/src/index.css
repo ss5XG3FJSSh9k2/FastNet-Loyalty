@@ -1060,4 +1060,48 @@ h1, h2, h3, h4, h5, h6 {
   animation: stock-pulse 2s infinite ease-in-out;
 }
 
+/* Modal Overlay & Centered Modal Content System */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1rem;
+  overflow-y: auto;
+  animation: modal-fade-in 0.15s ease-out;
+}
+
+.modal-content {
+  background: var(--bg-elevated, #1a1d24);
+  color: var(--text-primary, #fff);
+  border-radius: 12px;
+  padding: 1.5rem;
+  width: 100%;
+  max-width: 500px;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+  animation: modal-slide-in 0.2s ease-out;
+}
+
+@keyframes modal-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes modal-slide-in {
+  from { transform: translateY(10px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+/* Prevent scroll on body when a modal is open — small quality improvement */
+body:has(.modal-overlay) {
+  overflow: hidden;
+}
+
+
 

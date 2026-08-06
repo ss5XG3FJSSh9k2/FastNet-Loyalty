@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   ShoppingBag, 
+  Home,
   Smartphone, 
   Settings, 
   Database, 
@@ -152,7 +153,9 @@ export default function App() {
   const [fraudLinkedEntityId, setFraudLinkedEntityId] = useState('');
 
   const [adminRegionFilter, setAdminRegionFilter] = useState('ALL');
-  const [adminTab, setAdminTab] = useState('kyc');
+  const [adminTab, setAdminTab] = useState('home');
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [gettingStartedOpen, setGettingStartedOpen] = useState(true);
 
   const [adminCustomers, setAdminCustomers] = useState([]);
   const [adminCustomerSearch, setAdminCustomerSearch] = useState('');
@@ -7645,54 +7648,77 @@ export default function App() {
 
           <div className="admin-grid">
             <div className="admin-sidebar">
-              <button className={`admin-nav-item ${adminTab === 'analytics' ? 'active' : ''}`} onClick={() => { setAdminTab('analytics'); fetchAnalytics(); }}>
-                <TrendingUp size={16} /> Analytics
-              </button>
-              <button className={`admin-nav-item ${adminTab === 'health' ? 'active' : ''}`} onClick={() => { setAdminTab('health'); fetchHealthData(); }}>
-                <TrendingUp size={16} /> Health
+              {/* Primary Top Section (Always Visible) */}
+              <button className={`admin-nav-item ${adminTab === 'home' ? 'active' : ''}`} onClick={() => setAdminTab('home')}>
+                <Home size={16} /> Home
               </button>
               <button className={`admin-nav-item ${adminTab === 'kyc' ? 'active' : ''}`} onClick={() => setAdminTab('kyc')}>
                 <UserCheck size={16} /> Pending KYC {pendingKyc.length > 0 && <span className="badge badge-danger" style={{ marginLeft: '0.25rem', fontSize: '0.65rem' }}>{pendingKyc.length}</span>}
               </button>
-              <button className={`admin-nav-item ${adminTab === 'customers' ? 'active' : ''}`} onClick={() => setAdminTab('customers')}>
-                <UserCheck size={16} /> All Customers ({adminCustomers.length})
-              </button>
               <button className={`admin-nav-item ${adminTab === 'stockists' ? 'active' : ''}`} onClick={() => setAdminTab('stockists')}>
-                <Store size={16} /> All Stockists ({adminStockists.length})
-              </button>
-              <button className={`admin-nav-item ${adminTab === 'partners' || adminTab === 'leads' ? 'active' : ''}`} onClick={() => { setAdminTab('partners'); fetchAdminPartners(); }}>
-                <UserPlus size={16} /> All Partners ({adminPartners.length + partnerLeads.length})
+                <Store size={16} /> Stockists
               </button>
               <button className={`admin-nav-item ${adminTab === 'redemption_approvals' ? 'active' : ''}`} onClick={() => { setAdminTab('redemption_approvals'); fetchRedemptionApprovals(); }}>
-                <Gift size={16} /> Redemption Approvals {adminRedemptionApprovals.filter(r => r.status === 'PENDING_ADMIN_APPROVAL').length > 0 && <span className="badge badge-warning" style={{ marginLeft: '0.25rem', fontSize: '0.65rem' }}>{adminRedemptionApprovals.filter(r => r.status === 'PENDING_ADMIN_APPROVAL').length}</span>}
+                <Gift size={16} /> Redemptions {adminRedemptionApprovals.filter(r => r.status === 'PENDING_ADMIN_APPROVAL').length > 0 && <span className="badge badge-danger" style={{ marginLeft: '0.25rem', fontSize: '0.65rem' }}>{adminRedemptionApprovals.filter(r => r.status === 'PENDING_ADMIN_APPROVAL').length}</span>}
               </button>
-              <button className={`admin-nav-item ${adminTab === 'fraud_reports' ? 'active' : ''}`} onClick={() => setAdminTab('fraud_reports')}>
-                <AlertTriangle size={16} /> Fraud Reports {adminFraudReports.filter(r=>['NEW','TRIAGING'].includes(r.status)).length > 0 && <span className="badge badge-warning" style={{ marginLeft: '0.25rem', fontSize: '0.65rem' }}>{adminFraudReports.filter(r=>['NEW','TRIAGING'].includes(r.status)).length}</span>}
+              <button className={`admin-nav-item ${adminTab === 'analytics' ? 'active' : ''}`} onClick={() => { setAdminTab('analytics'); fetchAnalytics(); localStorage.setItem('fastnet_admin_analytics_visited', 'true'); }}>
+                <TrendingUp size={16} /> Analytics
               </button>
-              <button className={`admin-nav-item ${adminTab === 'bill_photos' ? 'active' : ''}`} onClick={() => { setAdminTab('bill_photos'); fetchAdminBillPhotos(); }}>
-                <FileText size={16} /> Bill Photos {adminBillPhotos.filter(b => b.flag_status === 'FLAGGED').length > 0 && <span className="badge badge-warning" style={{ marginLeft: '0.25rem', fontSize: '0.65rem' }}>{adminBillPhotos.filter(b => b.flag_status === 'FLAGGED').length}</span>}
+              <button className={`admin-nav-item ${adminTab === 'config' || adminTab === 'rates' ? 'active' : ''}`} onClick={() => setAdminTab('config')}>
+                <Settings size={16} /> Config
               </button>
-              <button className={`admin-nav-item ${adminTab === 'audit_log' ? 'active' : ''}`} onClick={() => setAdminTab('audit_log')}>
-                <FileText size={16} /> Audit Log
-              </button>
-              <button className={`admin-nav-item ${adminTab === 'rates' ? 'active' : ''}`} onClick={() => setAdminTab('rates')}>
-                <Settings size={16} /> Commission & Points Config
-              </button>
-              <button className={`admin-nav-item ${adminTab === 'feedback' ? 'active' : ''}`} onClick={() => setAdminTab('feedback')}>
-                <ShieldAlert size={16} /> Feedback & Reports ({allFeedbackReports.length})
-              </button>
-              <button className={`admin-nav-item ${adminTab === 'anomalies' ? 'active' : ''}`} onClick={() => setAdminTab('anomalies')}>
-                <ShieldAlert size={16} /> Flagged Store Orders ({anomalies.length})
-              </button>
-              <button className={`admin-nav-item ${adminTab === 'redemptions' ? 'active' : ''}`} onClick={() => setAdminTab('redemptions')}>
-                <ArrowRightLeft size={16} /> Subscriber Bill Discounts ({pendingRedemptions.filter(r=>r.billing_sync_status==='PENDING').length})
-              </button>
-              <button className={`admin-nav-item ${adminTab === 'vendors' ? 'active' : ''}`} onClick={() => setAdminTab('vendors')}>
-                <ShoppingBag size={16} /> Wholesalers ({vendors.length})
-              </button>
-              <button className={`admin-nav-item ${adminTab === 'transactions' ? 'active' : ''}`} onClick={() => setAdminTab('transactions')}>
-                <ArrowRightLeft size={16} /> All Transactions {refundDueCount > 0 && <span className="badge badge-danger" style={{ marginLeft: '0.25rem', fontSize: '0.65rem' }}>{refundDueCount}</span>}
-              </button>
+
+              {/* Collapsible Advanced Section */}
+              <div style={{ marginTop: '0.75rem', paddingTop: '0.5rem', borderTop: '1px solid var(--border-color)' }}>
+                <button 
+                  className="admin-nav-item" 
+                  onClick={() => setShowAdvanced(!showAdvanced)}
+                  style={{ fontWeight: '600', color: 'var(--text-muted)', width: '100%', textAlign: 'left', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
+                >
+                  <span>{showAdvanced ? '▾ Advanced' : '▸ Advanced'}</span>
+                </button>
+
+                {showAdvanced && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', marginTop: '0.35rem', paddingLeft: '0.25rem' }}>
+                    <button className={`admin-nav-item ${adminTab === 'customers' ? 'active' : ''}`} onClick={() => setAdminTab('customers')}>
+                      <UserCheck size={16} /> All Customers ({adminCustomers.length})
+                    </button>
+                    <button className={`admin-nav-item ${adminTab === 'partners' ? 'active' : ''}`} onClick={() => { setAdminTab('partners'); fetchAdminPartners(); }}>
+                      <UserPlus size={16} /> All Partners ({adminPartners.length})
+                    </button>
+                    <button className={`admin-nav-item ${adminTab === 'leads' ? 'active' : ''}`} onClick={() => { setAdminTab('leads'); fetchAdminPartners(); }}>
+                      <UserPlus size={16} /> Partner Leads ({partnerLeads.length})
+                    </button>
+                    <button className={`admin-nav-item ${adminTab === 'vendors' ? 'active' : ''}`} onClick={() => setAdminTab('vendors')}>
+                      <ShoppingBag size={16} /> Wholesalers ({vendors.length})
+                    </button>
+                    <button className={`admin-nav-item ${adminTab === 'redemptions' ? 'active' : ''}`} onClick={() => setAdminTab('redemptions')}>
+                      <ArrowRightLeft size={16} /> Subscriber Bill Discounts ({pendingRedemptions.filter(r=>r.billing_sync_status==='PENDING').length})
+                    </button>
+                    <button className={`admin-nav-item ${adminTab === 'fraud_reports' ? 'active' : ''}`} onClick={() => setAdminTab('fraud_reports')}>
+                      <AlertTriangle size={16} /> Fraud Reports {adminFraudReports.filter(r=>['NEW','TRIAGING'].includes(r.status)).length > 0 && <span className="badge badge-warning" style={{ marginLeft: '0.25rem', fontSize: '0.65rem' }}>{adminFraudReports.filter(r=>['NEW','TRIAGING'].includes(r.status)).length}</span>}
+                    </button>
+                    <button className={`admin-nav-item ${adminTab === 'anomalies' ? 'active' : ''}`} onClick={() => setAdminTab('anomalies')}>
+                      <ShieldAlert size={16} /> Flagged Store Orders ({anomalies.length})
+                    </button>
+                    <button className={`admin-nav-item ${adminTab === 'bill_photos' ? 'active' : ''}`} onClick={() => { setAdminTab('bill_photos'); fetchAdminBillPhotos(); }}>
+                      <FileText size={16} /> Bill Photos {adminBillPhotos.filter(b => b.flag_status === 'FLAGGED').length > 0 && <span className="badge badge-warning" style={{ marginLeft: '0.25rem', fontSize: '0.65rem' }}>{adminBillPhotos.filter(b => b.flag_status === 'FLAGGED').length}</span>}
+                    </button>
+                    <button className={`admin-nav-item ${adminTab === 'audit_log' ? 'active' : ''}`} onClick={() => setAdminTab('audit_log')}>
+                      <FileText size={16} /> Audit Log
+                    </button>
+                    <button className={`admin-nav-item ${adminTab === 'feedback' ? 'active' : ''}`} onClick={() => setAdminTab('feedback')}>
+                      <ShieldAlert size={16} /> Feedback & Reports ({allFeedbackReports.length})
+                    </button>
+                    <button className={`admin-nav-item ${adminTab === 'transactions' ? 'active' : ''}`} onClick={() => setAdminTab('transactions')}>
+                      <ArrowRightLeft size={16} /> All Transactions {refundDueCount > 0 && <span className="badge badge-danger" style={{ marginLeft: '0.25rem', fontSize: '0.65rem' }}>{refundDueCount}</span>}
+                    </button>
+                    <button className={`admin-nav-item ${adminTab === 'health' ? 'active' : ''}`} onClick={() => { setAdminTab('health'); fetchHealthData(); }}>
+                      <TrendingUp size={16} /> System Health
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="admin-content">
@@ -8951,7 +8977,7 @@ export default function App() {
                 </div>
               )}
 
-              {adminTab === 'rates' && (
+              {(adminTab === 'config' || adminTab === 'rates') && (
                 <div>
                   <h2 style={{ fontSize: '1.4rem', marginBottom: '1rem' }}>Commission & Points Config</h2>
                   <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
