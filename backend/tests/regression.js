@@ -3082,6 +3082,50 @@ async function main() {
   const stk3Res = await get('http://localhost:3001/api/stockists/by-user/u-stk3');
   assert(stk3Res.status === 404, 'GET /api/stockists/by-user/u-stk3 returns 404 (pending)');
 
+  console.log('\n--- Round BF4c: Pickup Slots: AM/PM Format, No Past Slots ---');
+  const bf4cAppJsx = fs.readFileSync(path.join(__dirname, '../../frontend/src/App.jsx'), 'utf8');
+
+  // Extract formatHour12 and getAvailableSlots from App.jsx to test functionally
+  const extractFnCode = (src, fnName) => {
+    const startIdx = src.indexOf(`const ${fnName} =`);
+    if (startIdx === -1) throw new Error(`Could not find ${fnName} in App.jsx`);
+    const body = src.slice(startIdx, src.indexOf('};', startIdx) + 2);
+    return body;
+  };
+
+  const formatHour12Code = extractFnCode(bf4cAppJsx, 'formatHour12');
+  const getAvailableSlotsCode = extractFnCode(bf4cAppJsx, 'getAvailableSlots');
+
+  const evalSlotsFn = new Function(
+    `${formatHour12Code}; ${getAvailableSlotsCode}; return getAvailableSlots;`
+  )();
+
+  const testStockist = { id: 's1', opening_time: '08:00', closing_time: '20:00', prep_eta_minutes: 10 };
+
+  // Test #546: Given a fixed "now" of 20:30 and store hours 08:00–20:00: every returned slot start is in the future, and at least one is labelled for tomorrow
+  const fixedNowLate = new Date('2026-08-06T20:30:00');
+  const slotsLate = evalSlotsFn(testStockist, fixedNowLate);
+  assert(slotsLate.length > 0, 'slotsLate returns at least one slot');
+  assert(slotsLate.every(s => new Date(s.value).getTime() > fixedNowLate.getTime()), 'Every returned slot start is in the future when now is 20:30');
+  assert(slotsLate.some(s => s.day === 'tomorrow' || s.label.startsWith('Tomorrow,')), 'At least one slot is labelled for tomorrow when now is 20:30');
+
+  // Test #547: Given "now" of 10:00: no returned slot starts before 10:00
+  const fixedNowMorning = new Date('2026-08-06T10:00:00');
+  const slotsMorning = evalSlotsFn(testStockist, fixedNowMorning);
+  assert(slotsMorning.length > 0, 'slotsMorning returns slots for 10:00 AM');
+  assert(slotsMorning.every(s => new Date(s.value).getTime() >= fixedNowMorning.getTime()), 'No returned slot starts before 10:00 when now is 10:00');
+
+  // Test #548: For a store with valid opening/closing hours, the returned list is non-empty at any hour of the day
+  for (let hour = 0; hour < 24; hour++) {
+    const testNow = new Date(`2026-08-06T${String(hour).padStart(2, '0')}:15:00`);
+    const slots = evalSlotsFn(testStockist, testNow);
+    assert(slots.length > 0, `Returned list is non-empty at hour ${hour}:00`);
+  }
+
+  // Test #549: Grep: App.jsx contains AM and PM string literals near slot code, and customer cart picker no longer builds labels with bare String(h).padStart(2, '0') + ':00'
+  assert(bf4cAppJsx.includes("'AM'") && bf4cAppJsx.includes("'PM'"), 'App.jsx contains AM and PM string literals');
+  assert(!bf4cAppJsx.includes("String(h).padStart(2, '0') + ':00'"), 'App.jsx no longer builds labels with bare String(h).padStart(2, "0") + ":00"');
+
 console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);
 }

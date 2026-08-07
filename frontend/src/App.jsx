@@ -530,39 +530,93 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  const getAvailableSlots = (stockist) => {
+  const formatHour12 = (h) => {
+    if (typeof h === 'string' && h.includes(':')) {
+      h = parseInt(h.split(':')[0], 10);
+    } else if (typeof h === 'string') {
+      h = parseInt(h, 10);
+    }
+    if (isNaN(h)) return '';
+    const normalizedHour = h % 24;
+    const period = normalizedHour >= 12 ? 'PM' : 'AM';
+    const displayHour = normalizedHour % 12 === 0 ? 12 : normalizedHour % 12;
+    return `${displayHour}:00 ${period}`;
+  };
+
+  const formatPickupSlotDisplay = (slotStr) => {
+    if (!slotStr) return '';
+    const match = slotStr.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})$/);
+    if (match) {
+      const [, dateStr, hStr] = match;
+      const h = parseInt(hStr, 10);
+      const startFmt = formatHour12(h);
+      const endFmt = formatHour12(h + 1);
+      const todayStr = new Date().toISOString().split('T')[0];
+      const isToday = dateStr === todayStr;
+      const prefix = isToday ? 'Today' : dateStr;
+      return `${prefix}, ${startFmt} – ${endFmt}`;
+    }
+    return slotStr;
+  };
+
+  const getAvailableSlots = (stockist, now = new Date()) => {
     if (!stockist) return [];
     const opening = stockist.opening_time || '08:00';
     const closing = stockist.closing_time || '20:00';
     const prepMinutes = stockist.prep_eta_minutes || 10;
 
-    const slots = [];
-    const [opH, opM] = opening.split(':').map(Number);
-    const [clH, clM] = closing.split(':').map(Number);
+    const [opH] = opening.split(':').map(Number);
+    const [clH] = closing.split(':').map(Number);
 
-    const now = new Date();
     const minTime = new Date(now.getTime() + prepMinutes * 60 * 1000);
-    const minH = minTime.getHours();
-    const minM = minTime.getMinutes();
 
+    const slots = [];
+    const todayDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+    // Try today's slots first
     for (let h = opH; h < clH; h++) {
-      const slotStartStr = String(h).padStart(2, '0') + ':00';
-      const slotEndStr = String(h + 1).padStart(2, '0') + ':00';
-      const slotVal = slotStartStr + '–' + slotEndStr;
-
-      if (h > minH || (h === minH && 0 >= minM)) {
-        slots.push(slotVal);
+      const slotStart = new Date(todayDate.getFullYear(), todayDate.getMonth(), todayDate.getDate(), h, 0, 0);
+      if (slotStart.getTime() >= minTime.getTime()) {
+        const year = todayDate.getFullYear();
+        const month = String(todayDate.getMonth() + 1).padStart(2, '0');
+        const day = String(todayDate.getDate()).padStart(2, '0');
+        const hourStr = String(h).padStart(2, '0');
+        
+        const value = `${year}-${month}-${day}T${hourStr}:00`;
+        const label = `Today, ${formatHour12(h)} – ${formatHour12(h + 1)}`;
+        slots.push({ value, label, day: 'today' });
       }
     }
 
+    // If no slots remain today (or less than 8), fill with tomorrow's slots
     if (slots.length === 0) {
-      for (let h = opH; h < Math.min(opH + 4, clH); h++) {
-        const slotStartStr = String(h).padStart(2, '0') + ':00';
-        const slotEndStr = String(h + 1).padStart(2, '0') + ':00';
-        slots.push(slotStartStr + '–' + slotEndStr);
+      const tomorrowDate = new Date(todayDate.getTime() + 24 * 60 * 60 * 1000);
+      const year = tomorrowDate.getFullYear();
+      const month = String(tomorrowDate.getMonth() + 1).padStart(2, '0');
+      const day = String(tomorrowDate.getDate()).padStart(2, '0');
+
+      for (let h = opH; h < clH; h++) {
+        const hourStr = String(h).padStart(2, '0');
+        const value = `${year}-${month}-${day}T${hourStr}:00`;
+        const label = `Tomorrow, ${formatHour12(h)} – ${formatHour12(h + 1)}`;
+        slots.push({ value, label, day: 'tomorrow' });
+        if (slots.length >= 8) break;
       }
     }
-    return slots;
+
+    // Fallback: Always return at least one slot
+    if (slots.length === 0) {
+      const tomorrowDate = new Date(todayDate.getTime() + 24 * 60 * 60 * 1000);
+      const year = tomorrowDate.getFullYear();
+      const month = String(tomorrowDate.getMonth() + 1).padStart(2, '0');
+      const day = String(tomorrowDate.getDate()).padStart(2, '0');
+      const hourStr = String(opH).padStart(2, '0');
+      const value = `${year}-${month}-${day}T${hourStr}:00`;
+      const label = `Tomorrow, ${formatHour12(opH)} – ${formatHour12(opH + 1)}`;
+      slots.push({ value, label, day: 'tomorrow' });
+    }
+
+    return slots.slice(0, 8);
   };
   const [productSearch, setProductSearch] = useState('');
   const [stockistProductSearch, setStockistProductSearch] = useState('');
@@ -5474,7 +5528,7 @@ export default function App() {
                                 </div>
                                 <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.5rem', borderRadius: '6px', fontSize: '0.7rem', border: '1px solid rgba(255,255,255,0.05)', marginTop: '0.25rem', marginBottom: '0.25rem' }}>
                                   <span style={{ color: 'var(--text-muted)' }}>{t('Scheduled Pickup Slot:', 'निर्धारित पिकअप स्लॉट:', 'নির্ধারিত পিকআপ স্লট:')} </span>
-                                  <strong style={{ color: 'white' }}>{o.pickup_slot || t('Not set', 'निर्धारित नहीं', 'নির্ধারিত নেই')}</strong>
+                                  <strong style={{ color: 'white' }}>{formatPickupSlotDisplay(o.pickup_slot) || t('Not set', 'निर्धारित नहीं', 'নির্ধারিত নেই')}</strong>
                                 </div>
                                 <div style={{ background: 'rgba(99, 102, 241, 0.08)', border: '1px dashed var(--primary)', borderRadius: '6px', padding: '0.4rem', marginTop: '0.4rem', textAlign: 'center' }}>
                                   <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}><Key size={10} style={{ display: 'inline', marginRight: '0.2rem', verticalAlign: 'middle' }} /> {t('Verification PIN:', 'सत्यापन पिन:', 'পিকআপ কোড:')}</span>
@@ -5670,7 +5724,16 @@ export default function App() {
                         <label className="input-label">{t('New Pickup Slot', 'नया पिकअप समय', 'নতুন পিকআপ সময়')}</label>
                         <select className="text-input" value={rescheduleSlot} onChange={e => setRescheduleSlot(e.target.value)}>
                           <option value="">{t('-- Select slot --', '-- स्लॉट चुनें --', '-- স্লট বেছে নিন --')}</option>
-                          {['09:00–10:00','10:00–11:00','11:00–12:00','12:00–13:00','14:00–15:00','15:00–16:00','16:00–17:00','17:00–18:00'].map(s => <option key={s} value={s}>{s}</option>)}
+                          {(() => {
+                            const ord = (customerOrders || []).find(o => o.id === noShowAlert.orderId);
+                            const stockist = customerStockists.find(s => s.id === (ord?.stockist_id)) || { opening_time: '08:00', closing_time: '20:00', prep_eta_minutes: 10 };
+                            const SLOTS = getAvailableSlots(stockist);
+                            return SLOTS.map(slot => {
+                              const val = typeof slot === 'object' ? slot.value : slot;
+                              const lbl = typeof slot === 'object' ? slot.label : slot;
+                              return <option key={val} value={val}>{lbl}</option>;
+                            });
+                          })()}
                         </select>
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
@@ -6353,7 +6416,7 @@ export default function App() {
                                 ) : (
                                   <>
                                     <Store size={12} style={{ color: 'var(--primary)' }} />
-                                    <span>{t('Mode: Take Away', 'मोड: पिकअप', 'অবস্থা: पिकअप')} ({o.pickup_slot || t('Pending slot', 'स्लॉट लंबित', 'স্লট পেন্ডিং')})</span>
+                                    <span>{t('Mode: Take Away', 'मोड: पिकअप', 'অবস্থা: पिकअप')} ({formatPickupSlotDisplay(o.pickup_slot) || t('Pending slot', 'स्लॉट लंबित', 'স্লট পেন্ডিং')})</span>
                                   </>
                                 )}
                               </div>
@@ -6363,7 +6426,7 @@ export default function App() {
                                 <div style={{ border: '1px dashed var(--border-color)', borderRadius: '6px', padding: '0.5rem', marginTop: '0.25rem', background: 'rgba(255,255,255,0.01)', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
                                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                     <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>
-                                      {t('Selected Slot:', 'चुना गया स्लॉट:', 'নির্ধারিত স্লট:')} <strong style={{ color: 'white' }}>{o.pickup_slot || t('None', 'कोई नहीं', 'কোনোটি না')}</strong>
+                                      {t('Selected Slot:', 'चुना गया स्लॉट:', 'নির্ধারিত স্লট:')} <strong style={{ color: 'white' }}>{formatPickupSlotDisplay(o.pickup_slot) || t('None', 'कोई नहीं', 'কোনোটি না')}</strong>
                                     </span>
                                     
                                     {!['READY', 'DELIVERED', 'CANCELLED'].includes(o.status) && (
