@@ -3063,6 +3063,25 @@ async function main() {
   // Test #540: Runtime test: checkConfigWarnings emits [Config] warning for missing env vars
   assert(serverJs.includes('[Config] WARNING: SMS delivery disabled'), 'checkConfigWarnings emits [Config] warning for missing SMS config');
 
+  console.log('\n--- Round BF4b: Seeded Stockists Missing user_id ---');
+  await post('http://localhost:3001/api/admin/reset-db', {});
+
+  // Test #542: GET /api/stockists/by-user/u-stk1 -> 200, body id === 's1'
+  const stk1Res = await get('http://localhost:3001/api/stockists/by-user/u-stk1');
+  assert(stk1Res.status === 200 && stk1Res.body.id === 's1', 'GET /api/stockists/by-user/u-stk1 returns 200 with id s1');
+
+  // Test #543: GET /api/stockists/by-user/u-stk2 -> 200, body id === 's2'
+  const stk2Res = await get('http://localhost:3001/api/stockists/by-user/u-stk2');
+  assert(stk2Res.status === 200 && stk2Res.body.id === 's2', 'GET /api/stockists/by-user/u-stk2 returns 200 with id s2');
+
+  // Test #544: GET /api/stockists/by-user/u-stk4 -> 200, body id === 's3'
+  const stk4Res = await get('http://localhost:3001/api/stockists/by-user/u-stk4');
+  assert(stk4Res.status === 200 && stk4Res.body.id === 's3', 'GET /api/stockists/by-user/u-stk4 returns 200 with id s3');
+
+  // Test #545: GET /api/stockists/by-user/u-stk3 -> 404 (correctly still pending)
+  const stk3Res = await get('http://localhost:3001/api/stockists/by-user/u-stk3');
+  assert(stk3Res.status === 404, 'GET /api/stockists/by-user/u-stk3 returns 404 (pending)');
+
 console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);
 }
