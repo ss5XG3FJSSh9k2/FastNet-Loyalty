@@ -73,6 +73,7 @@ import {
 const API_BASE = 'http://localhost:3001/api';
 
 export default function App() {
+  const isDevMode = new URLSearchParams(window.location.search).has('dev');
   const [activeRole, setActiveRole] = useState('marketing');
   const [dbState, setDbState] = useState(null);
   const [regions, setRegions] = useState([]);
@@ -975,6 +976,17 @@ export default function App() {
 
   const switchViewToRole = async (targetRole) => {
     setActiveRole(targetRole);
+    if (!isDevMode) {
+      if (!currentUser || (
+        (targetRole === 'customer' && currentUser.role !== 'CUSTOMER') ||
+        (targetRole === 'stockist' && currentUser.role !== 'STOCKIST') ||
+        (targetRole === 'admin' && currentUser.role !== 'ADMIN') ||
+        (targetRole === 'partner' && currentUser.role !== 'PARTNER_ADMIN')
+      )) {
+        setCurrentUser(null);
+      }
+      return;
+    }
     try {
       if (targetRole === 'customer' && (!currentUser || currentUser.role !== 'CUSTOMER')) {
         const res = await fetch(`${API_BASE}/auth/verify-otp`, {
@@ -1008,6 +1020,18 @@ export default function App() {
         if (res.ok) {
           setCurrentUser(data.user);
           setSelectedRegionId(data.user.region_id);
+        }
+      } else if (targetRole === 'partner' && (!currentUser || currentUser.role !== 'PARTNER_ADMIN')) {
+        const res = await fetch(`${API_BASE}/partner/auth/login-password`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: 'adhya@partners.example', password: 'password123' })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          setCurrentUser({ id: data.partner.id, name: data.partner.name, role: 'PARTNER_ADMIN' });
+          setPartnerSessionToken(data.token);
+          setPartnerData(data.partner);
         }
       }
     } catch (err) {
@@ -5256,8 +5280,8 @@ export default function App() {
             Welcome to the FastNet Marketplace! Shop for fresh produce and daily essentials from your favorite local grocery stores. Every purchase automatically earns points that discount your broadband or cable TV bill.
           </p>
           <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', marginTop: '1rem' }}>
-            <button className="btn" onClick={() => setActiveRole('customer')}>Shop Groceries Now</button>
-            <button className="btn btn-secondary" onClick={() => setActiveRole('admin')}>Open Admin Console</button>
+            <button className="btn" onClick={() => switchViewToRole('customer')}>Shop Groceries Now</button>
+            <button className="btn btn-secondary" onClick={() => switchViewToRole('admin')}>Open Admin Console</button>
           </div>
         </div>
 

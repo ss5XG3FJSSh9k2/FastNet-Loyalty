@@ -3126,6 +3126,21 @@ async function main() {
   assert(bf4cAppJsx.includes("'AM'") && bf4cAppJsx.includes("'PM'"), 'App.jsx contains AM and PM string literals');
   assert(!bf4cAppJsx.includes("String(h).padStart(2, '0') + ':00'"), 'App.jsx no longer builds labels with bare String(h).padStart(2, "0") + ":00"');
 
+  console.log('\n--- Round BF5a: Remove Auto-Login From Default Path ---');
+  const bf5aAppJsx = fs.readFileSync(path.join(__dirname, '../../frontend/src/App.jsx'), 'utf8');
+
+  // Test #577: Grep: App.jsx defines an isDevMode flag derived from window.location.search and/or import.meta.env.DEV
+  assert(bf5aAppJsx.includes('isDevMode') && (bf5aAppJsx.includes('window.location.search') || bf5aAppJsx.includes('import.meta.env.DEV')), 'App.jsx defines an isDevMode flag derived from window.location.search');
+
+  // Test #578: Grep: every hardcoded seed phone literal used in an auto-login call appears inside a block guarded by isDevMode
+  const switchViewStart = bf5aAppJsx.indexOf('const switchViewToRole =');
+  assert(switchViewStart !== -1, 'switchViewToRole handler exists in App.jsx');
+  const switchViewBlock = bf5aAppJsx.slice(switchViewStart, bf5aAppJsx.indexOf('};', switchViewStart) + 2);
+  assert(switchViewBlock.includes('if (!isDevMode)') || switchViewBlock.includes('isDevMode'), 'switchViewToRole gates auto-login calls on isDevMode');
+
+  // Test #579: Grep: the role-switch handler clears currentUser when isDevMode is false
+  assert(switchViewBlock.includes('setCurrentUser(null)'), 'role-switch handler clears currentUser when isDevMode is false');
+
 console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);
 }
