@@ -5907,11 +5907,9 @@ export default function App() {
                             const ord = (customerOrders || []).find(o => o.id === noShowAlert.orderId);
                             const stockist = customerStockists.find(s => s.id === (ord?.stockist_id)) || { opening_time: '08:00', closing_time: '20:00', prep_eta_minutes: 10 };
                             const SLOTS = getAvailableSlots(stockist);
-                            return SLOTS.map(slot => {
-                              const val = typeof slot === 'object' ? slot.value : slot;
-                              const lbl = typeof slot === 'object' ? slot.label : slot;
-                              return <option key={val} value={val}>{lbl}</option>;
-                            });
+                            return SLOTS.map(slot => (
+                              <option key={slot.value} value={slot.value}>{slot.label}</option>
+                            ));
                           })()}
                         </select>
                       </div>
@@ -6191,7 +6189,9 @@ export default function App() {
                                               onChange={e => { setCartPickupSlots(prev => ({ ...prev, [sid]: e.target.value })); setSlotError(false); }}
                                             >
                                               <option value="">{t('-- Pick a time slot --', '-- समय स्लॉट चुनें --', '-- সময় स्लॉट বেছে নিন --')}</option>
-                                              {SLOTS.map(slot => <option key={slot} value={slot}>{slot}</option>)}
+                                              {SLOTS.map(slot => (
+                                                <option key={slot.value} value={slot.value}>{slot.label}</option>
+                                              ))}
                                             </select>
                                           </div>
                                         );
@@ -6635,7 +6635,7 @@ export default function App() {
                                         >
                                           <option value="">{t('-- Choose Pickup Slot --', '-- पिकअप स्लॉट चुनें --', '-- পিকআপ স্লট নির্বাচন করুন --')}</option>
                                           {SLOTS.map(slot => (
-                                            <option key={slot} value={slot}>{slot}</option>
+                                            <option key={slot.value} value={slot.value}>{slot.label}</option>
                                           ))}
                                         </select>
                                       </div>

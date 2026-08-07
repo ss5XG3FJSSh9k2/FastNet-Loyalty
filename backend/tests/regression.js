@@ -3319,6 +3319,31 @@ async function main() {
   const fetchDbStateCode = extractFnCode(bf6aAppJsx, 'fetchDbState');
   assert(fetchDbStateCode.includes('/admin/vendors') && fetchDbStateCode.includes('/admin/customers') && fetchDbStateCode.includes('/admin/stockists'), 'fetchDbState loads vendors, customers, and stockists');
 
+  console.log('\n--- Round BF6b: Pickup Slot Dropdown Renders Objects As Strings ---');
+
+  // Test #621: Grep: App.jsx contains no <option key={slot} value={slot}>{slot}</option> pattern
+  const bf6bAppJsx = fs.readFileSync(path.join(__dirname, '../../frontend/src/App.jsx'), 'utf8');
+  assert(!bf6bAppJsx.includes('<option key={slot} value={slot}>{slot}</option>'), 'App.jsx contains no <option key={slot} value={slot}>{slot}</option> pattern');
+
+  // Test #622: Grep: every SLOTS.map( in the file destructures or accesses .value and .label
+  const slotsMapMatches = [...bf6bAppJsx.matchAll(/SLOTS\.map\([\s\S]*?\)/g)];
+  const allAccessors = slotsMapMatches.every(m => m[0].includes('.value') && m[0].includes('.label'));
+  assert(slotsMapMatches.length > 0 && allAccessors, 'every SLOTS.map( in App.jsx accesses .value and .label');
+
+  // Test #623: Endpoint: place an order with a pickupSlot in new format (e.g. 2026-08-07T17:00) -> 200, matching stored pickupSlot
+  const bf6bOrderRes = await post('http://localhost:3001/api/orders', {
+    customerId: 'u-cust1',
+    stockistId: 's1',
+    items: [{ productId: 'p1', quantity: 1, price: 100 }],
+    fulfillmentType: 'PICKUP',
+    pickupSlot: '2026-08-07T17:00'
+  });
+  const bf6bCreatedOrder = (await get('http://localhost:3001/api/orders?customerId=u-cust1')).body.find(o => o.id === bf6bOrderRes.body.orderId);
+  assert(bf6bOrderRes.status === 200 && bf6bCreatedOrder && bf6bCreatedOrder.pickup_slot === '2026-08-07T17:00', 'POST /api/orders with pickupSlot 2026-08-07T17:00 returns 200 and matches stored pickupSlot');
+
+  // Test #624: Endpoint: stored pickupSlot on created order does not contain "object Object"
+  assert(!bf6bCreatedOrder.pickup_slot.includes('object Object'), 'stored pickupSlot does not contain "object Object"');
+
 console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);
 }
