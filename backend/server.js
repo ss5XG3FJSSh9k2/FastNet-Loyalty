@@ -873,11 +873,13 @@ app.get('/api/stockists', async (req, res) => {
   const filtered = regionId ? stockists.filter(s => s.region_id === regionId && s.is_active) : stockists;
 
   const orders = await db.getTable('orders');
+  const products = await db.getTable('products');
   const enriched = filtered.map(s => {
     const shopOrders = orders.filter(o => o.stockist_id === s.id);
     const finished = shopOrders.filter(o => ['DELIVERED', 'CANCELLED'].includes(o.status));
     const delivered = finished.filter(o => o.status === 'DELIVERED').length;
     const totalFinished = finished.length;
+    const shopProducts = products.filter(p => p.stockist_id === s.id && p.is_active !== false);
 
     let reliabilityBadge = 'Active Partner';
     if (totalFinished > 0) {
@@ -888,7 +890,7 @@ app.get('/api/stockists', async (req, res) => {
       reliabilityBadge = 'New Stockist (Verified)';
     }
 
-    return { ...s, reliabilityBadge };
+    return { ...s, reliabilityBadge, product_count: shopProducts.length };
   });
 
   return res.json(enriched);

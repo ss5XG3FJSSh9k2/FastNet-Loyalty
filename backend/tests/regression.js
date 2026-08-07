@@ -3379,6 +3379,44 @@ async function main() {
   const distinctHeadings = ['Customer Login', 'Shopkeeper Login', 'Partner Login', 'Admin Login'].every(h => appContent.includes(h));
   assert(distinctHeadings, 'Each of the 4 login screens has a distinct heading string');
 
+  // --- Round BF7b: Customer App Must Show All Shops First ---
+  console.log('\n--- Round BF7b: Customer App Must Show All Shops First ---');
+
+  // Test #633: Endpoint: the endpoint backing the shop list returns all active stockists for a given region
+  const bf7bStockistsRes = await get('http://localhost:3001/api/stockists?regionId=r1');
+  assert(bf7bStockistsRes.status === 200 && Array.isArray(bf7bStockistsRes.body) && bf7bStockistsRes.body.length > 0, 'GET /api/stockists?regionId=r1 returns active stockists array');
+
+  // Test #634: Endpoint: a stockist with zero products is still included in that response
+  await dbModule.insertRow('stockists', {
+    id: 's-zero-prod',
+    tenant_id: 't1',
+    region_id: 'r1',
+    name: 'Zero Product Store',
+    is_active: true,
+    opening_time: '08:00',
+    closing_time: '20:00',
+    created_at: new Date().toISOString()
+  });
+  const bf7bStockistsAfterRes = await get('http://localhost:3001/api/stockists?regionId=r1');
+  const zeroStkInRes = bf7bStockistsAfterRes.body.find(s => s.id === 's-zero-prod');
+  assert(zeroStkInRes && zeroStkInRes.product_count === 0, 'stockist with zero products is included in /api/stockists response with product_count 0');
+
+  // Test #635: Grep: App.jsx contains a shop-list render block mapping over stockists when no shop is selected
+  const shopListRenderMatch = appContent.includes('!selectedStockist') && appContent.includes('customerStockists');
+  assert(shopListRenderMatch, 'App.jsx contains shop-list render block when no shop is selected');
+
+  // Test #636: Grep: shop list renders empty state string for a region with no shops
+  const emptyRegionStringMatch = appContent.includes("No shops are open in your area yet. We're onboarding local stores — please check back soon.");
+  assert(emptyRegionStringMatch, 'shop list renders required empty state string for region with no shops');
+
+  // Test #637: Grep: shop list renders "No items listed yet" marker for shops without products
+  const noItemsMarkerMatch = appContent.includes("No items listed yet");
+  assert(noItemsMarkerMatch, 'shop list renders "No items listed yet" marker');
+
+  // Test #638: Grep: product view is gated on selected-shop state
+  const productViewGatedMatch = appContent.includes("!selectedStockist ?") && appContent.includes("selectedStockist.name");
+  assert(productViewGatedMatch, 'product view is gated on selectedStockist state');
+
 console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);
 }

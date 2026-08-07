@@ -268,6 +268,7 @@ export default function App() {
   const [regionCode, setRegionCode] = useState('');
   const [regionCodeUserEdited, setRegionCodeUserEdited] = useState(false);
   const [regionModalError, setRegionModalError] = useState('');
+  const [shopSearchQuery, setShopSearchQuery] = useState('');
 
   const [partnerLeads, setPartnerLeads] = useState([]);
   const [leadStatusFilter, setLeadStatusFilter] = useState('ALL');
@@ -1942,11 +1943,6 @@ export default function App() {
       const sRes = await fetch(`${API_BASE}/stockists?regionId=${currentUser.region_id}`);
       const sData = await sRes.json();
       setCustomerStockists(sData);
-      
-      // Auto-select first stockist if none selected
-      if (sData.length > 0 && !selectedStockist) {
-        setSelectedStockist(sData[0]);
-      }
 
       // 2. Load points balance
       const bRes = await fetch(`${API_BASE}/ledger/balance/${currentUser.id}`);
@@ -6022,27 +6018,84 @@ export default function App() {
                                     <ArrowLeft size={14} /> {t('Continue shopping at', 'यहाँ खरीदारी जारी रखें:', 'এখানে কেনাকাটা চালিয়ে যান:')} {prevStockistObj.name}
                                   </button>
                                 )}
-                                <h3 style={{ fontSize: '0.95rem', marginBottom: '0.75rem' }}>Select Local Grocery Store</h3>
+                                <h3 style={{ fontSize: '0.95rem', marginBottom: '0.75rem' }}>{t('Select Local Grocery Store', 'स्थानीय किराना दुकान चुनें', 'স্থানীয় মুদি দোকান বেছে নিন')}</h3>
                               </>
                             );
                           })()}
+
+                          {/* Shop search box */}
+                          <div style={{ position: 'relative', marginBottom: '0.75rem' }}>
+                            <input 
+                              type="text" 
+                              className="text-input" 
+                              style={{ fontSize: '0.75rem', padding: '0.4rem 0.75rem 0.4rem 2rem', width: '100%' }}
+                              placeholder={t('Search shops by name...', 'नाम से दुकानें खोजें...', 'নাম দিয়ে দোকান খুঁজুন...')}
+                              value={shopSearchQuery}
+                              onChange={e => setShopSearchQuery(e.target.value)}
+                            />
+                            <Search size={14} style={{ position: 'absolute', left: '0.65rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                          </div>
+
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                            {customerStockists.map(s => (
-                              <div key={s.id} className="glass-card" style={{ padding: '0.85rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                <div>
-                                  <h4 style={{ fontSize: '0.85rem', color: 'white' }}>{s.name}</h4>
-                                  <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.2rem', alignItems: 'center' }}>
-                                    <span className="badge badge-success" style={{ fontSize: '0.55rem', padding: '0.1rem 0.35rem' }}><Check size={9} style={{ display: 'inline', marginRight: '0.15rem' }} />{s.reliabilityBadge || 'Verified'}</span>
-                                    <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Delivery: {s.delivery_radius_km}km radius</span>
+                            {customerStockists
+                              .filter(s => s.name.toLowerCase().includes(shopSearchQuery.toLowerCase()))
+                              .map(s => {
+                                const isOpen = (() => {
+                                  if (!s.opening_time || !s.closing_time) return true;
+                                  const now = new Date();
+                                  const curMins = now.getHours() * 60 + now.getMinutes();
+                                  const [opH, opM] = s.opening_time.split(':').map(Number);
+                                  const [clH, clM] = s.closing_time.split(':').map(Number);
+                                  return curMins >= (opH * 60 + opM) && curMins <= (clH * 60 + clM);
+                                })();
+
+                                const productCountLabel = (s.product_count !== undefined && s.product_count === 0)
+                                  ? t('No items listed yet', 'अभी कोई उत्पाद सूचीबद्ध नहीं', 'এখনও কোনো পণ্য তালিকাভুক্ত নয়')
+                                  : `${s.product_count || 0} ${t('items', 'सामान', 'টি পণ্য')}`;
+
+                                return (
+                                  <div key={s.id} className="glass-card" style={{ padding: '0.85rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <div style={{ flex: 1, paddingRight: '0.5rem' }}>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                        <h4 style={{ fontSize: '0.85rem', color: 'white', margin: 0 }}>{s.name}</h4>
+                                        <span className={`badge ${isOpen ? 'badge-success' : 'badge-danger'}`} style={{ fontSize: '0.55rem', padding: '0.05rem 0.3rem' }}>
+                                          {isOpen ? t('Open', 'खुला', 'খোলা') : t('Closed', 'बंद', 'বন্ধ')}
+                                        </span>
+                                      </div>
+
+                                      <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.25rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                                        {s.rating ? (
+                                          <span style={{ fontSize: '0.65rem', color: '#fbbf24', fontWeight: 'bold' }}>
+                                            ⭐ {s.rating} ({s.ratings_count || 0})
+                                          </span>
+                                        ) : null}
+                                        <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>
+                                          {productCountLabel}
+                                        </span>
+                                        {s.delivery_radius_km && (
+                                          <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>
+                                            • {s.delivery_radius_km}km radius
+                                          </span>
+                                        )}
+                                        {s.min_order_amount && (
+                                          <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>
+                                            • Min ₹{s.min_order_amount}
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
+                                    <button className="btn btn-accent" style={{ padding: '0.35rem 0.75rem', fontSize: '0.75rem', whiteSpace: 'nowrap' }} onClick={() => { setSelectedStockist(s); setPreviousStockistId(null); }}>
+                                      {t('Shop', 'खरीदारी करें', 'বাজার করুন')}
+                                    </button>
                                   </div>
-                                </div>
-                                <button className="btn btn-accent" style={{ padding: '0.35rem 0.75rem', fontSize: '0.75rem' }} onClick={() => { setSelectedStockist(s); setPreviousStockistId(null); }}>
-                                  Shop (বাজার করুন)
-                                </button>
-                              </div>
-                            ))}
+                                );
+                              })}
                             {customerStockists.length === 0 && (
-                              <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem', textAlign: 'center' }}>No stores active in your area.</p>
+                              <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem', textAlign: 'center', padding: '1rem' }}>
+                                {t("No shops are open in your area yet. We're onboarding local stores — please check back soon.",
+                                   "आपके क्षेत्र में अभी कोई दुकान खुली नहीं है। हम स्थानीय दुकानों को जोड़ रहे हैं — कृपया जल्द ही वापस जांचें।",
+                                   "আপনার এলাকায় এখনও কোনো দোকান খোলা নেই। আমরা স্থানীয় দোকান অন্তর্ভুক্ত করছি — অনুগ্রহ করে শীঘ্রই আবার দেখুন।")}
+                              </p>
                             )}
                           </div>
                         </div>
