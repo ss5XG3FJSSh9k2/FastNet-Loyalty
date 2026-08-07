@@ -367,6 +367,8 @@ export default function App() {
   const [noBroadbandProvider, setNoBroadbandProvider] = useState(false);
   const [signupReferralCode, setSignupReferralCode] = useState('');
   const [analyticsData, setAnalyticsData] = useState(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [analyticsError, setAnalyticsError] = useState(false);
   const [availablePartners, setAvailablePartners] = useState({ cable: [], broadband: [] });
 
   const [profileName, setProfileName] = useState('');
@@ -1399,17 +1401,24 @@ export default function App() {
   };
 
   const fetchAnalytics = async () => {
+    setAnalyticsLoading(true);
+    setAnalyticsError(false);
     try {
       const res = await fetch(`${API_BASE}/admin/analytics`, {
         headers: { 'x-admin-id': 'u-admin' }
       });
       const data = await res.json();
-      logApi('GET', '/admin/analytics', null, res.status, data);
       if (res.ok) {
         setAnalyticsData(data);
+      } else {
+        setAnalyticsError(true);
       }
+      logApi('GET', '/admin/analytics', null, res.status, data);
     } catch (err) {
       console.error('Error fetching analytics:', err);
+      setAnalyticsError(true);
+    } finally {
+      setAnalyticsLoading(false);
     }
   };
 
@@ -8281,7 +8290,11 @@ export default function App() {
                     </button>
                   </div>
 
-                  {analyticsData ? (
+                  {analyticsLoading ? (
+                    <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>Loading analytics data...</div>
+                  ) : analyticsError ? (
+                    <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--danger)' }}>Could not load analytics. Tap Refresh to retry.</div>
+                  ) : analyticsData ? (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
                       {/* Section 1: Users Overview */}
                       <div>
@@ -8443,7 +8456,7 @@ export default function App() {
                       </div>
                     </div>
                   ) : (
-                    <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>Loading analytics data...</div>
+                    <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>Could not load analytics. Tap Refresh to retry.</div>
                   )}
                 </div>
               )}

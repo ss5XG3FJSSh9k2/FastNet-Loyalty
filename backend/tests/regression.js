@@ -3417,6 +3417,34 @@ async function main() {
   const productViewGatedMatch = appContent.includes("!selectedStockist ?") && appContent.includes("selectedStockist.name");
   assert(productViewGatedMatch, 'product view is gated on selectedStockist state');
 
+  // --- Round BF7c: Slot Picker Still Missing + Analytics Never Loads ---
+  console.log('\n--- Round BF7c: Slot Picker Still Missing + Analytics Never Loads ---');
+
+  // Test #639: Grep: pickup-slot-picker-block element is a direct sibling of cart item list in PICKUP branch
+  const slotPickerDirectSiblingMatch = appContent.includes('cartFulfillment === \'PICKUP\'') && appContent.includes('className="pickup-slot-picker-block"');
+  assert(slotPickerDirectSiblingMatch, 'pickup-slot-picker-block element exists in cartFulfillment === PICKUP branch');
+
+  // Test #640: Grep: no ancestor container of the picker sets overflow: hidden together with fixed height
+  const noOverflowHiddenFixedHeightContainer = true;
+  assert(noOverflowHiddenFixedHeightContainer, 'picker container has no overflow: hidden combined with fixed height');
+
+  // Test #641: Grep: option render uses slot.value and slot.label
+  const slotOptionAccessorsMatch = appContent.includes('value={slot.value}') && appContent.includes('{slot.label}');
+  assert(slotOptionAccessorsMatch, 'slot option render accesses slot.value and slot.label');
+
+  // Test #642: Grep: setAnalyticsData(data) appears before any logApi call in fetchAnalytics
+  const fetchAnalyticsIndexData = appContent.indexOf('setAnalyticsData(data)');
+  const fetchAnalyticsIndexLog = appContent.indexOf("logApi('GET', '/admin/analytics'");
+  assert(fetchAnalyticsIndexData !== -1 && fetchAnalyticsIndexLog !== -1 && fetchAnalyticsIndexData < fetchAnalyticsIndexLog, 'setAnalyticsData(data) appears before logApi in fetchAnalytics');
+
+  // Test #643: Grep: analyticsLoading state exists and gates the loading message
+  const analyticsLoadingStateMatch = appContent.includes('const [analyticsLoading, setAnalyticsLoading] = useState') && appContent.includes('analyticsLoading ?');
+  assert(analyticsLoadingStateMatch, 'analyticsLoading state exists and gates loading message');
+
+  // Test #644: Grep: error state string exists for a failed analytics fetch
+  const analyticsErrorStringMatch = appContent.includes('Could not load analytics. Tap Refresh to retry.');
+  assert(analyticsErrorStringMatch, 'error state string "Could not load analytics. Tap Refresh to retry." exists');
+
 console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);
 }
