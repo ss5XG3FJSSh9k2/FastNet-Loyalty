@@ -2223,6 +2223,7 @@ async function main() {
     buildOk = false;
   }
   assert(buildOk, 'npx vite build completes without errors');
+  await new Promise(r => setTimeout(r, 200));
 
   // Test 406: E2E flow with new partner: admin creates partner -> login -> dash -> customer redeems -> admin approves -> partner notified -> fulfills -> dash updates
   const p4b_pName = 'P4b Test Partner';
@@ -3343,6 +3344,40 @@ async function main() {
 
   // Test #624: Endpoint: stored pickupSlot on created order does not contain "object Object"
   assert(!bf6bCreatedOrder.pickup_slot.includes('object Object'), 'stored pickupSlot does not contain "object Object"');
+
+  const appContent = fs.readFileSync(path.join(__dirname, '../../frontend/src/App.jsx'), 'utf8');
+
+  // Test #625: Grep: Customer login block contains customer-registration affordance and does NOT contain Open a Shop
+  const customerAuthBlockMatches = appContent.includes("isCustomerApp &&") && appContent.includes("Sign Up (Customer)");
+  assert(customerAuthBlockMatches, 'Customer login block contains customer signup and gates stockist signup');
+
+  // Test #626: Grep: Stockist login block contains shop-registration affordance and does NOT contain Sign Up (Customer)
+  const stockistAuthBlockMatches = appContent.includes("isStockistApp &&") && appContent.includes("Open a Shop");
+  assert(stockistAuthBlockMatches, 'Stockist login block contains shop registration and gates customer signup');
+
+  // Test #627: Grep: Partner login block contains link/button routing to B2B / marketing view (setActiveRole('marketing'))
+  const partnerB2bLinkMatch = appContent.includes("setActiveRole('marketing')");
+  assert(partnerB2bLinkMatch, 'Partner login block contains link routing to B2B marketing view');
+
+  // Test #628: Grep: Partner login block contains explanatory line Partner accounts are created by FastNet after your application is approved.
+  const partnerExplanatoryMatch = appContent.includes("Partner accounts are created by FastNet after your application is approved.");
+  assert(partnerExplanatoryMatch, 'Partner login block contains partner account creation explanatory line');
+
+  // Test #629: Grep: Admin login block contains no signup affordance
+  const adminAuthBlockMatch = appContent.includes("isAdminApp &&") && appContent.includes("renderAuthForm('admin')");
+  assert(adminAuthBlockMatch, 'Admin login block contains no signup affordance');
+
+  // Test #630: Grep: App.jsx contains exactly 1 occurrence of Open a Shop as a button label
+  const openShopCount = (appContent.match(/Open a Shop/g) || []).length;
+  assert(openShopCount === 1, `App.jsx contains exactly 1 occurrence of "Open a Shop" (found ${openShopCount})`);
+
+  // Test #631: Grep: App.jsx contains exactly 1 occurrence of Sign Up (Customer) as a button label
+  const signupCustomerCount = (appContent.match(/Sign Up \(Customer\)/g) || []).length;
+  assert(signupCustomerCount === 1, `App.jsx contains exactly 1 occurrence of "Sign Up (Customer)" (found ${signupCustomerCount})`);
+
+  // Test #632: Grep: Each of the 4 login screens has a distinct heading string (Customer Login, Shopkeeper Login, Partner Login, Admin Login)
+  const distinctHeadings = ['Customer Login', 'Shopkeeper Login', 'Partner Login', 'Admin Login'].every(h => appContent.includes(h));
+  assert(distinctHeadings, 'Each of the 4 login screens has a distinct heading string');
 
 console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);

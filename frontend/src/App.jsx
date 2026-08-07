@@ -3613,15 +3613,45 @@ export default function App() {
   // UI RENDERERS
   // ----------------------------------------------------
 
-  const renderAuthForm = () => {
+  const renderAuthForm = (appRole = activeRole) => {
+    const isCustomerApp = appRole === 'customer';
+    const isStockistApp = appRole === 'stockist';
+    const isAdminApp = appRole === 'admin';
+
+    const loginTitle = isStockistApp
+      ? t('Shopkeeper Login', 'दुकानदार लॉगिन', 'দোকানদার লগইন')
+      : isAdminApp
+      ? t('Admin Login', 'प्रशासक लॉगिन', 'অ্যাডমিন লগইন')
+      : t('Customer Login', 'ग्राहक लॉगिन', 'ক্রেতা লগইন');
+
+    const loginSubtitle = isStockistApp
+      ? t('Stockist & Store Manager Login', 'स्टॉकिस्ट और स्टोर प्रबंधक लॉगिन', 'স্টকিস্ট ও স্টোর ম্যানেজার লগইন')
+      : isAdminApp
+      ? t('Platform Administrator Operations', 'प्लेटफ़ॉर्म प्रशासक संचालन', 'প্ল্যাটফর্ম অ্যাডমিনিস্ট্রেটর অপারেশনস')
+      : t('Hyperlocal ISP Commerce Login', 'हाईपरलोकल आईएसपी कॉमर्स लॉगिन', 'হাইপারলোকাল আইএসপি কমার্স লগইন');
+
+    const renderCustomerSignupBtn = () => (
+      <button className="btn btn-secondary" style={{ width: '100%', fontSize: '0.7rem', padding: '0.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.3rem' }}
+        onClick={() => { if (!otpSent) handleSendOtp(); setShowCustomerSignup(true); setShowStockistSignup(false); }}>
+        <UserPlus size={12} /> {t("Sign Up (Customer)", "साइन अप (ग्राहक)", "সাইন আপ (ক্রেতা)")}
+      </button>
+    );
+
+    const renderStockistSignupBtn = () => (
+      <button className="btn btn-secondary" style={{ width: '100%', fontSize: '0.7rem', padding: '0.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.3rem' }}
+        onClick={() => { if (!otpSent) handleSendOtp(); setShowStockistSignup(true); setShowCustomerSignup(false); }}>
+        <Store size={12} /> {t("Open a Shop", "दुकान खोलें", "দোকান খুলুন")}
+      </button>
+    );
+
     return (
       <div style={{ padding: '2rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '1.5rem', justifyContent: 'center', height: '100%' }}>
         <div style={{ textAlign: 'center', marginBottom: '1rem' }}>
           <div style={{ display: 'inline-flex', padding: '0.75rem', borderRadius: '50%', background: 'var(--primary-glow)', color: 'var(--primary)', marginBottom: '0.75rem' }}>
             <Smartphone size={32} />
           </div>
-          <h2 style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>Phone OTP Login</h2>
-          <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>Hyperlocal ISP Commerce Login</p>
+          <h2 style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>{loginTitle}</h2>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>{loginSubtitle}</p>
         </div>
 
         {!otpSent ? (
@@ -3640,27 +3670,49 @@ export default function App() {
             
             <div style={{ background: 'rgba(255,255,255,0.02)', padding: '0.75rem', borderRadius: '6px', fontSize: '0.7rem', border: '1px dashed var(--border-color)', color: 'var(--text-muted)' }}>
               <strong>Demo Phone Options:</strong>
-              <div style={{ marginTop: '0.25rem' }}>• 9876543210 (Customer Garia)</div>
-              <div>• 8765432109 (Customer Bishnupur)</div>
-              <div>• 7654321098 (Stockist Garia)</div>
-              <div>• 4321098765 (Stockist Garia — Banerjee Corner)</div>
-              <div>• 6543210987 (Stockist Bishnupur)</div>
+              {isCustomerApp && (
+                <>
+                  <div style={{ marginTop: '0.25rem' }}>• 9876543210 (Customer Garia)</div>
+                  <div>• 8765432109 (Customer Bishnupur)</div>
+                </>
+              )}
+              {isStockistApp && (
+                <>
+                  <div style={{ marginTop: '0.25rem' }}>• 7654321098 (Stockist Garia)</div>
+                  <div>• 4321098765 (Stockist Garia — Banerjee Corner)</div>
+                  <div>• 6543210987 (Stockist Bishnupur)</div>
+                </>
+              )}
+              {isAdminApp && (
+                <>
+                  <div style={{ marginTop: '0.25rem' }}>• 9876543210 (Admin Account)</div>
+                </>
+              )}
+              {!isCustomerApp && !isStockistApp && !isAdminApp && (
+                <>
+                  <div style={{ marginTop: '0.25rem' }}>• 9876543210 (Customer Garia)</div>
+                  <div>• 7654321098 (Stockist Garia)</div>
+                </>
+              )}
             </div>
 
-            {/* New account? signup links on pre-OTP screen too */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', borderTop: '1px solid var(--border-color)', paddingTop: '1rem' }}>
-              <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textAlign: 'center' }}>New to FastNet?</p>
-              <div style={{ display: 'flex', gap: '0.5rem' }}>
-                <button className="btn btn-secondary" style={{ flex: 1, fontSize: '0.7rem', padding: '0.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.3rem' }}
-                  onClick={() => { handleSendOtp(); setShowCustomerSignup(true); setShowStockistSignup(false); }}>
-                  <UserPlus size={12} /> {t("Customer Sign Up", "ग्राहक पंजीकरण", "ক্রেতা নিবন্ধন")}
-                </button>
-                <button className="btn btn-secondary" style={{ flex: 1, fontSize: '0.7rem', padding: '0.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.3rem' }}
-                  onClick={() => { handleSendOtp(); setShowStockistSignup(true); setShowCustomerSignup(false); }}>
-                  <Store size={12} /> {t("Open a Shop", "दुकान खोलें", "দোকান খুলুন")}
-                </button>
+            {/* New account? signup links role-gated */}
+            {isCustomerApp && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', borderTop: '1px solid var(--border-color)', paddingTop: '1rem' }}>
+                <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textAlign: 'center' }}>
+                  {t('New here? Create an account', 'नए हैं? खाता बनाएं', 'নতুন? অ্যাকাউন্ট তৈরি করুন')}
+                </p>
+                {renderCustomerSignupBtn()}
               </div>
-            </div>
+            )}
+            {isStockistApp && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', borderTop: '1px solid var(--border-color)', paddingTop: '1rem' }}>
+                <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textAlign: 'center' }}>
+                  {t('Want to sell on FastNet? Register your shop', 'फास्टनेट पर बेचना चाहते हैं? अपनी दुकान पंजीकृत करें', 'ফাস্টনেটে বিক্রি করতে চান? আপনার দোকান নিবন্ধন করুন')}
+                </p>
+                {renderStockistSignupBtn()}
+              </div>
+            )}
           </>
         ) : showCustomerSignup ? (
           /* Customer Sign Up Flow */
@@ -3815,6 +3867,8 @@ export default function App() {
               <Store size={14} style={{ color: 'var(--warning)', marginRight: '0.35rem', verticalAlign: 'middle' }} />
               {t('Register Local Shop (KYC Required)', 'स्थानीय दुकान पंजीकरण (KYC आवश्यक)', 'স্থানীয় দোকান নিবন্ধন (KYC প্রয়োজন)')} — {loginPhone}
             </div>
+            {isCustomerApp && renderCustomerSignupBtn()}
+            {isStockistApp && renderStockistSignupBtn()}
             <div className="input-group">
               <label className="input-label">{t('Owner Name', 'मालिक का नाम', 'মালিকের নাম')}</label>
               <input type="text" placeholder="e.g. Rafiq Ahmed" className="text-input" value={regName} onChange={e => setRegName(e.target.value)} />
@@ -3885,16 +3939,8 @@ export default function App() {
               <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textAlign: 'center', marginBottom: '0.5rem' }}>
                 {t("Don't have an account?", "खाता नहीं है?", "অ্যাকাউন্ট নেই?")}
               </p>
-              <div style={{ display: 'flex', gap: '0.5rem' }}>
-                <button className="btn btn-secondary" style={{ flex: 1, fontSize: '0.7rem', padding: '0.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.3rem' }}
-                  onClick={() => setShowCustomerSignup(true)}>
-                  <UserPlus size={12} /> {t("Sign Up (Customer)", "साइन अप (ग्राहक)", "সাইন আপ (ক্রেতা)")}
-                </button>
-                <button className="btn btn-secondary" style={{ flex: 1, fontSize: '0.7rem', padding: '0.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.3rem' }}
-                  onClick={() => setShowStockistSignup(true)}>
-                  <Store size={12} /> {t("Open a Shop", "दुकान खोलें", "দোকান খুলুন")}
-                </button>
-              </div>
+              {isCustomerApp && renderCustomerSignupBtn()}
+              {isStockistApp && renderStockistSignupBtn()}
             </div>
           </>
         )}
@@ -4673,6 +4719,21 @@ export default function App() {
             )}
           </>
         )}
+
+        <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '1rem', marginTop: '1.25rem', textAlign: 'center' }}>
+          <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.35rem' }}>
+            {t("Are you a cable or broadband operator?", "क्या आप केबल या ब्रॉडबैंड ऑपरेटर हैं?", "আপনি কি কেবল বা ব্রডব্যান্ড অপারেটর?")}{' '}
+            <button 
+              style={{ background: 'none', border: 'none', color: 'var(--primary)', cursor: 'pointer', textDecoration: 'underline', padding: 0, fontSize: '0.75rem', fontWeight: 'bold' }}
+              onClick={() => setActiveRole('marketing')}
+            >
+              {t("Apply to partner with us", "हमारे साथ पार्टनर बनने के लिए आवेदन करें", "আমাদের সাথে পার্টনার হওয়ার জন্য আবেদন করুন")}
+            </button>
+          </p>
+          <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', margin: 0 }}>
+            {t("Partner accounts are created by FastNet after your application is approved.", "आपकी अर्ज़ी मंज़ूर होने के बाद फास्टनेट द्वारा पार्टनर खाते बनाए जाते हैं।", "আপনার আবেদন অনুমোদিত হওয়ার পর ফাস্টনেট দ্বারা পার্টনার অ্যাকাউন্ট তৈরি করা হয়।")}
+          </p>
+        </div>
       </div>
     );
   };
@@ -5666,7 +5727,7 @@ export default function App() {
                   <span><Signal size={12} style={{ display: 'inline', marginRight: '0.2rem' }} /><Battery size={12} style={{ display: 'inline', marginRight: '0.2rem' }} /> 19:43</span>
                 </div>
                 {/* Localized Auth Form */}
-                {renderAuthForm()}
+                {renderAuthForm('customer')}
               </>
             ) : (
               <>
@@ -7096,7 +7157,7 @@ export default function App() {
                   <span>FastNet 5G</span>
                   <span><Signal size={12} style={{ display: 'inline', marginRight: '0.2rem' }} /><Battery size={12} style={{ display: 'inline', marginRight: '0.2rem' }} /> 19:43</span>
                 </div>
-                {renderAuthForm()}
+                {renderAuthForm('stockist')}
               </>
             ) : !stockistProfile ? (
               <>
@@ -7851,6 +7912,22 @@ export default function App() {
   };
 
   const renderAdminView = () => {
+    if (!currentUser || currentUser.role !== 'ADMIN') {
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%' }}>
+          <div className="perspective-banner">
+            <span><Settings size={14} style={{ display: 'inline', marginRight: '0.25rem', verticalAlign: 'middle' }} /> OPERATOR PORTAL: FastNet Operations Dashboard</span>
+          </div>
+          <div className="phone-mockup" style={{ maxWidth: '420px', width: '100%' }}>
+            <div className="phone-notch"></div>
+            <div className="phone-screen" style={{ minHeight: '480px' }}>
+              {renderAuthForm('admin')}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     const refundDueCount = dbState?.orders?.filter(o => o.payment_status === 'REFUND_DUE').length || 0;
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.75rem', width: '100%' }}>
