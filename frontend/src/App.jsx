@@ -84,6 +84,64 @@ export default function App() {
   const [confirmCancelOrderId, setConfirmCancelOrderId] = useState(null);
   const [confirmDeliverySwitchOrderId, setConfirmDeliverySwitchOrderId] = useState(null);
 
+  // Setup state (Round BF5d)
+  const [needsSetup, setNeedsSetup] = useState(false);
+  const [setupName, setSetupName] = useState('');
+  const [setupPhone, setSetupPhone] = useState('');
+  const [setupError, setSetupError] = useState('');
+  const [setupSuccessAdmin, setSetupSuccessAdmin] = useState(null);
+  const [isSubmittingSetup, setIsSubmittingSetup] = useState(false);
+
+  const checkSetupStatus = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/setup/status`);
+      if (res.ok) {
+        const data = await res.json();
+        setNeedsSetup(data.needs_setup);
+      }
+    } catch (err) {
+      console.error('Error checking setup status:', err);
+    }
+  };
+
+  useEffect(() => {
+    checkSetupStatus();
+  }, []);
+
+  const handleCreateAdminSetup = async (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    setSetupError('');
+    if (!setupName || !setupName.trim()) {
+      setSetupError(t('Administrator name is required.', 'प्रशासक का नाम आवश्यक है।', 'প্রশাসকের নাম প্রয়োজন।'));
+      return;
+    }
+    if (!setupPhone || !/^\d{10}$/.test(setupPhone.trim())) {
+      setSetupError(t('Please enter a valid 10-digit phone number.', 'कृपया 10 अंकों का मान्य फ़ोन नंबर दर्ज करें।', 'অনুগ্রহ করে একটি বৈধ ১০ সংখ্যার ফোন নম্বর লিখুন।'));
+      return;
+    }
+
+    setIsSubmittingSetup(true);
+    try {
+      const res = await fetch(`${API_BASE}/setup/create-admin`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: setupName.trim(), phone: setupPhone.trim() })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setSetupError(data.error || 'Failed to create administrator account.');
+      } else {
+        setSetupSuccessAdmin(data);
+        setNeedsSetup(false);
+        checkSetupStatus();
+      }
+    } catch (err) {
+      setSetupError('Network error. Failed to create administrator account.');
+    } finally {
+      setIsSubmittingSetup(false);
+    }
+  };
+
   const cancelTimeoutRef = useRef(null);
   const deliverySwitchTimeoutRef = useRef(null);
 
@@ -7951,6 +8009,132 @@ export default function App() {
                 </div>
               </div>
 
+              {/* Round BF5d: Getting Started Guided Setup Checklist */}
+              {(() => {
+                const step1Done = regions.length > 0;
+                const step2Done = vendors.length > 0;
+                const allStks = adminStockists.length > 0 ? adminStockists : customerStockists;
+                const step3Done = allStks.some(s => s.kyc_status === 'APPROVED');
+                const step4Done = adminCustomers.length > 0;
+
+                const allComplete = step1Done && step2Done && step3Done && step4Done;
+                if (allComplete) return null;
+
+                return (
+                  <div className="glass-card" style={{ padding: '1.25rem', marginBottom: '1.25rem', border: '1px solid rgba(99, 102, 241, 0.3)', background: 'rgba(99, 102, 241, 0.05)' }}>
+                    <h3 style={{ fontSize: '1rem', margin: 0, marginBottom: '0.35rem', color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                      <Sparkles size={16} /> {t('Getting Started — Initial Platform Setup', 'आरंभ करना — प्रारंभिक प्लेटफ़ॉर्म सेटअप', 'শুরু করুন — প্রাথমিক প্ল্যাটফর্ম সেটআপ')}
+                    </h3>
+                    <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '1rem' }}>
+                      {t('Follow these steps in order to set up your FastNet network.', 'अपने फास्टनेट नेटवर्क को सेट करने के लिए इन चरणों का पालन करें।', 'আপনার ফাস্টনেট নেটওয়ার্ক সেট আপ করতে নিচের ধাপগুলো অনুসরণ করুন।')}
+                    </p>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
+                      {/* Step 1 */}
+                      <div 
+                        onClick={() => { setAdminTab('regions'); fetchAdminRegions(); }}
+                        style={{
+                          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                          padding: '0.65rem 0.85rem', borderRadius: '8px',
+                          background: step1Done ? 'rgba(34,197,94,0.1)' : 'rgba(255,255,255,0.03)',
+                          border: step1Done ? '1px solid rgba(34,197,94,0.3)' : '1px solid var(--border-color)',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                          {step1Done ? <CheckCircle2 size={16} style={{ color: '#4ade80' }} /> : <span style={{ fontSize: '0.8rem', fontWeight: 'bold', width: '16px', textAlign: 'center' }}>1</span>}
+                          <div>
+                            <div style={{ fontWeight: '600', fontSize: '0.85rem', color: step1Done ? '#4ade80' : 'white' }}>
+                              1. {t('Create your first service region', 'अपना पहला सेवा क्षेत्र बनाएं', 'আপনার প্রথম পরিষেবা অঞ্চল তৈরি করুন')}
+                            </div>
+                            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Advanced → Regions</div>
+                          </div>
+                        </div>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--primary)' }}>Go →</span>
+                      </div>
+
+                      {/* Step 2 */}
+                      <div 
+                        onClick={step1Done ? () => setAdminTab('vendors') : undefined}
+                        style={{
+                          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                          padding: '0.65rem 0.85rem', borderRadius: '8px',
+                          background: step2Done ? 'rgba(34,197,94,0.1)' : 'rgba(255,255,255,0.03)',
+                          border: step2Done ? '1px solid rgba(34,197,94,0.3)' : '1px solid var(--border-color)',
+                          opacity: step1Done ? 1 : 0.4,
+                          cursor: step1Done ? 'pointer' : 'not-allowed'
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                          {step2Done ? <CheckCircle2 size={16} style={{ color: '#4ade80' }} /> : <span style={{ fontSize: '0.8rem', fontWeight: 'bold', width: '16px', textAlign: 'center' }}>2</span>}
+                          <div>
+                            <div style={{ fontWeight: '600', fontSize: '0.85rem', color: step2Done ? '#4ade80' : (step1Done ? 'white' : 'var(--text-muted)') }}>
+                              2. {t('Register a wholesaler for that region', 'उस क्षेत्र के लिए थोक विक्रेता पंजीकृत करें', 'সেই অঞ্চলের জন্য একজন পাইকারী বিক্রেতা রেজিস্টার করুন')}
+                            </div>
+                            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Advanced → Wholesalers</div>
+                          </div>
+                        </div>
+                        <span style={{ fontSize: '0.75rem', color: step1Done ? 'var(--primary)' : 'var(--text-muted)' }}>
+                          {step1Done ? 'Go →' : 'Locked'}
+                        </span>
+                      </div>
+
+                      {/* Step 3 */}
+                      <div 
+                        onClick={step2Done ? () => { setAdminTab('kyc'); fetchDbState(); } : undefined}
+                        style={{
+                          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                          padding: '0.65rem 0.85rem', borderRadius: '8px',
+                          background: step3Done ? 'rgba(34,197,94,0.1)' : 'rgba(255,255,255,0.03)',
+                          border: step3Done ? '1px solid rgba(34,197,94,0.3)' : '1px solid var(--border-color)',
+                          opacity: step2Done ? 1 : 0.4,
+                          cursor: step2Done ? 'pointer' : 'not-allowed'
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                          {step3Done ? <CheckCircle2 size={16} style={{ color: '#4ade80' }} /> : <span style={{ fontSize: '0.8rem', fontWeight: 'bold', width: '16px', textAlign: 'center' }}>3</span>}
+                          <div>
+                            <div style={{ fontWeight: '600', fontSize: '0.85rem', color: step3Done ? '#4ade80' : (step2Done ? 'white' : 'var(--text-muted)') }}>
+                              3. {t('Wait for a shopkeeper to register, then approve them', 'दुकानदार के पंजीकरण की प्रतीक्षा करें, फिर उन्हें स्वीकृत करें', 'দোকানদারের নিবন্ধনের জন্য অপেক্ষা করুন, তারপর তাদের অনুমোদন করুন')}
+                            </div>
+                            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Pending KYC</div>
+                          </div>
+                        </div>
+                        <span style={{ fontSize: '0.75rem', color: step2Done ? 'var(--primary)' : 'var(--text-muted)' }}>
+                          {step2Done ? 'Go →' : 'Locked'}
+                        </span>
+                      </div>
+
+                      {/* Step 4 */}
+                      <div 
+                        style={{
+                          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                          padding: '0.65rem 0.85rem', borderRadius: '8px',
+                          background: step4Done ? 'rgba(34,197,94,0.1)' : 'rgba(255,255,255,0.03)',
+                          border: step4Done ? '1px solid rgba(34,197,94,0.3)' : '1px solid var(--border-color)',
+                          opacity: step3Done ? 1 : 0.4
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                          {step4Done ? <CheckCircle2 size={16} style={{ color: '#4ade80' }} /> : <span style={{ fontSize: '0.8rem', fontWeight: 'bold', width: '16px', textAlign: 'center' }}>4</span>}
+                          <div>
+                            <div style={{ fontWeight: '600', fontSize: '0.85rem', color: step4Done ? '#4ade80' : (step3Done ? 'white' : 'var(--text-muted)') }}>
+                              4. {t('Invite customers to sign up', 'ग्राहकों को साइन अप करने के लिए आमंत्रित करें', 'গ্রাহকদের সাইন আপ করতে আমন্ত্রণ জানান')}
+                            </div>
+                            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                              {t('Customers can register via Customer App once a shopkeeper is active.', 'दुकानदार के सक्रिय होने पर ग्राहक ग्राहक ऐप के माध्यम से पंजीकरण कर सकते हैं।', 'একজন দোকানদার সক্রিয় হলে গ্রাহকরা কাস্টমার অ্যাপের মাধ্যমে নিবন্ধন করতে পারেন।')}
+                            </div>
+                          </div>
+                        </div>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                          {step4Done ? 'Done' : (step3Done ? 'Pending' : 'Locked')}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
               {adminTab === 'analytics' && (
                 <div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
@@ -9916,6 +10100,107 @@ export default function App() {
       </div>
     );
   };
+
+  if (needsSetup) {
+    return (
+      <div className="simulator-shell" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', padding: '1.5rem', background: '#0f172a' }}>
+        <div className="glass-card" style={{ width: '100%', maxWidth: '440px', padding: '2rem', borderRadius: '16px', border: '1px solid rgba(255, 255, 255, 0.1)', background: 'rgba(30, 41, 59, 0.7)', backdropFilter: 'blur(16px)' }}>
+          {setupSuccessAdmin ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', textAlign: 'center' }}>
+              <div style={{ width: '56px', height: '56px', borderRadius: '50%', background: 'rgba(34, 197, 94, 0.15)', color: '#4ade80', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto' }}>
+                <CheckCircle2 size={32} />
+              </div>
+              <div>
+                <h2 style={{ fontSize: '1.4rem', fontWeight: 'bold', color: 'white', margin: 0 }}>
+                  {t('Administrator Account Created!', 'प्रशासक खाता बनाया गया!', 'অ্যাডমিনিস্ট্রেটর অ্যাকাউন্ট তৈরি করা হয়েছে!')}
+                </h2>
+                <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>
+                  {t(
+                    `Administrator account created for phone ${setupSuccessAdmin.phone}. You can now log in with OTP 123456.`,
+                    `फ़ोन ${setupSuccessAdmin.phone} के लिए प्रशासक खाता बनाया गया। अब आप ओटीपी 123456 के साथ लॉग इन कर सकते हैं।`,
+                    `ফোন ${setupSuccessAdmin.phone} এর জন্য অ্যাডমিনিস্ট্রেটর অ্যাকাউন্ট তৈরি করা হয়েছে। আপনি এখন ওটিপি 123456 দিয়ে লগ ইন করতে পারেন।`
+                  )}
+                </p>
+              </div>
+              <button
+                className="btn btn-accent"
+                style={{ width: '100%', padding: '0.75rem', fontSize: '0.9rem', fontWeight: 'bold' }}
+                onClick={() => {
+                  setNeedsSetup(false);
+                  setActiveRole('admin');
+                  setLoginPhone(setupSuccessAdmin.phone);
+                  setShowCustomerSignup(false);
+                  setShowStockistSignup(false);
+                }}
+              >
+                {t('Proceed to Admin Login', 'प्रशासक लॉगिन पर आगे बढ़ें', 'অ্যাডমিন লগইনে এগিয়ে যান')} →
+              </button>
+            </div>
+          ) : (
+            <form onSubmit={handleCreateAdminSetup} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+              <div style={{ textAlign: 'center' }}>
+                <h2 style={{ fontSize: '1.5rem', fontWeight: 'bold', color: 'white', margin: 0, marginBottom: '0.35rem' }}>
+                  Welcome to FastNet
+                </h2>
+                <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', margin: 0 }}>
+                  No accounts exist yet. Create the administrator account to get started.
+                </p>
+              </div>
+
+              {setupError && (
+                <div style={{ background: 'rgba(239, 68, 68, 0.15)', border: '1px solid rgba(239, 68, 68, 0.4)', color: '#fca5a5', padding: '0.75rem', borderRadius: '8px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <AlertCircle size={16} />
+                  <span>{setupError}</span>
+                </div>
+              )}
+
+              <div className="input-group">
+                <label className="input-label" style={{ fontSize: '0.8rem', fontWeight: '600', color: 'var(--text-main)' }}>
+                  {t('Administrator Name', 'प्रशासक का नाम', 'অ্যাডমিনিস্ট্রেটরের নাম')}
+                </label>
+                <input
+                  type="text"
+                  className="text-input"
+                  placeholder="e.g. System Administrator"
+                  value={setupName}
+                  onChange={e => setSetupName(e.target.value)}
+                  style={{ width: '100%', padding: '0.65rem 0.85rem', fontSize: '0.85rem' }}
+                />
+              </div>
+
+              <div className="input-group">
+                <label className="input-label" style={{ fontSize: '0.8rem', fontWeight: '600', color: 'var(--text-main)' }}>
+                  {t('Phone Number (10 digits)', 'फ़ोन नंबर (10 अंक)', 'ফোন নম্বর (১০ সংখ্যা)')}
+                </label>
+                <input
+                  type="tel"
+                  className="text-input"
+                  placeholder="9876543210"
+                  value={setupPhone}
+                  onChange={e => setSetupPhone(e.target.value)}
+                  maxLength={10}
+                  style={{ width: '100%', padding: '0.65rem 0.85rem', fontSize: '0.85rem' }}
+                />
+              </div>
+
+              <button
+                type="submit"
+                className="btn btn-accent"
+                disabled={isSubmittingSetup}
+                style={{ width: '100%', padding: '0.75rem', fontSize: '0.9rem', fontWeight: 'bold', marginTop: '0.25rem' }}
+              >
+                {isSubmittingSetup ? t('Creating...', 'बनाया जा रहा है...', 'তৈরি করা হচ্ছে...') : t('Create Administrator Account', 'प्रशासक खाता बनाएं', 'অ্যাডমিনিस्ट্রেটর অ্যাকাউন্ট তৈরি করুন')}
+              </button>
+
+              <div style={{ textAlign: 'center', fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '-0.25rem' }}>
+                {t("You'll log in with this phone number and an OTP.", "आप इस फ़ोन नंबर और ओटीपी से लॉग इन करेंगे।", "আপনি এই ফোন নম্বর এবং একটি ওটিপি দিয়ে লগ ইন করবেন।")}
+              </div>
+            </form>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="simulator-shell">

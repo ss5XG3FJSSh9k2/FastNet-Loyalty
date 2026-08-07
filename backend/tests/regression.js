@@ -1,4 +1,7 @@
 process.env.POSTGRES_MODE = 'mem';
+process.env.SEED_MODE = 'test';
+const fs = require('fs');
+const path = require('path');
 const http = require('http');
 const dbModule = require('../db.js');
 
@@ -3226,6 +3229,63 @@ async function main() {
     address: '1 West Street, Kolkata'
   });
   assert(regStkRes.status === 200 && regStkRes.body.user && regStkRes.body.user.region_id === freshRegionId, 'POST /api/auth/register-stockist into new region returns 200 with matching region_id');
+
+  console.log('\n--- Round BF5d: Empty Production Database + First-Run Setup ---');
+
+  // Test #602: GET /api/setup/status with users present -> needs_setup: false
+  const statusResPopulated = await get('http://localhost:3001/api/setup/status');
+  assert(statusResPopulated.status === 200 && statusResPopulated.body.needs_setup === false, 'GET /api/setup/status with users present returns needs_setup: false');
+
+  // Test #603: POST /api/setup/create-admin while users exist -> 403, "Setup has already been completed."
+  const createAdminPopulatedRes = await post('http://localhost:3001/api/setup/create-admin', { name: 'Admin', phone: '9998887776' });
+  assert(createAdminPopulatedRes.status === 403 && createAdminPopulatedRes.body.error === 'Setup has already been completed.', 'POST /api/setup/create-admin while users exist returns 403');
+
+  // Now clear DB using SEED_MODE=production to test empty setup flow
+  process.env.SEED_MODE = 'production';
+  await dbModule.resetForTest();
+
+  // Test #604: GET /api/setup/status with users emptied -> needs_setup: true, user_count: 0
+  const statusResEmpty = await get('http://localhost:3001/api/setup/status');
+  assert(statusResEmpty.status === 200 && statusResEmpty.body.needs_setup === true && statusResEmpty.body.user_count === 0, 'GET /api/setup/status on empty DB returns needs_setup: true, user_count: 0');
+
+  // Test #605: POST /api/setup/create-admin with empty name -> 400
+  const createAdminEmptyNameRes = await post('http://localhost:3001/api/setup/create-admin', { name: '', phone: '9876543210' });
+  assert(createAdminEmptyNameRes.status === 400, 'POST /api/setup/create-admin with empty name returns 400');
+
+  // Test #606: POST /api/setup/create-admin with invalid phone -> 400
+  const createAdminInvalidPhoneRes = await post('http://localhost:3001/api/setup/create-admin', { name: 'Test Admin', phone: '123' });
+  assert(createAdminInvalidPhoneRes.status === 400, 'POST /api/setup/create-admin with invalid phone returns 400');
+
+  // Test #607: POST /api/setup/create-admin on empty users table -> 200, returns user with role: 'ADMIN'
+  const createAdminSuccessRes = await post('http://localhost:3001/api/setup/create-admin', { name: 'System Admin', phone: '9876543210' });
+  assert(createAdminSuccessRes.status === 200 && createAdminSuccessRes.body.role === 'ADMIN' && createAdminSuccessRes.body.phone === '9876543210', 'POST /api/setup/create-admin on empty users table returns 200 with ADMIN role');
+
+  // Test #608: Created admin has a non-null referral_code
+  assert(createAdminSuccessRes.body.referral_code && typeof createAdminSuccessRes.body.referral_code === 'string', 'Created admin has a non-null referral_code');
+
+  // Test #609: Created admin can immediately authenticate via existing OTP flow
+  const sendOtpRes = await post('http://localhost:3001/api/auth/send-otp', { phone: '9876543210' });
+  assert(sendOtpRes.status === 200, 'send-otp returns 200 for created admin');
+  const verifyOtpRes = await post('http://localhost:3001/api/auth/verify-otp', { phone: '9876543210', otp: '123456' });
+  assert(verifyOtpRes.status === 200 && verifyOtpRes.body.user && verifyOtpRes.body.user.role === 'ADMIN', 'Created admin can authenticate via OTP flow');
+
+  // Test #610: Second POST /api/setup/create-admin after first -> 403
+  const secondCreateAdminRes = await post('http://localhost:3001/api/setup/create-admin', { name: 'Second Admin', phone: '9876543211' });
+  assert(secondCreateAdminRes.status === 403 && secondCreateAdminRes.body.error === 'Setup has already been completed.', 'Second POST /api/setup/create-admin returns 403');
+
+  // Restore DB to test seed data for clean state
+  process.env.SEED_MODE = 'test';
+  await dbModule.resetForTest();
+
+  // Test #611: Config: with SEED_MODE=production, seedDatabase is not invoked — assert db.js gates call sites on env var
+  const dbJsContent = fs.readFileSync(path.join(__dirname, '../db.js'), 'utf8');
+  assert(dbJsContent.includes('process.env.SEED_MODE') && dbJsContent.includes("seedMode === 'test'"), 'db.js gates seedRunner.seedDatabase on SEED_MODE === test');
+
+  // Test #612: Grep: regression.js sets SEED_MODE=test before requiring db.js or server.js
+  const regressionJsContent = fs.readFileSync(__filename, 'utf8');
+  const seedModePos = regressionJsContent.indexOf("process.env.SEED_MODE = 'test'");
+  const dbReqPos = regressionJsContent.indexOf("require('../db.js')");
+  assert(seedModePos !== -1 && seedModePos < dbReqPos, 'regression.js sets SEED_MODE=test before requiring db.js');
 
 console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);

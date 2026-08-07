@@ -156,8 +156,74 @@ async function appendAudit(req, action, entity_type, entity_id, before = null, a
 }
 
 // ----------------------------------------------------
-// AUTH ENDPOINTS
+// AUTH & SETUP ENDPOINTS
 // ----------------------------------------------------
+
+// GET /api/setup/status
+app.get('/api/setup/status', async (req, res) => {
+  try {
+    const users = await db.getTable('users');
+    const user_count = users.length;
+    res.json({ needs_setup: user_count === 0, user_count });
+  } catch (err) {
+    console.error('Error checking setup status:', err);
+    res.status(500).json({ error: 'Failed to check setup status' });
+  }
+});
+
+// POST /api/setup/create-admin
+app.post('/api/setup/create-admin', async (req, res) => {
+  try {
+    const users = await db.getTable('users');
+    if (users.length > 0) {
+      return res.status(403).json({ error: 'Setup has already been completed.' });
+    }
+
+    const { name, phone } = req.body || {};
+    if (!name || typeof name !== 'string' || !name.trim() || name.trim().length > 120) {
+      return res.status(400).json({ error: 'Name is required (max 120 chars).' });
+    }
+    if (!phone || typeof phone !== 'string' || !/^\d{10}$/.test(phone.trim())) {
+      return res.status(400).json({ error: 'Valid 10-digit phone number is required.' });
+    }
+
+    const cleanName = name.trim();
+    const cleanPhone = phone.trim();
+
+    // Ensure tenant t1 exists
+    const tenants = await db.getTable('tenants');
+    if (!tenants.some(t => t.id === 't1')) {
+      await db.insertRow('tenants', {
+        id: 't1',
+        name: 'FastNet Cable & Broadband',
+        code: 'fastnet',
+        created_at: new Date().toISOString()
+      });
+    }
+
+    const adminUser = {
+      id: `u-${generateId()}`,
+      tenant_id: 't1',
+      region_id: null,
+      phone: cleanPhone,
+      name: cleanName,
+      role: 'ADMIN',
+      kyc_status: 'APPROVED',
+      no_show_count: 0,
+      address: '',
+      created_at: new Date().toISOString(),
+      is_active: true
+    };
+
+    await db.insertRow('users', adminUser);
+    await appendAudit(req, 'SETUP_CREATE_ADMIN', 'users', adminUser.id, null, sanitizeUser(adminUser), 'Initial administrator setup');
+
+    res.status(200).json(sanitizeUser(adminUser));
+  } catch (err) {
+    console.error('Error creating admin in setup:', err);
+    res.status(500).json({ error: 'Failed to create administrator account.' });
+  }
+});
 
 // Send Mock OTP
 app.post('/api/auth/send-otp', async (req, res) => {

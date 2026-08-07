@@ -100,13 +100,20 @@ async function init() {
     const dbInterface = { query, getTable, insertRow, updateRow, deleteRow };
     await migrations.runMigrations(dbInterface);
 
+    const seedMode = process.env.SEED_MODE || 'production';
+    if (seedMode === 'production') {
+      console.log('[Seed] SEED_MODE=production — starting with an empty database.');
+    } else {
+      console.log(`[Seed] SEED_MODE=${seedMode} — starting with test seed data.`);
+    }
+
     // Check if DB has users
     const checkRes = await query('SELECT COUNT(*) as count FROM users');
     const count = parseInt(checkRes.rows[0].count, 10);
-    if (count === 0) {
+    if (count === 0 && seedMode === 'test') {
       await seedRunner.seedDatabase(dbInterface);
+      await backfillReferralCodes(dbInterface);
     }
-    await backfillReferralCodes(dbInterface);
   })();
   return initPromise;
 }
@@ -128,8 +135,11 @@ async function resetForTest() {
   }
 
   const dbInterface = { query, getTable, insertRow, updateRow, deleteRow };
-  await seedRunner.seedDatabase(dbInterface);
-  await backfillReferralCodes(dbInterface);
+  const seedMode = process.env.SEED_MODE || 'production';
+  if (seedMode === 'test') {
+    await seedRunner.seedDatabase(dbInterface);
+    await backfillReferralCodes(dbInterface);
+  }
 }
 
 async function close() {
