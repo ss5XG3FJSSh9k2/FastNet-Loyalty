@@ -3193,6 +3193,40 @@ async function main() {
   const r1Detail = adminRegsRes.body.find(r => r.id === 'r1');
   assert(r1Detail && r1Detail.counts && r1Detail.counts.stockists > 0, 'Seeded region r1 has non-zero counts.stockists');
 
+  console.log('\n--- Round BF5c: Region Dropdowns Must Use Live Data ---');
+  const bf5cAppJsx = fs.readFileSync(path.join(__dirname, '../../frontend/src/App.jsx'), 'utf8');
+
+  // Test #595: Grep: App.jsx contains zero occurrences of <option value="r1">
+  assert(!bf5cAppJsx.includes('<option value="r1">'), 'App.jsx contains zero occurrences of <option value="r1">');
+
+  // Test #596: Grep: App.jsx contains zero occurrences of <option value="r2"> and <option value="r3">
+  assert(!bf5cAppJsx.includes('<option value="r2">') && !bf5cAppJsx.includes('<option value="r3">'), 'App.jsx contains zero occurrences of <option value="r2"> and <option value="r3">');
+
+  // Test #597: Grep: customer registration <select> maps over a regions array
+  assert(bf5cAppJsx.includes('showCustomerSignup') && bf5cAppJsx.includes('regions.map(r =>'), 'Customer registration select maps over regions array');
+
+  // Test #598: Grep: stockist registration <select> maps over a regions array
+  assert(bf5cAppJsx.includes('showStockistSignup') && bf5cAppJsx.includes('regions.map(r =>'), 'Stockist registration select maps over regions array');
+
+  // Test #599: Endpoint: create a region via POST /api/admin/regions, then confirm GET /api/regions includes it
+  const newRegRes = await post('http://localhost:3001/api/admin/regions', { name: 'Kolkata West', code: 'kolkata-west' });
+  assert(newRegRes.status === 200 && newRegRes.body.id, 'POST /api/admin/regions returns 200 with id');
+  const freshRegionId = newRegRes.body.id;
+  const getRegsRes4 = await get('http://localhost:3001/api/regions');
+  assert(getRegsRes4.body.some(r => r.id === freshRegionId && r.code === 'kolkata-west'), 'Newly created region is present in GET /api/regions');
+
+  // Test #600: Endpoint: register a stockist into a newly created region via POST /api/auth/register-stockist -> 200, user's region_id matches new region
+  const regStkRes = await post('http://localhost:3001/api/auth/register-stockist', {
+    phone: '9123456789',
+    name: 'New Region Stockist Owner',
+    shopName: 'New Region Kirana Store',
+    regionId: freshRegionId,
+    idType: 'Aadhaar',
+    idNumber: '9999-8888-7777',
+    address: '1 West Street, Kolkata'
+  });
+  assert(regStkRes.status === 200 && regStkRes.body.user && regStkRes.body.user.region_id === freshRegionId, 'POST /api/auth/register-stockist into new region returns 200 with matching region_id');
+
 console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);
 }

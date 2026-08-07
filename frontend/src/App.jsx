@@ -78,7 +78,7 @@ export default function App() {
   const [activeRole, setActiveRole] = useState('marketing');
   const [dbState, setDbState] = useState(null);
   const [regions, setRegions] = useState([]);
-  const [selectedRegionId, setSelectedRegionId] = useState('r1');
+  const [selectedRegionId, setSelectedRegionId] = useState('');
   const [currentUser, setCurrentUser] = useState(null);
   const [nowTick, setNowTick] = useState(Date.now());
   const [confirmCancelOrderId, setConfirmCancelOrderId] = useState(null);
@@ -179,7 +179,7 @@ export default function App() {
   const [selectedStockistDetail, setSelectedStockistDetail] = useState(null);
   const [showCreateStockistModal, setShowCreateStockistModal] = useState(false);
   const [createStkName, setCreateStkName] = useState('');
-  const [createStkRegion, setCreateStkRegion] = useState('r1');
+  const [createStkRegion, setCreateStkRegion] = useState('');
   const [createStkVendor, setCreateStkVendor] = useState('v1');
   const [createStkPhone, setCreateStkPhone] = useState('');
   const [createStkRadius, setCreateStkRadius] = useState('3.0');
@@ -709,7 +709,7 @@ export default function App() {
   const [loginOtp, setLoginOtp] = useState('');
   const [otpSent, setOtpSent] = useState(false);
   const [regName, setRegName] = useState('');
-  const [regRegion, setRegRegion] = useState('r1');
+  const [regRegion, setRegRegion] = useState('');
   const [regKycType, setRegKycType] = useState('Aadhaar');
   const [regKycNumber, setRegKycNumber] = useState('');
   const [regAddress, setRegAddress] = useState('');
@@ -1210,14 +1210,15 @@ export default function App() {
         setAllPointsEarnConfigs(pointsEarnConfigs);
         setAllFeedbackReports(feedbackReports);
 
-        // Fetch regions if empty
-        if (regions.length === 0) {
-          // Hardcode for display
-          const regionsList = [
-            { id: 'r1', name: 'Kolkata South (Garia)', code: 'kolkata-garia' },
-            { id: 'r2', name: 'Rural West Bengal (Bishnupur)', code: 'rural-bishnupur' }
-          ];
-          setRegions(regionsList);
+        try {
+          const regRes = await fetch(`${API_BASE}/regions`);
+          if (regRes.ok) {
+            const regData = await regRes.json();
+            setRegions(regData);
+            setAllSystemRegions(regData);
+          }
+        } catch (err) {
+          console.error('Error fetching regions:', err);
         }
 
         // Mock state representation of tables for the inspector
@@ -3617,9 +3618,16 @@ export default function App() {
             <div className="input-group">
               <label className="input-label">{t('Select Region', 'क्षेत्र चुनें', 'অঞ্চল নির্বাচন করুন')}</label>
               <select className="text-input" value={regRegion} onChange={e => setRegRegion(e.target.value)}>
-                <option value="r1">Kolkata South (Garia)</option>
-                <option value="r2">Rural West Bengal (Bishnupur)</option>
+                <option value="">{t('Select Region', 'क्षेत्र चुनें', 'অঞ্চল নির্বাচন করুন')}</option>
+                {regions.map(r => (
+                  <option key={r.id} value={r.id}>{r.name}</option>
+                ))}
               </select>
+              {regions.length === 0 && (
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
+                  {t('No service areas are available yet. Please check back soon.', 'कोई सेवा क्षेत्र अभी उपलब्ध नहीं है। कृपया जल्द ही पुनः प्रयास करें।', 'এখনও কোনো পরিষেবা ক্ষেত্র উপলব্ধ নেই। দয়া করে শীঘ্রই আবার পরীক্ষা করুন।')}
+                </p>
+              )}
             </div>
 
             {/* Step A: Choose your local cable operator */}
@@ -3739,7 +3747,7 @@ export default function App() {
             </div>
             <div style={{ display: 'flex', gap: '0.5rem' }}>
               <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => { setShowCustomerSignup(false); setOtpSent(false); }}>← {t('Back', 'वापस', 'ফিরে')}</button>
-              <button className="btn btn-accent" style={{ flex: 2 }} onClick={handleCustomerRegister}>{t('Create Account', 'खाता बनाएं', 'অ্যাকাউন্ট তৈরি')}</button>
+              <button className="btn btn-accent" style={{ flex: 2 }} onClick={handleCustomerRegister} disabled={regions.length === 0}>{t('Create Account', 'खाता बनाएं', 'অ্যাকাউন্ট তৈরি')}</button>
             </div>
           </>
         ) : showStockistSignup ? (
@@ -3760,9 +3768,16 @@ export default function App() {
             <div className="input-group">
               <label className="input-label">{t('Region', 'क्षेत्र', 'অঞ্চল')}</label>
               <select className="text-input" value={regRegion} onChange={e => setRegRegion(e.target.value)}>
-                <option value="r1">Kolkata South (Garia)</option>
-                <option value="r2">Rural West Bengal (Bishnupur)</option>
+                <option value="">{t('Select Region', 'क्षेत्र चुनें', 'অঞ্চল निर्वाचन করুন')}</option>
+                {regions.map(r => (
+                  <option key={r.id} value={r.id}>{r.name}</option>
+                ))}
               </select>
+              {regions.length === 0 && (
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
+                  {t('No service areas are available yet. Please check back soon.', 'कोई सेवा क्षेत्र अभी उपलब्ध नहीं है। कृपया जल्द ही पुनः प्रयास करें।', 'এখনও কোনো পরিষেবা ক্ষেত্র উপলব্ধ নেই। দয়া করে শীঘ্রই আবার পরীক্ষা করুন।')}
+                </p>
+              )}
             </div>
             <div className="input-group">
               <label className="input-label">{t('KYC Document Type', 'KYC दस्तावेज़ प्रकार', 'KYC ডকুমেন্ট ধরন')}</label>
@@ -9666,11 +9681,18 @@ export default function App() {
                         <div className="input-group">
                           <label className="input-label">Region Area</label>
                           <select className="text-input" value={selectedRegionId} onChange={e => setSelectedRegionId(e.target.value)}>
-                            <option value="r1">Kolkata South (Garia)</option>
-                            <option value="r2">Rural West Bengal (Bishnupur)</option>
+                            <option value="">-- Select Region --</option>
+                            {regions.map(r => (
+                              <option key={r.id} value={r.id}>{r.name}</option>
+                            ))}
                           </select>
+                          {regions.length === 0 && (
+                            <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
+                              No regions exist. Create one under Advanced → Regions first.
+                            </p>
+                          )}
                         </div>
-                        <button className="btn" onClick={handleCreateVendor}>Register Wholesaler</button>
+                        <button className="btn" onClick={handleCreateVendor} disabled={regions.length === 0}>Register Wholesaler</button>
                       </div>
 
                       <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -10479,9 +10501,16 @@ export default function App() {
                 <div className="input-group">
                   <label className="input-label">Region</label>
                   <select className="text-input" value={createStkRegion} onChange={e => setCreateStkRegion(e.target.value)}>
-                    <option value="r1">Kolkata South (Garia)</option>
-                    <option value="r2">Rural Bishnupur</option>
+                    <option value="">-- Select Region --</option>
+                    {regions.map(r => (
+                      <option key={r.id} value={r.id}>{r.name}</option>
+                    ))}
                   </select>
+                  {regions.length === 0 && (
+                    <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
+                      No regions exist. Create one under Advanced → Regions first.
+                    </p>
+                  )}
                 </div>
                 <div className="input-group">
                   <label className="input-label">Assigned Wholesaler</label>
@@ -10516,7 +10545,7 @@ export default function App() {
               </div>
               <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
                 <button className="btn btn-secondary" onClick={() => setShowCreateStockistModal(false)}>Cancel</button>
-                <button className="btn btn-accent" onClick={handleCreateStockist}>Create Stockist</button>
+                <button className="btn btn-accent" onClick={handleCreateStockist} disabled={regions.length === 0}>Create Stockist</button>
               </div>
             </div>
           </div>
