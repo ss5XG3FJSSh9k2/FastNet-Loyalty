@@ -3305,6 +3305,20 @@ async function main() {
   const rawCreateAdminBody = JSON.stringify(createAdminSuccessRes.body);
   assert(createAdminSuccessRes.status === 200 && !rawCreateAdminBody.includes('password_hash'), 'POST /api/setup/create-admin response body does not contain "password_hash"');
 
+  console.log('\n--- Round BF6a: Getting Started Step 3 Never Completes ---');
+
+  // Test #618: Grep: App.jsx does not contain kyc_status being read from a stockists-derived array
+  const bf6aAppJsx = fs.readFileSync(path.join(__dirname, '../../frontend/src/App.jsx'), 'utf8');
+  assert(!bf6aAppJsx.includes('allStks.some(s => s.kyc_status'), 'App.jsx does not read kyc_status from allStks');
+
+  // Test #619: Endpoint: GET /api/admin/stockists returns array of stockists for step 3
+  const bf6aStockistsRes = await get('http://localhost:3001/api/admin/stockists');
+  assert(bf6aStockistsRes.status === 200 && Array.isArray(bf6aStockistsRes.body) && bf6aStockistsRes.body.length > 0, 'GET /api/admin/stockists returns non-empty array of stockists');
+
+  // Test #620: Grep: fetchDbState in App.jsx includes vendors and customers and stockists for steps 2, 3, 4
+  const fetchDbStateCode = extractFnCode(bf6aAppJsx, 'fetchDbState');
+  assert(fetchDbStateCode.includes('/admin/vendors') && fetchDbStateCode.includes('/admin/customers') && fetchDbStateCode.includes('/admin/stockists'), 'fetchDbState loads vendors, customers, and stockists');
+
 console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);
 }

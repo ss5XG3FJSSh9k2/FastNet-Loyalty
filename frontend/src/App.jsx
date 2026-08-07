@@ -8014,7 +8014,7 @@ export default function App() {
                 const step1Done = regions.length > 0;
                 const step2Done = vendors.length > 0;
                 const allStks = adminStockists.length > 0 ? adminStockists : customerStockists;
-                const step3Done = allStks.some(s => s.kyc_status === 'APPROVED');
+                const step3Done = allStks.length > 0;
                 const step4Done = adminCustomers.length > 0;
 
                 const allComplete = step1Done && step2Done && step3Done && step4Done;
