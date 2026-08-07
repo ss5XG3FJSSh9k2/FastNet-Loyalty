@@ -5056,6 +5056,183 @@ app.get('/api/partner/dashboard', async (req, res) => {
   });
 });
 
+// Admin Regions Management (BF5b)
+app.get('/api/admin/regions', async (req, res) => {
+  const regions = await db.getTable('regions');
+  const users = await db.getTable('users');
+  const stockists = await db.getTable('stockists');
+  const partnerRegions = await db.getTable('partner_regions');
+  const products = await db.getTable('products');
+  const vendors = await db.getTable('vendors');
+
+  const result = regions.map(r => ({
+    id: r.id,
+    name: r.name,
+    code: r.code,
+    tenant_id: r.tenant_id || 't1',
+    created_at: r.created_at || null,
+    counts: {
+      users: users.filter(u => u.region_id === r.id).length,
+      stockists: stockists.filter(s => s.region_id === r.id).length,
+      partners: partnerRegions.filter(pr => pr.region_id === r.id).length,
+      products: products.filter(p => p.region_id === r.id).length,
+      vendors: vendors.filter(v => v.region_id === r.id).length
+    }
+  }));
+
+  res.json(result);
+});
+
+app.post('/api/admin/regions', async (req, res) => {
+  const { name, code, admin_id } = req.body || {};
+
+  if (!name || typeof name !== 'string' || !name.trim() || name.trim().length > 120) {
+    return res.status(400).json({ error: 'Name is required and must be between 1 and 120 characters.' });
+  }
+
+  const cleanCode = code ? String(code).trim() : '';
+  if (!cleanCode || cleanCode.length > 40 || !/^[a-z0-9-]+$/.test(cleanCode)) {
+    return res.status(400).json({ error: 'Code is required and must contain only lowercase letters, numbers, and hyphens (max 40 chars).' });
+  }
+
+  const regions = await db.getTable('regions');
+  if (regions.some(r => r.code === cleanCode)) {
+    return res.status(409).json({ error: 'Region code already exists.' });
+  }
+
+  const newRegion = {
+    id: 'r-' + generateId(),
+    tenant_id: 't1',
+    name: name.trim(),
+    code: cleanCode,
+    created_at: new Date().toISOString()
+  };
+
+  regions.push(newRegion);
+  await db.saveTable('regions', regions);
+
+  const auditLogs = await db.getTable('admin_audit_log');
+  auditLogs.push({
+    id: 'aud-' + generateId(),
+    action: 'REGION_CREATE',
+    entity_type: 'region',
+    entity_id: newRegion.id,
+    user_id: admin_id || 'u-admin1',
+    before: null,
+    after: { id: newRegion.id, name: newRegion.name, code: newRegion.code },
+    created_at: new Date().toISOString()
+  });
+  await db.saveTable('admin_audit_log', auditLogs);
+
+  return res.json(newRegion);
+});
+
+app.patch('/api/admin/regions/:id', async (req, res) => {
+  const { id } = req.params;
+  const { name, code, admin_id } = req.body || {};
+
+  const regions = await db.getTable('regions');
+  const region = regions.find(r => r.id === id);
+  if (!region) {
+    return res.status(404).json({ error: 'Region not found.' });
+  }
+
+  const beforeObj = { name: region.name, code: region.code };
+
+  if (name !== undefined) {
+    if (typeof name !== 'string' || !name.trim() || name.trim().length > 120) {
+      return res.status(400).json({ error: 'Name must be between 1 and 120 characters.' });
+    }
+    region.name = name.trim();
+  }
+
+  if (code !== undefined) {
+    const cleanCode = String(code).trim();
+    if (!cleanCode || cleanCode.length > 40 || !/^[a-z0-9-]+$/.test(cleanCode)) {
+      return res.status(400).json({ error: 'Code must contain only lowercase letters, numbers, and hyphens (max 40 chars).' });
+    }
+    if (regions.some(r => r.id !== id && r.code === cleanCode)) {
+      return res.status(409).json({ error: 'Region code already exists.' });
+    }
+    region.code = cleanCode;
+  }
+
+  await db.saveTable('regions', regions);
+
+  const auditLogs = await db.getTable('admin_audit_log');
+  auditLogs.push({
+    id: 'aud-' + generateId(),
+    action: 'REGION_UPDATE',
+    entity_type: 'region',
+    entity_id: region.id,
+    user_id: admin_id || 'u-admin1',
+    before: beforeObj,
+    after: { name: region.name, code: region.code },
+    created_at: new Date().toISOString()
+  });
+  await db.saveTable('admin_audit_log', auditLogs);
+
+  return res.json(region);
+});
+
+app.delete('/api/admin/regions/:id', async (req, res) => {
+  const { id } = req.params;
+
+  const users = await db.getTable('users');
+  const userCount = users.filter(u => u.region_id === id).length;
+  if (userCount > 0) {
+    return res.status(409).json({ error: `Cannot delete: ${userCount} users still assigned to this region.` });
+  }
+
+  const stockists = await db.getTable('stockists');
+  const stockistCount = stockists.filter(s => s.region_id === id).length;
+  if (stockistCount > 0) {
+    return res.status(409).json({ error: `Cannot delete: ${stockistCount} stockists still assigned to this region.` });
+  }
+
+  const partnerRegions = await db.getTable('partner_regions');
+  const partnerRegionCount = partnerRegions.filter(pr => pr.region_id === id).length;
+  if (partnerRegionCount > 0) {
+    return res.status(409).json({ error: `Cannot delete: ${partnerRegionCount} partners still assigned to this region.` });
+  }
+
+  const products = await db.getTable('products');
+  const productCount = products.filter(p => p.region_id === id).length;
+  if (productCount > 0) {
+    return res.status(409).json({ error: `Cannot delete: ${productCount} products still assigned to this region.` });
+  }
+
+  const vendors = await db.getTable('vendors');
+  const vendorCount = vendors.filter(v => v.region_id === id).length;
+  if (vendorCount > 0) {
+    return res.status(409).json({ error: `Cannot delete: ${vendorCount} vendors still assigned to this region.` });
+  }
+
+  const regions = await db.getTable('regions');
+  const idx = regions.findIndex(r => r.id === id);
+  if (idx === -1) {
+    return res.status(404).json({ error: 'Region not found.' });
+  }
+
+  const [deleted] = regions.splice(idx, 1);
+  await db.saveTable('regions', regions);
+
+  const auditLogs = await db.getTable('admin_audit_log');
+  auditLogs.push({
+    id: 'aud-' + generateId(),
+    action: 'REGION_DELETE',
+    entity_type: 'region',
+    entity_id: id,
+    user_id: req.body?.admin_id || req.query?.admin_id || 'u-admin1',
+    before: { name: deleted.name, code: deleted.code },
+    after: null,
+    created_at: new Date().toISOString()
+  });
+  await db.saveTable('admin_audit_log', auditLogs);
+
+  return res.json({ message: 'Region deleted successfully' });
+});
+
 // Public Region List (BF3 Fix)
 app.get('/api/regions', async (req, res) => {
   const regions = await db.getTable('regions');

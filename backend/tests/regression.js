@@ -3141,6 +3141,58 @@ async function main() {
   // Test #579: Grep: the role-switch handler clears currentUser when isDevMode is false
   assert(switchViewBlock.includes('setCurrentUser(null)'), 'role-switch handler clears currentUser when isDevMode is false');
 
+  console.log('\n--- Round BF5b: Region CRUD (Admin) ---');
+  await post('http://localhost:3001/api/admin/reset-db', {});
+
+  // Test #581: POST /api/admin/regions with valid name and code -> 200, row exists in GET /api/regions
+  const postRegRes = await post('http://localhost:3001/api/admin/regions', { name: 'Howrah Central', code: 'howrah-central' });
+  assert(postRegRes.status === 200 && postRegRes.body.id, 'POST /api/admin/regions returns 200 with id');
+  const createdRegionId = postRegRes.body.id;
+  const getRegsRes1 = await get('http://localhost:3001/api/regions');
+  assert(getRegsRes1.body.some(r => r.id === createdRegionId && r.code === 'howrah-central'), 'Created region exists in GET /api/regions');
+
+  // Test #582: Duplicate code -> 409
+  const dupCodeRes = await post('http://localhost:3001/api/admin/regions', { name: 'Howrah North', code: 'howrah-central' });
+  assert(dupCodeRes.status === 409, 'Duplicate region code returns 409');
+
+  // Test #583: Invalid code ("Kolkata South") -> 400
+  const invCodeRes = await post('http://localhost:3001/api/admin/regions', { name: 'Kolkata South 2', code: 'Kolkata South' });
+  assert(invCodeRes.status === 400, 'Invalid region code returns 400');
+
+  // Test #584: Empty name -> 400
+  const emptyNameRes = await post('http://localhost:3001/api/admin/regions', { name: '  ', code: 'valid-code' });
+  assert(emptyNameRes.status === 400, 'Empty region name returns 400');
+
+  // Test #585: PATCH an existing region's name -> 200, change reflected in GET /api/regions
+  const patchRes = await patch(`http://localhost:3001/api/admin/regions/${createdRegionId}`, { name: 'Howrah Metro' });
+  assert(patchRes.status === 200 && patchRes.body.name === 'Howrah Metro', 'PATCH region returns 200 with updated name');
+  const getRegsRes2 = await get('http://localhost:3001/api/regions');
+  assert(getRegsRes2.body.some(r => r.id === createdRegionId && r.name === 'Howrah Metro'), 'Updated region name reflected in GET /api/regions');
+
+  // Test #586: PATCH a region's code to one already used by another region -> 409
+  const patchDupRes = await patch(`http://localhost:3001/api/admin/regions/${createdRegionId}`, { code: 'kolkata-garia' });
+  assert(patchDupRes.status === 409, 'PATCH duplicate code returns 409');
+
+  // Test #587: PATCH a non-existent region id -> 404
+  const patch404Res = await patch('http://localhost:3001/api/admin/regions/r-nonexistent', { name: 'Ghost Region' });
+  assert(patch404Res.status === 404, 'PATCH non-existent region returns 404');
+
+  // Test #588: DELETE a region with assigned references -> 409, message names the blocker
+  const delBlockRes = await del('http://localhost:3001/api/admin/regions/r1');
+  assert(delBlockRes.status === 409 && delBlockRes.body.error.startsWith('Cannot delete:'), 'DELETE region r1 with assigned references returns 409 naming the blocker');
+
+  // Test #589: DELETE an unused region -> 200, gone from GET /api/regions
+  const delUnusedRes = await del(`http://localhost:3001/api/admin/regions/${createdRegionId}`);
+  assert(delUnusedRes.status === 200, 'DELETE unused region returns 200');
+  const getRegsRes3 = await get('http://localhost:3001/api/regions');
+  assert(!getRegsRes3.body.some(r => r.id === createdRegionId), 'Deleted region is gone from GET /api/regions');
+
+  // Test #590: GET /api/admin/regions returns usage counts; a seeded region with stockists shows a non-zero counts.stockists
+  const adminRegsRes = await get('http://localhost:3001/api/admin/regions');
+  assert(adminRegsRes.status === 200 && Array.isArray(adminRegsRes.body), 'GET /api/admin/regions returns 200 array');
+  const r1Detail = adminRegsRes.body.find(r => r.id === 'r1');
+  assert(r1Detail && r1Detail.counts && r1Detail.counts.stockists > 0, 'Seeded region r1 has non-zero counts.stockists');
+
 console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);
 }

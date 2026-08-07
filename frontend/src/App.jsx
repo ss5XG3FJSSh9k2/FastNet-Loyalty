@@ -42,6 +42,7 @@ import {
   Clock,
   ArrowLeft,
   Tv,
+  Globe,
   Languages,
   ChevronDown,
   ChevronUp,
@@ -200,6 +201,15 @@ export default function App() {
   const [showStockistRegionModal, setShowStockistRegionModal] = useState(false);
   const [newStockistRegion, setNewStockistRegion] = useState('r1');
   const [stockistBindingsCount, setStockistBindingsCount] = useState(0);
+
+  // Admin Region Management State (BF5b)
+  const [adminRegionsList, setAdminRegionsList] = useState([]);
+  const [showRegionModal, setShowRegionModal] = useState(false);
+  const [editingRegion, setEditingRegion] = useState(null);
+  const [regionName, setRegionName] = useState('');
+  const [regionCode, setRegionCode] = useState('');
+  const [regionCodeUserEdited, setRegionCodeUserEdited] = useState(false);
+  const [regionModalError, setRegionModalError] = useState('');
 
   const [partnerLeads, setPartnerLeads] = useState([]);
   const [leadStatusFilter, setLeadStatusFilter] = useState('ALL');
@@ -1257,6 +1267,77 @@ export default function App() {
     }
   };
 
+  const fetchAdminRegions = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/regions`);
+      if (res.ok) setAdminRegionsList(await res.json());
+    } catch (e) {
+      console.error('Error fetching admin regions:', e);
+    }
+  };
+
+  const handleSaveAdminRegion = async () => {
+    setRegionModalError('');
+    if (!regionName.trim()) {
+      setRegionModalError('Name is required');
+      return;
+    }
+    if (!regionCode.trim()) {
+      setRegionModalError('Code is required');
+      return;
+    }
+    if (!/^[a-z0-9-]+$/.test(regionCode.trim())) {
+      setRegionModalError('Code must contain only lowercase letters, numbers, and hyphens');
+      return;
+    }
+
+    try {
+      const url = editingRegion ? `${API_BASE}/admin/regions/${editingRegion.id}` : `${API_BASE}/admin/regions`;
+      const method = editingRegion ? 'PATCH' : 'POST';
+      const res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: regionName.trim(), code: regionCode.trim(), admin_id: currentUser?.id })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setRegionModalError(data.error || 'Failed to save region');
+        return;
+      }
+      setShowRegionModal(false);
+      showToast(editingRegion ? 'Region updated successfully' : 'Region created successfully', 'success');
+      fetchAdminRegions();
+      fetchDbState();
+    } catch (err) {
+      setRegionModalError('Network error saving region');
+    }
+  };
+
+  const handleDeleteAdminRegion = (region) => {
+    triggerConfirmModal(
+      'Delete Region',
+      `Are you sure you want to delete region "${region.name}" (${region.code})?`,
+      async () => {
+        try {
+          const res = await fetch(`${API_BASE}/admin/regions/${region.id}`, { method: 'DELETE' });
+          const data = await res.json();
+          if (!res.ok) {
+            showToast(data.error || 'Failed to delete region', 'error');
+            return;
+          }
+          showToast('Region deleted successfully', 'success');
+          fetchAdminRegions();
+          fetchDbState();
+        } catch (err) {
+          showToast('Error deleting region', 'error');
+        }
+      },
+      true,
+      'Delete',
+      'Cancel'
+    );
+  };
+
   const fetchAnalytics = async () => {
     try {
       const res = await fetch(`${API_BASE}/admin/analytics`, {
@@ -1608,6 +1689,7 @@ export default function App() {
     }
     if (activeRole === 'admin') {
       fetchAnalytics();
+      fetchAdminRegions();
     }
     syncInspectorTable();
   }, [currentUser, activeRole, showDevSettings]);
@@ -7779,6 +7861,9 @@ export default function App() {
                     <button className={`admin-nav-item ${adminTab === 'vendors' ? 'active' : ''}`} onClick={() => setAdminTab('vendors')}>
                       <ShoppingBag size={16} /> Wholesalers ({vendors.length})
                     </button>
+                    <button className={`admin-nav-item ${adminTab === 'regions' ? 'active' : ''}`} onClick={() => { setAdminTab('regions'); fetchAdminRegions(); }}>
+                      <Globe size={16} /> Regions ({adminRegionsList.length})
+                    </button>
                     <button className={`admin-nav-item ${adminTab === 'redemptions' ? 'active' : ''}`} onClick={() => setAdminTab('redemptions')}>
                       <ArrowRightLeft size={16} /> Subscriber Bill Discounts ({pendingRedemptions.filter(r=>r.billing_sync_status==='PENDING').length})
                     </button>
@@ -9468,6 +9553,95 @@ export default function App() {
                 </div>
               )}
 
+              {adminTab === 'regions' && (
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                    <div>
+                      <h2 style={{ fontSize: '1.25rem', fontWeight: 'bold', margin: 0 }}>Region Management</h2>
+                      <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: '0.25rem 0 0 0' }}>
+                        Manage platform coverage areas, codes, and entity assignment counts.
+                      </p>
+                    </div>
+                    <button
+                      className="btn btn-primary"
+                      onClick={() => {
+                        setEditingRegion(null);
+                        setRegionName('');
+                        setRegionCode('');
+                        setRegionCodeUserEdited(false);
+                        setRegionModalError('');
+                        setShowRegionModal(true);
+                      }}
+                    >
+                      + Add Region
+                    </button>
+                  </div>
+
+                  <div className="glass-card" style={{ padding: '1rem', overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.85rem' }}>
+                      <thead>
+                        <tr style={{ borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)' }}>
+                          <th style={{ padding: '0.75rem 0.5rem' }}>Name</th>
+                          <th style={{ padding: '0.75rem 0.5rem' }}>Code</th>
+                          <th style={{ padding: '0.75rem 0.5rem' }}>Users</th>
+                          <th style={{ padding: '0.75rem 0.5rem' }}>Stockists</th>
+                          <th style={{ padding: '0.75rem 0.5rem' }}>Partners</th>
+                          <th style={{ padding: '0.75rem 0.5rem' }}>Products</th>
+                          <th style={{ padding: '0.75rem 0.5rem' }}>Created</th>
+                          <th style={{ padding: '0.75rem 0.5rem' }}>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {adminRegionsList.length === 0 ? (
+                          <tr>
+                            <td colSpan="8" style={{ padding: '1.5rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+                              No regions configured yet. Click "+ Add Region" to create one.
+                            </td>
+                          </tr>
+                        ) : (
+                          adminRegionsList.map(r => (
+                            <tr key={r.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                              <td style={{ padding: '0.75rem 0.5rem', fontWeight: 'bold' }}>{r.name}</td>
+                              <td style={{ padding: '0.75rem 0.5rem' }}><code>{r.code}</code></td>
+                              <td style={{ padding: '0.75rem 0.5rem' }}>{r.counts?.users || 0}</td>
+                              <td style={{ padding: '0.75rem 0.5rem' }}>{r.counts?.stockists || 0}</td>
+                              <td style={{ padding: '0.75rem 0.5rem' }}>{r.counts?.partners || 0}</td>
+                              <td style={{ padding: '0.75rem 0.5rem' }}>{r.counts?.products || 0}</td>
+                              <td style={{ padding: '0.75rem 0.5rem' }}>{r.created_at ? new Date(r.created_at).toLocaleDateString() : 'N/A'}</td>
+                              <td style={{ padding: '0.75rem 0.5rem' }}>
+                                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                  <button
+                                    className="btn btn-secondary"
+                                    style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}
+                                    onClick={() => {
+                                      setEditingRegion(r);
+                                      setRegionName(r.name);
+                                      setRegionCode(r.code);
+                                      setRegionCodeUserEdited(true);
+                                      setRegionModalError('');
+                                      setShowRegionModal(true);
+                                    }}
+                                  >
+                                    Edit
+                                  </button>
+                                  <button
+                                    className="btn btn-danger"
+                                    style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}
+                                    onClick={() => handleDeleteAdminRegion(r)}
+                                  >
+                                    Delete
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
               {adminTab === 'vendors' && (
                 <div>
                   <h2 style={{ fontSize: '1.4rem', marginBottom: '1rem' }}>Approved Wholesalers List</h2>
@@ -10149,6 +10323,70 @@ export default function App() {
             <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
               <button className="btn btn-secondary" onClick={() => setShowChangePhoneModal(false)}>Cancel</button>
               <button className="btn btn-accent" onClick={handleChangeCustomerPhone}>Verify & Change Phone</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* BF5b Add/Edit Region Modal */}
+      {showRegionModal && (
+        <div className="modal-overlay">
+          <div className="modal-content glass-card" style={{ maxWidth: '450px', width: '100%' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h3 style={{ fontSize: '1.1rem', margin: 0 }}>{editingRegion ? 'Edit Region' : 'Add New Region'}</h3>
+              <button className="btn btn-secondary" style={{ padding: '0.2rem 0.5rem' }} onClick={() => setShowRegionModal(false)}>
+                <X size={14} />
+              </button>
+            </div>
+
+            {regionModalError && (
+              <div className="alert alert-danger" style={{ marginBottom: '1rem', fontSize: '0.8rem' }}>
+                {regionModalError}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '1.5rem' }}>
+              <div className="input-group">
+                <label className="input-label" style={{ fontWeight: 'bold' }}>Region Name</label>
+                <input
+                  type="text"
+                  className="text-input"
+                  placeholder="e.g. Kolkata South (Garia)"
+                  value={regionName}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setRegionName(val);
+                    if (!editingRegion && !regionCodeUserEdited) {
+                      setRegionCode(val.toLowerCase().replace(/[^a-z0-9\s-]/g, '').trim().replace(/\s+/g, '-'));
+                    }
+                  }}
+                />
+              </div>
+              <div className="input-group">
+                <label className="input-label" style={{ fontWeight: 'bold' }}>Region Code (URL slug)</label>
+                <input
+                  type="text"
+                  className="text-input"
+                  placeholder="e.g. kolkata-south"
+                  value={regionCode}
+                  onChange={(e) => {
+                    setRegionCode(e.target.value);
+                    setRegionCodeUserEdited(true);
+                  }}
+                />
+                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.25rem', display: 'block' }}>
+                  Lowercase letters, numbers, and hyphens only.
+                </span>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+              <button className="btn btn-secondary" onClick={() => setShowRegionModal(false)}>
+                Cancel
+              </button>
+              <button className="btn btn-primary" onClick={handleSaveAdminRegion}>
+                {editingRegion ? 'Update Region' : 'Create Region'}
+              </button>
             </div>
           </div>
         </div>
