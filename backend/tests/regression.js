@@ -3287,6 +3287,24 @@ async function main() {
   const dbReqPos = regressionJsContent.indexOf("require('../db.js')");
   assert(seedModePos !== -1 && seedModePos < dbReqPos, 'regression.js sets SEED_MODE=test before requiring db.js');
 
+  console.log('\n--- Round BF5e: password_hash leaking in auth responses ---');
+
+  // Test #614: POST /api/auth/verify-otp response body does not contain the string "password_hash"
+  const sendOtpVerifyRes = await post('http://localhost:3001/api/auth/send-otp', { phone: '9876543210' });
+  assert(sendOtpVerifyRes.status === 200, 'send-otp returns 200 for user');
+  const verifyOtpResp = await post('http://localhost:3001/api/auth/verify-otp', { phone: '9876543210', otp: '123456' });
+  const rawVerifyBody = JSON.stringify(verifyOtpResp.body);
+  assert(verifyOtpResp.status === 200 && !rawVerifyBody.includes('password_hash'), 'POST /api/auth/verify-otp response body does not contain "password_hash"');
+
+  // Test #615: Set a password on a partner account, log in via /api/partner/auth/login-password, assert response does not contain "password_hash"
+  const partnerLoginResp = await post('http://localhost:3001/api/partner/auth/login-password', { email: 'adhya@partners.example', password: 'partner123' });
+  const rawPartnerLoginBody = JSON.stringify(partnerLoginResp.body);
+  assert(partnerLoginResp.status === 200 && !rawPartnerLoginBody.includes('password_hash'), 'POST /api/partner/auth/login-password response body does not contain "password_hash"');
+
+  // Test #616: POST /api/setup/create-admin response does not contain "password_hash"
+  const rawCreateAdminBody = JSON.stringify(createAdminSuccessRes.body);
+  assert(createAdminSuccessRes.status === 200 && !rawCreateAdminBody.includes('password_hash'), 'POST /api/setup/create-admin response body does not contain "password_hash"');
+
 console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);
 }

@@ -261,7 +261,7 @@ app.post('/api/auth/verify-otp', async (req, res) => {
     return res.status(403).json({ error: 'Account is deactivated. Contact admin.' });
   }
 
-  return res.json({ success: true, user });
+  return res.json({ success: true, user: sanitizeUser(user) });
 });
 
 // Register new Customer
@@ -326,7 +326,7 @@ app.post('/api/auth/register-customer', async (req, res) => {
     await appendAudit(req, 'CREATE_PARTNER_BINDING', 'customer_partner_binding', user.id, null, bindings);
   }
 
-  const resObj = { success: true, user };
+  const resObj = { success: true, user: sanitizeUser(user) };
   if (bindings) resObj.bindings = bindings;
   return res.json(resObj);
 });
@@ -405,7 +405,7 @@ app.post('/api/customer/register-with-referral', async (req, res) => {
     await appendAudit(req, 'CREATE_PARTNER_BINDING', 'customer_partner_binding', user.id, null, bindings);
   }
 
-  const resObj = { success: true, user, referral_code: user.referral_code };
+  const resObj = { success: true, user: sanitizeUser(user), referral_code: user.referral_code };
   if (bindings) resObj.bindings = bindings;
   return res.json(resObj);
 });
@@ -446,7 +446,7 @@ app.post('/api/auth/register-stockist', async (req, res) => {
   return res.json({
     success: true,
     message: 'Registration submitted. Awaiting admin approval.',
-    user
+    user: sanitizeUser(user)
   });
 });
 
@@ -2967,7 +2967,7 @@ app.get('/api/admin/customers/:id', async (req, res) => {
   const fraudReports = (await db.getTable('fraud_reports')).filter(f => f.reporter_customer_id === id);
   
   return res.json({
-    customer: { ...user, is_active: user.is_active !== false, points_balance: balance },
+    customer: { ...sanitizeUser(user), is_active: user.is_active !== false, points_balance: balance },
     orders,
     ledger: pointsLedger.slice().reverse(),
     fraud_reports: fraudReports.slice().reverse()
@@ -2985,7 +2985,7 @@ app.post('/api/admin/customers/:id', async (req, res) => {
   if (email !== undefined) user.email = email.trim();
   await db.saveTable('users', users);
   await appendAudit(req, 'EDIT_CUSTOMER', 'customer', id, before, { name: user.name, email: user.email });
-  return res.json({ success: true, customer: user });
+  return res.json({ success: true, customer: sanitizeUser(user) });
 });
 
 app.post('/api/admin/customers/:id/phone-change', async (req, res) => {
@@ -3005,7 +3005,7 @@ app.post('/api/admin/customers/:id/phone-change', async (req, res) => {
   user.phone = newPhone.trim();
   await db.saveTable('users', users);
   await appendAudit(req, 'CHANGE_PHONE', 'customer', id, { phone: oldPhone }, { phone: user.phone });
-  return res.json({ success: true, user });
+  return res.json({ success: true, user: sanitizeUser(user) });
 });
 
 app.post('/api/admin/customers/:id/points-credit', async (req, res) => {
@@ -3054,7 +3054,7 @@ app.post('/api/admin/customers/:id/deactivate', async (req, res) => {
   user.is_active = false;
   await db.saveTable('users', users);
   await appendAudit(req, 'DEACTIVATE_CUSTOMER', 'customer', id, { is_active: true }, { is_active: false });
-  return res.json({ success: true, user });
+  return res.json({ success: true, user: sanitizeUser(user) });
 });
 
 app.post('/api/admin/customers/:id/reactivate', async (req, res) => {
@@ -3065,7 +3065,7 @@ app.post('/api/admin/customers/:id/reactivate', async (req, res) => {
   user.is_active = true;
   await db.saveTable('users', users);
   await appendAudit(req, 'REACTIVATE_CUSTOMER', 'customer', id, { is_active: false }, { is_active: true });
-  return res.json({ success: true, user });
+  return res.json({ success: true, user: sanitizeUser(user) });
 });
 
 // Admin Stockists Endpoints
@@ -3181,7 +3181,7 @@ app.post('/api/admin/stockists', async (req, res) => {
   }
   
   await appendAudit(req, 'CREATE_STOCKIST', 'stockist', newStockistId, null, newStockist);
-  return res.json({ success: true, stockist: newStockist, user: newUser });
+  return res.json({ success: true, stockist: newStockist, user: sanitizeUser(newUser) });
 });
 
 app.post('/api/admin/stockists/:id', async (req, res) => {
