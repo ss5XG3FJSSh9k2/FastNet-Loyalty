@@ -3445,6 +3445,49 @@ async function main() {
   const analyticsErrorStringMatch = appContent.includes('Could not load analytics. Tap Refresh to retry.');
   assert(analyticsErrorStringMatch, 'error state string "Could not load analytics. Tap Refresh to retry." exists');
 
+  // --- Round BF8b: Bill Photos Queue: Broken Thumbnails, Empty Prices, Dead Links ---
+  console.log('\n--- Round BF8b: Bill Photos Queue: Broken Thumbnails, Empty Prices, Dead Links ---');
+
+  // Test #645: Endpoint: upload a bill via existing multipart flow, then GET /api/bills/:key for returned key -> 200 with image content type
+  const bf8bBillRes = await postMultipart('http://localhost:3001/api/products', {
+    name: 'BF8b Test SKU',
+    category: 'groceries',
+    price: 100,
+    costPrice: 80,
+    stockistId: 's1',
+    regionId: 'r1',
+    initialStock: 10
+  }, { fieldName: 'bill_photo', filename: 'bf8b_test.jpg', mime: 'image/jpeg', buffer: Buffer.from('test jpeg content') }, 'POST');
+  assert(bf8bBillRes.status === 200 && bf8bBillRes.body.bill_photo && bf8bBillRes.body.bill_photo.r2_key, 'Product create with bill upload returns 200 and r2_key');
+
+  const bf8bKey = bf8bBillRes.body.bill_photo.r2_key;
+  const bf8bGetImgRes = await get(`http://localhost:3001/api/bills/${bf8bKey}`);
+  assert(bf8bGetImgRes.status === 200, 'GET /api/bills/:key for returned key returns 200');
+
+  // Test #646: Endpoint: GET /api/bills/:key with an unknown key -> 404 JSON
+  const bf8bUnknownKeyRes = await get('http://localhost:3001/api/bills/bills/nonexistent-key-999.jpg');
+  assert(bf8bUnknownKeyRes.status === 404 && bf8bUnknownKeyRes.body.error, 'GET /api/bills/:key with unknown key returns 404 JSON');
+
+  // Test #647: Endpoint: GET /api/admin/bill-photos rows include a non-null upload timestamp field
+  const bf8bAdminPhotosRes = await get('http://localhost:3001/api/admin/bill-photos');
+  assert(bf8bAdminPhotosRes.status === 200 && Array.isArray(bf8bAdminPhotosRes.body.data), 'GET /api/admin/bill-photos returns 200 with data array');
+  assert(bf8bAdminPhotosRes.body.data.length > 0 && bf8bAdminPhotosRes.body.data.every(b => b.uploaded_at !== undefined && b.uploaded_at !== null), 'GET /api/admin/bill-photos rows include non-null uploaded_at timestamp');
+
+  // Test #648: Endpoint: those rows include non-null selling and cost price fields
+  assert(bf8bAdminPhotosRes.body.data.every(b => b.selling_price_at_upload !== undefined && b.selling_price_at_upload !== null && b.cost_price_at_upload !== undefined && b.cost_price_at_upload !== null), 'GET /api/admin/bill-photos rows include non-null selling_price_at_upload and cost_price_at_upload');
+
+  // Test #649: Grep: the date column renders a fallback rather than passing an unparseable value straight to new Date()
+  const bf8bDateFallbackMatch = appContent.includes('formatBillDate') && appContent.includes('uploaded_at || b.created_at');
+  assert(bf8bDateFallbackMatch, 'date column renders fallback rather than unparseable value straight to new Date()');
+
+  // Test #650: Grep: the thumbnail <img> has an onError fallback
+  const bf8bImgOnErrorMatch = appContent.includes('onError=') && appContent.includes('Image unavailable');
+  assert(bf8bImgOnErrorMatch, 'thumbnail img has onError fallback');
+
+  // Test #651: Grep: the Private Link action targets the /api/bills/ route
+  const bf8bPrivateLinkMatch = appContent.includes('/bills/${key}') || appContent.includes('/bills/');
+  assert(bf8bPrivateLinkMatch, 'Private Link action targets /api/bills/ route');
+
 console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);
 }

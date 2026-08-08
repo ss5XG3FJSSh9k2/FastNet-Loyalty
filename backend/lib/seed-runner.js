@@ -226,6 +226,25 @@ const DEFAULT_DB = {
     { id: 'sv1', stockist_id: 's1', vendor_id: 'v1', approved_at: new Date().toISOString() },
     { id: 'sv2', stockist_id: 's2', vendor_id: 'v2', approved_at: new Date().toISOString() },
     { id: 'sv3', stockist_id: 's3', vendor_id: 'v1', approved_at: new Date().toISOString() }
+  ],
+  product_bill_photos: [
+    {
+      id: 'pbp-seed1',
+      product_id: 'p1',
+      stockist_id: 's1',
+      r2_key: 'bills/s1/1785518400112-d6ez17.jpg',
+      public_url: 'https://pub-mock.r2.dev/bills/s1/1785518400112-d6ez17.jpg',
+      selling_price_at_upload: 30.0,
+      cost_price_at_upload: 22.0,
+      file_size_bytes: 102400,
+      content_type: 'image/jpeg',
+      flag_status: 'CLEAN',
+      flag_reason: null,
+      flagged_by_admin_id: null,
+      flagged_at: null,
+      uploaded_at: '2026-08-01T00:00:00.000Z',
+      uploaded_by_stockist_admin_id: 'u-stk1'
+    }
   ]
 };
 
@@ -243,6 +262,7 @@ async function seedDatabase(db) {
     'customer_partner_bindings',
     'stockists',
     'products',
+    'product_bill_photos',
     'inventory',
     'stockist_inventory',
     'commission_config',

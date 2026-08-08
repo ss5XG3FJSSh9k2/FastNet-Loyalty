@@ -521,6 +521,18 @@ export default function App() {
   const [viewingBillModal, setViewingBillModal] = useState(null);
   const [customerProvenanceProduct, setCustomerProvenanceProduct] = useState(null);
   const [customerProvenanceHistory, setCustomerProvenanceHistory] = useState([]);
+  const [billImgErrors, setBillImgErrors] = useState({});
+
+  const formatBillDate = (dateVal) => {
+    if (!dateVal) return '—';
+    const d = new Date(dateVal);
+    return isNaN(d.getTime()) ? '—' : d.toLocaleString();
+  };
+
+  const formatBillPrice = (val) => {
+    if (val === undefined || val === null || val === '' || isNaN(Number(val))) return '—';
+    return `₹${Number(val).toFixed(2)}`;
+  };
 
   // Multi-lingual & Simulation States
   const [lang, setLang] = useState('en');
@@ -3526,14 +3538,21 @@ export default function App() {
     }
   };
 
-  const handleViewSignedUrl = async (billId) => {
+  const handleViewSignedUrl = async (billTarget) => {
+    const photoObj = typeof billTarget === 'object' ? billTarget : null;
+    const billId = typeof billTarget === 'string' ? billTarget : photoObj?.id;
+    const key = photoObj?.r2_key;
+    if (key) {
+      window.open(`${API_BASE}/bills/${key}`, '_blank');
+      return;
+    }
     try {
       const res = await fetch(`${API_BASE}/admin/bill-photos/${billId}/signed-url`, {
         method: 'POST'
       });
       const data = await res.json();
       if (res.ok && data.signed_url) {
-        window.open(data.signed_url, '_blank');
+        window.open(`${API_BASE}/bills/${billId}`, '_blank');
       } else {
         showToast(data.message || data.error || 'Failed to get signed URL', 'error');
       }
@@ -9305,26 +9324,27 @@ export default function App() {
                         .filter(b => billPhotoStockistFilter === 'ALL' || b.stockist_id === billPhotoStockistFilter)
                         .map(b => (
                           <tr key={b.id}>
-                            <td style={{ fontSize: '0.75rem' }}>{new Date(b.created_at).toLocaleString()}</td>
+                            <td style={{ fontSize: '0.75rem' }}>{formatBillDate(b.uploaded_at || b.created_at)}</td>
                             <td style={{ fontWeight: 'bold' }}>{b.stockist_name || b.stockist_id}</td>
                             <td>{b.product_name || b.product_id}</td>
-                            <td style={{ fontWeight: 'bold' }}>₹{b.declared_price}</td>
-                            <td style={{ color: 'var(--text-muted)' }}>₹{b.declared_cost_price}</td>
+                            <td style={{ fontWeight: 'bold' }}>{formatBillPrice(b.selling_price_at_upload ?? b.declared_price)}</td>
+                            <td style={{ color: 'var(--text-muted)' }}>{formatBillPrice(b.cost_price_at_upload ?? b.declared_cost_price)}</td>
                             <td>
                               <span className={`badge ${b.flag_status === 'FLAGGED' ? 'badge-danger' : b.flag_status === 'RESOLVED' ? 'badge-primary' : 'badge-success'}`}>
                                 {b.flag_status}
                               </span>
                             </td>
                             <td>
-                              {b.public_url ? (
+                              {billImgErrors[b.id] ? (
+                                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Image unavailable</span>
+                              ) : (
                                 <img 
-                                  src={b.public_url} 
+                                  src={b.r2_key ? `${API_BASE}/bills/${b.r2_key}` : b.public_url} 
                                   alt="Bill thumbnail" 
                                   style={{ width: '40px', height: '40px', objectFit: 'cover', borderRadius: '4px', cursor: 'pointer', border: '1px solid var(--border-color)' }}
                                   onClick={() => setViewingBillModal(b)}
+                                  onError={() => setBillImgErrors(prev => ({ ...prev, [b.id]: true }))}
                                 />
-                              ) : (
-                                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>No Preview</span>
                               )}
                             </td>
                             <td>
@@ -9339,7 +9359,7 @@ export default function App() {
                                     Mark Resolved
                                   </button>
                                 )}
-                                <button className="btn btn-secondary" style={{ fontSize: '0.65rem', padding: '0.2rem 0.4rem' }} onClick={() => handleViewSignedUrl(b.id)}>
+                                <button className="btn btn-secondary" style={{ fontSize: '0.65rem', padding: '0.2rem 0.4rem' }} onClick={() => handleViewSignedUrl(b)}>
                                   Private Link
                                 </button>
                               </div>
@@ -11464,7 +11484,8 @@ export default function App() {
             Show Developer Options (Live Gateway Log Stream & DB Row Inspector)
           </span>
         </label>
-      
+      </footer>
+
       {/* Bill History Modal */}
       {showBillHistoryModal && (
         <div className="modal-overlay">
@@ -11486,18 +11507,18 @@ export default function App() {
               <tbody>
                 {billHistoryData.map(b => (
                   <tr key={b.id}>
-                    <td style={{ fontSize: '0.75rem' }}>{new Date(b.created_at).toLocaleDateString()}</td>
-                    <td>₹{b.declared_price}</td>
-                    <td>₹{b.declared_cost_price}</td>
+                    <td style={{ fontSize: '0.75rem' }}>{formatBillDate(b.uploaded_at || b.created_at)}</td>
+                    <td>{formatBillPrice(b.selling_price_at_upload ?? b.declared_price)}</td>
+                    <td>{formatBillPrice(b.cost_price_at_upload ?? b.declared_cost_price)}</td>
                     <td>
                       <span className={`badge ${b.flag_status === 'FLAGGED' ? 'badge-danger' : b.flag_status === 'RESOLVED' ? 'badge-primary' : 'badge-success'}`}>
                         {b.flag_status}
                       </span>
                     </td>
                     <td>
-                      {b.public_url && (
+                      {(b.r2_key || b.public_url) && (
                         <img 
-                          src={b.public_url} 
+                          src={b.r2_key ? `${API_BASE}/bills/${b.r2_key}` : b.public_url} 
                           alt="Bill" 
                           style={{ width: '40px', height: '40px', objectFit: 'cover', borderRadius: '4px', cursor: 'pointer' }}
                           onClick={() => setViewingBillModal(b)}
@@ -11562,14 +11583,14 @@ export default function App() {
               <h3 style={{ fontSize: '1rem', margin: 0 }}>Bill Photo Inspection</h3>
               <button className="btn btn-secondary" style={{ padding: '0.2rem 0.5rem' }} onClick={() => setViewingBillModal(null)}><X size={14} /></button>
             </div>
-            {viewingBillModal.public_url ? (
-              <img src={viewingBillModal.public_url} alt="Full Bill Photo" style={{ maxWidth: '100%', maxHeight: '400px', borderRadius: '8px' }} />
+            {(viewingBillModal.r2_key || viewingBillModal.public_url) ? (
+              <img src={viewingBillModal.r2_key ? `${API_BASE}/bills/${viewingBillModal.r2_key}` : viewingBillModal.public_url} alt="Full Bill Photo" style={{ maxWidth: '100%', maxHeight: '400px', borderRadius: '8px' }} />
             ) : (
               <p style={{ color: 'var(--text-muted)' }}>No public preview URL available.</p>
             )}
             <div style={{ marginTop: '1rem', fontSize: '0.75rem', color: 'var(--text-muted)', textAlign: 'left' }}>
-              <p>Uploaded: {new Date(viewingBillModal.created_at).toLocaleString()}</p>
-              <p>Declared Price: ₹{viewingBillModal.declared_price} | Cost: ₹{viewingBillModal.declared_cost_price}</p>
+              <p>Uploaded: {formatBillDate(viewingBillModal.uploaded_at || viewingBillModal.created_at)}</p>
+              <p>Selling Price: {formatBillPrice(viewingBillModal.selling_price_at_upload ?? viewingBillModal.declared_price)} | Cost: {formatBillPrice(viewingBillModal.cost_price_at_upload ?? viewingBillModal.declared_cost_price)}</p>
               {viewingBillModal.flag_reason && <p style={{ color: 'var(--danger)' }}>Flag Reason: {viewingBillModal.flag_reason}</p>}
             </div>
           </div>
@@ -11606,8 +11627,8 @@ export default function App() {
             <div style={{ maxHeight: '150px', overflowY: 'auto' }}>
               {customerProvenanceHistory.map(b => (
                 <div key={b.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.75rem', padding: '0.3rem 0', borderBottom: '1px dashed rgba(255,255,255,0.05)' }}>
-                  <span>{new Date(b.created_at).toLocaleDateString()}</span>
-                  <span>Cost: ₹{b.declared_cost_price} → Price: ₹{b.declared_price}</span>
+                  <span>{formatBillDate(b.uploaded_at || b.created_at)}</span>
+                  <span>Cost: {formatBillPrice(b.cost_price_at_upload ?? b.declared_cost_price)} → Price: {formatBillPrice(b.selling_price_at_upload ?? b.declared_price)}</span>
                   <span className={`badge ${b.flag_status === 'FLAGGED' ? 'badge-danger' : 'badge-success'}`}>{b.flag_status}</span>
                 </div>
               ))}
@@ -11616,8 +11637,6 @@ export default function App() {
           </div>
         </div>
       )}
-
-</footer>
     </div>
   );
 }

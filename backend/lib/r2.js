@@ -3,6 +3,13 @@ const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 
 const mockStore = new Map();
 
+// Seed initial bill photo key for mock mode testing
+mockStore.set('bills/s1/1785518400112-d6ez17.jpg', {
+  buffer: Buffer.from([0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00, 0x01]),
+  contentType: 'image/jpeg',
+  uploadedAt: '2026-08-01T00:00:00.000Z'
+});
+
 function isR2Configured() {
   if (process.env.R2_MOCK === 'false') {
     return Boolean(

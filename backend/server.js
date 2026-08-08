@@ -837,6 +837,30 @@ app.post('/api/admin/bill-photos/:id/signed-url', async (req, res) => {
   }
 });
 
+// GET /api/bills/* — serve mock bill image or redirect to signed URL
+app.get('/api/bills/*', async (req, res) => {
+  const rawKey = req.params[0];
+  if (!rawKey) return res.status(404).json({ error: 'Bill photo key required' });
+  const key = decodeURIComponent(rawKey);
+
+  const isMock = process.env.R2_MOCK === 'true' || !process.env.R2_ACCOUNT_ID;
+  if (isMock) {
+    const item = r2.mockStore.get(key) || r2.mockStore.get(rawKey);
+    if (!item) {
+      return res.status(404).json({ error: 'Bill photo not found' });
+    }
+    res.setHeader('Content-Type', item.contentType || 'image/jpeg');
+    return res.send(item.buffer);
+  }
+
+  try {
+    const signedUrl = await r2.getSignedReadUrl(key, 3600);
+    return res.redirect(signedUrl);
+  } catch (err) {
+    return res.status(404).json({ error: 'Bill photo not found', message: err.message });
+  }
+});
+
 app.get('/api/products/search-alternatives', async (req, res) => {
   const { name, regionId, excludeStockistId } = req.query;
   if (!name || !regionId) {
