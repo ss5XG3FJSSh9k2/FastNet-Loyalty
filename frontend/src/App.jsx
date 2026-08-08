@@ -6308,39 +6308,92 @@ export default function App() {
                                   ))}
                                 </div>
                                 {/* §E13: Compulsory Pickup Slot Picker (PICKUP only, per store) */}
-                                {cartFulfillment === 'PICKUP' && (() => {
+                                {(() => {
+                                  if (cartFulfillment !== 'PICKUP') return null;
+
                                   const groups = {};
                                   customerCart.forEach(item => {
                                     if (!groups[item.stockistId]) groups[item.stockistId] = item.stockistName;
                                   });
+
+                                  const groupEntries = Object.entries(groups);
+
+                                  let totalSlotsAcrossShops = 0;
+                                  groupEntries.forEach(([sid]) => {
+                                    const stockist = customerStockists.find(s => s.id === sid) || { id: sid, opening_time: '08:00', closing_time: '20:00', prep_eta_minutes: 10 };
+                                    try {
+                                      const sArr = getAvailableSlots(stockist);
+                                      if (Array.isArray(sArr)) totalSlotsAcrossShops += sArr.length;
+                                    } catch (e) {
+                                      // count as 0 on error
+                                    }
+                                  });
+
                                   return (
                                     <div className="pickup-slot-picker-block" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', border: slotError ? '1px solid var(--danger)' : '1px dashed rgba(255,255,255,0.15)', borderRadius: '6px', padding: '0.75rem', backgroundColor: 'rgba(255,255,255,0.03)', marginTop: '0.25rem' }}>
+                                      {isDevMode && (
+                                        <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>
+                                          fulfilment={cartFulfillment} · shops={groupEntries.length} · slots={totalSlotsAcrossShops}
+                                        </div>
+                                      )}
+
                                       <div className="pickup-slot-label" style={{ fontSize: '0.85rem', color: slotError ? 'var(--danger)' : 'white', display: 'flex', alignItems: 'center', gap: '0.35rem', fontWeight: 'bold' }}>
                                         <Clock size={10} /> {t('Select Pickup Slot (Required)', 'पिकअप समय चुनें (आवश्यक)', 'পিকআপ সময় নির্বাচন করুন (প্রয়োজনীয়)')}
                                       </div>
-                                      {Object.entries(groups).map(([sid, sName]) => {
-                                        const stockist = customerStockists.find(s => s.id === sid) || { id: sid, opening_time: '08:00', closing_time: '20:00', prep_eta_minutes: 10 };
-                                        const SLOTS = getAvailableSlots(stockist);
-                                        return (
-                                          <div key={sid} style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                                            <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)' }}>{sName}:</div>
-                                            <select
-                                              className="text-input"
-                                              style={{ fontSize: '0.7rem', padding: '0.3rem 0.5rem', border: slotError && !cartPickupSlots[sid] ? '1px solid var(--danger)' : '1px solid var(--border-color)' }}
-                                              value={cartPickupSlots[sid] || ''}
-                                              onChange={e => { setCartPickupSlots(prev => ({ ...prev, [sid]: e.target.value })); setSlotError(false); }}
-                                            >
-                                              <option value="">{t('-- Pick a time slot --', '-- समय स्लॉट चुनें --', '-- সময় स्लॉट বেছে নিন --')}</option>
-                                              {SLOTS.map(slot => (
-                                                <option key={slot.value} value={slot.value}>{slot.label}</option>
-                                              ))}
-                                            </select>
-                                          </div>
-                                        );
-                                      })}
+
+                                      {groupEntries.length === 0 ? (
+                                        <div style={{ color: 'var(--danger)', fontSize: '0.75rem', padding: '0.25rem 0' }}>
+                                          Could not determine which shop this order is from. Please remove and re-add your items.
+                                        </div>
+                                      ) : (
+                                        groupEntries.map(([sid, sName]) => {
+                                          const stockist = customerStockists.find(s => s.id === sid) || { id: sid, opening_time: '08:00', closing_time: '20:00', prep_eta_minutes: 10 };
+                                          let SLOTS = [];
+                                          let slotErr = null;
+                                          try {
+                                            SLOTS = getAvailableSlots(stockist);
+                                          } catch (err) {
+                                            console.error('Error fetching available slots for stockist:', err);
+                                            slotErr = err;
+                                          }
+
+                                          if (slotErr) {
+                                            return (
+                                              <div key={sid} style={{ fontSize: '0.75rem', color: 'var(--danger)', padding: '0.2rem 0' }}>
+                                                <strong>{sName}:</strong> Could not load pickup times.
+                                              </div>
+                                            );
+                                          }
+
+                                          if (!SLOTS || SLOTS.length === 0) {
+                                            return (
+                                              <div key={sid} style={{ fontSize: '0.75rem', color: 'var(--danger)', padding: '0.2rem 0' }}>
+                                                <strong>{sName}:</strong> This shop has no pickup times available. Please choose Home Delivery or try another shop.
+                                              </div>
+                                            );
+                                          }
+
+                                          return (
+                                            <div key={sid} style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                                              <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)' }}>{sName}:</div>
+                                              <select
+                                                className="text-input"
+                                                style={{ fontSize: '0.7rem', padding: '0.3rem 0.5rem', border: slotError && !cartPickupSlots[sid] ? '1px solid var(--danger)' : '1px solid var(--border-color)' }}
+                                                value={cartPickupSlots[sid] || ''}
+                                                onChange={e => { setCartPickupSlots(prev => ({ ...prev, [sid]: e.target.value })); setSlotError(false); }}
+                                              >
+                                                <option value="">{t('-- Pick a time slot --', '-- समय स्लॉट चुनें --', '-- समय स्लॉट বেছে নিন --')}</option>
+                                                {SLOTS.map(slot => (
+                                                  <option key={slot.value} value={slot.value}>{slot.label}</option>
+                                                ))}
+                                              </select>
+                                            </div>
+                                          );
+                                        })
+                                      )}
                                     </div>
                                   );
-                                })}
+                                })()}
                                 
                                 <button className="btn" style={{ width: '100%', fontSize: '0.8rem', border: slotError ? '2px solid var(--danger)' : undefined }} onClick={handleCheckout}>
                                   {cartFulfillment === 'PICKUP'

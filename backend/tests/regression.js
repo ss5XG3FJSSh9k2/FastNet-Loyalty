@@ -3488,7 +3488,36 @@ async function main() {
   const bf8bPrivateLinkMatch = appContent.includes('/bills/${key}') || appContent.includes('/bills/');
   assert(bf8bPrivateLinkMatch, 'Private Link action targets /api/bills/ route');
 
-console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
+  // --- Round BF8a: Pickup Slot Picker: Make It Impossible To Fail Silently ---
+  console.log('\n--- Round BF8a: Pickup Slot Picker: Make It Impossible To Fail Silently ---');
+
+  // Test #654: Grep: the picker block renders on customerCart.length > 0, not solely on cartFulfillment === 'PICKUP'
+  const cartPanelIdx = appContent.indexOf('{customerCart.length > 0 && (');
+  const pickerBlockIdx = appContent.indexOf('className="pickup-slot-picker-block"');
+  const directCartFulfillmentGating = appContent.includes('{cartFulfillment === \'PICKUP\' && (() => {\n                                  const groups = {};');
+  assert(cartPanelIdx !== -1 && pickerBlockIdx !== -1 && pickerBlockIdx > cartPanelIdx && !directCartFulfillmentGating, 'the picker block renders on customerCart.length > 0, not solely on cartFulfillment === \'PICKUP\'');
+
+  // Test #655: Grep: an empty-groups message string exists
+  const emptyGroupsMsgMatch = appContent.includes('Could not determine which shop this order is from. Please remove and re-add your items.');
+  assert(emptyGroupsMsgMatch, 'an empty-groups message string exists');
+
+  // Test #656: Grep: an empty-slots message string exists
+  const emptySlotsMsgMatch = appContent.includes('This shop has no pickup times available. Please choose Home Delivery or try another shop.');
+  assert(emptySlotsMsgMatch, 'an empty-slots message string exists');
+
+  // Test #657: Grep: getAvailableSlots is called inside a try/catch within the picker
+  const tryCatchSlotsMatch = appContent.includes('getAvailableSlots(stockist)') && appContent.includes('try {');
+  assert(tryCatchSlotsMatch, 'getAvailableSlots is called inside a try/catch within the picker');
+
+  // Test #658: Grep: the dev diagnostic line is gated on isDevMode
+  const devDiagGatedMatch = appContent.includes('{isDevMode && (') && appContent.includes('fulfilment={cartFulfillment} · shops=');
+  assert(devDiagGatedMatch, 'the dev diagnostic line is gated on isDevMode');
+
+  // Test #659: Grep: .pickup-slot-picker-block appears exactly once in the file
+  const pickerBlockClassCount = (appContent.match(/className="pickup-slot-picker-block"/g) || []).length;
+  assert(pickerBlockClassCount === 1, '.pickup-slot-picker-block appears exactly once in the file');
+
+  console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);
 }
 
