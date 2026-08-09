@@ -1313,6 +1313,9 @@ export default function App() {
           feedback_reports: feedbackReports,
           partner_leads: leads
         });
+        if (activeRole === 'admin' || currentUser?.role === 'ADMIN') {
+          fetchAnalytics();
+        }
       }
     } catch (e) {
       console.error('Failed to sync DB state:', e);
@@ -1510,6 +1513,7 @@ export default function App() {
         showToast('Redemption approval approved successfully');
         setShowApproveRedemptionModal(false);
         fetchRedemptionApprovals();
+        fetchAnalytics();
       } else {
         showToast(data.error || 'Failed to approve redemption', 'error');
       }
@@ -1538,6 +1542,7 @@ export default function App() {
         showToast(`Refund of ${data.points_deducted} points appended to customer's ledger`);
         setShowRejectRedemptionModal(false);
         fetchRedemptionApprovals();
+        fetchAnalytics();
       } else {
         showToast(data.error || 'Failed to reject redemption', 'error');
       }
@@ -1563,6 +1568,7 @@ export default function App() {
         showToast(outcome === 'fulfill' ? 'Dispute resolved: FULFILLED' : 'Dispute resolved: REJECTED (Points refunded)');
         setShowResolveDisputeModal(false);
         fetchRedemptionApprovals();
+        fetchAnalytics();
       } else {
         showToast(data.error || 'Failed to resolve dispute', 'error');
       }
@@ -3071,6 +3077,7 @@ export default function App() {
       if (res.ok) {
         showToast(`Approved stockist! Assigned vendor: ${matchingVendor.name}`);
         fetchDbState();
+        fetchAnalytics();
       } else {
         showToast(data.error || 'Approval failed', 'error');
       }
@@ -8261,7 +8268,7 @@ export default function App() {
               {/* Top 3 Admin Summary Cards */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem', marginBottom: '1.25rem' }}>
                 <div 
-                  onClick={() => { setAdminTab('redemption_approvals'); fetchRedemptionApprovals(); }}
+                  onClick={() => { setAdminTab('redemptions'); fetchRedemptionApprovals(); }}
                   style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)', padding: '0.85rem', borderRadius: '10px', cursor: 'pointer', transition: 'all 0.2s' }}
                 >
                   <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: '600', textTransform: 'uppercase' }}>
@@ -8276,14 +8283,14 @@ export default function App() {
                 </div>
 
                 <div 
-                  onClick={() => setAdminTab('transactions')}
+                  onClick={() => { setAdminTab('analytics'); fetchAnalytics(); }}
                   style={{ background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)', padding: '0.85rem', borderRadius: '10px', cursor: 'pointer', transition: 'all 0.2s' }}
                 >
                   <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: '600', textTransform: 'uppercase' }}>
                     {t('Orders In Progress Today', 'आज प्रगति में ऑर्डर', 'আজকের প্রসেসিংয়ে থাকা অর্ডার')}
                   </div>
                   <div style={{ fontSize: '1.4rem', fontWeight: 'bold', color: 'var(--primary)', marginTop: '0.35rem' }}>
-                    {analyticsData?.orders?.total_today || 0}
+                    {analyticsData ? (analyticsData?.orders?.total_today ?? 0) : '—'}
                   </div>
                 </div>
 
@@ -8295,7 +8302,7 @@ export default function App() {
                     {t('Revenue This Week', 'इस सप्ताह का राजस्व', 'এই সপ্তাহের মোট রাজস্ব')}
                   </div>
                   <div style={{ fontSize: '1.4rem', fontWeight: 'bold', color: '#4ade80', marginTop: '0.35rem' }}>
-                    ₹{analyticsData?.orders?.revenue_this_week_rupees || 0}
+                    {analyticsData ? `₹${analyticsData?.orders?.revenue_this_week_rupees ?? 0}` : '—'}
                   </div>
                 </div>
               </div>

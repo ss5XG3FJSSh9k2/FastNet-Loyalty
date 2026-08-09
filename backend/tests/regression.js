@@ -3637,6 +3637,41 @@ async function main() {
   const tableServiceTypeMatch = appContent.includes('<th>Service Type</th>') && appContent.includes('<th>Region</th>');
   assert(tableServiceTypeMatch, 'admin Partner Leads table renders Service Type and Region columns');
 
+  // --- Round BF10a: Admin Summary Cards Show Stale Zeros ---
+  console.log('\n--- Round BF10a: Admin Summary Cards Show Stale Zeros ---');
+
+  // Test #680: Grep: fetchAnalytics is called from the admin mount path, not only from the Analytics tab handler
+  const adminMountIdx = appContent.indexOf("activeRole === 'admin'");
+  const adminMountBlock = adminMountIdx !== -1 ? appContent.substring(adminMountIdx, adminMountIdx + 200) : '';
+  assert(adminMountBlock.includes('fetchAnalytics()'), 'fetchAnalytics is called from the admin mount path');
+
+  // Test #681: Grep: fetchAnalytics is called after the redemption approve handler
+  const approveRedemptionIdx = appContent.indexOf('const handleApproveRedemption');
+  const approveRedemptionBlock = approveRedemptionIdx !== -1 ? appContent.substring(approveRedemptionIdx, approveRedemptionIdx + 600) : '';
+  assert(approveRedemptionBlock.includes('fetchAnalytics()'), 'fetchAnalytics is called after redemption approve handler');
+
+  // Test #682: Grep: the summary cards render a — placeholder when analyticsData is null, rather than 0
+  const placeholderMatch = appContent.includes("analyticsData ? (analyticsData?.orders?.total_today ?? 0) : '—'") || appContent.includes("analyticsData ? `₹${analyticsData?.orders?.revenue_this_week_rupees ?? 0}` : '—'");
+  assert(placeholderMatch, 'summary cards render a — placeholder when analyticsData is null');
+
+  // Test #683: Grep: each of the three cards has an onClick that sets an admin tab
+  const card1Click = appContent.includes("onClick={() => { setAdminTab('redemptions'); fetchRedemptionApprovals(); }}");
+  const card2Click = appContent.includes("onClick={() => { setAdminTab('analytics'); fetchAnalytics(); }}");
+  assert(card1Click && card2Click, 'each of the three cards has an onClick that sets an admin tab');
+
+  // Test #684: Endpoint: GET /api/admin/analytics returns non-zero orders.total_today after an order is placed today
+  const orderPlaceRes = await post('http://localhost:3001/api/orders', {
+    customerId: 'u-cust1',
+    stockistId: 's1',
+    pickupSlot: 'Morning (8AM–12PM)',
+    commission_model: 'gross_v1',
+    items: [{ productId: 'p1', quantity: 1 }]
+  });
+  assert(orderPlaceRes.status === 200, 'Placed order for analytics test');
+
+  const analyticsEndpointRes = await get('http://localhost:3001/api/admin/analytics');
+  assert(analyticsEndpointRes.status === 200 && analyticsEndpointRes.body.orders && analyticsEndpointRes.body.orders.total_today > 0, 'GET /api/admin/analytics returns non-zero orders.total_today after order is placed today');
+
   console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);
 }
