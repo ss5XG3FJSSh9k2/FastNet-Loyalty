@@ -247,6 +247,17 @@ export default function App() {
   const [adminStockists, setAdminStockists] = useState([]);
   const [adminIncludeInactiveStockists, setAdminIncludeInactiveStockists] = useState(false);
   const [selectedStockistDetail, setSelectedStockistDetail] = useState(null);
+  const [showStockistDetailModal, setShowStockistDetailModal] = useState(false);
+  const [showSelfServicePhoneModal, setShowSelfServicePhoneModal] = useState(false);
+  const [selfServiceNewPhone, setSelfServiceNewPhone] = useState('');
+  const [selfServiceOtp, setSelfServiceOtp] = useState('');
+  const [selfServiceOtpSent, setSelfServiceOtpSent] = useState(false);
+  const [selfServiceLoading, setSelfServiceLoading] = useState(false);
+  const [newProdImageFile, setNewProdImageFile] = useState(null);
+  const [newProdImagePreview, setNewProdImagePreview] = useState(null);
+  const [editProdImageFile, setEditProdImageFile] = useState(null);
+  const [editProdImagePreview, setEditProdImagePreview] = useState(null);
+  const [profileRegion, setProfileRegion] = useState('');
   const [showCreateStockistModal, setShowCreateStockistModal] = useState(false);
   const [createStkName, setCreateStkName] = useState('');
   const [createStkRegion, setCreateStkRegion] = useState('');
@@ -3454,6 +3465,9 @@ export default function App() {
     try {
       const formData = new FormData();
       formData.append('bill_photo', newProdBillFile);
+      if (newProdImageFile) {
+        formData.append('imageFile', newProdImageFile);
+      }
       formData.append('name', newProdName);
       formData.append('price', parseFloat(newProdPrice));
       formData.append('costPrice', newProdCostPrice ? parseFloat(newProdCostPrice) : parseFloat(newProdPrice) * 0.75);
@@ -3479,6 +3493,8 @@ export default function App() {
         setNewProdCategory('groceries');
         setNewProdInitialStock('10');
         setNewProdBillFile(null);
+        setNewProdImageFile(null);
+        setNewProdImagePreview(null);
         loadStockistData();
         fetchDbState();
       } else {
@@ -3738,12 +3754,12 @@ export default function App() {
     );
 
     return (
-      <div style={{ padding: '2rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '1.5rem', justifyContent: 'center', height: '100%' }}>
-        <div style={{ textAlign: 'center', marginBottom: '1rem' }}>
+      <div className="login-content-container" style={{ padding: '2.5rem 1.5rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem', justifyContent: 'flex-start', minHeight: '100%', overflowY: 'auto' }}>
+        <div style={{ textAlign: 'center', marginBottom: '0.75rem', paddingTop: '1rem' }}>
           <div style={{ display: 'inline-flex', padding: '0.75rem', borderRadius: '50%', background: 'var(--primary-glow)', color: 'var(--primary)', marginBottom: '0.75rem' }}>
             <Smartphone size={32} />
           </div>
-          <h2 style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>{loginTitle}</h2>
+          <h2 className="login-heading" style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>{loginTitle}</h2>
           <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>{loginSubtitle}</p>
         </div>
 
@@ -7245,7 +7261,17 @@ export default function App() {
                         </div>
 
                         <div className="input-group">
-                          <label className="input-label">{t('Phone Number', 'फ़ोन नंबर', 'फोन नंबर')}</label>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <label className="input-label">{t('Phone Number', 'फ़ोन नंबर', 'फोन नंबर')}</label>
+                            <button
+                              type="button"
+                              className="btn btn-secondary"
+                              style={{ padding: '0.15rem 0.4rem', fontSize: '0.65rem' }}
+                              onClick={() => { setSelfServiceNewPhone(''); setSelfServiceOtp(''); setSelfServiceOtpSent(false); setShowSelfServicePhoneModal(true); }}
+                            >
+                              {t('Change Phone Number', 'फ़ोन नंबर बदलें', 'फोन नंबर परिवर्तन')}
+                            </button>
+                          </div>
                           <input
                             type="text"
                             className="text-input"
@@ -7257,13 +7283,45 @@ export default function App() {
 
                         <div className="input-group">
                           <label className="input-label">{t('Region', 'क्षेत्र', 'অঞ্চল')}</label>
-                          <input
-                            type="text"
+                          <select
                             className="text-input"
-                            disabled
-                            value={activeRegionName}
-                            style={{ opacity: 0.7, cursor: 'not-allowed' }}
-                          />
+                            value={profileRegion || currentUser?.region_id || 'r1'}
+                            onChange={async (e) => {
+                              const newReg = e.target.value;
+                              setProfileRegion(newReg);
+                              try {
+                                const res = await fetch(`${API_BASE}/customer/region-change`, {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ user_id: currentUser.id, new_region_id: newReg })
+                                });
+                                const data = await res.json();
+                                if (res.ok) {
+                                  currentUser.region_id = newReg;
+                                  if (data.cleared_partner_name) {
+                                    showToast(`Region updated. Your binding with ${data.cleared_partner_name} was cleared as they do not serve the new area.`, 'warning');
+                                  } else {
+                                    showToast('Region updated successfully', 'success');
+                                  }
+                                } else {
+                                  showToast(data.error || 'Failed to update region', 'error');
+                                }
+                              } catch (err) {
+                                showToast('Network error updating region', 'error');
+                              }
+                            }}
+                          >
+                            {regions.map(r => (
+                              <option key={r.id} value={r.id}>{r.name}</option>
+                            ))}
+                          </select>
+                          <p style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: '0.35rem', lineHeight: 1.35 }}>
+                            {t(
+                              "Changing your region means you'll see shops and offers from the new area. Your points stay with you. Any partner you've selected may not serve the new region — you may need to choose again.",
+                              "अपना क्षेत्र बदलने का अर्थ है कि आप नए क्षेत्र की दुकानें और ऑफ़र देखेंगे। आपके पॉइंट्स आपके पास ही रहेंगे। आपका चुना गया पार्टनर नए क्षेत्र में सेवा न दे सके — आपको पुनः चयन करना पड़ सकता है।",
+                              "আপনার অঞ্চল পরিবর্তন করার অর্থ হলো আপনি নতুন অঞ্চলের দোকান এবং অফার দেখতে পাবেন। আপনার পয়েন্ট আপনার কাছেই থাকবে। আপনার নির্বাচিত পার্টনার নতুন অঞ্চলে পরিষেবা না-ও দিতে পারে — আপনাকে পুনরায় নির্বাচন করতে হতে পারে।"
+                            )}
+                          </p>
                         </div>
 
                         <div className="input-group">
@@ -7982,6 +8040,27 @@ export default function App() {
                     </div>
                   )}
 
+                  <div className="stockist-profile-card glass-card" style={{ padding: '0.85rem', marginTop: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: '0.75rem' }}>
+                    <div style={{ fontWeight: 'bold', color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span>Shop Profile</span>
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        style={{ padding: '0.15rem 0.4rem', fontSize: '0.65rem' }}
+                        onClick={() => { setSelfServiceNewPhone(''); setSelfServiceOtp(''); setSelfServiceOtpSent(false); setShowSelfServicePhoneModal(true); }}
+                      >
+                        Change phone number
+                      </button>
+                    </div>
+                    <div>
+                      <span style={{ color: 'var(--text-muted)' }}>Shop Area / Region: </span>
+                      <strong style={{ color: 'white' }}>{regions.find(r => r.id === stockistProfile.region_id)?.name || stockistProfile.region_id}</strong>
+                      <p style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: '0.2rem', marginBottom: 0 }}>
+                        Contact FastNet support to change your shop's area.
+                      </p>
+                    </div>
+                  </div>
+
                   <button className="btn btn-danger" style={{ width: '100%', marginTop: 'auto', fontSize: '0.8rem', minHeight: '36px', height: '36px' }} onClick={handleLogout}>Log Out</button>
 
                   {/* Stockist-Side Rate Customer Modal Overlay */}
@@ -8080,8 +8159,58 @@ export default function App() {
                         </div>
                         
                         <div className="input-group">
-                          <label className="input-label">{t('Initial Stock', 'प्रारंभिक स्टॉक', 'প্রাথমিক স্টক')}</label>
+                          <label className="input-label">{t('Initial Stock', 'प्रारंभिक स्टॉक', 'প্রাথমिक स्टॉक')}</label>
                           <input type="number" className="text-input" value={newProdInitialStock} onChange={e => setNewProdInitialStock(e.target.value)} />
+                        </div>
+
+                        <div className="input-group">
+                          <label className="input-label">Product Image</label>
+                          <p style={{ fontSize: '0.65rem', color: 'var(--text-muted)', margin: '0 0 0.35rem 0' }}>
+                            Square image works best. At least 400×400 pixels. JPG, PNG or WebP. Maximum 5 MB.
+                          </p>
+                          <input 
+                            type="file" 
+                            accept=".jpg,.jpeg,.png,.webp"
+                            className="text-input" 
+                            onChange={e => {
+                              const file = e.target.files[0];
+                              if (!file) { setNewProdImageFile(null); setNewProdImagePreview(null); return; }
+                              if (file.size > 5 * 1024 * 1024) {
+                                const sizeMb = (file.size / (1024 * 1024)).toFixed(1).replace('.0', '');
+                                showToast(`That image is ${sizeMb} MB. Please use one under 5 MB.`, 'error');
+                                return;
+                              }
+                              const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+                              if (!allowedTypes.includes(file.type)) {
+                                showToast("Please use a JPG, PNG or WebP image.", 'error');
+                                return;
+                              }
+                              const objectUrl = URL.createObjectURL(file);
+                              const img = new window.Image();
+                              img.onload = () => {
+                                if (img.width < 400 || img.height < 400) {
+                                  showToast(`That image is ${img.width}×${img.height}. Please use one at least 400×400 so it looks sharp.`, 'error');
+                                  URL.revokeObjectURL(objectUrl);
+                                  return;
+                                }
+                                setNewProdImageFile(file);
+                                setNewProdImagePreview(objectUrl);
+                              };
+                              img.onerror = () => {
+                                showToast("Please use a JPG, PNG or WebP image.", 'error');
+                                URL.revokeObjectURL(objectUrl);
+                              };
+                              img.src = objectUrl;
+                            }}
+                          />
+                          {newProdImagePreview && (
+                            <div style={{ marginTop: '0.5rem', textAlign: 'center' }}>
+                              <img src={newProdImagePreview} alt="Preview" style={{ width: '90px', height: '90px', objectFit: 'cover', objectPosition: 'center', borderRadius: '8px', border: '1px solid var(--border-color)' }} />
+                              <p style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
+                                This is how it will appear. Use a square image if anything important is cut off.
+                              </p>
+                            </div>
+                          )}
                         </div>
 
                         <div className="input-group">
@@ -8864,7 +8993,10 @@ export default function App() {
                                 <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
                                   <button className="btn btn-secondary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem' }} onClick={async () => {
                                     const res = await fetch(`${API_BASE}/admin/stockists/${s.id}`);
-                                    if (res.ok) setSelectedStockistDetail(await res.json());
+                                    if (res.ok) {
+                                      setSelectedStockistDetail(await res.json());
+                                      setShowStockistDetailModal(true);
+                                    }
                                   }}>
                                     Details
                                   </button>
@@ -11891,6 +12023,142 @@ export default function App() {
               ))}
               {customerProvenanceHistory.length === 0 && <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>No bill history records found.</p>}
             </div>
+          </div>
+        </div>
+      )}
+      {/* Stockist Detail Modal Overlay */}
+      {showStockistDetailModal && selectedStockistDetail && (
+        <div className="modal-overlay">
+          <div className="modal-content glass-card" style={{ maxWidth: '550px', maxHeight: '80vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h3 style={{ fontSize: '1.2rem', margin: 0 }}>Stockist Details: {selectedStockistDetail.name}</h3>
+              <button className="btn btn-secondary" style={{ padding: '0.2rem 0.5rem' }} onClick={() => setShowStockistDetailModal(false)}><X size={14} /></button>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.85rem', fontSize: '0.8rem', marginBottom: '1rem' }}>
+              <div><strong>Shop Name:</strong> {selectedStockistDetail.name}</div>
+              <div><strong>Phone / Owner:</strong> {selectedStockistDetail.phone}</div>
+              <div><strong>Region:</strong> {regions.find(r => r.id === selectedStockistDetail.region_id)?.name || selectedStockistDetail.region_id}</div>
+              <div><strong>Wholesaler:</strong> {vendors.find(v => v.id === selectedStockistDetail.vendor_id)?.name || selectedStockistDetail.vendor_id || 'N/A'}</div>
+              <div><strong>Commission Rate:</strong> {selectedStockistDetail.commission_rate}%</div>
+              <div><strong>Delivery Radius:</strong> {selectedStockistDetail.delivery_radius_km || 3.0} km</div>
+              <div><strong>Min Order Value:</strong> ₹{selectedStockistDetail.min_order_value || 0}</div>
+              <div><strong>Product Count:</strong> {selectedStockistDetail.product_count ?? selectedStockistDetail.products?.length ?? 0} SKUs</div>
+              <div><strong>30-Day GMV:</strong> ₹{(selectedStockistDetail.gmv_30d || 0).toFixed(2)}</div>
+              <div><strong>Pending Orders:</strong> {selectedStockistDetail.pending_orders_count || 0}</div>
+              <div><strong>KYC Date:</strong> {selectedStockistDetail.created_at ? new Date(selectedStockistDetail.created_at).toLocaleDateString() : 'N/A'}</div>
+              <div><strong>Status:</strong> <span className={`badge ${selectedStockistDetail.is_active !== false ? 'badge-success' : 'badge-secondary'}`}>{selectedStockistDetail.is_active !== false ? 'Active' : 'Inactive'}</span></div>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '1rem' }}>
+              <button className="btn btn-secondary" onClick={() => setShowStockistDetailModal(false)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Self-Service Phone Change Modal Overlay */}
+      {showSelfServicePhoneModal && (
+        <div className="modal-overlay">
+          <div className="modal-content glass-card" style={{ maxWidth: '400px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h3 style={{ fontSize: '1.1rem', margin: 0 }}>Change Phone Number</h3>
+              <button className="btn btn-secondary" style={{ padding: '0.2rem 0.5rem' }} onClick={() => setShowSelfServicePhoneModal(false)}><X size={14} /></button>
+            </div>
+
+            {!selfServiceOtpSent ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+                <div className="input-group">
+                  <label className="input-label">Current Phone</label>
+                  <input type="text" className="text-input" disabled value={currentUser?.phone || ''} style={{ opacity: 0.7 }} />
+                </div>
+                <div className="input-group">
+                  <label className="input-label">New 10-Digit Phone Number</label>
+                  <input
+                    type="text"
+                    className="text-input"
+                    placeholder="Enter new phone number"
+                    value={selfServiceNewPhone}
+                    onChange={e => setSelfServiceNewPhone(e.target.value)}
+                  />
+                </div>
+                <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+                  <button className="btn btn-secondary" onClick={() => setShowSelfServicePhoneModal(false)}>Cancel</button>
+                  <button
+                    className="btn btn-primary"
+                    disabled={selfServiceLoading || !selfServiceNewPhone}
+                    onClick={async () => {
+                      setSelfServiceLoading(true);
+                      try {
+                        const res = await fetch(`${API_BASE}/customer/phone-change/request`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ user_id: currentUser.id, new_phone: selfServiceNewPhone })
+                        });
+                        const data = await res.json();
+                        if (res.ok) {
+                          setSelfServiceOtpSent(true);
+                          showToast('OTP sent to new phone number (Mock OTP: 123456)', 'info');
+                        } else {
+                          showToast(data.error || 'Failed to send OTP', 'error');
+                        }
+                      } catch (err) {
+                        showToast('Network error sending OTP', 'error');
+                      } finally {
+                        setSelfServiceLoading(false);
+                      }
+                    }}
+                  >
+                    Send Verification Code
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                  A 6-digit code was sent to <strong>{selfServiceNewPhone}</strong>. (Mock OTP: 123456)
+                </p>
+                <div className="input-group">
+                  <label className="input-label">Verification Code (OTP)</label>
+                  <input
+                    type="text"
+                    className="text-input"
+                    placeholder="123456"
+                    value={selfServiceOtp}
+                    onChange={e => setSelfServiceOtp(e.target.value)}
+                  />
+                </div>
+                <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+                  <button className="btn btn-secondary" onClick={() => setSelfServiceOtpSent(false)}>Back</button>
+                  <button
+                    className="btn btn-accent"
+                    disabled={selfServiceLoading || !selfServiceOtp}
+                    onClick={async () => {
+                      setSelfServiceLoading(true);
+                      try {
+                        const res = await fetch(`${API_BASE}/customer/phone-change/verify`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ user_id: currentUser.id, new_phone: selfServiceNewPhone, otp: selfServiceOtp })
+                        });
+                        const data = await res.json();
+                        if (res.ok) {
+                          currentUser.phone = selfServiceNewPhone;
+                          showToast('Phone number updated successfully!', 'success');
+                          setShowSelfServicePhoneModal(false);
+                        } else {
+                          showToast(data.error || 'Invalid verification code', 'error');
+                        }
+                      } catch (err) {
+                        showToast('Network error verifying code', 'error');
+                      } finally {
+                        setSelfServiceLoading(false);
+                      }
+                    }}
+                  >
+                    Verify & Save
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

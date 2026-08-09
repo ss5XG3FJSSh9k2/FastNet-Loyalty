@@ -3776,6 +3776,105 @@ async function main() {
   const bf11aPartner = bf11aPromoteRes.body.partner;
   assert(Array.isArray(bf11aPartner.service_types) && bf11aPartner.service_types.length === 2 && bf11aPartner.service_types.includes('CABLE') && bf11aPartner.service_types.includes('BROADBAND'), 'Promoted partner service_types contains both CABLE and BROADBAND');
 
+  // Test #698: Self-service phone change request checks 409 if phone number taken
+  const takenPhoneRes = await post('http://localhost:3001/api/customer/phone-change/request', {
+    user_id: 'u-cust1',
+    new_phone: '9999999999' // Taken by admin user
+  });
+  assert(takenPhoneRes.status === 409, 'Self-service phone change request returns 409 if phone number is taken');
+
+  // Test #699: Self-service phone change request succeeds and verify with OTP 123456 updates phone
+  const reqPhoneRes = await post('http://localhost:3001/api/customer/phone-change/request', {
+    user_id: 'u-cust1',
+    new_phone: '9830099111'
+  });
+  assert(reqPhoneRes.status === 200, 'Self-service phone change request returns 200 for new phone');
+
+  const verifyPhoneRes = await post('http://localhost:3001/api/customer/phone-change/verify', {
+    user_id: 'u-cust1',
+    new_phone: '9830099111',
+    otp: '123456'
+  });
+  assert(verifyPhoneRes.status === 200, 'Self-service phone change verify with 123456 returns 200');
+  const allUsersAfterPhoneChange = await dbModule.getTable('users');
+  assert(allUsersAfterPhoneChange.find(u => u.id === 'u-cust1').phone === '9830099111', 'User phone updated to new phone');
+
+  // Revert phone number back for u-cust1 to avoid side effects
+  allUsersAfterPhoneChange.find(u => u.id === 'u-cust1').phone = '9876543210';
+  await dbModule.saveTable('users', allUsersAfterPhoneChange);
+
+  // Test #700: Self-service phone change verify fails with 400 for incorrect OTP
+  const invalidOtpRes = await post('http://localhost:3001/api/customer/phone-change/verify', {
+    user_id: 'u-cust1',
+    new_phone: '9830099222',
+    otp: '999999'
+  });
+  assert(invalidOtpRes.status === 400, 'Phone change verify returns 400 for incorrect OTP');
+
+  // Test #701: Customer region change updates user region, clears unserved partner binding, & appends audit log entry
+  // Set up binding for u-cust1 with a partner that serves r1 only
+  const allBindings = await dbModule.getTable('customer_partner_bindings');
+  allBindings.push({ id: 'bind-bf11b-test', customer_user_id: 'u-cust1', cable_partner_id: 'p-r1-only', created_at: new Date().toISOString() });
+  await dbModule.saveTable('customer_partner_bindings', allBindings);
+
+  const allPartnerRegions = await dbModule.getTable('partner_regions');
+  allPartnerRegions.push({ id: 'pr-r1-test', partner_id: 'p-r1-only', region_id: 'r1' });
+  await dbModule.saveTable('partner_regions', allPartnerRegions);
+
+  const allPartners = await dbModule.getTable('partners');
+  allPartners.push({ id: 'p-r1-only', display_name: 'R1 Only Provider', legal_name: 'R1 Only Provider' });
+  await dbModule.saveTable('partners', allPartners);
+
+  const regChangeRes = await post('http://localhost:3001/api/customer/region-change', {
+    user_id: 'u-cust1',
+    new_region_id: 'r2'
+  });
+  assert(regChangeRes.status === 200, 'Customer region change returns 200');
+  const usersAfterRegChange = await dbModule.getTable('users');
+  assert(usersAfterRegChange.find(u => u.id === 'u-cust1').region_id === 'r2', 'Customer region_id updated to r2');
+  const bindingsAfterRegChange = await dbModule.getTable('customer_partner_bindings');
+  assert(!bindingsAfterRegChange.some(b => (b.customer_user_id === 'u-cust1' || b.customer_id === 'u-cust1' || b.user_id === 'u-cust1') && (b.cable_partner_id === 'p-r1-only' || b.partner_id === 'p-r1-only')), 'Binding cleared for partner that does not serve new region');
+
+  // Revert region back for u-cust1
+  usersAfterRegChange.find(u => u.id === 'u-cust1').region_id = 'r1';
+  await dbModule.saveTable('users', usersAfterRegChange);
+
+  // Test #702: Grep: Stockist profile region notice exists
+  const stockistRegionNoticeExists = appContent.includes("Contact FastNet support to change your shop's area.");
+  assert(stockistRegionNoticeExists, 'Stockist profile includes read-only region notice text');
+
+  // Test #703: Product creation with image file stores image in R2 mock and sets image_url to /api/images/...
+  const prodCreateRes = await postMultipart('http://localhost:3001/api/products', {
+    name: 'BF11b Test Rice 5kg',
+    price: 300,
+    costPrice: 250,
+    category: 'groceries',
+    initialStock: 20,
+    stockistId: 's1',
+    regionId: 'r1'
+  }, { fieldName: 'imageFile', filename: 'product.png', mime: 'image/png', buffer: Buffer.from('mock image data') });
+
+  assert(prodCreateRes.status === 200, 'Product creation with imageFile returns 200');
+  const createdProdImgUrl = prodCreateRes.body.product?.image_url || prodCreateRes.body.image_url;
+  assert(createdProdImgUrl && createdProdImgUrl.startsWith('/api/images/'), 'Created product image_url starts with /api/images/');
+
+  // Test #704: GET /api/images/:key serves uploaded image from R2 mock
+  const imgKey = createdProdImgUrl.replace('/api/images/', '');
+  const imgGetRes = await get(`http://localhost:3001/api/images/${imgKey}`);
+  assert(imgGetRes.status === 200, 'GET /api/images/:key returns 200');
+
+  // Test #705: Grep: Product image upload file picker guidance text exists
+  const imgGuidanceExists = appContent.includes('Square image works best. At least 400×400 pixels. JPG, PNG or WebP. Maximum 5 MB.');
+  assert(imgGuidanceExists, 'Product image upload guidance text exists in App.jsx');
+
+  // Test #706: Grep: Stockist table row Details button opens modal
+  const stockistDetailModalTrigger = appContent.includes('setShowStockistDetailModal(true)') && appContent.includes('showStockistDetailModal && selectedStockistDetail');
+  assert(stockistDetailModalTrigger, 'Stockist Details button sets showStockistDetailModal and renders Stockist Detail Modal');
+
+  // Test #707: Grep: Customer login screen heading inside scrollable container
+  const loginLayoutFixed = appContent.includes('className="login-content-container"') && appContent.includes('className="login-heading"');
+  assert(loginLayoutFixed, 'Customer login heading rendered inside login-content-container');
+
   console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);
 }

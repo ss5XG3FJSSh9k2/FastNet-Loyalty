@@ -67,12 +67,25 @@ const upload = multer({
 });
 
 const uploadBillMiddleware = (req, res, next) => {
-  upload.single('bill_photo')(req, res, (err) => {
+  upload.fields([
+    { name: 'bill_photo', maxCount: 1 },
+    { name: 'billFile', maxCount: 1 },
+    { name: 'imageFile', maxCount: 1 },
+    { name: 'image', maxCount: 1 },
+    { name: 'image_file', maxCount: 1 }
+  ])(req, res, (err) => {
     if (err) {
       if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
-        return res.status(400).json({ error: 'file_too_large', message: 'Bill photo exceeds 8 MB limit.' });
+        return res.status(400).json({ error: 'file_too_large', message: 'File exceeds size limit.' });
       }
       return res.status(400).json({ error: 'upload_error', message: err.message });
+    }
+    if (req.files) {
+      const bFile = (req.files['bill_photo'] && req.files['bill_photo'][0]) ||
+                    (req.files['billFile'] && req.files['billFile'][0]) ||
+                    (req.files['imageFile'] && req.files['imageFile'][0]) ||
+                    (req.files['image'] && req.files['image'][0]);
+      if (bFile) req.file = bFile;
     }
     next();
   });
@@ -590,6 +603,21 @@ app.post('/api/products', uploadBillMiddleware, async (req, res) => {
   billPhotos.push(billPhotoRow);
   await db.saveTable('product_bill_photos', billPhotos);
 
+  let finalImageUrl = imageUrl;
+  if (req.files) {
+    const imgFile = (req.files['imageFile'] && req.files['imageFile'][0]) ||
+                    (req.files['image'] && req.files['image'][0]) ||
+                    (req.files['image_file'] && req.files['image_file'][0]);
+    if (imgFile) {
+      try {
+        const imgUploadRes = await r2.uploadBillPhoto(imgFile.buffer, imgFile.mimetype, `product-images/${stockistId}`);
+        finalImageUrl = `/api/images/${imgUploadRes.key}`;
+      } catch (uploadErr) {
+        console.error('Failed to upload product image file:', uploadErr);
+      }
+    }
+  }
+
   const products = await db.getTable('products');
   const newProduct = {
     id: productId,
@@ -600,7 +628,7 @@ app.post('/api/products', uploadBillMiddleware, async (req, res) => {
     price: parsedPrice,
     cost_price: parsedCostPrice,
     description: description || (name + ' added by local stockist'),
-    image_url: imageUrl || 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=200&auto=format&fit=crop&q=60',
+    image_url: finalImageUrl || 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=200&auto=format&fit=crop&q=60',
     latest_bill_photo_id: billPhotoId,
     has_flagged_bill: false,
     created_at: new Date().toISOString()
@@ -883,6 +911,30 @@ app.get('/api/bills/*', async (req, res) => {
     return res.redirect(signedUrl);
   } catch (err) {
     return res.status(404).json({ error: 'Bill photo not found', message: err.message });
+  }
+});
+
+// GET /api/images/* — serve mock product image or redirect to signed URL
+app.get('/api/images/*', async (req, res) => {
+  const rawKey = req.params[0];
+  if (!rawKey) return res.status(404).json({ error: 'Image key required' });
+  const key = decodeURIComponent(rawKey);
+
+  const isMock = process.env.R2_MOCK === 'true' || !process.env.R2_ACCOUNT_ID;
+  if (isMock) {
+    const item = r2.mockStore.get(key) || r2.mockStore.get(rawKey);
+    if (!item) {
+      return res.status(404).json({ error: 'Image not found' });
+    }
+    res.setHeader('Content-Type', item.contentType || 'image/jpeg');
+    return res.send(item.buffer);
+  }
+
+  try {
+    const signedUrl = await r2.getSignedReadUrl(key, 3600);
+    return res.redirect(signedUrl);
+  } catch (err) {
+    return res.status(404).json({ error: 'Image not found', message: err.message });
   }
 });
 
@@ -2649,6 +2701,95 @@ app.post('/api/admin/approve-kyc', async (req, res) => {
   await db.saveTable('stockist_inventory', inventory);
 
   return res.json({ success: true, stockist: newStockist });
+});
+
+// Self-service Phone Change Requests & Verification
+app.post('/api/customer/phone-change/request', async (req, res) => {
+  const { user_id, new_phone } = req.body;
+  if (!user_id || !new_phone) {
+    return res.status(400).json({ error: 'User ID and new phone number are required' });
+  }
+  const cleanPhone = new_phone.trim();
+  const users = await db.getTable('users');
+  const existing = users.find(u => u.phone === cleanPhone);
+  if (existing) {
+    return res.status(409).json({ error: 'Phone number already registered' });
+  }
+  return res.json({ success: true, message: 'OTP sent to new phone number' });
+});
+
+app.post('/api/customer/phone-change/verify', async (req, res) => {
+  const { user_id, new_phone, otp } = req.body;
+  if (!user_id || !new_phone || !otp) {
+    return res.status(400).json({ error: 'User ID, new phone, and OTP are required' });
+  }
+  if (otp !== '123456') {
+    return res.status(400).json({ error: 'Invalid OTP' });
+  }
+  const cleanPhone = new_phone.trim();
+  const users = await db.getTable('users');
+  const user = users.find(u => u.id === user_id);
+  if (!user) {
+    return res.status(404).json({ error: 'User not found' });
+  }
+  const oldPhone = user.phone;
+  user.phone = cleanPhone;
+  await db.saveTable('users', users);
+  await appendAudit(req, 'PHONE_CHANGE_VERIFIED', 'user', user_id, { phone: oldPhone }, { phone: cleanPhone });
+  return res.json({ success: true, message: 'Phone number updated successfully', user });
+});
+
+// Self-service Customer Region Change
+app.post('/api/customer/region-change', async (req, res) => {
+  const { user_id, new_region_id } = req.body;
+  if (!user_id || !new_region_id) {
+    return res.status(400).json({ error: 'User ID and new region ID are required' });
+  }
+  const users = await db.getTable('users');
+  const user = users.find(u => u.id === user_id);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  const oldRegionId = user.region_id;
+  user.region_id = new_region_id;
+  await db.saveTable('users', users);
+
+  // Check customer_partner_bindings
+  const bindings = await db.getTable('customer_partner_bindings');
+  const partnerRegions = await db.getTable('partner_regions');
+  const partners = await db.getTable('partners');
+
+  let clearedPartnerNames = [];
+  const updatedBindings = [];
+  for (const binding of bindings) {
+    const bCustId = binding.customer_user_id || binding.customer_id || binding.user_id;
+    if (bCustId === user_id) {
+      const partnerId = binding.partner_id || binding.cable_partner_id || binding.broadband_partner_id;
+      const servesNewRegion = partnerRegions.some(pr => pr.partner_id === partnerId && pr.region_id === new_region_id && pr.is_active !== false);
+      if (!servesNewRegion) {
+        const partner = partners.find(p => p.id === partnerId);
+        const pName = partner ? (partner.display_name || partner.name || partner.legal_name) : 'Selected Partner';
+        if (!clearedPartnerNames.includes(pName)) clearedPartnerNames.push(pName);
+        continue;
+      }
+    }
+    updatedBindings.push(binding);
+  }
+
+  if (updatedBindings.length !== bindings.length) {
+    await db.saveTable('customer_partner_bindings', updatedBindings);
+  }
+
+  const clearedPartnerName = clearedPartnerNames.join(', ') || null;
+
+  await appendAudit(req, 'REGION_CHANGE', 'user', user_id, { region_id: oldRegionId }, { region_id: new_region_id, cleared_partner: clearedPartnerName });
+  return res.json({
+    success: true,
+    user,
+    cleared_partner_name: clearedPartnerName,
+    message: clearedPartnerName
+      ? `Region updated. Your binding with ${clearedPartnerName} was cleared as they do not serve the new area.`
+      : 'Region updated successfully.'
+  });
 });
 
 app.get('/api/admin/commission-rates', async (req, res) => res.json(await db.getTable('commission_rates')));
