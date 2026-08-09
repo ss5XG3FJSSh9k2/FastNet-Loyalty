@@ -3517,6 +3517,126 @@ async function main() {
   const pickerBlockClassCount = (appContent.match(/className="pickup-slot-picker-block"/g) || []).length;
   assert(pickerBlockClassCount === 1, '.pickup-slot-picker-block appears exactly once in the file');
 
+  // --- Round BF9: Role-Scoped Login and Correct Onboarding Order ---
+  console.log('\n--- Round BF9: Role-Scoped Login and Correct Onboarding Order ---');
+
+  // Test #660: POST /api/auth/verify-otp with valid admin phone/OTP but expected_role: "CUSTOMER" returns 403
+  const bf9OtpAdminRes = await post('http://localhost:3001/api/auth/verify-otp', {
+    phone: '9999999999',
+    otp: '123456',
+    expected_role: 'CUSTOMER'
+  });
+  assert(bf9OtpAdminRes.status === 403 && bf9OtpAdminRes.body.error && bf9OtpAdminRes.body.error.includes('administrator'), 'POST /api/auth/verify-otp for admin phone with expected_role CUSTOMER returns 403');
+
+  // Test #661: POST /api/auth/verify-otp with customer phone and expected_role: "STOCKIST" returns 403
+  const bf9OtpCustForStkRes = await post('http://localhost:3001/api/auth/verify-otp', {
+    phone: '9876543210',
+    otp: '123456',
+    expected_role: 'STOCKIST'
+  });
+  assert(bf9OtpCustForStkRes.status === 403 && bf9OtpCustForStkRes.body.error && bf9OtpCustForStkRes.body.error.includes('customer'), 'POST /api/auth/verify-otp for customer phone with expected_role STOCKIST returns 403');
+
+  // Test #662: POST /api/auth/verify-otp with stockist phone and expected_role: "CUSTOMER" returns 403
+  const bf9OtpStkForCustRes = await post('http://localhost:3001/api/auth/verify-otp', {
+    phone: '7654321098',
+    otp: '123456',
+    expected_role: 'CUSTOMER'
+  });
+  assert(bf9OtpStkForCustRes.status === 403 && bf9OtpStkForCustRes.body.error && bf9OtpStkForCustRes.body.error.includes('shopkeeper'), 'POST /api/auth/verify-otp for stockist phone with expected_role CUSTOMER returns 403');
+
+  // Test #663: POST /api/auth/verify-otp with customer phone and expected_role: "ADMIN" returns 403
+  const bf9OtpCustForAdminRes = await post('http://localhost:3001/api/auth/verify-otp', {
+    phone: '9876543210',
+    otp: '123456',
+    expected_role: 'ADMIN'
+  });
+  assert(bf9OtpCustForAdminRes.status === 403 && bf9OtpCustForAdminRes.body.error && bf9OtpCustForAdminRes.body.error.includes('administrator'), 'POST /api/auth/verify-otp for customer phone with expected_role ADMIN returns 403');
+
+  // Test #664: POST /api/auth/verify-otp with customer phone and expected_role: "INVALID_ROLE" returns 400
+  const bf9OtpInvalidRoleRes = await post('http://localhost:3001/api/auth/verify-otp', {
+    phone: '9876543210',
+    otp: '123456',
+    expected_role: 'INVALID_ROLE'
+  });
+  assert(bf9OtpInvalidRoleRes.status === 400 && bf9OtpInvalidRoleRes.body.error, 'POST /api/auth/verify-otp with INVALID_ROLE returns 400');
+
+  // Test #665: POST /api/auth/verify-otp with customer phone and expected_role: "CUSTOMER" returns 200
+  const bf9OtpValidRes = await post('http://localhost:3001/api/auth/verify-otp', {
+    phone: '9876543210',
+    otp: '123456',
+    expected_role: 'CUSTOMER'
+  });
+  assert(bf9OtpValidRes.status === 200 && bf9OtpValidRes.body.user && bf9OtpValidRes.body.user.role === 'CUSTOMER', 'POST /api/auth/verify-otp with matching expected_role CUSTOMER returns 200 user');
+
+  // Test #666: Grep: admin login test-accounts panel contains 9999999999 and NOT 9876543210
+  const adminDevPanelIdx = appContent.indexOf('isAdminApp && (');
+  const adminDevSection = adminDevPanelIdx !== -1 ? appContent.substring(adminDevPanelIdx, adminDevPanelIdx + 300) : '';
+  assert(adminDevSection.includes('9999999999') && !adminDevSection.includes('9876543210'), 'admin login test-accounts panel contains 9999999999 and not 9876543210');
+
+  // Test #667: Grep: admin login screen contains no "Don't have an account" string
+  assert(appContent.includes('!isAdminApp && (') && appContent.includes('Don\'t have an account?'), 'admin login screen gates Don\'t have an account on !isAdminApp');
+
+  // Test #668: Grep: test accounts panel is gated on isDevMode
+  const devModePanelMatches = appContent.includes('{isDevMode && (') && appContent.includes('Demo Phone Options:');
+  assert(devModePanelMatches, 'test accounts panel is gated on isDevMode');
+
+  // Test #669: Grep: partner login default tab state in App.jsx is 'otp'
+  const partnerTabDefaultStateMatch = appContent.includes('useState(\'otp\');') || appContent.includes('useState("otp");');
+  assert(partnerTabDefaultStateMatch, 'partner login default tab state in App.jsx is otp');
+
+  // Test #670: Grep: partner login Email tab in App.jsx renders hint
+  const partnerEmailHintMatch = appContent.includes('If you have not set a password yet, use Phone + OTP.');
+  assert(partnerEmailHintMatch, 'partner login Email tab renders password hint line');
+
+  // Test #671: Endpoint: a promoted partner (no email, no password set) authenticates via phone + OTP -> 200
+  const bf9LeadForOtpRes = await post('http://localhost:3001/api/partner-leads', {
+    name: 'BF9 OTP Test Operator',
+    phone: '9876599999',
+    service_type: 'BROADBAND'
+  });
+  assert(bf9LeadForOtpRes.status === 200, 'Created lead for OTP login test');
+  const bf9PromoteOtpRes = await post(`http://localhost:3001/api/admin/partner-leads/${bf9LeadForOtpRes.body.lead.id}/promote`, {
+    admin_id: 'u-admin',
+    service_types: ['BROADBAND']
+  });
+  assert(bf9PromoteOtpRes.status === 200, 'Promoted lead for OTP login test');
+
+  const bf9PartnerOtpLoginRes = await post('http://localhost:3001/api/partner/auth/login-otp-verify', {
+    phone: '9876599999',
+    otp: '123456'
+  });
+  assert(bf9PartnerOtpLoginRes.status === 200 && bf9PartnerOtpLoginRes.body.session_token, 'Promoted partner authenticates via phone + OTP -> 200 session');
+
+  // Test #672: Endpoint: create a lead with contact name, service type, and region -> stored row contains all three
+  const bf9LeadFullRes = await post('http://localhost:3001/api/partner-leads', {
+    name: 'BF9 Full Test Operator',
+    contact_name: 'Rahul Sen',
+    phone: '9876588888',
+    email: 'rahul@bf9test.com',
+    service_type: 'BROADBAND',
+    region_id: 'r2'
+  });
+  assert(bf9LeadFullRes.status === 200, 'POST /api/partner-leads full fields returns 200');
+  const storedLead = bf9LeadFullRes.body.lead;
+  assert(storedLead.contact_name === 'Rahul Sen' && storedLead.service_type === 'BROADBAND' && storedLead.region_id === 'r2', 'Stored lead contains contact_name, service_type, and region_id');
+
+  // Test #673: Endpoint: promoting that lead creates a partner whose service_types matches the lead's service type
+  const bf9PromoteFullRes = await post(`http://localhost:3001/api/admin/partner-leads/${storedLead.id}/promote`, {
+    admin_id: 'u-admin'
+  });
+  assert(bf9PromoteFullRes.status === 200, 'Promote lead without explicit service_types returns 200');
+  const createdPartner = bf9PromoteFullRes.body.partner;
+  assert(JSON.stringify(createdPartner.service_types) === JSON.stringify(['BROADBAND']), 'Created partner service_types matches lead service_type BROADBAND');
+
+  // Test #674: Endpoint: the promoted partner has a partner_regions row for the lead's region
+  const partnerRegions = await dbModule.getTable('partner_regions');
+  const prRow = partnerRegions.find(pr => pr.partner_id === createdPartner.id && pr.region_id === 'r2');
+  assert(prRow && prRow.service_type === 'BROADBAND', 'Promoted partner has partner_regions row for lead region r2');
+
+  // Test #675: Grep: the admin Partner Leads table renders service type and region columns
+  const tableServiceTypeMatch = appContent.includes('<th>Service Type</th>') && appContent.includes('<th>Region</th>');
+  assert(tableServiceTypeMatch, 'admin Partner Leads table renders Service Type and Region columns');
+
   console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);
 }

@@ -239,30 +239,55 @@ app.post('/api/auth/send-otp', async (req, res) => {
 
 // Verify OTP & Login
 app.post('/api/auth/verify-otp', async (req, res) => {
-  const { phone, otp } = req.body;
+  const { phone, otp, expected_role } = req.body;
   if (!phone || !otp) {
     return res.status(400).json({ error: 'Phone and OTP are required' });
+  }
+
+  const ALLOWED_ROLES = ['CUSTOMER', 'STOCKIST', 'PARTNER_ADMIN', 'ADMIN'];
+  if (expected_role && !ALLOWED_ROLES.includes(expected_role)) {
+    return res.status(400).json({ error: 'Invalid expected_role parameter' });
   }
 
   const record = otpStore.get(phone);
   if (otp !== '123456' && (!record || record.otp !== otp || record.expiresAt < Date.now())) {
     return res.status(400).json({ error: 'Invalid or expired OTP' });
   }
-  otpStore.delete(phone);
 
   const users = await db.getTable('users');
   const user = users.find(u => u.phone === phone);
 
   if (!user) {
+    if (expected_role === 'ADMIN') {
+      return res.status(403).json({ error: 'This number is not registered as an administrator.' });
+    }
     return res.json({ requires_registration: true, phone });
+  }
+
+  if (expected_role && user.role !== expected_role) {
+    let errorMsg = '';
+    if (expected_role === 'ADMIN' || user.role === 'ADMIN') {
+      errorMsg = 'This number is not registered as an administrator.';
+    } else if (user.role === 'CUSTOMER') {
+      errorMsg = 'This number is registered as a customer. Please use the Customer App.';
+    } else if (user.role === 'STOCKIST') {
+      errorMsg = 'This number is registered as a shopkeeper. Please use the Stockist App.';
+    } else if (user.role === 'PARTNER_ADMIN') {
+      errorMsg = 'This number is registered as a partner. Please use the Partner App.';
+    } else {
+      errorMsg = 'Access denied for this role.';
+    }
+    return res.status(403).json({ error: errorMsg });
   }
 
   if (user.is_active === false) {
     return res.status(403).json({ error: 'Account is deactivated. Contact admin.' });
   }
 
+  otpStore.delete(phone);
   return res.json({ success: true, user: sanitizeUser(user) });
 });
+
 
 // Register new Customer
 app.post('/api/auth/register-customer', async (req, res) => {
@@ -2779,7 +2804,7 @@ app.post('/api/admin/vendors', async (req, res) => {
 
 // Partner Leads Routes
 app.post('/api/partner-leads', async (req, res) => {
-  const { name, phone } = req.body;
+  const { name, contact_name, phone, email, service_type, region_id } = req.body;
   if (!name || !phone) {
     return res.status(400).json({ error: 'Name and phone are required' });
   }
@@ -2787,7 +2812,11 @@ app.post('/api/partner-leads', async (req, res) => {
   const newLead = {
     id: 'lead-' + generateId(),
     name: name.trim(),
+    contact_name: contact_name ? contact_name.trim() : null,
     phone: phone.trim(),
+    email: email ? email.trim() : null,
+    service_type: service_type || 'CABLE',
+    region_id: region_id || null,
     created_at: new Date().toISOString(),
     status: 'NEW',
     notes: []
@@ -3771,7 +3800,7 @@ app.post('/api/admin/partners', async (req, res) => {
 // 4.2 POST /api/admin/partner-leads/:id/promote
 app.post('/api/admin/partner-leads/:id/promote', async (req, res) => {
   const { id } = req.params;
-  const { admin_id, legal_name, display_name, service_types } = req.body;
+  const { admin_id, legal_name, display_name, service_types, region_id } = req.body;
 
   const leads = await db.getTable('partner_leads');
   const lead = leads.find(l => l.id === id);
@@ -3780,7 +3809,24 @@ app.post('/api/admin/partner-leads/:id/promote', async (req, res) => {
     return res.status(409).json({ error: 'Lead has already been promoted' });
   }
 
-  if (!service_types || !Array.isArray(service_types) || service_types.length === 0 || !service_types.every(st => ALLOWED_SERVICE_TYPES.includes(st))) {
+  let effectiveServiceTypes = service_types;
+  if (!effectiveServiceTypes || !Array.isArray(effectiveServiceTypes) || effectiveServiceTypes.length === 0) {
+    if (lead.service_type === 'BOTH') {
+      effectiveServiceTypes = ['CABLE', 'BROADBAND'];
+    } else if (lead.service_type === 'BROADBAND') {
+      effectiveServiceTypes = ['BROADBAND'];
+    } else if (lead.service_type === 'CABLE') {
+      effectiveServiceTypes = ['CABLE'];
+    } else if (Array.isArray(lead.service_type)) {
+      effectiveServiceTypes = lead.service_type;
+    } else if (typeof lead.service_type === 'string') {
+      effectiveServiceTypes = [lead.service_type];
+    } else {
+      effectiveServiceTypes = ['CABLE'];
+    }
+  }
+
+  if (!effectiveServiceTypes.every(st => ALLOWED_SERVICE_TYPES.includes(st))) {
     return res.status(400).json({ error: 'Valid service_types array is required' });
   }
 
@@ -3830,7 +3876,7 @@ app.post('/api/admin/partner-leads/:id/promote', async (req, res) => {
     contact_email,
     address,
     gst_number: null,
-    service_types,
+    service_types: effectiveServiceTypes,
     is_active: true,
     onboarded_at: now,
     onboarded_by_admin_id: admin_id || 'u-admin',
@@ -3851,6 +3897,24 @@ app.post('/api/admin/partner-leads/:id/promote', async (req, res) => {
   };
   partnerUsers.push(newPU);
   await db.saveTable('partner_users', partnerUsers);
+
+  const targetRegionId = region_id || lead.region_id;
+  if (targetRegionId) {
+    const partnerRegions = await db.getTable('partner_regions');
+    for (const st of effectiveServiceTypes) {
+      if (!partnerRegions.some(pr => pr.partner_id === partnerId && pr.region_id === targetRegionId && pr.service_type === st)) {
+        partnerRegions.push({
+          id: 'prg-' + generateId(),
+          partner_id: partnerId,
+          region_id: targetRegionId,
+          service_type: st,
+          is_active: true,
+          created_at: now
+        });
+      }
+    }
+    await db.saveTable('partner_regions', partnerRegions);
+  }
 
   const beforeLead = { status: lead.status, promoted_partner_id: lead.promoted_partner_id };
   lead.status = 'ONBOARDED';

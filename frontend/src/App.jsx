@@ -296,6 +296,7 @@ export default function App() {
   const [selectedLeadToPromote, setSelectedLeadToPromote] = useState(null);
   const [promoteDisplayName, setPromoteDisplayName] = useState('');
   const [promoteServiceTypes, setPromoteServiceTypes] = useState(['CABLE']);
+  const [promoteRegionId, setPromoteRegionId] = useState('');
 
   const [adminRedemptionApprovals, setAdminRedemptionApprovals] = useState([]);
   const [redemptionApprovalSubTab, setRedemptionApprovalSubTab] = useState('pending');
@@ -390,7 +391,7 @@ export default function App() {
   
   // Auth Form state
   const [showPartnerLogin, setShowPartnerLogin] = useState(false);
-  const [partnerLoginTab, setPartnerLoginTab] = useState('password'); // 'password' or 'otp'
+  const [partnerLoginTab, setPartnerLoginTab] = useState('otp'); // 'otp' or 'password'
   const [partnerLoginEmail, setPartnerLoginEmail] = useState('');
   const [partnerLoginPassword, setPartnerLoginPassword] = useState('');
   const [partnerForgotEmail, setPartnerForgotEmail] = useState('');
@@ -750,7 +751,11 @@ export default function App() {
   const [pendingRedemptions, setPendingRedemptions] = useState([]);
   const [adminNewVendor, setAdminNewVendor] = useState('');
   const [partnerName, setPartnerName] = useState('');
+  const [partnerContactName, setPartnerContactName] = useState('');
   const [partnerPhone, setPartnerPhone] = useState('');
+  const [partnerEmail, setPartnerEmail] = useState('');
+  const [partnerServiceType, setPartnerServiceType] = useState('CABLE');
+  const [partnerRegionId, setPartnerRegionId] = useState('');
   
   // Commission Config (Profit-basis v2) State
   const [commissionConfigs, setCommissionConfigs] = useState([]);
@@ -1437,7 +1442,18 @@ export default function App() {
   const openPromoteLeadModal = (lead) => {
     setSelectedLeadToPromote(lead);
     setPromoteDisplayName(lead.name || lead.business_name || '');
-    setPromoteServiceTypes([lead.service_type || 'CABLE']);
+    let serviceTypes = ['CABLE'];
+    if (lead.service_type === 'BOTH') {
+      serviceTypes = ['CABLE', 'BROADBAND'];
+    } else if (lead.service_type === 'BROADBAND') {
+      serviceTypes = ['BROADBAND'];
+    } else if (Array.isArray(lead.service_type)) {
+      serviceTypes = lead.service_type;
+    } else if (lead.service_type) {
+      serviceTypes = [lead.service_type];
+    }
+    setPromoteServiceTypes(serviceTypes);
+    setPromoteRegionId(lead.region_id || '');
     setShowPromoteLeadModal(true);
   };
 
@@ -1457,13 +1473,16 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           admin_id: currentUser?.id || 'u-admin',
-          service_types: promoteServiceTypes
+          display_name: promoteDisplayName,
+          service_types: promoteServiceTypes,
+          region_id: promoteRegionId
         })
       });
       const data = await res.json();
       logApi('POST', `/admin/partner-leads/${selectedLeadToPromote.id}/promote`, { admin_id: 'u-admin', service_types: promoteServiceTypes }, res.status, data);
       if (res.ok) {
-        showToast('Lead promoted to partner successfully!');
+        const partnerPhone = data.user?.phone || data.partner?.contact_phone || selectedLeadToPromote.phone;
+        showToast(`Lead promoted to partner successfully! Partner login phone: ${partnerPhone}`, 'success');
         setShowPromoteLeadModal(false);
         fetchDbState();
         fetchAdminPartners();
@@ -1847,7 +1866,8 @@ export default function App() {
       return;
     }
     try {
-      const payload = { phone: loginPhone, otp: loginOtp };
+      const expected_role = activeRole === 'customer' ? 'CUSTOMER' : activeRole === 'stockist' ? 'STOCKIST' : activeRole === 'admin' ? 'ADMIN' : undefined;
+      const payload = { phone: loginPhone, otp: loginOtp, expected_role };
       const res = await fetch(`${API_BASE}/auth/verify-otp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -3692,33 +3712,36 @@ export default function App() {
             </div>
             <button className="btn" onClick={handleSendOtp}>Send One-Time Password</button>
             
-            <div style={{ background: 'rgba(255,255,255,0.02)', padding: '0.75rem', borderRadius: '6px', fontSize: '0.7rem', border: '1px dashed var(--border-color)', color: 'var(--text-muted)' }}>
-              <strong>Demo Phone Options:</strong>
-              {isCustomerApp && (
-                <>
-                  <div style={{ marginTop: '0.25rem' }}>• 9876543210 (Customer Garia)</div>
-                  <div>• 8765432109 (Customer Bishnupur)</div>
-                </>
-              )}
-              {isStockistApp && (
-                <>
-                  <div style={{ marginTop: '0.25rem' }}>• 7654321098 (Stockist Garia)</div>
-                  <div>• 4321098765 (Stockist Garia — Banerjee Corner)</div>
-                  <div>• 6543210987 (Stockist Bishnupur)</div>
-                </>
-              )}
-              {isAdminApp && (
-                <>
-                  <div style={{ marginTop: '0.25rem' }}>• 9876543210 (Admin Account)</div>
-                </>
-              )}
-              {!isCustomerApp && !isStockistApp && !isAdminApp && (
-                <>
-                  <div style={{ marginTop: '0.25rem' }}>• 9876543210 (Customer Garia)</div>
-                  <div>• 7654321098 (Stockist Garia)</div>
-                </>
-              )}
-            </div>
+            {isDevMode && (
+              <div style={{ background: 'rgba(255,255,255,0.02)', padding: '0.75rem', borderRadius: '6px', fontSize: '0.7rem', border: '1px dashed var(--border-color)', color: 'var(--text-muted)' }}>
+                <strong>Demo Phone Options:</strong>
+                {isCustomerApp && (
+                  <>
+                    <div style={{ marginTop: '0.25rem' }}>• 9876543210 (Amit Sen — Customer Garia)</div>
+                    <div>• 8765432109 (Radha Roy — Customer Bishnupur)</div>
+                  </>
+                )}
+                {isStockistApp && (
+                  <>
+                    <div style={{ marginTop: '0.25rem' }}>• 7654321098 (Madan Shaw — Stockist Garia, Approved)</div>
+                    <div>• 4321098765 (Soumik Banerjee — Stockist Garia, Approved)</div>
+                    <div>• 6543210987 (Prabhat Sarkar — Stockist Bishnupur, Approved)</div>
+                    <div>• 5432109876 (Gopal Joy — Stockist Bishnupur, Pending KYC)</div>
+                  </>
+                )}
+                {isAdminApp && (
+                  <>
+                    <div style={{ marginTop: '0.25rem' }}>• 9999999999 (Super Admin)</div>
+                  </>
+                )}
+                {!isCustomerApp && !isStockistApp && !isAdminApp && (
+                  <>
+                    <div style={{ marginTop: '0.25rem' }}>• 9876543210 (Customer Garia)</div>
+                    <div>• 7654321098 (Stockist Garia)</div>
+                  </>
+                )}
+              </div>
+            )}
 
             {/* New account? signup links role-gated */}
             {isCustomerApp && (
@@ -3959,13 +3982,15 @@ export default function App() {
             </div>
 
             {/* Don't have an account? */}
-            <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '1rem', marginTop: '0.5rem' }}>
-              <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textAlign: 'center', marginBottom: '0.5rem' }}>
-                {t("Don't have an account?", "खाता नहीं है?", "অ্যাকাউন্ট নেই?")}
-              </p>
-              {isCustomerApp && renderCustomerSignupBtn()}
-              {isStockistApp && renderStockistSignupBtn()}
-            </div>
+            {!isAdminApp && (
+              <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '1rem', marginTop: '0.5rem' }}>
+                <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textAlign: 'center', marginBottom: '0.5rem' }}>
+                  {t("Don't have an account?", "खाता नहीं है?", "অ্যাকাউন্ট নেই?")}
+                </p>
+                {isCustomerApp && renderCustomerSignupBtn()}
+                {isStockistApp && renderStockistSignupBtn()}
+              </div>
+            )}
           </>
         )}
       </div>
@@ -3981,12 +4006,23 @@ export default function App() {
       const res = await fetch(`${API_BASE}/partner-leads`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: partnerName, phone: partnerPhone })
+        body: JSON.stringify({
+          name: partnerName,
+          contact_name: partnerContactName,
+          phone: partnerPhone,
+          email: partnerEmail,
+          service_type: partnerServiceType,
+          region_id: partnerRegionId
+        })
       });
       if (res.ok) {
         showToast("Thanks — we'll contact you soon.", "success");
         setPartnerName('');
+        setPartnerContactName('');
         setPartnerPhone('');
+        setPartnerEmail('');
+        setPartnerServiceType('CABLE');
+        setPartnerRegionId('');
         fetchDbState();
       } else {
         const errData = await res.json();
@@ -4677,16 +4713,19 @@ export default function App() {
         </div>
 
         <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem' }}>
-          <button className={`btn ${partnerLoginTab === 'password' ? 'btn-primary' : 'btn-secondary'}`} style={{ flex: 1, fontSize: '0.75rem' }} onClick={() => setPartnerLoginTab('password')}>
-            Email + Password
-          </button>
           <button className={`btn ${partnerLoginTab === 'otp' ? 'btn-primary' : 'btn-secondary'}`} style={{ flex: 1, fontSize: '0.75rem' }} onClick={() => setPartnerLoginTab('otp')}>
             Phone + OTP
+          </button>
+          <button className={`btn ${partnerLoginTab === 'password' ? 'btn-primary' : 'btn-secondary'}`} style={{ flex: 1, fontSize: '0.75rem' }} onClick={() => setPartnerLoginTab('password')}>
+            Email + Password
           </button>
         </div>
 
         {partnerLoginTab === 'password' ? (
           <>
+            <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '0.75rem' }}>
+              If you have not set a password yet, use Phone + OTP.
+            </p>
             <div className="input-group">
               <label className="input-label">Partner Email</label>
               <input type="email" placeholder="partner@example.com" className="text-input" value={partnerLoginEmail} onChange={e => setPartnerLoginEmail(e.target.value)} />
@@ -4742,6 +4781,14 @@ export default function App() {
               </>
             )}
           </>
+        )}
+
+        {isDevMode && (
+          <div style={{ marginTop: '1rem', background: 'rgba(255,255,255,0.02)', padding: '0.75rem', borderRadius: '6px', fontSize: '0.7rem', border: '1px dashed var(--border-color)', color: 'var(--text-muted)' }}>
+            <strong>Demo Partner Accounts:</strong>
+            <div style={{ marginTop: '0.25rem' }}>• 9876500000 (Adhya Cable — Phone + OTP)</div>
+            <div>• 9876500001 (Jio Broadband — Phone + OTP)</div>
+          </div>
         )}
 
         <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '1rem', marginTop: '1.25rem', textAlign: 'center' }}>
@@ -5634,11 +5681,44 @@ export default function App() {
             />
             <input 
               type="text" 
-              placeholder="Phone" 
+              placeholder="Contact Person Name" 
+              className="text-input" 
+              value={partnerContactName}
+              onChange={(e) => setPartnerContactName(e.target.value)}
+            />
+            <input 
+              type="text" 
+              placeholder="Phone Number" 
               className="text-input" 
               value={partnerPhone}
-              onChange={(e) => setPartnerPhone(e.target.value)}
+              onChange={(e) => setPartnerPhone(e.target.value.replace(/\D/g,''))}
             />
+            <input 
+              type="email" 
+              placeholder="Email (Optional)" 
+              className="text-input" 
+              value={partnerEmail}
+              onChange={(e) => setPartnerEmail(e.target.value)}
+            />
+            <select
+              className="text-input"
+              value={partnerServiceType}
+              onChange={(e) => setPartnerServiceType(e.target.value)}
+            >
+              <option value="CABLE">Cable Service</option>
+              <option value="BROADBAND">Broadband Service</option>
+              <option value="BOTH">Both Cable &amp; Broadband</option>
+            </select>
+            <select
+              className="text-input"
+              value={partnerRegionId}
+              onChange={(e) => setPartnerRegionId(e.target.value)}
+            >
+              <option value="">Select Region</option>
+              {regions.map(r => (
+                <option key={r.id} value={r.id}>{r.name}</option>
+              ))}
+            </select>
             <button className="btn" onClick={handlePartnerSubmit}>Get in touch</button>
           </div>
         </div>
@@ -8897,10 +8977,11 @@ export default function App() {
                         <thead>
                           <tr>
                             <th>Lead ID</th>
-                            <th>Name</th>
+                            <th>Company Name</th>
+                            <th>Contact Person</th>
                             <th>Phone</th>
-                            <th>Business Name</th>
-                            <th>City / Service</th>
+                            <th>Service Type</th>
+                            <th>Region</th>
                             <th>Status</th>
                             <th>Actions</th>
                           </tr>
@@ -8909,10 +8990,11 @@ export default function App() {
                           {partnerLeads.map(lead => (
                             <tr key={lead.id}>
                               <td style={{ fontFamily: 'monospace' }}>{lead.id}</td>
-                              <td>{lead.name}</td>
+                              <td style={{ fontWeight: 'bold' }}>{lead.name}</td>
+                              <td>{lead.contact_name || '—'}</td>
                               <td>{lead.phone}</td>
-                              <td>{lead.business_name || 'N/A'}</td>
-                              <td>{lead.city || 'Kolkata'} / {lead.service_type || 'CABLE'}</td>
+                              <td>{lead.service_type || 'CABLE'}</td>
+                              <td>{regions.find(r => r.id === lead.region_id)?.name || lead.region_id || '—'}</td>
                               <td>
                                 <span className={`badge ${lead.status === 'ONBOARDED' ? 'badge-success' : lead.status === 'CONTACTED' ? 'badge-primary' : 'badge-warning'}`}>
                                   {lead.status || 'NEW'}
@@ -10243,7 +10325,10 @@ export default function App() {
                     <thead>
                       <tr>
                         <th>Operator/Company Name</th>
+                        <th>Contact Person</th>
                         <th>Phone</th>
+                        <th>Service Type</th>
+                        <th>Region</th>
                         <th>Date Submitted</th>
                         <th>Status</th>
                       </tr>
@@ -10252,7 +10337,10 @@ export default function App() {
                       {partnerLeads.map(l => (
                         <tr key={l.id}>
                           <td style={{ fontWeight: 'bold' }}>{l.name}</td>
+                          <td>{l.contact_name || '—'}</td>
                           <td>{l.phone}</td>
+                          <td>{l.service_type || 'CABLE'}</td>
+                          <td>{regions.find(r => r.id === l.region_id)?.name || l.region_id || '—'}</td>
                           <td>{new Date(l.created_at).toLocaleString()}</td>
                           <td>
                             <span className="badge badge-primary" style={{ fontSize: '0.6rem' }}>
@@ -11360,6 +11448,15 @@ export default function App() {
                   ))}
                 </div>
               </div>
+              <div className="input-group">
+                <label className="input-label">Region</label>
+                <select className="text-input" value={promoteRegionId} onChange={e => setPromoteRegionId(e.target.value)}>
+                  <option value="">Select Region</option>
+                  {regions.map(r => (
+                    <option key={r.id} value={r.id}>{r.name}</option>
+                  ))}
+                </select>
+              </div>
               <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
                 <button className="btn btn-secondary" onClick={() => setShowPromoteLeadModal(false)}>Cancel</button>
                 <button className="btn btn-accent" onClick={handlePromoteLeadSubmit}>Promote to Partner</button>
@@ -11461,7 +11558,7 @@ export default function App() {
               <div className="glass-card" style={{ padding: '0.75rem' }}>
                 <h4 style={{ margin: '0 0 0.5rem 0', color: 'var(--primary)' }}>Basics</h4>
                 <div>Legal Name: <strong>{selectedPartnerDetail.legal_name}</strong></div>
-                <div>Phone: <strong>{selectedPartnerDetail.contact_phone}</strong> | Email: <strong>{selectedPartnerDetail.contact_email || 'N/A'}</strong></div>
+                <div>Login Phone: <strong>{selectedPartnerDetail.contact_phone}</strong> | Email: <strong>{selectedPartnerDetail.contact_email || 'N/A'}</strong></div>
                 <div>Services: <strong>{(selectedPartnerDetail.service_types || []).join(', ')}</strong></div>
                 <div>Address: {selectedPartnerDetail.address || 'N/A'} | GST: {selectedPartnerDetail.gst_number || 'N/A'}</div>
               </div>
