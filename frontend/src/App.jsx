@@ -73,6 +73,18 @@ import {
 
 const API_BASE = 'http://localhost:3001/api';
 
+const SERVICE_TYPES = [
+  { value: 'CABLE',      label: 'Cable TV' },
+  { value: 'BROADBAND',  label: 'Broadband Internet' },
+  { value: 'DTH',        label: 'DTH' },
+  { value: 'OTT_BUNDLE', label: 'OTT Bundle' }
+];
+
+const getServiceTypeLabel = (st) => {
+  const item = SERVICE_TYPES.find(s => s.value === st);
+  return item ? item.label : st;
+};
+
 export default function App() {
   const isDevMode = new URLSearchParams(window.location.search).has('dev');
   const [activeRole, setActiveRole] = useState('marketing');
@@ -754,7 +766,7 @@ export default function App() {
   const [partnerContactName, setPartnerContactName] = useState('');
   const [partnerPhone, setPartnerPhone] = useState('');
   const [partnerEmail, setPartnerEmail] = useState('');
-  const [partnerServiceType, setPartnerServiceType] = useState('CABLE');
+  const [partnerServiceTypes, setPartnerServiceTypes] = useState(['CABLE']);
   const [partnerRegionId, setPartnerRegionId] = useState('');
   
   // Commission Config (Profit-basis v2) State
@@ -1421,11 +1433,15 @@ export default function App() {
   };
 
   const fetchAnalytics = async () => {
+    if (!currentUser?.id) {
+      setAnalyticsError(true);
+      return;
+    }
     setAnalyticsLoading(true);
     setAnalyticsError(false);
     try {
       const res = await fetch(`${API_BASE}/admin/analytics`, {
-        headers: { 'x-admin-id': 'u-admin' }
+        headers: { 'x-admin-id': currentUser.id }
       });
       const data = await res.json();
       if (res.ok) {
@@ -1446,7 +1462,9 @@ export default function App() {
     setSelectedLeadToPromote(lead);
     setPromoteDisplayName(lead.name || lead.business_name || '');
     let serviceTypes = ['CABLE'];
-    if (lead.service_type === 'BOTH') {
+    if (Array.isArray(lead.service_types) && lead.service_types.length > 0) {
+      serviceTypes = lead.service_types;
+    } else if (lead.service_type === 'BOTH') {
       serviceTypes = ['CABLE', 'BROADBAND'];
     } else if (lead.service_type === 'BROADBAND') {
       serviceTypes = ['BROADBAND'];
@@ -1462,6 +1480,10 @@ export default function App() {
 
   const handlePromoteLeadSubmit = async () => {
     if (!selectedLeadToPromote) return;
+    if (!currentUser?.id) {
+      showToast('Admin session invalid', 'error');
+      return;
+    }
     if (!promoteDisplayName.trim()) {
       showToast('Display name is required', 'error');
       return;
@@ -1475,14 +1497,14 @@ export default function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          admin_id: currentUser?.id || 'u-admin',
+          admin_id: currentUser.id,
           display_name: promoteDisplayName,
           service_types: promoteServiceTypes,
           region_id: promoteRegionId
         })
       });
       const data = await res.json();
-      logApi('POST', `/admin/partner-leads/${selectedLeadToPromote.id}/promote`, { admin_id: 'u-admin', service_types: promoteServiceTypes }, res.status, data);
+      logApi('POST', `/admin/partner-leads/${selectedLeadToPromote.id}/promote`, { admin_id: currentUser.id, service_types: promoteServiceTypes }, res.status, data);
       if (res.ok) {
         const partnerPhone = data.user?.phone || data.partner?.contact_phone || selectedLeadToPromote.phone;
         showToast(`Lead promoted to partner successfully! Partner login phone: ${partnerPhone}`, 'success');
@@ -1498,17 +1520,21 @@ export default function App() {
   };
 
   const handleApproveRedemption = async (id, notes) => {
+    if (!currentUser?.id) {
+      showToast('Admin session invalid', 'error');
+      return;
+    }
     try {
       const res = await fetch(`${API_BASE}/admin/redemption-approvals/${id}/approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          admin_id: currentUser?.id || 'u-admin',
+          admin_id: currentUser.id,
           notes
         })
       });
       const data = await res.json();
-      logApi('POST', `/admin/redemption-approvals/${id}/approve`, { admin_id: 'u-admin', notes }, res.status, data);
+      logApi('POST', `/admin/redemption-approvals/${id}/approve`, { admin_id: currentUser.id, notes }, res.status, data);
       if (res.ok) {
         showToast('Redemption approval approved successfully');
         setShowApproveRedemptionModal(false);
@@ -1523,6 +1549,10 @@ export default function App() {
   };
 
   const handleRejectRedemption = async (id, reason) => {
+    if (!currentUser?.id) {
+      showToast('Admin session invalid', 'error');
+      return;
+    }
     if (!reason || reason.trim().length < 10) {
       showToast('Reason must be at least 10 characters long', 'error');
       return;
@@ -1532,12 +1562,12 @@ export default function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          admin_id: currentUser?.id || 'u-admin',
+          admin_id: currentUser.id,
           reason: reason.trim()
         })
       });
       const data = await res.json();
-      logApi('POST', `/admin/redemption-approvals/${id}/reject`, { admin_id: 'u-admin', reason }, res.status, data);
+      logApi('POST', `/admin/redemption-approvals/${id}/reject`, { admin_id: currentUser.id, reason }, res.status, data);
       if (res.ok) {
         showToast(`Refund of ${data.points_deducted} points appended to customer's ledger`);
         setShowRejectRedemptionModal(false);
@@ -1552,18 +1582,22 @@ export default function App() {
   };
 
   const handleResolveDispute = async (id, outcome, notes) => {
+    if (!currentUser?.id) {
+      showToast('Admin session invalid', 'error');
+      return;
+    }
     try {
       const res = await fetch(`${API_BASE}/admin/redemption-approvals/${id}/resolve-dispute`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          admin_id: currentUser?.id || 'u-admin',
+          admin_id: currentUser.id,
           outcome,
           notes
         })
       });
       const data = await res.json();
-      logApi('POST', `/admin/redemption-approvals/${id}/resolve-dispute`, { admin_id: 'u-admin', outcome, notes }, res.status, data);
+      logApi('POST', `/admin/redemption-approvals/${id}/resolve-dispute`, { admin_id: currentUser.id, outcome, notes }, res.status, data);
       if (res.ok) {
         showToast(outcome === 'fulfill' ? 'Dispute resolved: FULFILLED' : 'Dispute resolved: REJECTED (Points refunded)');
         setShowResolveDisputeModal(false);
@@ -3518,6 +3552,10 @@ export default function App() {
 
   const handleFlagBillPhoto = async () => {
     if (!flaggingBill) return;
+    if (!currentUser?.id) {
+      showToast('Admin session invalid', 'error');
+      return;
+    }
     if (!flagReasonText || flagReasonText.trim().length < 10) {
       showToast('Reason must be at least 10 characters', 'error');
       return;
@@ -3526,7 +3564,7 @@ export default function App() {
       const res = await fetch(`${API_BASE}/admin/bill-photos/${flaggingBill.id}/flag`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ admin_id: currentUser?.id || 'u-admin', reason: flagReasonText.trim() })
+        body: JSON.stringify({ admin_id: currentUser.id, reason: flagReasonText.trim() })
       });
       const data = await res.json();
       if (res.ok) {
@@ -3545,11 +3583,15 @@ export default function App() {
 
   const handleUnflagBillPhoto = async () => {
     if (!unflaggingBill) return;
+    if (!currentUser?.id) {
+      showToast('Admin session invalid', 'error');
+      return;
+    }
     try {
       const res = await fetch(`${API_BASE}/admin/bill-photos/${unflaggingBill.id}/unflag`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ admin_id: currentUser?.id || 'u-admin' })
+        body: JSON.stringify({ admin_id: currentUser.id })
       });
       const data = await res.json();
       if (res.ok) {
@@ -4009,6 +4051,10 @@ export default function App() {
       showToast('Name and phone are required', 'error');
       return;
     }
+    if (!partnerServiceTypes || partnerServiceTypes.length === 0) {
+      showToast('At least one service type is required', 'error');
+      return;
+    }
     try {
       const res = await fetch(`${API_BASE}/partner-leads`, {
         method: 'POST',
@@ -4018,7 +4064,8 @@ export default function App() {
           contact_name: partnerContactName,
           phone: partnerPhone,
           email: partnerEmail,
-          service_type: partnerServiceType,
+          service_type: partnerServiceTypes[0] || 'CABLE',
+          service_types: partnerServiceTypes,
           region_id: partnerRegionId
         })
       });
@@ -4028,7 +4075,7 @@ export default function App() {
         setPartnerContactName('');
         setPartnerPhone('');
         setPartnerEmail('');
-        setPartnerServiceType('CABLE');
+        setPartnerServiceTypes(['CABLE']);
         setPartnerRegionId('');
         fetchDbState();
       } else {
@@ -5078,7 +5125,7 @@ export default function App() {
                       {partnerPackagesList.map(pkg => (
                         <tr key={pkg.id} style={{ borderBottom: '1px dashed var(--border-color)' }}>
                           <td style={{ padding: '0.4rem', fontWeight: 'bold' }}>{pkg.name}</td>
-                          <td style={{ padding: '0.4rem' }}><span className="badge badge-secondary">{pkg.service_type}</span></td>
+                          <td style={{ padding: '0.4rem' }}><span className="badge badge-secondary">{getServiceTypeLabel(pkg.service_type)}</span></td>
                           <td style={{ padding: '0.4rem' }}>₹{pkg.face_value_rupees}</td>
                           <td style={{ padding: '0.4rem' }}>{pkg.point_cost} pts</td>
                           <td style={{ padding: '0.4rem' }}>
@@ -5138,7 +5185,7 @@ export default function App() {
                             <div style={{ fontWeight: 'bold' }}>{r.region_name || r.region_id}</div>
                             <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Code: {r.region_code || r.region_id}</div>
                           </td>
-                          <td style={{ padding: '0.4rem' }}><span className="badge badge-secondary">{r.service_type}</span></td>
+                          <td style={{ padding: '0.4rem' }}><span className="badge badge-secondary">{getServiceTypeLabel(r.service_type)}</span></td>
                           <td style={{ padding: '0.4rem' }}>
                             <span className={`badge ${r.is_active ? 'badge-success' : 'badge-danger'}`}>
                               {r.is_active ? t('Live', 'लाइव', 'লাইভ') : t('Inactive', 'निष्क्रिय', 'নিষ্ক্রিয়')}
@@ -5746,15 +5793,28 @@ export default function App() {
               value={partnerEmail}
               onChange={(e) => setPartnerEmail(e.target.value)}
             />
-            <select
-              className="text-input"
-              value={partnerServiceType}
-              onChange={(e) => setPartnerServiceType(e.target.value)}
-            >
-              <option value="CABLE">Cable Service</option>
-              <option value="BROADBAND">Broadband Service</option>
-              <option value="BOTH">Both Cable &amp; Broadband</option>
-            </select>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', margin: '0.25rem 0' }}>
+              <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)' }}>Services Offered:</label>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem' }}>
+                {SERVICE_TYPES.map(st => (
+                  <label key={st.value} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', cursor: 'pointer', fontSize: '0.8rem' }}>
+                    <input
+                      type="checkbox"
+                      value={st.value}
+                      checked={partnerServiceTypes.includes(st.value)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setPartnerServiceTypes([...partnerServiceTypes, st.value]);
+                        } else {
+                          setPartnerServiceTypes(partnerServiceTypes.filter(s => s !== st.value));
+                        }
+                      }}
+                    />
+                    {st.label}
+                  </label>
+                ))}
+              </div>
+            </div>
             <select
               className="text-input"
               value={partnerRegionId}
@@ -9039,7 +9099,7 @@ export default function App() {
                               <td style={{ fontWeight: 'bold' }}>{lead.name}</td>
                               <td>{lead.contact_name || '—'}</td>
                               <td>{lead.phone}</td>
-                              <td>{lead.service_type || 'CABLE'}</td>
+                              <td>{(Array.isArray(lead.service_types) && lead.service_types.length > 0 ? lead.service_types : [lead.service_type || 'CABLE']).map(st => getServiceTypeLabel(st)).join(', ')}</td>
                               <td>{regions.find(r => r.id === lead.region_id)?.name || lead.region_id || '—'}</td>
                               <td>
                                 <span className={`badge ${lead.status === 'ONBOARDED' ? 'badge-success' : lead.status === 'CONTACTED' ? 'badge-primary' : 'badge-warning'}`}>
@@ -9061,7 +9121,7 @@ export default function App() {
                             </tr>
                           ))}
                           {partnerLeads.length === 0 && (
-                            <tr><td colSpan="7" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>No partner leads submitted.</td></tr>
+                            <tr><td colSpan="8" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>No partner leads submitted.</td></tr>
                           )}
                         </tbody>
                       </table>
@@ -9086,8 +9146,9 @@ export default function App() {
                           <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginRight: '0.35rem' }}>Service:</label>
                           <select className="text-input" style={{ width: 'auto', fontSize: '0.75rem', padding: '0.25rem' }} value={partnerServiceFilter} onChange={e => setPartnerServiceFilter(e.target.value)}>
                             <option value="ALL">All Services</option>
-                            <option value="CABLE">Cable TV</option>
-                            <option value="BROADBAND">Broadband</option>
+                            {SERVICE_TYPES.map(st => (
+                              <option key={st.value} value={st.value}>{st.label}</option>
+                            ))}
                           </select>
                         </div>
                         <div>
@@ -9122,7 +9183,7 @@ export default function App() {
                               <tr key={p.id} style={p.is_active === false ? { opacity: 0.6, background: 'rgba(255,255,255,0.02)' } : {}}>
                                 <td style={{ fontWeight: 'bold' }}>{p.display_name} <br/><span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{p.legal_name}</span></td>
                                 <td>{p.contact_phone}</td>
-                                <td>{(p.service_types || []).join(', ')}</td>
+                                <td>{(p.service_types || []).map(st => getServiceTypeLabel(st)).join(', ')}</td>
                                 <td>{(p.regions || []).length}</td>
                                 <td>{(p.packages || []).length}</td>
                                 <td>{p.bound_customers_count || 0}</td>
@@ -11479,17 +11540,17 @@ export default function App() {
               <div className="input-group">
                 <label className="input-label">Service Types Offered</label>
                 <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginTop: '0.25rem' }}>
-                  {['CABLE', 'BROADBAND', 'DTH', 'OTT_BUNDLE'].map(st => (
-                    <label key={st} style={{ fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.25rem', cursor: 'pointer' }}>
+                  {SERVICE_TYPES.map(st => (
+                    <label key={st.value} style={{ fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.25rem', cursor: 'pointer' }}>
                       <input
                         type="checkbox"
-                        checked={promoteServiceTypes.includes(st)}
+                        checked={promoteServiceTypes.includes(st.value)}
                         onChange={e => {
-                          if (e.target.checked) setPromoteServiceTypes([...promoteServiceTypes, st]);
-                          else setPromoteServiceTypes(promoteServiceTypes.filter(s => s !== st));
+                          if (e.target.checked) setPromoteServiceTypes([...promoteServiceTypes, st.value]);
+                          else setPromoteServiceTypes(promoteServiceTypes.filter(s => s !== st.value));
                         }}
                       />
-                      {st}
+                      {st.label}
                     </label>
                   ))}
                 </div>
@@ -11605,7 +11666,7 @@ export default function App() {
                 <h4 style={{ margin: '0 0 0.5rem 0', color: 'var(--primary)' }}>Basics</h4>
                 <div>Legal Name: <strong>{selectedPartnerDetail.legal_name}</strong></div>
                 <div>Login Phone: <strong>{selectedPartnerDetail.contact_phone}</strong> | Email: <strong>{selectedPartnerDetail.contact_email || 'N/A'}</strong></div>
-                <div>Services: <strong>{(selectedPartnerDetail.service_types || []).join(', ')}</strong></div>
+                <div>Services: <strong>{(selectedPartnerDetail.service_types || []).map(st => getServiceTypeLabel(st)).join(', ')}</strong></div>
                 <div>Address: {selectedPartnerDetail.address || 'N/A'} | GST: {selectedPartnerDetail.gst_number || 'N/A'}</div>
               </div>
 
@@ -11613,7 +11674,7 @@ export default function App() {
                 <h4 style={{ margin: '0 0 0.5rem 0', color: 'var(--primary)' }}>Service Regions ({(selectedPartnerDetail.regions || []).length})</h4>
                 {(selectedPartnerDetail.regions || []).map(r => (
                   <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.25rem 0' }}>
-                    <span>{r.region_id === 'r1' ? 'Kolkata South' : r.region_id === 'r2' ? 'Rural Bishnupur' : r.region_id}</span>
+                    <span>{r.region_id === 'r1' ? 'Kolkata South' : r.region_id === 'r2' ? 'Rural Bishnupur' : r.region_id} ({getServiceTypeLabel(r.service_type)})</span>
                     <span className={`badge ${r.is_active ? 'badge-success' : 'badge-secondary'}`}>{r.is_active ? 'Active' : 'Inactive'}</span>
                   </div>
                 ))}
@@ -11624,7 +11685,7 @@ export default function App() {
                 {(selectedPartnerDetail.packages || []).map(pkg => (
                   <div key={pkg.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.25rem 0', borderBottom: '1px dashed rgba(255,255,255,0.05)' }}>
                     <div>
-                      <strong>{pkg.package_name}</strong> ({pkg.service_type}) <br/>
+                      <strong>{pkg.package_name}</strong> ({getServiceTypeLabel(pkg.service_type)}) <br/>
                       <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Face: ₹{pkg.face_value_rupees} | Cost: {pkg.point_cost} pts</span>
                     </div>
                     <span className={`badge ${pkg.is_active ? 'badge-success' : 'badge-secondary'}`}>{pkg.is_active ? 'Active' : 'Inactive'}</span>

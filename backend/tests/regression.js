@@ -3711,6 +3711,71 @@ async function main() {
   });
   assert(partnerDashRes.status === 200 && partnerDashRes.body.today && partnerDashRes.body.month, 'GET /api/partner/dashboard returns structured data cleanly');
 
+  // --- Round BF11a: Hardcoded Admin ID & Service Types ---
+  console.log('\n--- Round BF11a: Hardcoded Admin ID & Service Types ---');
+
+  // Test #691: Grep: App.jsx contains zero occurrences of 'u-admin'
+  const uAdminMatches = (appContent.match(/'u-admin'/g) || []).length;
+  assert(uAdminMatches === 0, `App.jsx contains zero occurrences of 'u-admin' (found ${uAdminMatches})`);
+
+  // Test #692: Grep: fetchAnalytics sends currentUser?.id as the admin header
+  const fetchAnalyticsBlock = appContent.substring(appContent.indexOf('const fetchAnalytics = async ()'), appContent.indexOf('const openPromoteLeadModal'));
+  const analyticsHeaderMatch = fetchAnalyticsBlock.includes("headers: { 'x-admin-id': currentUser.id }") || fetchAnalyticsBlock.includes("'x-admin-id': currentUser?.id");
+  assert(analyticsHeaderMatch, 'fetchAnalytics sends currentUser?.id as the admin header');
+
+  // Create real setup-created admin user for endpoint tests
+  const users = await dbModule.getTable('users');
+  const realAdminUser = {
+    id: 'u-realadmin-' + Date.now(),
+    phone: '9991112222',
+    name: 'Setup Created Real Admin',
+    role: 'ADMIN',
+    created_at: new Date().toISOString()
+  };
+  users.push(realAdminUser);
+  await dbModule.saveTable('users', users);
+
+  // Test #693: Endpoint: GET /api/admin/analytics with header set to real setup-created admin's ID -> 200
+  const realAdminAnalyticsRes = await get('http://localhost:3001/api/admin/analytics', {
+    headers: { 'x-admin-id': realAdminUser.id }
+  });
+  assert(realAdminAnalyticsRes.status === 200 && realAdminAnalyticsRes.body.orders, 'GET /api/admin/analytics with real setup admin ID header returns 200');
+
+  // Test #694: Endpoint: GET /api/admin/analytics with non-existent ID -> 401
+  const badAdminAnalyticsRes = await get('http://localhost:3001/api/admin/analytics', {
+    headers: { 'x-admin-id': 'u-nonexistent-admin-999' }
+  });
+  assert(badAdminAnalyticsRes.status === 401, 'GET /api/admin/analytics with non-existent ID header returns 401');
+
+  // Test #695: Grep: a single SERVICE_TYPES constant exists and the B2B form maps over it
+  const serviceTypesConstDef = appContent.includes('const SERVICE_TYPES = [') && appContent.includes("{ value: 'CABLE',");
+  const b2bFormMapsServiceTypes = appContent.includes('SERVICE_TYPES.map(st =>');
+  assert(serviceTypesConstDef && b2bFormMapsServiceTypes, 'a single SERVICE_TYPES constant exists and the B2B form maps over it');
+
+  // Test #696: Grep: App.jsx contains no value="BOTH" option
+  const valueBothMatches = appContent.includes('value="BOTH"');
+  assert(!valueBothMatches, 'App.jsx contains no value="BOTH" option');
+
+  // Test #697: Endpoint: create a lead with service_types: ['CABLE','BROADBAND'] -> stored with both; promote it -> partner service_types contains both
+  const bf11aLeadRes = await post('http://localhost:3001/api/partner-leads', {
+    name: 'BF11a Multi Service Operator',
+    contact_name: 'Amitabh Sen',
+    phone: '9876511111',
+    email: 'amitabh@bf11atest.com',
+    service_types: ['CABLE', 'BROADBAND'],
+    region_id: 'r1'
+  });
+  assert(bf11aLeadRes.status === 200, 'POST /api/partner-leads with service_types array returns 200');
+  const storedBf11aLead = bf11aLeadRes.body.lead;
+  assert(Array.isArray(storedBf11aLead.service_types) && storedBf11aLead.service_types.length === 2 && storedBf11aLead.service_types.includes('CABLE') && storedBf11aLead.service_types.includes('BROADBAND'), 'Stored lead contains both CABLE and BROADBAND in service_types');
+
+  const bf11aPromoteRes = await post(`http://localhost:3001/api/admin/partner-leads/${storedBf11aLead.id}/promote`, {
+    admin_id: realAdminUser.id
+  });
+  assert(bf11aPromoteRes.status === 200, 'Promote multi-service lead returns 200');
+  const bf11aPartner = bf11aPromoteRes.body.partner;
+  assert(Array.isArray(bf11aPartner.service_types) && bf11aPartner.service_types.length === 2 && bf11aPartner.service_types.includes('CABLE') && bf11aPartner.service_types.includes('BROADBAND'), 'Promoted partner service_types contains both CABLE and BROADBAND');
+
   console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);
 }
