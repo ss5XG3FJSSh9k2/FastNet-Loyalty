@@ -3647,7 +3647,7 @@ async function main() {
 
   // Test #681: Grep: fetchAnalytics is called after the redemption approve handler
   const approveRedemptionIdx = appContent.indexOf('const handleApproveRedemption');
-  const approveRedemptionBlock = approveRedemptionIdx !== -1 ? appContent.substring(approveRedemptionIdx, approveRedemptionIdx + 600) : '';
+  const approveRedemptionBlock = approveRedemptionIdx !== -1 ? appContent.substring(approveRedemptionIdx, approveRedemptionIdx + 1000) : '';
   assert(approveRedemptionBlock.includes('fetchAnalytics()'), 'fetchAnalytics is called after redemption approve handler');
 
   // Test #682: Grep: the summary cards render a — placeholder when analyticsData is null, rather than 0
@@ -3671,6 +3671,45 @@ async function main() {
 
   const analyticsEndpointRes = await get('http://localhost:3001/api/admin/analytics');
   assert(analyticsEndpointRes.status === 200 && analyticsEndpointRes.body.orders && analyticsEndpointRes.body.orders.total_today > 0, 'GET /api/admin/analytics returns non-zero orders.total_today after order is placed today');
+
+  // --- Round BF10b: Partner App Visual and Usability Pass ---
+  console.log('\n--- Round BF10b: Partner App Visual and Usability Pass ---');
+
+  // Test #685: Grep: Dashboard renders plain-language label beside each figure — no bare status enum strings in partner-facing JSX
+  const partnerDashBlock = appContent.substring(appContent.indexOf("partnerAppTab === 'dashboard'"), appContent.indexOf("partnerAppTab === 'queue'"));
+  const dashPlainLanguage = partnerDashBlock.includes('redemptions waiting for activation') && !partnerDashBlock.includes('PENDING_ADMIN_APPROVAL');
+  assert(dashPlainLanguage, 'Dashboard renders plain-language label beside each figure — no bare status enum strings');
+
+  // Test #686: Grep: Queue row contains tel: link with visible text label
+  const partnerQueueBlock = appContent.substring(appContent.indexOf("partnerAppTab === 'queue'"), appContent.indexOf("partnerAppTab === 'packages'"));
+  const queueTelLabel = partnerQueueBlock.includes('href={`tel:${row.customer_phone}`}') && partnerQueueBlock.includes('Call customer');
+  assert(queueTelLabel, 'Queue row contains tel: link with visible text label');
+
+  // Test #687: Grep: Fulfil action user-facing label reads "activated" rather than "fulfil"
+  const fulfilActivatedLabel = partnerQueueBlock.includes('Mark as activated') && !partnerQueueBlock.includes('>Fulfill<');
+  assert(fulfilActivatedLabel, 'Fulfil action user-facing label reads activated rather than fulfil');
+
+  // Test #688: Grep: Each of 6 partner tabs has empty-state string
+  const emptyStatesPass = appContent.includes("Nothing waiting. You're up to date.") &&
+    appContent.includes("No redemptions waiting. New ones appear here when FastNet approves them.") &&
+    appContent.includes("You haven't added any packages yet.") &&
+    appContent.includes("No service regions added yet.") &&
+    appContent.includes("No feedback or issues reported yet.") &&
+    appContent.includes("No additional profile details saved yet.");
+  assert(emptyStatesPass, 'Each of 6 partner tabs has an empty-state string');
+
+  // Test #689: Grep: Partner-facing strings introduced this round call t()
+  const tHelperCalls = appContent.includes("t('Dashboard Overview'") &&
+    appContent.includes("t('Mark as activated'") &&
+    appContent.includes("t('My Packages'") &&
+    appContent.includes("t('Service Regions'");
+  assert(tHelperCalls, 'Partner-facing strings introduced this round call t()');
+
+  // Test #690: Endpoint/State: Partner dashboard endpoint returns structured data cleanly
+  const partnerDashRes = await get('http://localhost:3001/api/partner/dashboard', {
+    headers: { Authorization: `Bearer ${bf9PartnerOtpLoginRes.body.session_token}` }
+  });
+  assert(partnerDashRes.status === 200 && partnerDashRes.body.today && partnerDashRes.body.month, 'GET /api/partner/dashboard returns structured data cleanly');
 
   console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);

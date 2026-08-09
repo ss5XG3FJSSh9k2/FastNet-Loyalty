@@ -4895,63 +4895,69 @@ export default function App() {
               {partnerAppTab === 'dashboard' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <h4 style={{ margin: 0, fontSize: '0.9rem' }}>Dashboard Overview</h4>
+                    <h4 style={{ margin: 0, fontSize: '0.9rem' }}>{t('Dashboard Overview', 'डैशबोर्ड अवलोकन', 'ড্যাশবোর্ড ওভারভিউ')}</h4>
                     <button className="btn btn-secondary" style={{ fontSize: '0.7rem', padding: '0.2rem 0.5rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }} onClick={() => fetchPartnerDashboard()}>
-                      <RefreshCw size={12} /> Refresh
+                      <RefreshCw size={12} /> {t('Refresh', 'रिफ्रेश', 'রিফ্রেশ')}
                     </button>
                   </div>
 
-                  {/* Row 1: Today */}
+                  {/* Hero Card: Waiting Redemptions */}
+                  <div 
+                    onClick={() => { setPartnerAppTab('queue'); setPartnerQueueSubTab('to_fulfill'); }}
+                    style={{ background: 'rgba(99,102,241,0.12)', border: '1px solid var(--primary)', padding: '1.25rem', borderRadius: '8px', cursor: 'pointer', textAlign: 'center' }}
+                  >
+                    <div style={{ fontSize: '2.2rem', fontWeight: 'bold', color: 'var(--primary)' }}>
+                      {partnerQueueList.length}
+                    </div>
+                    <div style={{ fontSize: '0.85rem', fontWeight: '600', color: 'white', marginTop: '0.25rem' }}>
+                      {t('redemptions waiting for activation', 'सक्रियकरण के लिए लंबित रिडीम', 'সক্রিয়করণের অপেক্ষায় থাকা রিডিম')}
+                    </div>
+                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
+                      {t('Redemptions approved by FastNet ready for service setup', 'फास्टनेट द्वारा अनुमोदित रिडीम सेवा सेटअप के लिए तैयार हैं', 'ফাস্টনেট দ্বারা অনুমোদিত রিডিম সেবা সেটআপের জন্য প্রস্তুত')}
+                    </div>
+                  </div>
+
+                  {/* Empty State Banner if 0 waiting */}
+                  {partnerQueueList.length === 0 && (
+                    <div style={{ background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.3)', padding: '0.75rem', borderRadius: '6px', textAlign: 'center', fontSize: '0.8rem', color: '#4ade80' }}>
+                      {t("Nothing waiting. You're up to date.", "कुछ भी लंबित नहीं है। आप अपडेट हैं।", "কোনো কিছু অপেক্ষায় নেই। আপনি আপ-টু-ডেট।")}
+                    </div>
+                  )}
+
+                  {/* Month Summary Row */}
                   <div>
-                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 'bold' }}>Today</span>
+                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 'bold' }}>
+                      {t('This Month', 'इस महीने', 'এই মাসে')}
+                    </span>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.5rem', marginTop: '0.35rem' }}>
                       <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.6rem', borderRadius: '6px', border: '1px solid var(--border-color)', textAlign: 'center' }}>
-                        <div style={{ fontSize: '1.1rem', fontWeight: 'bold', color: 'var(--primary)' }}>{partnerDashData?.today?.redemptions_count || 0}</div>
-                        <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Redemptions</div>
+                        <div style={{ fontSize: '1.1rem', fontWeight: 'bold', color: 'var(--success)' }}>{partnerDashData?.month?.fulfilled_count || 0}</div>
+                        <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>{t('Fulfilled this month', 'इस महीने पूरे किए गए', 'এই মাসে সম্পন্ন')}</div>
                       </div>
                       <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.6rem', borderRadius: '6px', border: '1px solid var(--border-color)', textAlign: 'center' }}>
-                        <div style={{ fontSize: '1.1rem', fontWeight: 'bold', color: 'var(--success)' }}>{partnerDashData?.today?.fulfilled_count || 0}</div>
-                        <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Fulfilled</div>
+                        <div style={{ fontSize: '1.1rem', fontWeight: 'bold', color: 'var(--primary)' }}>₹{partnerDashData?.month?.face_value_total_rupees || 0}</div>
+                        <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>{t('Total face value', 'कुल अंकित मूल्य', 'মোট মূল্য')}</div>
                       </div>
                       <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.6rem', borderRadius: '6px', border: '1px solid var(--border-color)', textAlign: 'center' }}>
-                        <div style={{ fontSize: '1.1rem', fontWeight: 'bold', color: 'var(--warning)' }}>{partnerDashData?.today?.pending_count || 0}</div>
-                        <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Pending Action</div>
+                        <div style={{ fontSize: '1.1rem', fontWeight: 'bold', color: 'var(--accent)' }}>₹{partnerDashData?.month?.expected_payout_rupees || 0}</div>
+                        <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>{t("You'll receive", "आप पाएंगे", "আপনি পাবেন")}</div>
                       </div>
                     </div>
                   </div>
 
-                  {/* Row 2: This Month */}
-                  <div>
-                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 'bold' }}>This Month</span>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginTop: '0.35rem' }}>
-                      <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.6rem', borderRadius: '6px', border: '1px solid var(--border-color)' }}>
-                        <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Total Redemptions / Fulfilled</div>
-                        <div style={{ fontSize: '1rem', fontWeight: 'bold', color: 'white', marginTop: '0.2rem' }}>
-                          {partnerDashData?.month?.redemptions_count || 0} <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>({partnerDashData?.month?.fulfilled_count || 0} fulfilled)</span>
-                        </div>
+                  {/* Open Disputes */}
+                  {(partnerDashData?.disputes?.open_count || 0) > 0 && (
+                    <div 
+                      onClick={() => { setPartnerAppTab('queue'); setPartnerQueueSubTab('disputes'); }}
+                      style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', padding: '0.75rem', borderRadius: '6px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                    >
+                      <div>
+                        <div style={{ fontWeight: 'bold', fontSize: '0.85rem', color: 'var(--danger)' }}>{t('Open Disputes', 'खुले विवाद', 'খোলা বিরোধ')}</div>
+                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{t('Redemptions waiting on admin resolution', 'एडमिन समाधान की प्रतीक्षा में रिडीम', 'অ্যাডমিন সমাধানের অপেক্ষায় থাকা রিডিম')}</div>
                       </div>
-                      <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.6rem', borderRadius: '6px', border: '1px solid var(--border-color)' }}>
-                        <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Face Value Total</div>
-                        <div style={{ fontSize: '1rem', fontWeight: 'bold', color: 'var(--primary)', marginTop: '0.2rem' }}>₹{partnerDashData?.month?.face_value_total_rupees || 0}</div>
-                      </div>
-                      <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.6rem', borderRadius: '6px', border: '1px solid var(--border-color)', gridColumn: 'span 2' }}>
-                        <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Expected Payout</div>
-                        <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: 'var(--accent)', marginTop: '0.2rem' }}>₹{partnerDashData?.month?.expected_payout_rupees || 0}</div>
-                      </div>
+                      <div style={{ fontSize: '1.3rem', fontWeight: 'bold', color: 'var(--danger)' }}>{partnerDashData?.disputes?.open_count || 0}</div>
                     </div>
-                  </div>
-
-                  {/* Row 3: Open Disputes */}
-                  <div 
-                    onClick={() => { setPartnerAppTab('queue'); setPartnerQueueSubTab('disputes'); }}
-                    style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', padding: '0.75rem', borderRadius: '6px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-                  >
-                    <div>
-                      <div style={{ fontWeight: 'bold', fontSize: '0.85rem', color: 'var(--danger)' }}>Open Disputes</div>
-                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Redemptions waiting on admin resolution</div>
-                    </div>
-                    <div style={{ fontSize: '1.3rem', fontWeight: 'bold', color: 'var(--danger)' }}>{partnerDashData?.disputes?.open_count || 0}</div>
-                  </div>
+                  )}
                 </div>
               )}
 
@@ -4960,10 +4966,10 @@ export default function App() {
                 <div>
                   <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
                     <button className={`btn ${partnerQueueSubTab === 'to_fulfill' ? 'btn-primary' : 'btn-secondary'}`} style={{ flex: 1, fontSize: '0.75rem' }} onClick={() => setPartnerQueueSubTab('to_fulfill')}>
-                      To Fulfill ({partnerQueueList.length})
+                      {t('To Activate', 'सक्रिय करने के लिए', 'সক্রিয় করতে হবে')} ({partnerQueueList.length})
                     </button>
                     <button className={`btn ${partnerQueueSubTab === 'disputes' ? 'btn-primary' : 'btn-secondary'}`} style={{ flex: 1, fontSize: '0.75rem' }} onClick={() => setPartnerQueueSubTab('disputes')}>
-                      Disputes ({partnerDisputesList.length})
+                      {t('Disputes', 'विवाद', 'বিরোধ')} ({partnerDisputesList.length})
                     </button>
                   </div>
 
@@ -4972,10 +4978,10 @@ export default function App() {
                       <table style={{ width: '100%', fontSize: '0.75rem', borderCollapse: 'collapse' }}>
                         <thead>
                           <tr style={{ borderBottom: '1px solid var(--border-color)', textAlign: 'left', color: 'var(--text-muted)' }}>
-                            <th style={{ padding: '0.4rem' }}>Customer</th>
-                            <th style={{ padding: '0.4rem' }}>Package</th>
-                            <th style={{ padding: '0.4rem' }}>Face Value</th>
-                            <th style={{ padding: '0.4rem' }}>Actions</th>
+                            <th style={{ padding: '0.4rem' }}>{t('Customer', 'ग्राहक', 'গ্রাহক')}</th>
+                            <th style={{ padding: '0.4rem' }}>{t('Package', 'पैकेज', 'প্যাকেজ')}</th>
+                            <th style={{ padding: '0.4rem' }}>{t('Face Value', 'अंकित मूल्य', 'মূল্য')}</th>
+                            <th style={{ padding: '0.4rem' }}>{t('Actions', 'कार्रवाई', 'ব্যবস্থা')}</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -4983,24 +4989,32 @@ export default function App() {
                             <tr key={row.id} style={{ borderBottom: '1px dashed var(--border-color)' }}>
                               <td style={{ padding: '0.4rem' }}>
                                 <div style={{ fontWeight: 'bold' }}>{row.customer_name}</div>
-                                <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>{row.customer_phone}</div>
+                                <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>{row.customer_phone}</div>
+                                <a href={`tel:${row.customer_phone}`} className="btn btn-secondary" style={{ padding: '0.15rem 0.4rem', fontSize: '0.6rem', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }} onClick={e => e.stopPropagation()}>
+                                  <Phone size={10} /> {t('Call customer', 'ग्राहक को कॉल करें', 'গ্রাহককে কল করুন')}
+                                </a>
                               </td>
-                              <td style={{ padding: '0.4rem' }}>{row.package_name}</td>
+                              <td style={{ padding: '0.4rem' }}>
+                                <div style={{ fontWeight: 'bold' }}>{row.package_name}</div>
+                                <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>{new Date(row.created_at || Date.now()).toLocaleDateString()}</div>
+                              </td>
                               <td style={{ padding: '0.4rem', fontWeight: 'bold' }}>₹{row.face_value_rupees}</td>
                               <td style={{ padding: '0.4rem' }}>
-                                <div style={{ display: 'flex', gap: '0.25rem' }}>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
                                   <button className="btn btn-primary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem' }} onClick={() => { setSelectedFulfillItem(row); setShowFulfillModal(true); }}>
-                                    Fulfill
+                                    {t('Mark as activated', 'सक्रिय चिह्नित करें', 'সক্রিয় হিসাবে চিহ্নিত করুন')}
                                   </button>
                                   <button className="btn btn-warning" style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem' }} onClick={() => { setSelectedDisputeItem(row); setShowDisputeModal(true); }}>
-                                    Dispute
+                                    {t('Report a problem', 'समस्या की रिपोर्ट करें', 'সমস্যার রিপোর্ট করুন')}
                                   </button>
                                 </div>
                               </td>
                             </tr>
                           ))}
                           {partnerQueueList.length === 0 && (
-                            <tr><td colSpan="4" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '1.5rem' }}>No approved redemptions to fulfill.</td></tr>
+                            <tr><td colSpan="4" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '1.5rem' }}>
+                              {t("No redemptions waiting. New ones appear here when FastNet approves them.", "कोई रिडीम लंबित नहीं है। फास्टनेट के अनुमोदन पर नए यहां दिखाई देंगे।", "কোনো রিডিম অপেক্ষায় নেই। ফাস্টনেট অনুমোদন করলে নতুনগুলো এখানে দেখাবে।")}
+                            </td></tr>
                           )}
                         </tbody>
                       </table>
@@ -5008,15 +5022,15 @@ export default function App() {
                   ) : (
                     <div>
                       <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.5rem 0.75rem', borderRadius: '4px', fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '0.75rem' }}>
-                        <em>Note: Waiting on admin to resolve.</em>
+                        <em>{t('Waiting on admin to resolve dispute', 'विवाद समाधान के लिए एडमिन की प्रतीक्षा में', 'বিরোধ সমাধানের জন্য অ্যাডমিনের অপেক্ষায়')}</em>
                       </div>
                       <table style={{ width: '100%', fontSize: '0.75rem', borderCollapse: 'collapse' }}>
                         <thead>
                           <tr style={{ borderBottom: '1px solid var(--border-color)', textAlign: 'left', color: 'var(--text-muted)' }}>
-                            <th style={{ padding: '0.4rem' }}>Customer</th>
-                            <th style={{ padding: '0.4rem' }}>Package</th>
-                            <th style={{ padding: '0.4rem' }}>Reason</th>
-                            <th style={{ padding: '0.4rem' }}>Status</th>
+                            <th style={{ padding: '0.4rem' }}>{t('Customer', 'ग्राहक', 'গ্রাহক')}</th>
+                            <th style={{ padding: '0.4rem' }}>{t('Package', 'पैकेज', 'প্যাকেজ')}</th>
+                            <th style={{ padding: '0.4rem' }}>{t('Reason', 'कारण', 'কারণ')}</th>
+                            <th style={{ padding: '0.4rem' }}>{t('Status', 'स्थिति', 'স্ট্যাটাস')}</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -5025,11 +5039,13 @@ export default function App() {
                               <td style={{ padding: '0.4rem' }}>{row.customer_name}</td>
                               <td style={{ padding: '0.4rem' }}>{row.package_name}</td>
                               <td style={{ padding: '0.4rem', fontSize: '0.65rem' }}>{row.disputed_reason}</td>
-                              <td style={{ padding: '0.4rem' }}><span className="badge badge-warning">DISPUTED</span></td>
+                              <td style={{ padding: '0.4rem' }}><span className="badge badge-warning">{t('Disputed', 'विवादित', 'বিতর্কিত')}</span></td>
                             </tr>
                           ))}
                           {partnerDisputesList.length === 0 && (
-                            <tr><td colSpan="4" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '1.5rem' }}>No open disputes.</td></tr>
+                            <tr><td colSpan="4" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '1.5rem' }}>
+                              {t('No open disputes.', 'कोई खुला विवाद नहीं है।', 'কোনো খোলা বিরোধ নেই।')}
+                            </td></tr>
                           )}
                         </tbody>
                       </table>
@@ -5042,20 +5058,20 @@ export default function App() {
               {partnerAppTab === 'packages' && (
                 <div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-                    <h4 style={{ margin: 0, fontSize: '0.9rem' }}>My Packages</h4>
+                    <h4 style={{ margin: 0, fontSize: '0.9rem' }}>{t('My Packages', 'मेरे पैकेज', 'আমার প্যাকেজ')}</h4>
                     <button className="btn btn-primary" style={{ fontSize: '0.7rem', padding: '0.3rem 0.6rem' }} onClick={openAddPackageModal}>
-                      + Add Package
+                      + {t('Add Package', 'पैकेज जोड़ें', 'প্যাকেজ যোগ করুন')}
                     </button>
                   </div>
                   <table style={{ width: '100%', fontSize: '0.75rem', borderCollapse: 'collapse' }}>
                     <thead>
                       <tr style={{ borderBottom: '1px solid var(--border-color)', textAlign: 'left', color: 'var(--text-muted)' }}>
-                        <th style={{ padding: '0.4rem' }}>Name</th>
-                        <th style={{ padding: '0.4rem' }}>Type</th>
-                        <th style={{ padding: '0.4rem' }}>Value</th>
-                        <th style={{ padding: '0.4rem' }}>Points</th>
-                        <th style={{ padding: '0.4rem' }}>Status</th>
-                        <th style={{ padding: '0.4rem' }}>Actions</th>
+                        <th style={{ padding: '0.4rem' }}>{t('Name', 'नाम', 'নাম')}</th>
+                        <th style={{ padding: '0.4rem' }}>{t('Type', 'प्रकार', 'ধরন')}</th>
+                        <th style={{ padding: '0.4rem' }}>{t('Value', 'मूल्य', 'মূল্য')}</th>
+                        <th style={{ padding: '0.4rem' }}>{t('Points', 'अंक', 'পয়েন্ট')}</th>
+                        <th style={{ padding: '0.4rem' }}>{t('Status', 'स्थिति', 'স্ট্যাটাস')}</th>
+                        <th style={{ padding: '0.4rem' }}>{t('Actions', 'कार्रवाई', 'ব্যবস্থা')}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -5067,23 +5083,30 @@ export default function App() {
                           <td style={{ padding: '0.4rem' }}>{pkg.point_cost} pts</td>
                           <td style={{ padding: '0.4rem' }}>
                             <span className={`badge ${pkg.is_active ? 'badge-success' : 'badge-danger'}`}>
-                              {pkg.is_active ? 'ACTIVE' : 'INACTIVE'}
+                              {pkg.is_active ? t('Live', 'लाइव', 'লাইভ') : t('Inactive', 'निष्क्रिय', 'নিষ্ক্রিয়')}
                             </span>
                           </td>
                           <td style={{ padding: '0.4rem' }}>
                             <div style={{ display: 'flex', gap: '0.25rem' }}>
                               <button className="btn btn-secondary" style={{ padding: '0.15rem 0.35rem', fontSize: '0.65rem' }} onClick={() => openEditPackageModal(pkg)}>
-                                Edit
+                                {t('Edit', 'संपादित करें', 'সম্পাদনা')}
                               </button>
                               <button className="btn btn-secondary" style={{ padding: '0.15rem 0.35rem', fontSize: '0.65rem' }} onClick={() => handleTogglePackageActive(pkg)}>
-                                {pkg.is_active ? 'Deactivate' : 'Reactivate'}
+                                {pkg.is_active ? t('Deactivate', 'निष्क्रिय करें', 'নিষ্ক্রিয় করুন') : t('Reactivate', 'पुनः सक्रिय करें', 'পুনরায় সক্রিয় করুন')}
                               </button>
                             </div>
                           </td>
                         </tr>
                       ))}
                       {partnerPackagesList.length === 0 && (
-                        <tr><td colSpan="6" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '1.5rem' }}>No packages configured.</td></tr>
+                        <tr><td colSpan="6" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '1.5rem' }}>
+                          <p style={{ margin: '0 0 0.75rem 0' }}>
+                            {t("You haven't added any packages yet. Customers can only redeem what you list here.", "आपने अभी तक कोई पैकेज नहीं जोड़ा है। ग्राहक केवल वही रिडीम कर सकते हैं जो आप सूचीबद्ध करते हैं।", "আপনি এখনো কোনো প্যাকেজ যোগ করেননি। গ্রাহকরা কেবল আপনার তালিকাবদ্ধ অফারই রিডিম করতে পারবে।")}
+                          </p>
+                          <button className="btn btn-primary" style={{ fontSize: '0.75rem' }} onClick={openAddPackageModal}>
+                            + {t('Add Package', 'पैकेज जोड़ें', 'প্যাকেজ যোগ করুন')}
+                          </button>
+                        </td></tr>
                       )}
                     </tbody>
                   </table>
@@ -5094,18 +5117,18 @@ export default function App() {
               {partnerAppTab === 'regions' && (
                 <div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-                    <h4 style={{ margin: 0, fontSize: '0.9rem' }}>Service Regions</h4>
+                    <h4 style={{ margin: 0, fontSize: '0.9rem' }}>{t('Service Regions', 'सेवा क्षेत्र', 'সেবা এলাকা')}</h4>
                     <button className="btn btn-primary" style={{ fontSize: '0.7rem', padding: '0.3rem 0.6rem' }} onClick={() => setShowAddRegionModal(true)}>
-                      + Add Region
+                      + {t('Add Region', 'क्षेत्र जोड़ें', 'এলাকা যোগ করুন')}
                     </button>
                   </div>
                   <table style={{ width: '100%', fontSize: '0.75rem', borderCollapse: 'collapse' }}>
                     <thead>
                       <tr style={{ borderBottom: '1px solid var(--border-color)', textAlign: 'left', color: 'var(--text-muted)' }}>
-                        <th style={{ padding: '0.4rem' }}>Region</th>
-                        <th style={{ padding: '0.4rem' }}>Type</th>
-                        <th style={{ padding: '0.4rem' }}>Status</th>
-                        <th style={{ padding: '0.4rem' }}>Actions</th>
+                        <th style={{ padding: '0.4rem' }}>{t('Region', 'क्षेत्र', 'এলাকা')}</th>
+                        <th style={{ padding: '0.4rem' }}>{t('Type', 'प्रकार', 'ধরন')}</th>
+                        <th style={{ padding: '0.4rem' }}>{t('Status', 'स्थिति', 'স্ট্যাটাস')}</th>
+                        <th style={{ padding: '0.4rem' }}>{t('Actions', 'कार्रवाई', 'ব্যবস্থা')}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -5118,29 +5141,31 @@ export default function App() {
                           <td style={{ padding: '0.4rem' }}><span className="badge badge-secondary">{r.service_type}</span></td>
                           <td style={{ padding: '0.4rem' }}>
                             <span className={`badge ${r.is_active ? 'badge-success' : 'badge-danger'}`}>
-                              {r.is_active ? 'ACTIVE' : 'INACTIVE'}
+                              {r.is_active ? t('Live', 'लाइव', 'লাইভ') : t('Inactive', 'निष्क्रिय', 'নিষ্ক্রিয়')}
                             </span>
                           </td>
                           <td style={{ padding: '0.4rem' }}>
                             <div style={{ display: 'flex', gap: '0.25rem' }}>
                               {r.is_active ? (
                                 <button className="btn btn-secondary" style={{ padding: '0.15rem 0.35rem', fontSize: '0.65rem' }} onClick={() => handleDeactivateRegion(r, false)}>
-                                  Deactivate
+                                  {t('Deactivate', 'निष्क्रिय करें', 'নিষ্ক্রিয় করুন')}
                                 </button>
                               ) : (
                                 <button className="btn btn-secondary" style={{ padding: '0.15rem 0.35rem', fontSize: '0.65rem' }} onClick={() => handleReactivateRegion(r)}>
-                                  Reactivate
+                                  {t('Reactivate', 'पुनः सक्रिय करें', 'পুনরায় সক্রিয় করুন')}
                                 </button>
                               )}
                               <button className="btn btn-danger" style={{ padding: '0.15rem 0.35rem', fontSize: '0.65rem' }} onClick={() => handleDeleteRegion(r)}>
-                                Delete
+                                {t('Delete', 'हटाएं', 'মুছুন')}
                               </button>
                             </div>
                           </td>
                         </tr>
                       ))}
                       {partnerRegionsList.length === 0 && (
-                        <tr><td colSpan="4" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '1.5rem' }}>No regions mapped.</td></tr>
+                        <tr><td colSpan="4" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '1.5rem' }}>
+                          {t("No service regions added yet. Add regions to allow local subscribers to see your packages.", "अभी तक कोई सेवा क्षेत्र नहीं जोड़ा गया है। स्थानीय ग्राहकों को आपके पैकेज देखने की अनुमति देने के लिए क्षेत्र जोड़ें।", "কোনো সেবা এলাকা যোগ করা হয়নি। গ্রাহকদের আপনার প্যাকেজ দেখাতে এলাকা যোগ করুন।")}
+                        </td></tr>
                       )}
                     </tbody>
                   </table>
@@ -5151,18 +5176,18 @@ export default function App() {
               {partnerAppTab === 'feedback' && (
                 <div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-                    <h4 style={{ margin: 0, fontSize: '0.9rem' }}>Feedback &amp; Issues</h4>
+                    <h4 style={{ margin: 0, fontSize: '0.9rem' }}>{t('Feedback & Issues', 'प्रतिक्रिया और मुद्दे', 'ফিডব্যাক ও সমস্যা')}</h4>
                     <button className="btn btn-primary" style={{ fontSize: '0.7rem', padding: '0.3rem 0.6rem' }} onClick={() => setShowNewFeedbackModal(true)}>
-                      + New Feedback
+                      + {t('New Feedback', 'नई प्रतिक्रिया', 'নতুন ফিডব্যাক')}
                     </button>
                   </div>
                   <table style={{ width: '100%', fontSize: '0.75rem', borderCollapse: 'collapse' }}>
                     <thead>
                       <tr style={{ borderBottom: '1px solid var(--border-color)', textAlign: 'left', color: 'var(--text-muted)' }}>
-                        <th style={{ padding: '0.4rem' }}>Date</th>
-                        <th style={{ padding: '0.4rem' }}>Category</th>
-                        <th style={{ padding: '0.4rem' }}>Subject</th>
-                        <th style={{ padding: '0.4rem' }}>Status</th>
+                        <th style={{ padding: '0.4rem' }}>{t('Date', 'दिनांक', 'তারিখ')}</th>
+                        <th style={{ padding: '0.4rem' }}>{t('Category', 'श्रेणी', 'শ্রেণী')}</th>
+                        <th style={{ padding: '0.4rem' }}>{t('Subject', 'विषय', 'বিষয়')}</th>
+                        <th style={{ padding: '0.4rem' }}>{t('Status', 'स्थिति', 'স্ট্যাটাস')}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -5179,7 +5204,9 @@ export default function App() {
                         </tr>
                       ))}
                       {partnerFeedbackList.length === 0 && (
-                        <tr><td colSpan="4" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '1.5rem' }}>No feedback submitted.</td></tr>
+                        <tr><td colSpan="4" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '1.5rem' }}>
+                          {t("No feedback or issues reported yet.", "अभी तक कोई प्रतिक्रिया या समस्या दर्ज नहीं की गई है।", "কোনো ফিডব্যাক বা সমস্যা এখনো রিপোর্ট করা হয়নি।")}
+                        </td></tr>
                       )}
                     </tbody>
                   </table>
@@ -5189,29 +5216,33 @@ export default function App() {
               {/* TAB 6: PROFILE */}
               {partnerAppTab === 'profile' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                  <h4 style={{ margin: 0, fontSize: '0.9rem' }}>Partner Profile</h4>
+                  <h4 style={{ margin: 0, fontSize: '0.9rem' }}>{t('Partner Profile', 'साझेदार प्रोफ़ाइल', 'পার্টনার প্রোফাইল')}</h4>
 
-                  {/* Read-only info banner */}
                   <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.75rem', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '0.75rem' }}>
-                    <div><strong>Legal Name:</strong> {partnerData?.legal_name}</div>
-                    <div><strong>GST Number:</strong> {partnerData?.gst_number || 'N/A'}</div>
-                    <div><strong>Services Offered:</strong> {(partnerData?.service_types || []).join(', ')}</div>
+                    <div><strong>{t('Legal Name', 'कानूनी नाम', 'আইনি নাম')}:</strong> {partnerData?.legal_name || '—'}</div>
+                    <div><strong>{t('GST Number', 'जीएसटी नंबर', 'জিএসটি নম্বর')}:</strong> {partnerData?.gst_number || 'N/A'}</div>
+                    <div><strong>{t('Services Offered', 'पेश की जाने वाली सेवाएं', 'প্রদত্ত সেবা সমূহ')}:</strong> {(partnerData?.service_types || []).join(', ')}</div>
                   </div>
 
-                  {/* Editable profile form */}
+                  {!partnerData && (
+                    <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem', textAlign: 'center', padding: '1rem' }}>
+                      {t("No additional profile details saved yet.", "अभी तक कोई अतिरिक्त प्रोफ़ाइल विवरण सहेजा नहीं गया है।", "কোনো অতিরিক্ত প্রোফাইল বিবরণ এখনো সংরক্ষিত হয়নি।")}
+                    </div>
+                  )}
+
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                     <div className="input-group">
-                      <label className="input-label">Display Name</label>
+                      <label className="input-label">{t('Display Name', 'प्रदर्शन नाम', 'প্রদর্শিত নাম')}</label>
                       <input type="text" className="text-input" value={pProfDisplayName} onChange={e => setPProfDisplayName(e.target.value)} />
                     </div>
                     <div className="input-group">
-                      <label className="input-label">Contact Phone</label>
+                      <label className="input-label">{t('Contact Phone', 'संपर्क फोन', 'যোগাযোগ ফোন')}</label>
                       <input type="tel" className="text-input" value={pProfContactPhone} onChange={e => setPProfContactPhone(e.target.value)} />
                       {pProfContactPhone !== initialContactPhone && (
                         <div style={{ marginTop: '0.35rem', fontSize: '0.7rem' }}>
                           <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
                             <input type="checkbox" checked={confirmPhoneChangeCheck} onChange={e => setConfirmPhoneChangeCheck(e.target.checked)} />
-                            Yes, I want to change my login phone number
+                            {t('Yes, I want to change my login phone number', 'हां, मैं अपना लॉगिन फोन नंबर बदलना चाहता हूं', 'হ্যাঁ, আমি আমার লগইন ফোন নম্বর পরিবর্তন করতে চাই')}
                           </label>
                         </div>
                       )}
@@ -5312,17 +5343,21 @@ export default function App() {
         {showFulfillModal && selectedFulfillItem && (
           <div className="modal-overlay">
             <div className="modal-content" style={{ maxWidth: '400px' }}>
-              <h4>Confirm Fulfillment</h4>
+              <h4>{t('Confirm Activation', 'सक्रियकरण की पुष्टि करें', 'সক্রিয়করণ নিশ্চিত করুন')}</h4>
               <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                Confirm you activated the <strong>{selectedFulfillItem.package_name}</strong> for <strong>{selectedFulfillItem.customer_name}</strong> ({selectedFulfillItem.customer_phone})?
+                {t('Confirm you\'ve activated the package for customer', 'पुष्टि करें कि आपने पैकेज सक्रिय कर दिया है', 'প্যাকেজ সক্রিয় নিশ্চিত করুন')} <strong>{selectedFulfillItem.package_name}</strong> {t('for', 'के लिए', 'জন্য')} <strong>{selectedFulfillItem.customer_name}</strong> ({selectedFulfillItem.customer_phone})?
               </p>
               <div className="input-group">
-                <label className="input-label">Optional Partner Notes</label>
+                <label className="input-label">{t('Optional Partner Notes', 'वैकल्पिक पार्टनर नोट्स', 'ঐচ্ছিক পার্টনার নোট')}</label>
                 <textarea className="text-input" placeholder="e.g. Account activated for July" value={fulfillNotes} onChange={e => setFulfillNotes(e.target.value)} />
               </div>
               <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
-                <button className="btn btn-primary" style={{ flex: 1 }} onClick={handleFulfillRedemption}>Confirm Fulfill</button>
-                <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setShowFulfillModal(false)}>Cancel</button>
+                <button className="btn btn-primary" style={{ flex: 1 }} onClick={handleFulfillRedemption}>
+                  {t('Mark as activated', 'सक्रिय चिह्नित करें', 'সক্রিয় হিসাবে চিহ্নিত করুন')}
+                </button>
+                <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setShowFulfillModal(false)}>
+                  {t('Cancel', 'रद्द करें', 'বাতিল')}
+                </button>
               </div>
             </div>
           </div>
@@ -5332,17 +5367,21 @@ export default function App() {
         {showDisputeModal && selectedDisputeItem && (
           <div className="modal-overlay">
             <div className="modal-content" style={{ maxWidth: '400px' }}>
-              <h4>Dispute Redemption</h4>
+              <h4>{t('Report a problem', 'समस्या की रिपोर्ट करें', 'সমস্যার রিপোর্ট করুন')}</h4>
               <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                Disputing redemption for <strong>{selectedDisputeItem.customer_name}</strong>. Provide a reason for admin review (min 10 chars):
+                {t('Reporting problem for redemption by', 'के द्वारा रिडीम की गई समस्या की रिपोर्ट कर रहे हैं', 'দ্বারা রিডিম করা সমস্যার রিপোর্ট করছেন')} <strong>{selectedDisputeItem.customer_name}</strong>. {t('Provide a reason for admin review (min 10 chars):', 'एडमिन समीक्षा के लिए कारण बताएं (न्यूनतम 10 अक्षर):', 'অ্যাডমিন পর্যালোচনার জন্য কারণ দিন (কমপক্ষে ১০ টি অক্ষর):')}
               </p>
               <div className="input-group">
-                <label className="input-label">Dispute Reason *</label>
+                <label className="input-label">{t('Dispute Reason *', 'विवाद का कारण *', 'বিরোধের কারণ *')}</label>
                 <textarea className="text-input" placeholder="Reason for dispute (min 10 chars)..." value={disputeReasonText} onChange={e => setDisputeReasonText(e.target.value)} />
               </div>
               <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
-                <button className="btn btn-warning" style={{ flex: 1 }} onClick={handleDisputeRedemption}>Submit Dispute</button>
-                <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setShowDisputeModal(false)}>Cancel</button>
+                <button className="btn btn-warning" style={{ flex: 1 }} onClick={handleDisputeRedemption}>
+                  {t('Submit Dispute', 'विवाद जमा करें', 'বিরোধ জমা দিন')}
+                </button>
+                <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setShowDisputeModal(false)}>
+                  {t('Cancel', 'रद्द करें', 'বাতিল')}
+                </button>
               </div>
             </div>
           </div>
