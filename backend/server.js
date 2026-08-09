@@ -2804,9 +2804,19 @@ app.post('/api/admin/vendors', async (req, res) => {
 
 // Partner Leads Routes
 app.post('/api/partner-leads', async (req, res) => {
-  const { name, contact_name, phone, email, service_type, region_id } = req.body;
+  const { name, contact_name, phone, email, service_type, service_types, region_id } = req.body;
   if (!name || !phone) {
     return res.status(400).json({ error: 'Name and phone are required' });
+  }
+  let finalServiceTypes = service_types;
+  if (!finalServiceTypes || !Array.isArray(finalServiceTypes) || finalServiceTypes.length === 0) {
+    if (service_type === 'BOTH') {
+      finalServiceTypes = ['CABLE', 'BROADBAND'];
+    } else if (service_type) {
+      finalServiceTypes = [service_type];
+    } else {
+      finalServiceTypes = ['CABLE'];
+    }
   }
   const leads = await db.getTable('partner_leads');
   const newLead = {
@@ -2815,7 +2825,8 @@ app.post('/api/partner-leads', async (req, res) => {
     contact_name: contact_name ? contact_name.trim() : null,
     phone: phone.trim(),
     email: email ? email.trim() : null,
-    service_type: service_type || 'CABLE',
+    service_type: finalServiceTypes[0] || service_type || 'CABLE',
+    service_types: finalServiceTypes,
     region_id: region_id || null,
     created_at: new Date().toISOString(),
     status: 'NEW',
@@ -2831,11 +2842,20 @@ app.get('/api/admin/partner-leads', async (req, res) => {
   const { status, region_id } = req.query;
   if (status) leads = leads.filter(l => l.status === status);
   if (region_id) leads = leads.filter(l => l.region_id === region_id);
-  const enriched = leads.map(l => ({
-    ...l,
-    notes: l.notes || [],
-    status: l.status || 'NEW'
-  })).reverse();
+  const enriched = leads.map(l => {
+    let stArray = l.service_types;
+    if (!stArray || !Array.isArray(stArray) || stArray.length === 0) {
+      if (l.service_type === 'BOTH') stArray = ['CABLE', 'BROADBAND'];
+      else if (l.service_type) stArray = [l.service_type];
+      else stArray = ['CABLE'];
+    }
+    return {
+      ...l,
+      service_types: stArray,
+      notes: l.notes || [],
+      status: l.status || 'NEW'
+    };
+  }).reverse();
   return res.json(enriched);
 });
 
@@ -3811,7 +3831,9 @@ app.post('/api/admin/partner-leads/:id/promote', async (req, res) => {
 
   let effectiveServiceTypes = service_types;
   if (!effectiveServiceTypes || !Array.isArray(effectiveServiceTypes) || effectiveServiceTypes.length === 0) {
-    if (lead.service_type === 'BOTH') {
+    if (Array.isArray(lead.service_types) && lead.service_types.length > 0) {
+      effectiveServiceTypes = lead.service_types;
+    } else if (lead.service_type === 'BOTH') {
       effectiveServiceTypes = ['CABLE', 'BROADBAND'];
     } else if (lead.service_type === 'BROADBAND') {
       effectiveServiceTypes = ['BROADBAND'];
