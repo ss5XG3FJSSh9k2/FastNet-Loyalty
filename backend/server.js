@@ -6381,8 +6381,8 @@ let serverInstance = null;
 const readyPromise = db.init().then(() => {
   checkConfigWarnings();
   if (!serverInstance) {
-    serverInstance = app.listen(PORT, () => {
-      console.log(`[Backend Server] ISP-Commerce Loyalty API listening on port ${PORT}`);
+    serverInstance = app.listen(PORT, '0.0.0.0', () => {
+      console.log(`[Backend Server] ISP-Commerce Loyalty API listening on port ${PORT} (0.0.0.0)`);
     });
   }
 }).catch(err => {
