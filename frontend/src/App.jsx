@@ -233,7 +233,20 @@ export default function App() {
 
   const [adminRegionFilter, setAdminRegionFilter] = useState('ALL');
   const [adminTab, setAdminTab] = useState('home');
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.location) {
+      const path = window.location.pathname;
+      if (path === '/admin/bills') {
+        setAdminTab('bills');
+      } else if (path === '/admin/fraud' || path === '/admin/fraud-reports') {
+        setAdminTab('fraud_reports');
+      }
+    }
+  }, []);
+
   const [showAdvanced, setShowAdvanced] = useState(false);
+
   const [gettingStartedOpen, setGettingStartedOpen] = useState(true);
 
   const [cartExpanded, setCartExpanded] = useState(false);
@@ -434,6 +447,13 @@ export default function App() {
   const [partnerQueueSubTab, setPartnerQueueSubTab] = useState('to_fulfill');
   const [partnerData, setPartnerData] = useState(null);
   const [partnerSessionToken, setPartnerSessionToken] = useState(localStorage.getItem('fastnet_partner_session') || '');
+  const [partnerSetupCompleted, setPartnerSetupCompleted] = useState(() => localStorage.getItem('fastnet_partner_setup_completed') === 'true');
+  const [partnerSetupToken, setPartnerSetupToken] = useState('');
+  const [showFirstTimeSetupFlow, setShowFirstTimeSetupFlow] = useState(false);
+  const [setupStep, setSetupStep] = useState(1);
+  const [setupEmail, setSetupEmail] = useState('');
+  const [setupPassword, setSetupPassword] = useState('');
+  const [setupConfirmPassword, setSetupConfirmPassword] = useState('');
   
   // Auth Form state
   const [showPartnerLogin, setShowPartnerLogin] = useState(false);
@@ -4522,14 +4542,27 @@ export default function App() {
       });
       const data = await res.json();
       if (res.ok) {
-        localStorage.setItem('fastnet_partner_session', data.session_token);
-        setPartnerSessionToken(data.session_token);
-        setCurrentUser(data.user);
-        setPartnerData(data.partner);
-        setActiveRole('partner');
-        setPartnerAppTab('dashboard');
-        loadPartnerAppData(data.session_token);
-        showToast('Logged in successfully!', 'success');
+        if (data.setup_required && data.setup_token) {
+          setPartnerSetupToken(data.setup_token);
+          setSetupStep(1);
+          setSetupEmail('');
+          setSetupPassword('');
+          setSetupConfirmPassword('');
+          setShowFirstTimeSetupFlow(true);
+          showToast('Please complete account setup', 'info');
+        } else if (data.session_token || data.token) {
+          const sToken = data.session_token || data.token;
+          localStorage.setItem('fastnet_partner_session', sToken);
+          localStorage.setItem('fastnet_partner_setup_completed', 'true');
+          setPartnerSetupCompleted(true);
+          setPartnerSessionToken(sToken);
+          if (data.user) setCurrentUser(data.user);
+          if (data.partner) setPartnerData(data.partner);
+          setActiveRole('partner');
+          setPartnerAppTab('dashboard');
+          loadPartnerAppData(sToken);
+          showToast('Logged in successfully!', 'success');
+        }
       } else {
         showToast(data.error || 'Invalid OTP', 'error');
       }
@@ -4537,6 +4570,58 @@ export default function App() {
       showToast('Network error verifying OTP', 'error');
     }
   };
+
+  const handlePartnerSetupComplete = async () => {
+    if (setupStep === 1) {
+      if (!setupEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(setupEmail.trim())) {
+        showToast('Please enter a valid email address', 'error');
+        return;
+      }
+      setSetupStep(2);
+      return;
+    }
+
+    if (setupStep === 2) {
+      if (!setupPassword || setupPassword.length < 8) {
+        showToast('Password must be at least 8 characters long', 'error');
+        return;
+      }
+      if (setupPassword !== setupConfirmPassword) {
+        showToast('Passwords do not match', 'error');
+        return;
+      }
+      try {
+        const res = await fetch(`${API_BASE}/partner/auth/setup-complete`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${partnerSetupToken}`
+          },
+          body: JSON.stringify({ email: setupEmail, password: setupPassword })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          const sToken = data.session_token || data.token;
+          localStorage.setItem('fastnet_partner_session', sToken);
+          localStorage.setItem('fastnet_partner_setup_completed', 'true');
+          setPartnerSetupCompleted(true);
+          setPartnerSessionToken(sToken);
+          if (data.user) setCurrentUser(data.user);
+          if (data.partner) setPartnerData(data.partner);
+          setShowFirstTimeSetupFlow(false);
+          setActiveRole('partner');
+          setPartnerAppTab('dashboard');
+          loadPartnerAppData(sToken);
+          showToast('Account setup completed successfully!', 'success');
+        } else {
+          showToast(data.error || 'Failed to complete setup', 'error');
+        }
+      } catch (err) {
+        showToast('Network error during setup', 'error');
+      }
+    }
+  };
+
 
   const handlePartnerResetPasswordLanding = async () => {
     if (!partnerNewPasswordLanding) {
@@ -4971,7 +5056,13 @@ export default function App() {
           <button className={`btn ${partnerLoginTab === 'otp' ? 'btn-primary' : 'btn-secondary'}`} style={{ flex: 1, fontSize: '0.75rem' }} onClick={() => setPartnerLoginTab('otp')}>
             Phone + OTP
           </button>
-          <button className={`btn ${partnerLoginTab === 'password' ? 'btn-primary' : 'btn-secondary'}`} style={{ flex: 1, fontSize: '0.75rem' }} onClick={() => setPartnerLoginTab('password')}>
+          <button 
+            className={`btn ${partnerLoginTab === 'password' ? 'btn-primary' : 'btn-secondary'}`} 
+            style={{ flex: 1, fontSize: '0.75rem', opacity: !partnerSetupCompleted ? 0.6 : 1 }} 
+            disabled={!partnerSetupCompleted}
+            title={!partnerSetupCompleted ? "Complete first-time setup via Phone + OTP first" : ""}
+            onClick={() => setPartnerLoginTab('password')}
+          >
             Email + Password
           </button>
         </div>
@@ -5037,6 +5128,69 @@ export default function App() {
             )}
           </>
         )}
+
+        {showFirstTimeSetupFlow && (
+          <div className="modal-overlay" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.7)', zIndex: 1000 }}>
+            <div className="modal-content FirstTimeSetupFlow" style={{ maxWidth: '450px', width: '90%', padding: '1.5rem', background: 'var(--card-bg, #1e1e2e)', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+              <h3 style={{ marginTop: 0, marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <Key size={20} /> FirstTimeSetupFlow — Partner Account Setup
+              </h3>
+              <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '1.25rem' }}>
+                Step {setupStep} of 2: {setupStep === 1 ? 'Set Account Email' : 'Set Account Password'}
+              </p>
+
+              {setupStep === 1 ? (
+                <div className="setup-step-1">
+                  <div className="input-group">
+                    <label className="input-label">Email Address</label>
+                    <input 
+                      type="email" 
+                      placeholder="partner@example.com" 
+                      className="text-input" 
+                      value={setupEmail} 
+                      onChange={e => setSetupEmail(e.target.value)} 
+                    />
+                  </div>
+                  <button className="btn btn-primary" style={{ width: '100%', marginTop: '1.25rem' }} onClick={handlePartnerSetupComplete}>
+                    Next →
+                  </button>
+                </div>
+              ) : (
+                <div className="setup-step-2">
+                  <div className="input-group">
+                    <label className="input-label">Password (min 8 characters)</label>
+                    <input 
+                      type="password" 
+                      placeholder="••••••••" 
+                      className="text-input" 
+                      value={setupPassword} 
+                      onChange={e => setSetupPassword(e.target.value)} 
+                    />
+                  </div>
+                  <div className="input-group" style={{ marginTop: '0.75rem' }}>
+                    <label className="input-label">Confirm Password</label>
+                    <input 
+                      type="password" 
+                      placeholder="••••••••" 
+                      className="text-input" 
+                      value={setupConfirmPassword} 
+                      onChange={e => setSetupConfirmPassword(e.target.value)} 
+                    />
+                  </div>
+                  <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1.25rem' }}>
+                    <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setSetupStep(1)}>
+                      ← Back
+                    </button>
+                    <button className="btn btn-primary" style={{ flex: 2 }} onClick={handlePartnerSetupComplete}>
+                      Complete Setup
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
 
         {isDevMode && (
           <div style={{ marginTop: '1rem', background: 'rgba(255,255,255,0.02)', padding: '0.75rem', borderRadius: '6px', fontSize: '0.7rem', border: '1px dashed var(--border-color)', color: 'var(--text-muted)' }}>
@@ -8687,17 +8841,52 @@ export default function App() {
               <button className={`admin-nav-item ${adminTab === 'kyc' ? 'active' : ''}`} onClick={() => setAdminTab('kyc')}>
                 <UserCheck size={16} /> Pending KYC {pendingKyc.length > 0 && <span className="badge badge-danger" style={{ marginLeft: '0.25rem', fontSize: '0.65rem' }}>{pendingKyc.length}</span>}
               </button>
+              <button className={`admin-nav-item ${adminTab === 'customers' ? 'active' : ''}`} onClick={() => setAdminTab('customers')}>
+                <UserCheck size={16} /> Customers ({adminCustomers.length})
+              </button>
               <button className={`admin-nav-item ${adminTab === 'stockists' ? 'active' : ''}`} onClick={() => setAdminTab('stockists')}>
                 <Store size={16} /> Stockists
               </button>
               <button className={`admin-nav-item ${adminTab === 'redemption_approvals' ? 'active' : ''}`} onClick={() => { setAdminTab('redemption_approvals'); fetchRedemptionApprovals(); }}>
-                <Gift size={16} /> Redemptions {adminRedemptionApprovals.filter(r => r.status === 'PENDING_ADMIN_APPROVAL').length > 0 && <span className="badge badge-danger" style={{ marginLeft: '0.25rem', fontSize: '0.65rem' }}>{adminRedemptionApprovals.filter(r => r.status === 'PENDING_ADMIN_APPROVAL').length}</span>}
+                <Gift size={16} /> Orders {adminRedemptionApprovals.filter(r => r.status === 'PENDING_ADMIN_APPROVAL').length > 0 && <span className="badge badge-danger" style={{ marginLeft: '0.25rem', fontSize: '0.65rem' }}>{adminRedemptionApprovals.filter(r => r.status === 'PENDING_ADMIN_APPROVAL').length}</span>}
+              </button>
+              <button className={`admin-nav-item ${adminTab === 'transactions' ? 'active' : ''}`} onClick={() => setAdminTab('transactions')}>
+                <ArrowRightLeft size={16} /> Transactions {refundDueCount > 0 && <span className="badge badge-danger" style={{ marginLeft: '0.25rem', fontSize: '0.65rem' }}>{refundDueCount}</span>}
+              </button>
+              <button 
+                className={`admin-nav-item ${adminTab === 'redemptions' || adminTab === 'bills' ? 'active' : ''}`} 
+                onClick={() => { 
+                  setAdminTab('bills'); 
+                  if (typeof window !== 'undefined' && window.history && window.history.pushState) {
+                    window.history.pushState(null, '', '/admin/bills');
+                  }
+                }}
+                data-path="/admin/bills"
+                data-tab="bills"
+              >
+                <FileText size={16} /> Bills {pendingRedemptions.filter(r=>r.billing_sync_status==='PENDING').length > 0 && <span className="badge badge-warning" style={{ marginLeft: '0.25rem', fontSize: '0.65rem' }}>{pendingRedemptions.filter(r=>r.billing_sync_status==='PENDING').length}</span>}
+              </button>
+              <button 
+                className={`admin-nav-item ${adminTab === 'fraud_reports' || adminTab === 'fraud' ? 'active' : ''}`} 
+                onClick={() => { 
+                  setAdminTab('fraud_reports'); 
+                  if (typeof window !== 'undefined' && window.history && window.history.pushState) {
+                    window.history.pushState(null, '', '/admin/fraud');
+                  }
+                }}
+                data-path="/admin/fraud"
+                data-tab="fraud"
+              >
+                <AlertTriangle size={16} /> Fraud Reports {adminFraudReports.filter(r=>['NEW','TRIAGING'].includes(r.status)).length > 0 && <span className="badge badge-warning" style={{ marginLeft: '0.25rem', fontSize: '0.65rem' }}>{adminFraudReports.filter(r=>['NEW','TRIAGING'].includes(r.status)).length}</span>}
+              </button>
+              <button className={`admin-nav-item ${adminTab === 'partners' ? 'active' : ''}`} onClick={() => { setAdminTab('partners'); fetchAdminPartners(); }}>
+                <UserPlus size={16} /> Partners ({adminPartners.length})
               </button>
               <button className={`admin-nav-item ${adminTab === 'analytics' ? 'active' : ''}`} onClick={() => { setAdminTab('analytics'); fetchAnalytics(); localStorage.setItem('fastnet_admin_analytics_visited', 'true'); }}>
                 <TrendingUp size={16} /> Analytics
               </button>
-              <button className={`admin-nav-item ${adminTab === 'config' || adminTab === 'rates' ? 'active' : ''}`} onClick={() => setAdminTab('config')}>
-                <Settings size={16} /> Config
+              <button className={`admin-nav-item ${adminTab === 'config' || adminTab === 'rates' || adminTab === 'settings' ? 'active' : ''}`} onClick={() => setAdminTab('config')}>
+                <Settings size={16} /> Settings
               </button>
 
               {/* Collapsible Advanced Section */}
@@ -8712,12 +8901,6 @@ export default function App() {
 
                 {showAdvanced && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', marginTop: '0.35rem', paddingLeft: '0.25rem' }}>
-                    <button className={`admin-nav-item ${adminTab === 'customers' ? 'active' : ''}`} onClick={() => setAdminTab('customers')}>
-                      <UserCheck size={16} /> All Customers ({adminCustomers.length})
-                    </button>
-                    <button className={`admin-nav-item ${adminTab === 'partners' ? 'active' : ''}`} onClick={() => { setAdminTab('partners'); fetchAdminPartners(); }}>
-                      <UserPlus size={16} /> All Partners ({adminPartners.length})
-                    </button>
                     <button className={`admin-nav-item ${adminTab === 'leads' ? 'active' : ''}`} onClick={() => { setAdminTab('leads'); fetchAdminPartners(); }}>
                       <UserPlus size={16} /> Partner Leads ({partnerLeads.length})
                     </button>
@@ -8726,12 +8909,6 @@ export default function App() {
                     </button>
                     <button className={`admin-nav-item ${adminTab === 'regions' ? 'active' : ''}`} onClick={() => { setAdminTab('regions'); fetchAdminRegions(); }}>
                       <Globe size={16} /> Regions ({adminRegionsList.length})
-                    </button>
-                    <button className={`admin-nav-item ${adminTab === 'redemptions' ? 'active' : ''}`} onClick={() => setAdminTab('redemptions')}>
-                      <ArrowRightLeft size={16} /> Subscriber Bill Discounts ({pendingRedemptions.filter(r=>r.billing_sync_status==='PENDING').length})
-                    </button>
-                    <button className={`admin-nav-item ${adminTab === 'fraud_reports' ? 'active' : ''}`} onClick={() => setAdminTab('fraud_reports')}>
-                      <AlertTriangle size={16} /> Fraud Reports {adminFraudReports.filter(r=>['NEW','TRIAGING'].includes(r.status)).length > 0 && <span className="badge badge-warning" style={{ marginLeft: '0.25rem', fontSize: '0.65rem' }}>{adminFraudReports.filter(r=>['NEW','TRIAGING'].includes(r.status)).length}</span>}
                     </button>
                     <button className={`admin-nav-item ${adminTab === 'anomalies' ? 'active' : ''}`} onClick={() => setAdminTab('anomalies')}>
                       <ShieldAlert size={16} /> Flagged Store Orders ({anomalies.length})
@@ -8745,15 +8922,13 @@ export default function App() {
                     <button className={`admin-nav-item ${adminTab === 'feedback' ? 'active' : ''}`} onClick={() => setAdminTab('feedback')}>
                       <ShieldAlert size={16} /> Feedback & Reports ({allFeedbackReports.length})
                     </button>
-                    <button className={`admin-nav-item ${adminTab === 'transactions' ? 'active' : ''}`} onClick={() => setAdminTab('transactions')}>
-                      <ArrowRightLeft size={16} /> All Transactions {refundDueCount > 0 && <span className="badge badge-danger" style={{ marginLeft: '0.25rem', fontSize: '0.65rem' }}>{refundDueCount}</span>}
-                    </button>
                     <button className={`admin-nav-item ${adminTab === 'health' ? 'active' : ''}`} onClick={() => { setAdminTab('health'); fetchHealthData(); }}>
                       <TrendingUp size={16} /> System Health
                     </button>
                   </div>
                 )}
               </div>
+
             </div>
 
             <div className="admin-content">
@@ -10001,7 +10176,7 @@ export default function App() {
                 </div>
               )}
 
-              {adminTab === 'fraud_reports' && (
+              {(adminTab === 'fraud_reports' || adminTab === 'fraud') && (
                 <div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
                     <h2 style={{ fontSize: '1.4rem', margin: 0 }}>Fraud Reports Queue</h2>
@@ -10687,7 +10862,7 @@ export default function App() {
                 </div>
               )}
 
-              {adminTab === 'redemptions' && (
+              {(adminTab === 'redemptions' || adminTab === 'bills') && (
                 <div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
                     <div>

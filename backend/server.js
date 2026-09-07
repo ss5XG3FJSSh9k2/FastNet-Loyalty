@@ -2,6 +2,8 @@ const express = require('express');
 const cors = require('cors');
 const db = require('./db');
 const cfg = require('./config');
+const jwt = require('jsonwebtoken');
+
 
 const fs = require('fs');
 const path = require('path');
@@ -4690,8 +4692,8 @@ app.post('/api/partner/auth/login-otp-request', async (req, res) => {
   return res.json({ success: true, message: 'OTP sent successfully if phone is registered.' });
 });
 
-// 3.4 POST /api/partner/auth/login-otp-verify
-app.post('/api/partner/auth/login-otp-verify', async (req, res) => {
+// 3.4 POST /api/partner/auth/login-otp-verify & /api/partner/auth/verify-otp
+const handlePartnerOtpVerify = async (req, res) => {
   const { phone, otp } = req.body;
   if (!phone || !otp) return res.status(400).json({ error: 'Phone and OTP are required' });
 
@@ -4702,6 +4704,20 @@ app.post('/api/partner/auth/login-otp-verify', async (req, res) => {
     return res.status(401).json({ error: 'Invalid credentials or OTP' });
   }
 
+  if (!user.email || !user.password_hash) {
+    const setupToken = jwt.sign(
+      { user_id: user.id, setup_mode: true },
+      sessionHelper.getSecret(),
+      { expiresIn: '30m' }
+    );
+    return res.json({
+      success: true,
+      setup_required: true,
+      setup_token: setupToken,
+      message: 'Complete setup to continue'
+    });
+  }
+
   const partnerUsers = await db.getTable('partner_users');
   const pu = partnerUsers.find(p => p.user_id === user.id);
   const partners = await db.getTable('partners');
@@ -4709,11 +4725,85 @@ app.post('/api/partner/auth/login-otp-verify', async (req, res) => {
 
   const token = sessionHelper.signSession(user.id, user.role);
   return res.json({
+    success: true,
+    token: token,
     session_token: token,
     user: sanitizeUser(user),
     partner: partner || null
   });
+};
+
+app.post('/api/partner/auth/login-otp-verify', handlePartnerOtpVerify);
+app.post('/api/partner/auth/verify-otp', handlePartnerOtpVerify);
+
+// 3.4.1 POST /api/partner/auth/setup-complete
+app.post('/api/partner/auth/setup-complete', async (req, res) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Authorization setup token required' });
+  }
+
+  const token = authHeader.split(' ')[1];
+  let decoded;
+  try {
+    decoded = jwt.verify(token, sessionHelper.getSecret());
+  } catch (err) {
+    return res.status(401).json({ error: 'Invalid or expired setup token' });
+  }
+
+  if (!decoded || !decoded.setup_mode) {
+    return res.status(401).json({ error: 'Invalid setup token' });
+  }
+
+  const userId = decoded.user_id || decoded.userId || decoded.sub;
+  const { email, password } = req.body;
+
+  if (!email || typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+    return res.status(400).json({ error: 'Invalid email format' });
+  }
+
+  if (!password || typeof password !== 'string' || password.length < 8) {
+    return res.status(400).json({ error: 'Password must be at least 8 characters long' });
+  }
+
+  const users = await db.getTable('users');
+  const user = users.find(u => u.id === userId && u.role === 'PARTNER_ADMIN');
+  if (!user) {
+    return res.status(404).json({ error: 'User not found' });
+  }
+
+  const normalizedEmail = email.trim().toLowerCase();
+  const existingUser = users.find(u => u.id !== userId && u.email && u.email.trim().toLowerCase() === normalizedEmail);
+  if (existingUser) {
+    return res.status(400).json({ error: 'Email is already registered' });
+  }
+
+  const hashedPassword = bcrypt.hashSync(password, 10);
+  await db.updateRow('users', user.id, {
+    email: normalizedEmail,
+    password_hash: hashedPassword,
+    setup_completed_at: new Date().toISOString()
+  });
+
+  user.email = normalizedEmail;
+  user.password_hash = hashedPassword;
+
+  const partnerUsers = await db.getTable('partner_users');
+  const pu = partnerUsers.find(p => p.user_id === user.id);
+  const partners = await db.getTable('partners');
+  const partner = pu ? partners.find(p => p.id === pu.partner_id) : null;
+
+  const finalToken = sessionHelper.signSession(user.id, user.role);
+
+  return res.json({
+    success: true,
+    token: finalToken,
+    session_token: finalToken,
+    user: sanitizeUser(user),
+    partner: partner || null
+  });
 });
+
 
 // 3.5 POST /api/partner/auth/forgot-password
 app.post('/api/partner/auth/forgot-password', async (req, res) => {
@@ -4811,7 +4901,7 @@ app.post('/api/admin/partners', async (req, res) => {
     region_id: null,
     phone: contact_phone,
     email: contact_email || null,
-    password_hash: null,
+    password_hash: req.body.password ? bcrypt.hashSync(req.body.password, 10) : null,
     name: display_name,
     role: 'PARTNER_ADMIN',
     kyc_status: 'PENDING',

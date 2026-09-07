@@ -29,5 +29,6 @@ function verifySession(token) {
 
 module.exports = {
   signSession,
-  verifySession
+  verifySession,
+  getSecret
 };

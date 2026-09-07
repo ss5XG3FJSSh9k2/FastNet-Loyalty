@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS users (
   name TEXT,
   role TEXT,
   password_hash TEXT,
+  setup_completed_at TIMESTAMPTZ,
   kyc_status TEXT,
   no_show_count INT DEFAULT 0,
   prepaid_pickup_restricted BOOLEAN DEFAULT false,

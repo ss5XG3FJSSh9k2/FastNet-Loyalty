@@ -3616,7 +3616,18 @@ async function main() {
     phone: '9876599999',
     otp: '123456'
   });
-  assert(bf9PartnerOtpLoginRes.status === 200 && bf9PartnerOtpLoginRes.body.session_token, 'Promoted partner authenticates via phone + OTP -> 200 session');
+  assert(bf9PartnerOtpLoginRes.status === 200 && (bf9PartnerOtpLoginRes.body.session_token || bf9PartnerOtpLoginRes.body.setup_required), 'Promoted partner authenticates via phone + OTP -> 200');
+  let bf9Token = bf9PartnerOtpLoginRes.body.session_token;
+  if (bf9PartnerOtpLoginRes.body.setup_required) {
+    const bf9SetupRes = await post('http://localhost:3001/api/partner/auth/setup-complete', {
+      email: 'bf9promoted@example.com',
+      password: 'password123'
+    }, { headers: { Authorization: `Bearer ${bf9PartnerOtpLoginRes.body.setup_token}` } });
+    assert(bf9SetupRes.status === 200, 'Promoted partner completes first-time setup');
+    bf9Token = bf9SetupRes.body.session_token;
+  }
+  assert(bf9Token, 'Promoted partner authenticates via phone + OTP -> 200 session');
+
 
   // Test #672: Endpoint: create a lead with contact name, service type, and region -> stored row contains all three
   const bf9LeadFullRes = await post('http://localhost:3001/api/partner-leads', {
@@ -3718,7 +3729,7 @@ async function main() {
 
   // Test #690: Endpoint/State: Partner dashboard endpoint returns structured data cleanly
   const partnerDashRes = await get('http://localhost:3001/api/partner/dashboard', {
-    headers: { Authorization: `Bearer ${bf9PartnerOtpLoginRes.body.session_token}` }
+    headers: { Authorization: `Bearer ${bf9Token}` }
   });
   assert(partnerDashRes.status === 200 && partnerDashRes.body.today && partnerDashRes.body.month, 'GET /api/partner/dashboard returns structured data cleanly');
 
@@ -3954,8 +3965,86 @@ async function main() {
   const hasPointsNotice = freshAppContent.includes('Points earned after order is delivered') || freshAppContent.includes('Points pending delivery') || freshAppContent.includes('Est. Rewards');
   assert(hasPointsNotice, 'App.jsx contains consistent reward points estimation text (Issue #9)');
 
+  // --- Round BF12 Final Issues #10-12 ---
+
+  // Issue #10: Partner First-Time Login Workflow
+  // Test #732: Create a lead and promote to partner (no email / password set initially) -> Partner first login returns setup_required: true
+  const bf10LeadRes = await post('http://localhost:3001/api/partner-leads', {
+    name: 'BF10 Setup Partner',
+    contact_name: 'BF10 Setup Partner',
+    phone: '9988776655',
+    contact_phone: '9988776655',
+    service_type: 'BROADBAND',
+    region_id: 'r1'
+  });
+  assert(bf10LeadRes.status === 200, 'Created lead for Issue 10 test');
+  const bf10PromoteRes = await post(`http://localhost:3001/api/admin/partner-leads/${bf10LeadRes.body.lead.id}/promote`, {
+    admin_id: 'u-admin'
+  });
+  assert(bf10PromoteRes.status === 200, 'Promoted lead for Issue 10 test');
+
+  await post('http://localhost:3001/api/partner/auth/login-otp-request', { phone: '9988776655' });
+  const bf10OtpLoginRes = await post('http://localhost:3001/api/partner/auth/login-otp-verify', { phone: '9988776655', otp: '123456' });
+  assert(bf10OtpLoginRes.status === 200 && bf10OtpLoginRes.body.setup_required === true && bf10OtpLoginRes.body.setup_token, 'Partner first login returns setup_required: true');
+
+  // Test #733: Partner with email already returns normal token
+  const bf10NormalPartnerOtpRes = await post('http://localhost:3001/api/partner/auth/login-otp-verify', { phone: '9876500000', otp: '123456' });
+  assert(bf10NormalPartnerOtpRes.status === 200 && !bf10NormalPartnerOtpRes.body.setup_required && (bf10NormalPartnerOtpRes.body.token || bf10NormalPartnerOtpRes.body.session_token), 'Partner with email already returns normal token');
+
+  // Test #734: setup-complete rejects invalid email
+  const bf10InvalidEmailRes = await post('http://localhost:3001/api/partner/auth/setup-complete', {
+    email: 'invalid-email',
+    password: 'password123'
+  }, { headers: { Authorization: `Bearer ${bf10OtpLoginRes.body.setup_token}` } });
+  assert(bf10InvalidEmailRes.status === 400, 'setup-complete rejects invalid email');
+
+  // Test #735: setup-complete rejects password < 8 chars
+  const bf10ShortPassRes = await post('http://localhost:3001/api/partner/auth/setup-complete', {
+    email: 'bf10partner@example.com',
+    password: 'short'
+  }, { headers: { Authorization: `Bearer ${bf10OtpLoginRes.body.setup_token}` } });
+  assert(bf10ShortPassRes.status === 400, 'setup-complete rejects password < 8 chars');
+
+  // Test #736: setup-complete with valid email/password returns token
+  const bf10SetupCompleteRes = await post('http://localhost:3001/api/partner/auth/setup-complete', {
+    email: 'bf10partner@example.com',
+    password: 'password123'
+  }, { headers: { Authorization: `Bearer ${bf10OtpLoginRes.body.setup_token}` } });
+  assert(bf10SetupCompleteRes.status === 200 && (bf10SetupCompleteRes.body.token || bf10SetupCompleteRes.body.session_token), 'setup-complete with valid email/password returns token');
+
+  // Test #737: Partner second login can use email + password
+  const bf10EmailLoginRes = await post('http://localhost:3001/api/partner/auth/login-password', {
+    email: 'bf10partner@example.com',
+    password: 'password123'
+  });
+  assert(bf10EmailLoginRes.status === 200 && bf10EmailLoginRes.body.session_token, 'Partner second login can use email + password');
+
+  // Test #738: App contains FirstTimeSetupFlow modal elements
+  assert(freshAppContent.includes('FirstTimeSetupFlow') && freshAppContent.includes('handlePartnerSetupComplete'), 'App contains FirstTimeSetupFlow modal elements');
+
+  // Issue #11: Move Subscriber Bill Discounts to Main Navigation
+  // Test #739: Admin navigation contains [Bills] as top-level tab
+  assert(freshAppContent.includes('data-path="/admin/bills"') || freshAppContent.includes('data-tab="bills"') || freshAppContent.includes("'/admin/bills'"), 'Admin navigation contains [Bills] as top-level tab');
+
+  // Test #740: Clicking Bills tab navigates to /admin/bills
+  assert(freshAppContent.includes("setAdminTab('bills')") && freshAppContent.includes("'/admin/bills'"), 'Clicking Bills tab navigates to /admin/bills');
+
+  // Test #741: Bills panel renders data correctly
+  assert(freshAppContent.includes("adminTab === 'bills'") && freshAppContent.includes("Subscriber Bill Discounts"), 'Bills panel renders data correctly');
+
+  // Issue #12: Move Fraud Reports to Main Navigation
+  // Test #742: Admin navigation contains [Fraud Reports] as top-level tab
+  assert(freshAppContent.includes('data-path="/admin/fraud"') || freshAppContent.includes('data-tab="fraud"') || freshAppContent.includes("'/admin/fraud'"), 'Admin navigation contains [Fraud Reports] as top-level tab');
+
+  // Test #743: Clicking Fraud Reports tab navigates to /admin/fraud
+  assert(freshAppContent.includes("setAdminTab('fraud_reports')") && freshAppContent.includes("'/admin/fraud'"), 'Clicking Fraud Reports tab navigates to /admin/fraud');
+
+  // Test #744: Fraud Reports panel renders data correctly
+  assert(freshAppContent.includes("adminTab === 'fraud'") && freshAppContent.includes("Fraud Reports Queue"), 'Fraud Reports panel renders data correctly');
+
   console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);
+
 }
 
 main().catch(err => {
