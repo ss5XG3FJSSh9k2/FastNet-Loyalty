@@ -2066,7 +2066,7 @@ export default function App() {
     try {
       const res = await fetch(`${API_BASE}/products?regionId=${currentUser.region_id}&stockistId=${selectedStockist.id}`);
       const data = await res.json();
-      setCustomerProducts(data);
+      setCustomerProducts(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error('Error loading products:', err);
     }
