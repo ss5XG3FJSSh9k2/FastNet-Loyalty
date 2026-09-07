@@ -7477,6 +7477,29 @@ export default function App() {
                         >
                           {profileSaving ? t('Saving...', 'सहेजा जा रहा है...', 'সংরক্ষণ করা হচ্ছে...') : t('Save Profile', 'प्रोफाइल सहेजें', 'প্রোফাইল সংরক্ষণ')}
                         </button>
+
+                        <div style={{ marginTop: '1rem', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '0.75rem', textAlign: 'center' }}>
+                          <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '0.35rem' }}>
+                            {t('Need help with an order or subscription?', 'ऑर्डर या सदस्यता में सहायता चाहिए?', 'অর্ডার বা সাবস্ক্রিপশনে সহায়তা প্রয়োজন?')}
+                          </p>
+                          <a 
+                            href="tel:1800123456" 
+                            className="btn btn-secondary" 
+                            style={{ 
+                              display: 'inline-flex', 
+                              alignItems: 'center', 
+                              justifyContent: 'center',
+                              gap: '0.4rem', 
+                              fontSize: '0.75rem', 
+                              padding: '0.4rem 0.8rem',
+                              textDecoration: 'none',
+                              width: '100%'
+                            }}
+                          >
+                            <Phone size={14} style={{ color: 'var(--accent)' }} />
+                            {t('Contact FastNet Support (1800-123-456)', 'फास्टनेट सहायता से संपर्क करें (1800-123-456)', 'ফাস্টনেট সহায়তায় যোগাযোগ (১৮০০-১২৩-৪৫৬)')}
+                          </a>
+                        </div>
                       </div>
                     </div>
                   )}
