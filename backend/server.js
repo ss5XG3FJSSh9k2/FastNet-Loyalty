@@ -4232,6 +4232,43 @@ app.post('/api/admin/partner-leads/:id/promote', async (req, res) => {
   return res.json({ partner: newPartner, user: sanitizeUser(newUser), lead });
 });
 
+app.post('/api/admin/partner-leads/:id/disapprove', async (req, res) => {
+  const { id } = req.params;
+  const { reason } = req.body;
+
+  if (!reason) {
+    return res.status(400).json({ error: 'Reason is required' });
+  }
+
+  const partnerLeads = await db.getTable('partner_leads');
+  const lead = partnerLeads.find(l => l.id === id);
+  if (!lead) {
+    return res.status(404).json({ error: 'Partner lead not found' });
+  }
+
+  const oldStatus = lead.status;
+  lead.status = 'REJECTED';
+  lead.rejection_reason = reason;
+  lead.rejected_at = new Date().toISOString();
+
+  await db.saveTable('partner_leads', partnerLeads);
+
+  if (lead.phone && smsHelper.isSmsConfigured()) {
+    try {
+      await smsHelper.sendSms(lead.phone, `Partner Lead Application Disapproved: ${reason}`);
+    } catch (e) {
+      console.error('Failed to send lead rejection SMS:', e);
+    }
+  }
+
+  await appendAudit(req, 'DISAPPROVE_PARTNER_LEAD', 'partner_lead', id,
+    { status: oldStatus },
+    { status: 'REJECTED', rejection_reason: reason }
+  );
+
+  return res.json({ success: true, message: 'Partner lead rejected', lead });
+});
+
 // 4.3 GET /api/admin/partners
 app.get('/api/admin/partners', async (req, res) => {
   const { is_active, region_id, service_type } = req.query;
