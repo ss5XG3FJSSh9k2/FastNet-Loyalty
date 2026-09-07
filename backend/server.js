@@ -2324,7 +2324,14 @@ app.post('/api/ledger/redeem', async (req, res) => {
   if (partner_package_id) {
     const redemptionApprovals = await db.getTable('redemption_approvals');
     approvalId = 'ra-' + generateId();
-    const now = new Date().toISOString();
+    const nowTime = new Date();
+    const nowIso = nowTime.toISOString();
+    const isTimed = pkg.is_timed === true || (pkg.duration_days && Number(pkg.duration_days) > 0);
+    const redeemedAt = nowIso;
+    const nextAllowedAt = (isTimed && pkg.duration_days)
+      ? new Date(nowTime.getTime() + (Number(pkg.duration_days) * 24 * 60 * 60 * 1000)).toISOString()
+      : null;
+
     approvalRow = {
       id: approvalId,
       ledger_id: ledgerId,
@@ -2350,8 +2357,10 @@ app.post('/api/ledger/redeem', async (req, res) => {
       fulfilled_at: null,
       disputed_at: null,
       refund_ledger_id: null,
-      created_at: now,
-      updated_at: now
+      redeemed_at: redeemedAt,
+      next_redemption_allowed_at: nextAllowedAt,
+      created_at: nowIso,
+      updated_at: nowIso
     };
     redemptionApprovals.push(approvalRow);
     await db.saveTable('redemption_approvals', redemptionApprovals);
