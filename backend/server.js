@@ -3323,6 +3323,17 @@ app.get('/api/admin/customers/:id', async (req, res) => {
   const fraudReports = (await db.getTable('fraud_reports')).filter(f => f.reporter_customer_id === id);
   
   return res.json({
+    id: user.id,
+    name: user.name,
+    phone: user.phone,
+    email: user.email,
+    region_id: user.region_id,
+    address: user.address,
+    kyc_status: user.kyc_status,
+    referral_code: user.referral_code,
+    created_at: user.created_at,
+    is_active: user.is_active !== false,
+    points_balance: balance,
     customer: { ...sanitizeUser(user), is_active: user.is_active !== false, points_balance: balance },
     orders,
     ledger: pointsLedger.slice().reverse(),
@@ -3474,8 +3485,17 @@ app.get('/api/admin/stockists/:id', async (req, res) => {
   const inventory = (await db.getTable('stockist_inventory')).filter(si => si.stockist_id === id);
 
   return res.json({
+    ...stockist,
     stockist: { ...stockist, is_active: stockist.is_active !== false, commission_rate: latestRate },
-    user,
+    user: user ? {
+      ...user,
+      name: user.name,
+      phone: user.phone,
+      kyc_status: user.kyc_status,
+      kyc_details: user.kyc_details,
+      address: user.address,
+      is_active: user.is_active !== false
+    } : null,
     orders,
     commission_rates: rates,
     total_commission_earned: totalCommissionEarned,
@@ -4329,8 +4349,14 @@ app.get('/api/admin/partners/:id', async (req, res) => {
   const bound_customer_count = customerBindings.filter(cb => cb.cable_partner_id === id || cb.broadband_partner_id === id).length;
 
   return res.json({
+    ...partner,
     partner,
     regions: partnerRegions,
+    service_regions: partnerRegions.map(r => ({
+      region_id: r.region_id,
+      service_type: r.service_type,
+      is_active: r.is_active !== false
+    })),
     packages: partnerPackages,
     users: joinedUsers,
     bound_customer_count
