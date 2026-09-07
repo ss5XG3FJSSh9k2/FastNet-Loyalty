@@ -1008,15 +1008,25 @@ app.get('/api/bills/*', async (req, res) => {
 
 // GET /api/images/* — serve mock product image or redirect to signed URL
 app.get('/api/images/*', async (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+
+  const defaultPlaceholderSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200"><rect width="200" height="200" fill="#1e293b"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#94a3b8" font-family="sans-serif" font-size="16">Product Image</text></svg>`;
+
   const rawKey = req.params[0];
-  if (!rawKey) return res.status(404).json({ error: 'Image key required' });
+  if (!rawKey) {
+    res.setHeader('Content-Type', 'image/svg+xml');
+    return res.status(200).send(defaultPlaceholderSvg);
+  }
   const key = decodeURIComponent(rawKey);
 
   const isMock = process.env.R2_MOCK === 'true' || !process.env.R2_ACCOUNT_ID;
   if (isMock) {
     const item = r2.mockStore.get(key) || r2.mockStore.get(rawKey);
     if (!item) {
-      return res.status(404).json({ error: 'Image not found' });
+      res.setHeader('Content-Type', 'image/svg+xml');
+      return res.status(200).send(defaultPlaceholderSvg);
     }
     res.setHeader('Content-Type', item.contentType || 'image/jpeg');
     return res.send(item.buffer);
@@ -1026,7 +1036,8 @@ app.get('/api/images/*', async (req, res) => {
     const signedUrl = await r2.getSignedReadUrl(key, 3600);
     return res.redirect(signedUrl);
   } catch (err) {
-    return res.status(404).json({ error: 'Image not found', message: err.message });
+    res.setHeader('Content-Type', 'image/svg+xml');
+    return res.status(200).send(defaultPlaceholderSvg);
   }
 });
 
