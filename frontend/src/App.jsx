@@ -6748,6 +6748,14 @@ export default function App() {
                                       const pkg = entry.package;
                                       const partner = entry.partner;
                                       const canAfford = customerBalance >= pkg.point_cost;
+                                      const isTimed = pkg.is_timed || (pkg.duration_days && pkg.duration_days > 0);
+                                      const activeLock = (customerRedemptions || []).find(r => 
+                                        r.redemption_type === pkg.service_type && 
+                                        r.status === 'FULFILLED' && 
+                                        r.next_redemption_allowed_at && 
+                                        new Date(r.next_redemption_allowed_at) > new Date()
+                                      );
+                                      const isLocked = isTimed && !!activeLock;
 
                                       return (
                                         <div
@@ -6768,7 +6776,14 @@ export default function App() {
                                             {isCable ? <Tv size={20} style={{ color }} /> : <Signal size={20} style={{ color }} />}
                                           </div>
                                           <div style={{ flex: 1, minWidth: 0 }}>
-                                            <div style={{ fontSize: '0.75rem', fontWeight: '600', color: 'white', lineHeight: 1.2 }}>{pkg.name}</div>
+                                            <div style={{ fontSize: '0.75rem', fontWeight: '600', color: 'white', lineHeight: 1.2, display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                                              <span>{pkg.name}</span>
+                                              {isTimed && (
+                                                <span className="badge badge-primary" style={{ fontSize: '0.55rem', padding: '0.05rem 0.35rem' }}>
+                                                  ⏱ {pkg.duration_days} {t('Days', 'दिन', 'दिन')}
+                                                </span>
+                                              )}
+                                            </div>
                                             {pkg.description && (
                                               <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', marginTop: '0.15rem' }}>{pkg.description}</div>
                                             )}
@@ -6784,7 +6799,7 @@ export default function App() {
                                           </div>
                                           <button
                                             id={`redeem-${pkg.id}`}
-                                            disabled={!canAfford}
+                                            disabled={!canAfford || isLocked}
                                             onClick={() => handleRedeemPackage(pkg, partner)}
                                             style={{
                                               flexShrink: 0,
