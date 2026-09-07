@@ -310,8 +310,9 @@ app.post('/api/auth/register-customer', async (req, res) => {
   }
 
   const users = await db.getTable('users');
-  if (users.some(u => u.phone === phone)) {
-    return res.status(400).json({ error: 'An account with this phone number already exists' });
+  const existingUser = users.find(u => u.phone === phone);
+  if (existingUser && existingUser.role === 'CUSTOMER') {
+    return res.status(400).json({ error: 'This phone number is already registered as a customer. Use a different number.' });
   }
 
   const partners = await db.getTable('partners');
@@ -456,8 +457,9 @@ app.post('/api/auth/register-stockist', async (req, res) => {
   }
 
   const users = await db.getTable('users');
-  if (users.some(u => u.phone === phone)) {
-    return res.status(400).json({ error: 'An account with this phone number already exists' });
+  const existingUser = users.find(u => u.phone === phone);
+  if (existingUser && existingUser.role === 'STOCKIST') {
+    return res.status(400).json({ error: 'This phone number is already registered as a stockist. Use a different number.' });
   }
 
   const user = {
