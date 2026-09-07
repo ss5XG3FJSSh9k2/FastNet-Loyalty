@@ -4616,6 +4616,24 @@ app.post('/api/admin/partners/:id/packages', async (req, res) => {
     return res.status(400).json({ error: 'Every active_region must be an active region served by partner for this service_type' });
   }
 
+  const face = Number(face_value_rupees);
+  const cost = Number(cost_to_partner_rupees !== undefined ? cost_to_partner_rupees : face_value_rupees);
+  if (cost >= face) {
+    return res.status(400).json({ 
+      error: 'Cost to Partner must be less than Face Value',
+      received: { cost_to_partner_rupees: cost, face_value_rupees: face }
+    });
+  }
+
+  const pType = req.body.package_type || (req.body.is_timed ? 'PAID' : (req.body.duration_days ? 'PAID' : 'FREE'));
+  let durDays = req.body.duration_days !== undefined && req.body.duration_days !== null ? Number(req.body.duration_days) : null;
+  if (pType !== 'FREE' && (!durDays || durDays <= 0)) {
+    return res.status(400).json({ error: 'Duration required for paid/promotional packages' });
+  }
+  if (pType === 'FREE') {
+    durDays = null;
+  }
+
   const now = new Date().toISOString();
   const packages = await db.getTable('partner_packages');
   const newPkg = {
@@ -4624,10 +4642,12 @@ app.post('/api/admin/partners/:id/packages', async (req, res) => {
     service_type,
     name,
     description: description || '',
-    face_value_rupees: Number(face_value_rupees),
-    cost_to_partner_rupees: Number(cost_to_partner_rupees !== undefined ? cost_to_partner_rupees : face_value_rupees),
+    face_value_rupees: face,
+    cost_to_partner_rupees: cost,
     point_cost: Number(point_cost !== undefined ? point_cost : face_value_rupees),
     active_regions,
+    duration_days: durDays,
+    is_timed: (pType !== 'FREE'),
     is_active: true,
     created_at: now,
     updated_at: now
@@ -4646,16 +4666,29 @@ app.patch('/api/admin/partners/:id/packages/:packageId', async (req, res) => {
   if (!pkg) return res.status(404).json({ error: 'Package not found' });
 
   const before = { ...pkg };
-  const mutableFields = ['name', 'description', 'face_value_rupees', 'cost_to_partner_rupees', 'point_cost', 'active_regions'];
+  const targetFace = req.body.face_value_rupees !== undefined ? Number(req.body.face_value_rupees) : pkg.face_value_rupees;
+  const targetCost = req.body.cost_to_partner_rupees !== undefined ? Number(req.body.cost_to_partner_rupees) : pkg.cost_to_partner_rupees;
+  if (targetCost !== undefined && targetFace !== undefined && targetCost >= targetFace) {
+    return res.status(400).json({ 
+      error: 'Cost to Partner must be less than Face Value',
+      received: { cost_to_partner_rupees: targetCost, face_value_rupees: targetFace }
+    });
+  }
+
+  const mutableFields = ['name', 'description', 'face_value_rupees', 'cost_to_partner_rupees', 'point_cost', 'active_regions', 'duration_days', 'is_timed'];
   mutableFields.forEach(f => {
     if (req.body[f] !== undefined) {
-      if (f === 'face_value_rupees' || f === 'cost_to_partner_rupees' || f === 'point_cost') {
-        pkg[f] = Number(req.body[f]);
+      if (f === 'face_value_rupees' || f === 'cost_to_partner_rupees' || f === 'point_cost' || f === 'duration_days') {
+        pkg[f] = req.body[f] !== null ? Number(req.body[f]) : null;
       } else {
         pkg[f] = req.body[f];
       }
     }
   });
+  if (req.body.package_type !== undefined) {
+    pkg.is_timed = (req.body.package_type !== 'FREE');
+    if (req.body.package_type === 'FREE') pkg.duration_days = null;
+  }
   pkg.updated_at = new Date().toISOString();
   await db.saveTable('partner_packages', packages);
 
@@ -4721,6 +4754,24 @@ app.post('/api/partner/packages', async (req, res) => {
     return res.status(400).json({ error: 'Every active_region must be an active region served by partner for this service_type' });
   }
 
+  const face = Number(face_value_rupees);
+  const cost = Number(cost_to_partner_rupees !== undefined ? cost_to_partner_rupees : face_value_rupees);
+  if (cost >= face) {
+    return res.status(400).json({ 
+      error: 'Cost to Partner must be less than Face Value',
+      received: { cost_to_partner_rupees: cost, face_value_rupees: face }
+    });
+  }
+
+  const pType = req.body.package_type || (req.body.is_timed ? 'PAID' : (req.body.duration_days ? 'PAID' : 'FREE'));
+  let durDays = req.body.duration_days !== undefined && req.body.duration_days !== null ? Number(req.body.duration_days) : null;
+  if (pType !== 'FREE' && (!durDays || durDays <= 0)) {
+    return res.status(400).json({ error: 'Duration required for paid/promotional packages' });
+  }
+  if (pType === 'FREE') {
+    durDays = null;
+  }
+
   const now = new Date().toISOString();
   const packages = await db.getTable('partner_packages');
   const newPkg = {
@@ -4729,10 +4780,12 @@ app.post('/api/partner/packages', async (req, res) => {
     service_type,
     name,
     description: description || '',
-    face_value_rupees: Number(face_value_rupees),
-    cost_to_partner_rupees: Number(cost_to_partner_rupees !== undefined ? cost_to_partner_rupees : face_value_rupees),
+    face_value_rupees: face,
+    cost_to_partner_rupees: cost,
     point_cost: Number(point_cost !== undefined ? point_cost : face_value_rupees),
     active_regions,
+    duration_days: durDays,
+    is_timed: (pType !== 'FREE'),
     is_active: true,
     created_at: now,
     updated_at: now
@@ -4755,16 +4808,29 @@ app.patch('/api/partner/packages/:packageId', async (req, res) => {
     return res.status(403).json({ error: 'Forbidden' });
   }
 
-  const mutableFields = ['name', 'description', 'face_value_rupees', 'cost_to_partner_rupees', 'point_cost', 'active_regions'];
+  const targetFace = req.body.face_value_rupees !== undefined ? Number(req.body.face_value_rupees) : pkg.face_value_rupees;
+  const targetCost = req.body.cost_to_partner_rupees !== undefined ? Number(req.body.cost_to_partner_rupees) : pkg.cost_to_partner_rupees;
+  if (targetCost !== undefined && targetFace !== undefined && targetCost >= targetFace) {
+    return res.status(400).json({ 
+      error: 'Cost to Partner must be less than Face Value',
+      received: { cost_to_partner_rupees: targetCost, face_value_rupees: targetFace }
+    });
+  }
+
+  const mutableFields = ['name', 'description', 'face_value_rupees', 'cost_to_partner_rupees', 'point_cost', 'active_regions', 'duration_days', 'is_timed'];
   mutableFields.forEach(f => {
     if (req.body[f] !== undefined) {
-      if (f === 'face_value_rupees' || f === 'cost_to_partner_rupees' || f === 'point_cost') {
-        pkg[f] = Number(req.body[f]);
+      if (f === 'face_value_rupees' || f === 'cost_to_partner_rupees' || f === 'point_cost' || f === 'duration_days') {
+        pkg[f] = req.body[f] !== null ? Number(req.body[f]) : null;
       } else {
         pkg[f] = req.body[f];
       }
     }
   });
+  if (req.body.package_type !== undefined) {
+    pkg.is_timed = (req.body.package_type !== 'FREE');
+    if (req.body.package_type === 'FREE') pkg.duration_days = null;
+  }
   pkg.updated_at = new Date().toISOString();
   await db.saveTable('partner_packages', packages);
 

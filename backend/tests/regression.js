@@ -1467,12 +1467,23 @@ async function main() {
     name: '₹999 Jio Mega Broadband',
     description: '300 Mbps unlimited fiber connection',
     face_value_rupees: 999,
-    cost_to_partner_rupees: 999,
+    cost_to_partner_rupees: 500,
     point_cost: 999,
     active_regions: ['r1', 'r2']
   });
   assert(p1_createPkgRes.status === 200, 'Create package with valid service_type + active_regions succeeds');
   assert(p1_createPkgRes.body.name === '₹999 Jio Mega Broadband', 'Package created with correct name');
+
+  // Test 21b: Create package with cost_to_partner >= face_value -> 400
+  const p1_invalidCostPkgRes = await post('http://localhost:3001/api/admin/partners/ptr-jio/packages', {
+    service_type: 'BROADBAND',
+    name: 'Invalid Cost Pkg',
+    face_value_rupees: 500,
+    cost_to_partner_rupees: 500,
+    point_cost: 500,
+    active_regions: ['r1']
+  });
+  assert(p1_invalidCostPkgRes.status === 400, 'Create package with cost_to_partner >= face_value returns 400');
 
   // Test 22: Create package with service_type not in partner's service_types -> 400
   const p1_invalidPkgRes = await post('http://localhost:3001/api/admin/partners/ptr-jio/packages', {
@@ -1489,7 +1500,7 @@ async function main() {
     name: '₹350 Cable Standard',
     description: 'Standard cable tier',
     face_value_rupees: 350,
-    cost_to_partner_rupees: 350,
+    cost_to_partner_rupees: 200,
     point_cost: 350,
     active_regions: ['r1']
   }, { headers: { Authorization: `Bearer ${adhyaSessionToken}` } });
@@ -2253,7 +2264,7 @@ async function main() {
     description: 'P4b test pkg',
     service_type: 'CABLE',
     face_value_rupees: 300,
-    cost_to_partner_rupees: 300,
+    cost_to_partner_rupees: 150,
     point_cost: 300,
     active_regions: ['r1']
   }, { headers: { Authorization: `Bearer ${p4b_pToken}` } });
