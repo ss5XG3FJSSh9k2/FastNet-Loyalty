@@ -236,6 +236,22 @@ export default function App() {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [gettingStartedOpen, setGettingStartedOpen] = useState(true);
 
+  const [cartExpanded, setCartExpanded] = useState(false);
+  const [blacklistedUsers, setBlacklistedUsers] = useState([]);
+  const [adminSupportTickets, setAdminSupportTickets] = useState([]);
+  const [showSupportTicketModal, setShowSupportTicketModal] = useState(false);
+  const [supportTicketType, setSupportTicketType] = useState('BLACKLIST_APPEAL');
+  const [supportTicketSubject, setSupportTicketSubject] = useState('');
+  const [supportTicketDescription, setSupportTicketDescription] = useState('');
+
+  const [showKycActionModal, setShowKycActionModal] = useState(false);
+  const [kycActionUserId, setKycActionUserId] = useState(null);
+  const [kycActionType, setKycActionType] = useState('REJECT_APPEAL');
+  const [kycActionReason, setKycActionReason] = useState('');
+  const [kycActionDays, setKycActionDays] = useState(30);
+
+  const [stockistCodData, setStockistCodData] = useState(null);
+
   const [adminCustomers, setAdminCustomers] = useState([]);
   const [adminCustomerSearch, setAdminCustomerSearch] = useState('');
   const [adminIncludeInactiveCustomers, setAdminIncludeInactiveCustomers] = useState(false);
@@ -1274,6 +1290,13 @@ export default function App() {
 
         const custsRes = await fetch(`${API_BASE}/admin/customers?include_inactive=true`);
         const stksRes = await fetch(`${API_BASE}/admin/stockists?include_inactive=true`);
+
+        const blRes = await fetch(`${API_BASE}/admin/blacklist`);
+        if (blRes.ok) setBlacklistedUsers(await blRes.json());
+
+        const stRes = await fetch(`${API_BASE}/admin/support/tickets`);
+        if (stRes.ok) setAdminSupportTickets(await stRes.json());
+        
         const fraudRes = await fetch(`${API_BASE}/admin/fraud-reports`);
         const auditRes = await fetch(`${API_BASE}/admin/audit-log`);
         const ccRes = await fetch(`${API_BASE}/admin/commission-config`);
@@ -3098,6 +3121,161 @@ export default function App() {
   // ----------------------------------------------------
   // ADMIN DASHBOARD LOGIC
   // ----------------------------------------------------
+
+  const handleRejectKycWithAppeal = async (userId, reason) => {
+    if (!reason) { showToast('Reason is required for rejection', 'error'); return; }
+    try {
+      const res = await fetch(`${API_BASE}/admin/kyc/${userId}/reject-with-appeal`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast('KYC rejected with appeal option');
+        setShowKycActionModal(false);
+        fetchDbState();
+      } else {
+        showToast(data.error || 'Rejection failed', 'error');
+      }
+    } catch (e) { showToast('Server error rejecting KYC', 'error'); }
+  };
+
+  const handleBlacklistKycUser = async (userId, reason, days = 30) => {
+    if (!reason) { showToast('Reason is required for blacklisting', 'error'); return; }
+    try {
+      const res = await fetch(`${API_BASE}/admin/kyc/${userId}/blacklist`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason, days })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast(`User blacklisted for ${days} days`);
+        setShowKycActionModal(false);
+        fetchDbState();
+      } else {
+        showToast(data.error || 'Blacklisting failed', 'error');
+      }
+    } catch (e) { showToast('Server error blacklisting user', 'error'); }
+  };
+
+  const handleUnblockBlacklist = async (userId) => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/blacklist/${userId}/unblock`, { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        showToast('Blacklist lifted successfully');
+        fetchDbState();
+      } else {
+        showToast(data.error || 'Failed to unblock', 'error');
+      }
+    } catch (e) { showToast('Server error lifting blacklist', 'error'); }
+  };
+
+  const handleExtendBlacklist = async (userId, days = 30) => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/blacklist/${userId}/extend`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ days })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast(`Blacklist extended by ${days} days`);
+        fetchDbState();
+      } else {
+        showToast(data.error || 'Failed to extend', 'error');
+      }
+    } catch (e) { showToast('Server error extending blacklist', 'error'); }
+  };
+
+  const handleSubmitSupportTicket = async () => {
+    if (!supportTicketSubject || !supportTicketDescription) {
+      showToast('Subject and description are required', 'error');
+      return;
+    }
+    try {
+      const res = await fetch(`${API_BASE}/support/tickets`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: currentUser?.id,
+          type: supportTicketType,
+          subject: supportTicketSubject,
+          description: supportTicketDescription
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast('Support ticket submitted successfully!');
+        setSupportTicketSubject('');
+        setSupportTicketDescription('');
+        setShowSupportTicketModal(false);
+        fetchDbState();
+      } else {
+        showToast(data.error || 'Failed to submit ticket', 'error');
+      }
+    } catch (e) { showToast('Error submitting support ticket', 'error'); }
+  };
+
+  const handleResolveSupportTicket = async (ticketId, resolution, notes) => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/support/tickets/${ticketId}/resolve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ resolution, notes })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast('Ticket resolved');
+        fetchDbState();
+      } else {
+        showToast(data.error || 'Failed to resolve ticket', 'error');
+      }
+    } catch (e) { showToast('Error resolving ticket', 'error'); }
+  };
+
+  const handlePatchStockistAction = async (stockistId, action, reason, days) => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/stockists/${stockistId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, reason, days })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast(`Stockist status updated: ${action}`);
+        fetchDbState();
+      } else {
+        showToast(data.error || 'Action failed', 'error');
+      }
+    } catch (e) { showToast('Error updating stockist', 'error'); }
+  };
+
+  const handleFetchStockistCodCommission = async (stockistId) => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/stockists/${stockistId}/cod-commission`);
+      if (res.ok) {
+        const data = await res.json();
+        setStockistCodData(data);
+      }
+    } catch (e) { console.error('Error fetching COD commission:', e); }
+  };
+
+  const handleMarkCodCommissionPaid = async (stockistId, date) => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/stockists/${stockistId}/cod-commission/mark-paid`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date })
+      });
+      if (res.ok) {
+        showToast('COD Commission marked as paid!');
+        handleFetchStockistCodCommission(stockistId);
+      }
+    } catch (e) { showToast('Error marking COD paid', 'error'); }
+  };
 
   const handleApproveKyc = async (userId) => {
     // Select vendor corresponding to the user's region
@@ -6525,9 +6703,12 @@ export default function App() {
                             })()}
                           </div>
 
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <span style={{ fontSize: '0.75rem', fontWeight: 'bold' }}>{t(`${customerCart.length} Items Selected`, `${customerCart.length} सामान चुना गया`, `${customerCart.length}টি পণ্য নির্বাচন করা হয়েছে`)}</span>
-                            <span style={{ fontSize: '0.9rem', fontWeight: 'bold', color: 'var(--accent)' }}>₹{cartTotal.toFixed(2)}</span>
+                          <div className="cart-header" onClick={() => setCartExpanded(!cartExpanded)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', userSelect: 'none', paddingBottom: '0.2rem' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                              {cartExpanded ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
+                              <span style={{ fontSize: '0.85rem', fontWeight: 'bold' }}>{t(`${customerCart.length} Items Selected`, `${customerCart.length} सामान चुना गया`, `${customerCart.length}টি পণ্য নির্বাচন করা হয়েছে`)}</span>
+                            </div>
+                            <span style={{ fontSize: '0.95rem', fontWeight: 'bold', color: 'var(--accent)' }}>₹{cartTotal.toFixed(2)}</span>
                           </div>
 
                           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem', color: 'var(--text-muted)' }}>
@@ -9434,6 +9615,206 @@ export default function App() {
                 </div>
               )}
 
+              {adminTab === 'kyc' && (
+                <div>
+                  <h2 style={{ fontSize: '1.4rem', marginBottom: '1rem' }}>Pending KYC Approvals</h2>
+                  <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
+                    Verify local grocery stores applying to open shops on the FastNet Hyperlocal Marketplace. Approve to assign local wholesale suppliers, or reject/blacklist fraud applications.
+                  </p>
+
+                  <table className="admin-table">
+                    <thead>
+                      <tr>
+                        <th>Name</th>
+                        <th>Phone</th>
+                        <th>Region</th>
+                        <th>ID Type</th>
+                        <th>ID Number</th>
+                        <th>Shop Name</th>
+                        <th>Shop Address</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pendingKyc.map(u => {
+                        let kyc = u.kyc_details || {};
+                        if (typeof kyc === 'string') {
+                          try { kyc = JSON.parse(kyc); } catch (e) { kyc = {}; }
+                        }
+                        return (
+                          <tr key={u.id}>
+                            <td>{u.name}</td>
+                            <td>{u.phone}</td>
+                            <td>{u.region_id === 'r1' ? 'Kolkata South' : 'Rural Bishnupur'}</td>
+                            <td>{kyc.id_type || u.kyc_id_type || '-'}</td>
+                            <td>{kyc.id_number || u.kyc_id_number || '-'}</td>
+                            <td>{kyc.shop_name || u.shop_name || `${u.name} Store`}</td>
+                            <td>{kyc.shop_address || u.shop_address || u.address || '-'}</td>
+                            <td>
+                              <div style={{ display: 'flex', gap: '0.3rem' }}>
+                                <button className="btn btn-accent" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }} onClick={() => {
+                                  triggerConfirmModal(
+                                    t('Approve Stockist KYC', 'स्टॉकिस्ट KYC स्वीकृत करें', 'স্টকিস্ট KYC অনুমোদন করুন'),
+                                    `Approve ${u.name} as stockist? A vendor will be auto-assigned based on their region.`,
+                                    () => handleApproveKyc(u.id)
+                                  );
+                                }}>
+                                  ✓ Approve
+                                </button>
+                                <button className="btn btn-secondary" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }} onClick={() => {
+                                  setKycActionUserId(u.id);
+                                  setKycActionType('REJECT_APPEAL');
+                                  setKycActionReason('');
+                                  setShowKycActionModal(true);
+                                }}>
+                                  ✗ Reject
+                                </button>
+                                <button className="btn btn-danger" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }} onClick={() => {
+                                  setKycActionUserId(u.id);
+                                  setKycActionType('BLACKLIST');
+                                  setKycActionReason('');
+                                  setKycActionDays(30);
+                                  setShowKycActionModal(true);
+                                }}>
+                                  ⊗ Blacklist
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      {pendingKyc.length === 0 && (
+                        <tr>
+                          <td colSpan="8" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
+                            No stockists awaiting KYC approval right now.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {adminTab === 'blacklist' && (
+                <div>
+                  <h2 style={{ fontSize: '1.4rem', marginBottom: '1rem' }}>Blacklisted Users & Partners</h2>
+                  <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
+                    View accounts blocked due to fraudulent documentation, duplicate phone numbers, or platform abuse. Unblock upon successful appeal or extend penalty duration.
+                  </p>
+
+                  <table className="admin-table">
+                    <thead>
+                      <tr>
+                        <th>Name / Store</th>
+                        <th>Phone</th>
+                        <th>Role</th>
+                        <th>Reason</th>
+                        <th>Blacklisted Until</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {blacklistedUsers.map(u => (
+                        <tr key={u.user_id}>
+                          <td><strong>{u.name}</strong></td>
+                          <td>{u.phone}</td>
+                          <td><span className="badge badge-secondary">{u.role}</span></td>
+                          <td style={{ color: 'var(--danger)', fontSize: '0.8rem' }}>{u.reason}</td>
+                          <td>{u.blacklist_until ? new Date(u.blacklist_until).toLocaleDateString() : 'Permanent'}</td>
+                          <td>
+                            <div style={{ display: 'flex', gap: '0.3rem' }}>
+                              <button className="btn btn-accent" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }} onClick={() => {
+                                triggerConfirmModal(
+                                  'Lift Blacklist',
+                                  `Lift blacklist for ${u.name}? They will be able to submit updated documents.`,
+                                  () => handleUnblockBlacklist(u.user_id)
+                                );
+                              }}>
+                                Lift Blacklist
+                              </button>
+                              <button className="btn btn-secondary" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }} onClick={() => handleExtendBlacklist(u.user_id, 30)}>
+                                Extend 30 Days
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                      {blacklistedUsers.length === 0 && (
+                        <tr>
+                          <td colSpan="6" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
+                            No blacklisted users currently on record.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {adminTab === 'support_tickets' && (
+                <div>
+                  <h2 style={{ fontSize: '1.4rem', marginBottom: '1rem' }}>Support Tickets & Appeals</h2>
+                  <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
+                    Review blacklist appeals, document resubmissions, and general user inquiries filed from the mobile apps.
+                  </p>
+
+                  <table className="admin-table">
+                    <thead>
+                      <tr>
+                        <th>Ticket ID</th>
+                        <th>User</th>
+                        <th>Phone</th>
+                        <th>Type</th>
+                        <th>Subject</th>
+                        <th>Description</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {adminSupportTickets.map(t => (
+                        <tr key={t.id}>
+                          <td><code>{t.id}</code></td>
+                          <td>{t.user_name}</td>
+                          <td>{t.user_phone}</td>
+                          <td><span className="badge badge-warning">{t.type}</span></td>
+                          <td><strong>{t.subject}</strong></td>
+                          <td style={{ maxWidth: '200px', fontSize: '0.75rem' }}>{t.description}</td>
+                          <td>
+                            <span className={`badge ${t.status === 'OPEN' ? 'badge-danger' : 'badge-success'}`}>{t.status}</span>
+                          </td>
+                          <td>
+                            {t.status === 'OPEN' && (
+                              <div style={{ display: 'flex', gap: '0.3rem' }}>
+                                <button className="btn btn-accent" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }} onClick={() => {
+                                  triggerConfirmModal(
+                                    'Approve Appeal',
+                                    `Approve appeal for ${t.user_name}? Blacklist will be lifted and account reset for reapplication.`,
+                                    () => handleResolveSupportTicket(t.id, 'APPROVE_APPEAL')
+                                  );
+                                }}>
+                                  ✓ Approve Appeal
+                                </button>
+                                <button className="btn btn-secondary" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }} onClick={() => handleResolveSupportTicket(t.id, 'REJECT_APPEAL')}>
+                                  ✗ Reject
+                                </button>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                      {adminSupportTickets.length === 0 && (
+                        <tr>
+                          <td colSpan="8" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
+                            No support tickets filed yet.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
               {adminTab === 'redemption_approvals' && (
                 <div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
@@ -11056,6 +11437,15 @@ export default function App() {
           {activeRole === 'partner' && renderPartnerView()}
           {activeRole === 'admin' && renderAdminView()}
           {activeRole === 'db' && renderDbInspector()}
+
+          {/* Redemption Detail Modal Overlay */}
+          {selectedRedemptionDetail && (
+            <div className="modal-overlay">
+              <div className="modal-content glass-card" style={{ maxWidth: '500px' }}>
+                {/* Modal content implementation would go here */}
+              </div>
+            </div>
+          )}
         </main>
 
         {/* Left Side API Request Log stream */}
@@ -11912,7 +12302,7 @@ export default function App() {
         </div>
       )}
 
-      {/* P2 Redemption Approval Detail Modal */}
+      {/* Redemption Detail Modal Overlay */}
       {selectedRedemptionDetail && (
         <div className="modal-overlay">
           <div className="modal-content glass-card" style={{ maxWidth: '500px' }}>

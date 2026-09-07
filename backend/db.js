@@ -127,7 +127,8 @@ async function resetForTest() {
     'fraud_reports', 'admin_audit_log', 'commission_config', 'product_bill_photos',
     'partners', 'partner_regions', 'partner_packages', 'partner_users',
     'customer_partner_bindings', 'redemption_approvals', 'partner_feedback',
-    'partner_notifications', 'feedback_reports'
+    'partner_notifications', 'feedback_reports', 'user_blacklist', 'support_tickets',
+    'stockist_cod_commissions'
   ];
 
   for (const table of tables) {
@@ -265,7 +266,8 @@ async function getAll() {
     'inventory', 'vendors', 'partner_leads', 'fraud_reports', 'admin_audit_log',
     'commission_config', 'product_bill_photos', 'partners', 'partner_regions',
     'partner_packages', 'partner_users', 'customer_partner_bindings',
-    'redemption_approvals', 'partner_feedback', 'partner_notifications'
+    'redemption_approvals', 'partner_feedback', 'partner_notifications',
+    'user_blacklist', 'support_tickets', 'stockist_cod_commissions'
   ];
 
   const db = {};

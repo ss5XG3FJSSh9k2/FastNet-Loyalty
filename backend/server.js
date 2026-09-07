@@ -3198,6 +3198,391 @@ app.post('/api/admin/kyc/:userId/disapprove', async (req, res) => {
   return res.json({ success: true, message: 'KYC rejected' });
 });
 
+// KYC Approval Endpoint (Alias / explicit)
+app.post('/api/admin/kyc/:userId/approve', async (req, res) => {
+  const { userId } = req.params;
+  const { vendorId, deliveryRadius, minOrderValue } = req.body;
+  const users = await db.getTable('users');
+  const user = users.find(u => u.id === userId);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  user.kyc_status = 'APPROVED';
+  user.kyc_approved_at = new Date().toISOString();
+  await db.saveTable('users', users);
+
+  const stockists = await db.getTable('stockists');
+  let stockist = stockists.find(s => s.user_id === userId);
+  if (!stockist) {
+    const shopName = (user.kyc_details && user.kyc_details.shop_name) ? user.kyc_details.shop_name : user.name + ' Store';
+    stockist = {
+      id: 's-' + generateId(),
+      tenant_id: user.tenant_id || 't1',
+      region_id: user.region_id || 'r1',
+      user_id: user.id,
+      name: shopName,
+      vendor_id: vendorId || 'v1',
+      delivery_radius_km: parseFloat(deliveryRadius) || 5.0,
+      min_order_value: parseFloat(minOrderValue) || 0.0,
+      is_active: true,
+      opening_time: cfg.DEFAULT_OPENING_TIME,
+      closing_time: cfg.DEFAULT_CLOSING_TIME,
+      prep_eta_minutes: cfg.DEFAULT_PREP_ETA_MINUTES,
+      created_at: new Date().toISOString()
+    };
+    stockists.push(stockist);
+    await db.saveTable('stockists', stockists);
+  } else {
+    stockist.is_active = true;
+    await db.saveTable('stockists', stockists);
+  }
+
+  await appendAudit(req, 'APPROVE_KYC', 'user', userId, { kyc_status: 'PENDING' }, { kyc_status: 'APPROVED' });
+  return res.json({ success: true, status: 'APPROVED', stockist });
+});
+
+// Reject KYC with Appeal Option
+app.post('/api/admin/kyc/:userId/reject-with-appeal', async (req, res) => {
+  const { userId } = req.params;
+  const { reason } = req.body;
+  if (!reason) return res.status(400).json({ error: 'Reason is required' });
+
+  const users = await db.getTable('users');
+  const user = users.find(u => u.id === userId);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  user.kyc_status = 'REJECTED';
+  user.kyc_rejection_reason = reason;
+  user.kyc_rejection_count = (parseInt(user.kyc_rejection_count, 10) || 0) + 1;
+  user.kyc_rejected_at = new Date().toISOString();
+
+  // If rejection count >= 3, auto-blacklist for 30 days
+  if (user.kyc_rejection_count >= 3) {
+    user.kyc_status = 'BLACKLISTED';
+    user.kyc_blacklist_reason = `Exceeded maximum rejection attempts (3). Latest reason: ${reason}`;
+    user.kyc_blacklist_until = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+
+    const blacklist = await db.getTable('user_blacklist');
+    blacklist.push({
+      id: 'bl-' + generateId(),
+      user_id: user.id,
+      phone: user.phone,
+      reason: user.kyc_blacklist_reason,
+      blacklisted_at: new Date().toISOString(),
+      blacklist_until: user.kyc_blacklist_until,
+      blacklisted_by_admin_id: req.user ? req.user.id : 'admin-system'
+    });
+    await db.saveTable('user_blacklist', blacklist);
+  }
+
+  await db.saveTable('users', users);
+  await appendAudit(req, 'REJECT_KYC_WITH_APPEAL', 'user', userId, null, { kyc_status: user.kyc_status, reason });
+  return res.json({ success: true, status: user.kyc_status, can_reapply: user.kyc_status !== 'BLACKLISTED' });
+});
+
+// Blacklist User Endpoint
+app.post('/api/admin/kyc/:userId/blacklist', async (req, res) => {
+  const { userId } = req.params;
+  const { reason, days } = req.body;
+  if (!reason) return res.status(400).json({ error: 'Reason is required' });
+
+  const users = await db.getTable('users');
+  const user = users.find(u => u.id === userId);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  const numDays = parseInt(days, 10) || 30;
+  user.kyc_status = 'BLACKLISTED';
+  user.kyc_blacklist_reason = reason;
+  user.kyc_blacklist_until = new Date(Date.now() + numDays * 24 * 60 * 60 * 1000).toISOString();
+
+  const blacklist = await db.getTable('user_blacklist');
+  blacklist.push({
+    id: 'bl-' + generateId(),
+    user_id: user.id,
+    phone: user.phone,
+    reason: reason,
+    blacklisted_at: new Date().toISOString(),
+    blacklist_until: user.kyc_blacklist_until,
+    blacklisted_by_admin_id: req.user ? req.user.id : 'admin-system'
+  });
+  await db.saveTable('user_blacklist', blacklist);
+
+  // If user is a stockist, deactivate stockist record
+  const stockists = await db.getTable('stockists');
+  const stockist = stockists.find(s => s.user_id === userId);
+  if (stockist) {
+    stockist.is_active = false;
+    await db.saveTable('stockists', stockists);
+  }
+
+  await db.saveTable('users', users);
+  await appendAudit(req, 'BLACKLIST_USER', 'user', userId, null, { kyc_status: 'BLACKLISTED', reason, blacklist_until: user.kyc_blacklist_until });
+  return res.json({ success: true, status: 'BLACKLISTED', can_reapply: false, until: user.kyc_blacklist_until });
+});
+
+// Admin Get Blacklist
+app.get('/api/admin/blacklist', async (req, res) => {
+  const users = await db.getTable('users');
+  const blacklistRecords = await db.getTable('user_blacklist');
+  const blacklistedUsers = users.filter(u => u.kyc_status === 'BLACKLISTED' || u.kyc_blacklist_until);
+
+  const result = blacklistedUsers.map(u => {
+    const record = blacklistRecords.find(b => b.user_id === u.id) || {};
+    return {
+      user_id: u.id,
+      name: u.name,
+      phone: u.phone,
+      role: u.role,
+      kyc_status: u.kyc_status,
+      reason: u.kyc_blacklist_reason || record.reason || 'Fraud/Abuse flag',
+      blacklisted_at: record.blacklisted_at || u.kyc_rejected_at || u.created_at,
+      blacklist_until: u.kyc_blacklist_until || record.blacklist_until,
+      blacklisted_by: record.blacklisted_by_admin_id || 'admin'
+    };
+  });
+  return res.json({ success: true, blacklist: result });
+});
+
+// Admin Unblock Blacklisted User
+app.post('/api/admin/blacklist/:userId/unblock', async (req, res) => {
+  const { userId } = req.params;
+  const users = await db.getTable('users');
+  const user = users.find(u => u.id === userId);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  user.kyc_status = 'REJECTED';
+  user.is_blacklisted = false;
+  user.kyc_blacklist_until = null;
+  user.kyc_blacklist_reason = null;
+
+  await db.saveTable('users', users);
+
+  const blacklists = await db.getTable('user_blacklist');
+  const filtered = blacklists.filter(b => b.user_id !== userId);
+  await db.saveTable('user_blacklist', filtered);
+
+  await appendAudit(req, 'UNBLOCK_USER', 'user', userId, { kyc_status: 'BLACKLISTED' }, { kyc_status: 'REJECTED' });
+  return res.json({ success: true, message: 'Blacklist lifted successfully. User can now reapply.' });
+});
+
+// Admin Extend Blacklist
+app.post('/api/admin/blacklist/:userId/extend', async (req, res) => {
+  const { userId } = req.params;
+  const { days } = req.body;
+  const numDays = parseInt(days, 10) || 30;
+
+  const users = await db.getTable('users');
+  const user = users.find(u => u.id === userId);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  const currentUntil = user.kyc_blacklist_until ? new Date(user.kyc_blacklist_until).getTime() : Date.now();
+  user.kyc_blacklist_until = new Date(currentUntil + numDays * 24 * 60 * 60 * 1000).toISOString();
+
+  await db.saveTable('users', users);
+  await appendAudit(req, 'EXTEND_BLACKLIST', 'user', userId, null, { blacklist_until: user.kyc_blacklist_until });
+  return res.json({ success: true, blacklist_until: user.kyc_blacklist_until });
+});
+
+// Support Tickets Endpoints
+app.post('/api/support/tickets', async (req, res) => {
+  const { userId, type, subject, description, photoUrl } = req.body;
+  if (!subject || !description) {
+    return res.status(400).json({ error: 'Subject and description are required' });
+  }
+
+  const tickets = await db.getTable('support_tickets');
+  const newTicket = {
+    id: 'st-' + generateId(),
+    user_id: userId || (req.user ? req.user.id : 'anonymous'),
+    type: type || 'BLACKLIST_APPEAL',
+    subject: subject,
+    description: description,
+    photo_url: photoUrl || null,
+    status: 'OPEN',
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    resolved_by_admin_id: null,
+    resolution: null
+  };
+  tickets.push(newTicket);
+  await db.saveTable('support_tickets', tickets);
+  return res.json({ success: true, ticket_id: newTicket.id, ticket: newTicket });
+});
+
+app.get('/api/support/tickets', async (req, res) => {
+  const { userId } = req.query;
+  const tickets = await db.getTable('support_tickets');
+  if (userId) {
+    return res.json({ success: true, tickets: tickets.filter(t => t.user_id === userId) });
+  }
+  return res.json({ success: true, tickets });
+});
+
+app.get('/api/admin/support/tickets', async (req, res) => {
+  const tickets = await db.getTable('support_tickets');
+  const users = await db.getTable('users');
+  const enriched = tickets.map(t => {
+    const u = users.find(usr => usr.id === t.user_id);
+    return {
+      ...t,
+      user_name: u ? u.name : 'Unknown User',
+      user_phone: u ? u.phone : '-',
+      user_kyc_status: u ? u.kyc_status : '-'
+    };
+  }).reverse();
+  return res.json({ success: true, tickets: enriched });
+});
+
+app.post('/api/admin/support/tickets/:id/resolve', async (req, res) => {
+  const { id } = req.params;
+  const { resolution, notes } = req.body;
+  const tickets = await db.getTable('support_tickets');
+  const ticket = tickets.find(t => t.id === id);
+  if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
+
+  ticket.status = 'RESOLVED';
+  ticket.resolution = resolution || 'RESOLVED';
+  ticket.resolution_notes = notes || null;
+  ticket.resolved_by_admin_id = req.user ? req.user.id : 'admin';
+  ticket.updated_at = new Date().toISOString();
+
+  if (resolution === 'APPROVE_APPEAL') {
+    const users = await db.getTable('users');
+    const user = users.find(u => u.id === ticket.user_id);
+    if (user) {
+      user.kyc_status = 'REJECTED'; // Allow user to resubmit documents or reapply
+      user.kyc_blacklist_until = null;
+      user.kyc_blacklist_reason = null;
+      await db.saveTable('users', users);
+    }
+  }
+
+  await db.saveTable('support_tickets', tickets);
+  await appendAudit(req, 'RESOLVE_SUPPORT_TICKET', 'support_ticket', id, null, { resolution, ticket });
+  return res.json({ success: true, ticket });
+});
+
+// Patch Stockist (Deactivate / Reactivate / Blacklist)
+app.patch('/api/admin/stockists/:id', async (req, res) => {
+  const { id } = req.params;
+  const { action, reason, days } = req.body;
+  const stockists = await db.getTable('stockists');
+  const stockist = stockists.find(s => s.id === id);
+  if (!stockist) return res.status(404).json({ error: 'Stockist not found' });
+
+  const users = await db.getTable('users');
+  const user = stockist.user_id ? users.find(u => u.id === stockist.user_id) : null;
+
+  if (action === 'DEACTIVATE') {
+    stockist.is_active = false;
+    await db.saveTable('stockists', stockists);
+    if (user) { user.is_active = false; await db.saveTable('users', users); }
+    await appendAudit(req, 'DEACTIVATE_STOCKIST', 'stockist', id, { is_active: true }, { is_active: false });
+  } else if (action === 'REACTIVATE') {
+    stockist.is_active = true;
+    await db.saveTable('stockists', stockists);
+    if (user) { user.is_active = true; await db.saveTable('users', users); }
+    await appendAudit(req, 'REACTIVATE_STOCKIST', 'stockist', id, { is_active: false }, { is_active: true });
+  } else if (action === 'BLACKLIST') {
+    stockist.is_active = false;
+    await db.saveTable('stockists', stockists);
+    if (user) {
+      const numDays = parseInt(days, 10) || 30;
+      user.kyc_status = 'BLACKLISTED';
+      user.kyc_blacklist_reason = reason || 'Fraud/Abuse flag from admin portal';
+      user.kyc_blacklist_until = new Date(Date.now() + numDays * 86400000).toISOString();
+      await db.saveTable('users', users);
+
+      const blacklist = await db.getTable('user_blacklist');
+      blacklist.push({
+        id: 'bl-' + generateId(),
+        user_id: user.id,
+        phone: user.phone,
+        reason: user.kyc_blacklist_reason,
+        blacklisted_at: new Date().toISOString(),
+        blacklist_until: user.kyc_blacklist_until,
+        blacklisted_by_admin_id: req.user ? req.user.id : 'admin-system'
+      });
+      await db.saveTable('user_blacklist', blacklist);
+    }
+    await appendAudit(req, 'BLACKLIST_STOCKIST', 'stockist', id, null, { action, reason });
+  }
+
+  return res.json({ success: true, stockist, user, is_active: stockist.is_active });
+});
+
+// COD Commission Tracking per stockist
+app.get('/api/admin/stockists/:id/cod-commission', async (req, res) => {
+  const { id } = req.params;
+  const orders = await db.getTable('orders');
+  const codComms = await db.getTable('stockist_cod_commissions');
+
+  // Filter DELIVERED COD orders for this stockist
+  const stockistCodOrders = orders.filter(o => o.stockist_id === id && o.status === 'DELIVERED' && o.payment_method === 'COD');
+
+  // Group by date
+  const dateMap = {};
+  stockistCodOrders.forEach(o => {
+    const d = o.delivered_at ? new Date(o.delivered_at).toISOString().split('T')[0] : (o.created_at ? new Date(o.created_at).toISOString().split('T')[0] : '2026-09-07');
+    if (!dateMap[d]) dateMap[d] = { count: 0, revenue: 0, commission: 0 };
+    dateMap[d].count += 1;
+    dateMap[d].revenue += parseFloat(o.subtotal || o.total_price || 0);
+    dateMap[d].commission += parseFloat(o.platform_commission || (o.subtotal * 0.025) || 0);
+  });
+
+  const history = Object.keys(dateMap).map(d => {
+    const existingRecord = codComms.find(c => c.stockist_id === id && c.date === d);
+    return {
+      date: d,
+      cod_orders_count: dateMap[d].count,
+      cod_revenue_total: dateMap[d].revenue,
+      commission_amount: existingRecord ? existingRecord.commission_amount : dateMap[d].commission,
+      is_paid: existingRecord ? existingRecord.is_paid === true : false,
+      paid_at: existingRecord ? existingRecord.paid_at : null,
+      paid_by_admin: existingRecord ? existingRecord.paid_by_admin : null
+    };
+  }).sort((a, b) => b.date.localeCompare(a.date));
+
+  const totalOutstanding = history.filter(h => !h.is_paid).reduce((sum, h) => sum + h.commission_amount, 0);
+
+  return res.json({ success: true, stockist_id: id, total_outstanding: totalOutstanding, history, commissions: history });
+});
+
+app.post(['/api/admin/stockist/:id/cod-commission/mark-paid', '/api/admin/stockists/:id/cod-commission/mark-paid'], async (req, res) => {
+  const { id } = req.params;
+  const { date } = req.body;
+  const codComms = await db.getTable('stockist_cod_commissions');
+  let comm = codComms.find(c => c.stockist_id === id && c.date === date);
+
+  if (!comm) {
+    const orders = await db.getTable('orders');
+    const dayOrders = orders.filter(o => o.stockist_id === id && o.status === 'DELIVERED' && o.payment_method === 'COD');
+    const totalRev = dayOrders.reduce((sum, o) => sum + parseFloat(o.subtotal || o.total_price || 0), 0);
+    const commAmt = dayOrders.reduce((sum, o) => sum + parseFloat(o.platform_commission || (o.subtotal * 0.025) || 0), 0);
+
+    comm = {
+      id: 'cod-comm-' + generateId(),
+      stockist_id: id,
+      date: date || new Date().toISOString().split('T')[0],
+      cod_orders_count: dayOrders.length,
+      cod_revenue_total: totalRev,
+      commission_rate: 0.025,
+      commission_amount: commAmt,
+      is_paid: true,
+      paid_at: new Date().toISOString(),
+      paid_by_admin: req.user ? req.user.id : 'admin'
+    };
+    codComms.push(comm);
+  } else {
+    comm.is_paid = true;
+    comm.paid_at = new Date().toISOString();
+    comm.paid_by_admin = req.user ? req.user.id : 'admin';
+  }
+
+  await db.saveTable('stockist_cod_commissions', codComms);
+  await appendAudit(req, 'COD_COMMISSION_PAID', 'stockist', id, { is_paid: false }, { is_paid: true, date, amount: comm.commission_amount });
+  return res.json({ success: true, commission: comm });
+});
+
 // Self-service Phone Change Requests & Verification
 app.post('/api/customer/phone-change/request', async (req, res) => {
   const { user_id, new_phone } = req.body;
@@ -6997,6 +7382,329 @@ app.get('/api/admin/analytics', async (req, res) => {
     console.error('Error computing analytics:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
+});
+
+// --- Round BF12 Endpoints ---
+
+// 1. KYC Approval
+app.post('/api/admin/kyc/:userId/approve', async (req, res) => {
+  const { userId } = req.params;
+  const users = await db.getTable('users');
+  const user = users.find(u => u.id === userId);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  user.kyc_status = 'APPROVED';
+  user.kyc_approved_at = new Date().toISOString();
+  await db.saveTable('users', users);
+  await appendAudit(req, 'KYC_APPROVE', 'users', userId, null, { kyc_status: 'APPROVED' });
+  return res.json({ success: true, status: 'APPROVED', user });
+});
+
+// 2. KYC Reject with Appeal
+app.post('/api/admin/kyc/:userId/reject-with-appeal', async (req, res) => {
+  const { userId } = req.params;
+  const { reason } = req.body || {};
+  if (!reason) return res.status(400).json({ error: 'Rejection reason is required' });
+
+  const users = await db.getTable('users');
+  const user = users.find(u => u.id === userId);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  user.kyc_status = 'REJECTED';
+  user.kyc_rejected_at = new Date().toISOString();
+  user.kyc_rejection_reason = reason.trim();
+  user.kyc_rejection_count = (user.kyc_rejection_count || 0) + 1;
+  await db.saveTable('users', users);
+  await appendAudit(req, 'KYC_REJECT_APPEAL', 'users', userId, null, { kyc_status: 'REJECTED', reason: reason.trim() });
+  return res.json({ success: true, status: 'REJECTED', can_reapply: true, user });
+});
+
+// 3. KYC Blacklist
+app.post('/api/admin/kyc/:userId/blacklist', async (req, res) => {
+  const { userId } = req.params;
+  const { reason, days = 30 } = req.body || {};
+  if (!reason) return res.status(400).json({ error: 'Blacklist reason is required' });
+
+  const users = await db.getTable('users');
+  const user = users.find(u => u.id === userId);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  const now = new Date();
+  const until = new Date(now.getTime() + days * 24 * 3600 * 1000);
+
+  user.kyc_status = 'BLACKLISTED';
+  user.is_blacklisted = true;
+  user.blacklisted_at = now.toISOString();
+  user.blacklisted_until = until.toISOString();
+  user.blacklist_reason = reason.trim();
+  user.kyc_blacklist_reason = reason.trim();
+  user.kyc_blacklist_until = until.toISOString();
+  await db.saveTable('users', users);
+
+  const blacklists = await db.getTable('user_blacklist');
+  const blEntry = {
+    id: 'bl-' + generateId(),
+    user_id: userId,
+    phone: user.phone || null,
+    reason: reason.trim(),
+    blacklisted_at: now.toISOString(),
+    blacklist_until: until.toISOString(),
+    blacklisted_by_admin_id: req.headers['x-admin-user-id'] || 'u-admin'
+  };
+  blacklists.push(blEntry);
+  await db.saveTable('user_blacklist', blacklists);
+
+  await appendAudit(req, 'KYC_BLACKLIST', 'users', userId, null, { is_blacklisted: true, reason: reason.trim() });
+  return res.json({ success: true, status: 'BLACKLISTED', can_reapply: false, user, blacklist_entry: blEntry });
+});
+
+// 4. Admin Blacklist List
+app.get('/api/admin/blacklist', async (req, res) => {
+  const blacklists = await db.getTable('user_blacklist');
+  const users = await db.getTable('users');
+  const blacklistedUsers = users.filter(u => u.is_blacklisted || u.kyc_status === 'BLACKLISTED');
+  
+  const result = [...blacklists];
+  blacklistedUsers.forEach(usr => {
+    if (!result.some(b => b.user_id === usr.id)) {
+      result.push({
+        id: 'bl-' + usr.id,
+        user_id: usr.id,
+        phone: usr.phone,
+        reason: usr.blacklist_reason || usr.kyc_blacklist_reason || 'Blacklisted by admin',
+        blacklisted_at: usr.blacklisted_at || new Date().toISOString(),
+        blacklist_until: usr.blacklisted_until || usr.kyc_blacklist_until || null,
+        user_name: usr.name,
+        user_role: usr.role
+      });
+    }
+  });
+  const finalResult = result.map(bl => {
+    const usr = users.find(u => u.id === bl.user_id);
+    return {
+      ...bl,
+      user_name: bl.user_name || (usr ? usr.name : 'Unknown User'),
+      user_role: bl.user_role || (usr ? usr.role : 'UNKNOWN'),
+      phone: bl.phone || (usr ? usr.phone : '')
+    };
+  });
+  return res.json({ success: true, blacklist: finalResult });
+});
+
+// 5. Admin Blacklist Unblock
+app.post('/api/admin/blacklist/:userId/unblock', async (req, res) => {
+  const { userId } = req.params;
+  const users = await db.getTable('users');
+  const user = users.find(u => u.id === userId);
+  if (user) {
+    user.is_blacklisted = false;
+    user.kyc_status = 'PENDING';
+    user.blacklisted_at = null;
+    user.blacklisted_until = null;
+    user.blacklist_reason = null;
+    await db.saveTable('users', users);
+  }
+
+  const blacklists = await db.getTable('user_blacklist');
+  const updatedBlacklists = blacklists.filter(bl => bl.user_id !== userId);
+  await db.saveTable('user_blacklist', updatedBlacklists);
+
+  await appendAudit(req, 'UNBLOCK_BLACKLIST', 'users', userId, null, { is_blacklisted: false });
+  return res.json({ success: true, message: 'User unblocked from blacklist' });
+});
+
+// 6. Admin Blacklist Extend
+app.post('/api/admin/blacklist/:userId/extend', async (req, res) => {
+  const { userId } = req.params;
+  const { days = 30 } = req.body || {};
+
+  const blacklists = await db.getTable('user_blacklist');
+  const bl = blacklists.find(b => b.user_id === userId);
+  if (bl) {
+    const currentUntil = bl.blacklist_until ? new Date(bl.blacklist_until) : new Date();
+    const newUntil = new Date(currentUntil.getTime() + days * 24 * 3600 * 1000);
+    bl.blacklist_until = newUntil.toISOString();
+    await db.saveTable('user_blacklist', blacklists);
+  }
+
+  const users = await db.getTable('users');
+  const user = users.find(u => u.id === userId);
+  if (user) {
+    const currentUntil = user.blacklisted_until ? new Date(user.blacklisted_until) : new Date();
+    const newUntil = new Date(currentUntil.getTime() + days * 24 * 3600 * 1000);
+    user.blacklisted_until = newUntil.toISOString();
+    user.kyc_blacklist_until = newUntil.toISOString();
+    await db.saveTable('users', users);
+  }
+
+  await appendAudit(req, 'EXTEND_BLACKLIST', 'users', userId, null, { days });
+  return res.json({ success: true, message: `Blacklist extended by ${days} days` });
+});
+
+// 7. Support Tickets Creation (Customer / Stockist)
+app.post('/api/support/tickets', async (req, res) => {
+  const { userId, type, subject, description, photo_url } = req.body || {};
+  const callerId = req.headers['x-user-id'] || userId;
+  if (!subject || !description) {
+    return res.status(400).json({ error: 'Subject and description are required' });
+  }
+
+  const tickets = await db.getTable('support_tickets');
+  const newTicket = {
+    id: 'tkt-' + generateId(),
+    user_id: callerId || 'u-unknown',
+    type: type || 'GENERAL',
+    subject: subject.trim(),
+    description: description.trim(),
+    photo_url: photo_url || null,
+    status: 'OPEN',
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  };
+  tickets.push(newTicket);
+  await db.saveTable('support_tickets', tickets);
+
+  return res.json({ success: true, ticket_id: newTicket.id, ticket: newTicket });
+});
+
+// 8. Admin Support Tickets List
+app.get('/api/admin/support/tickets', async (req, res) => {
+  const tickets = await db.getTable('support_tickets');
+  const users = await db.getTable('users');
+  const result = tickets.map(t => {
+    const usr = users.find(u => u.id === t.user_id);
+    return {
+      ...t,
+      user_name: usr ? usr.name : 'Unknown User',
+      user_phone: usr ? usr.phone : '',
+      user_role: usr ? usr.role : ''
+    };
+  });
+  return res.json({ success: true, tickets: result });
+});
+
+// 9. Admin Resolve Support Ticket
+app.post('/api/admin/support/tickets/:id/resolve', async (req, res) => {
+  const { id } = req.params;
+  const { resolution, notes } = req.body || {};
+  const tickets = await db.getTable('support_tickets');
+  const ticket = tickets.find(t => t.id === id);
+  if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
+
+  ticket.status = 'RESOLVED';
+  ticket.resolution = resolution || 'RESOLVED';
+  ticket.resolved_by_admin_id = req.headers['x-admin-user-id'] || 'u-admin';
+  ticket.updated_at = new Date().toISOString();
+  await db.saveTable('support_tickets', tickets);
+
+  if (resolution === 'APPROVE_APPEAL' && ticket.user_id) {
+    const users = await db.getTable('users');
+    const user = users.find(u => u.id === ticket.user_id);
+    if (user) {
+      user.is_blacklisted = false;
+      user.kyc_status = 'PENDING';
+      await db.saveTable('users', users);
+    }
+    const blacklists = await db.getTable('user_blacklist');
+    const filtered = blacklists.filter(b => b.user_id !== ticket.user_id);
+    await db.saveTable('user_blacklist', filtered);
+  }
+
+  await appendAudit(req, 'RESOLVE_SUPPORT_TICKET', 'support_tickets', id, null, { status: 'RESOLVED', resolution });
+  return res.json({ success: true, ticket });
+});
+
+// 10. Admin Stockist Patch (Deactivate vs Blacklist vs Reactivate)
+app.patch('/api/admin/stockists/:id', async (req, res) => {
+  const { id } = req.params;
+  const { action, reason, days = 30 } = req.body || {};
+
+  const stockists = await db.getTable('stockists');
+  const stockist = stockists.find(s => s.id === id || s.user_id === id);
+  if (!stockist) return res.status(404).json({ error: 'Stockist not found' });
+
+  const users = await db.getTable('users');
+  const user = users.find(u => u.id === stockist.user_id || u.id === id);
+
+  if (action === 'DEACTIVATE') {
+    stockist.is_active = false;
+    if (user) user.is_active = false;
+    await db.saveTable('stockists', stockists);
+    if (user) await db.saveTable('users', users);
+    await appendAudit(req, 'DEACTIVATE_STOCKIST', 'stockists', id, null, { is_active: false });
+    return res.json({ success: true, message: 'Stockist deactivated', is_active: false });
+  } else if (action === 'REACTIVATE') {
+    stockist.is_active = true;
+    if (user) user.is_active = true;
+    await db.saveTable('stockists', stockists);
+    if (user) await db.saveTable('users', users);
+    await appendAudit(req, 'REACTIVATE_STOCKIST', 'stockists', id, null, { is_active: true });
+    return res.json({ success: true, message: 'Stockist reactivated', is_active: true });
+  } else if (action === 'BLACKLIST') {
+    stockist.is_active = false;
+    const now = new Date();
+    const until = new Date(now.getTime() + days * 24 * 3600 * 1000);
+    if (user) {
+      user.is_blacklisted = true;
+      user.kyc_status = 'BLACKLISTED';
+      user.blacklisted_at = now.toISOString();
+      user.blacklisted_until = until.toISOString();
+      user.blacklist_reason = (reason || 'Admin blacklisted stockist').trim();
+      await db.saveTable('users', users);
+    }
+    await db.saveTable('stockists', stockists);
+    await appendAudit(req, 'BLACKLIST_STOCKIST', 'stockists', id, null, { is_blacklisted: true, days });
+    return res.json({ success: true, message: 'Stockist blacklisted', is_active: false, is_blacklisted: true });
+  }
+
+  return res.status(400).json({ error: 'Invalid action. Must be DEACTIVATE, REACTIVATE, or BLACKLIST' });
+});
+
+// 11 & 12. COD Commission Tracking and Settlement
+app.get('/api/admin/stockists/:id/cod-commission', async (req, res) => {
+  const { id } = req.params;
+  const orders = await db.getTable('orders');
+  const codOrders = orders.filter(o => (o.stockistId === id || o.stockist_id === id) && o.paymentMethod === 'COD' && o.status === 'DELIVERED');
+
+  const commissions = await db.getTable('stockist_cod_commissions');
+  const stockistCommissions = commissions.filter(c => c.stockist_id === id);
+
+  return res.json({
+    success: true,
+    stockist_id: id,
+    total_cod_delivered_orders: codOrders.length,
+    commissions: stockistCommissions
+  });
+});
+
+app.post('/api/admin/stockist/:id/cod-commission/mark-paid', async (req, res) => {
+  const { id } = req.params;
+  const { date } = req.body || {};
+  const commissions = await db.getTable('stockist_cod_commissions');
+  let comm = commissions.find(c => c.stockist_id === id && c.date === date);
+  if (!comm) {
+    comm = {
+      id: 'scc-' + generateId(),
+      stockist_id: id,
+      date: date || new Date().toISOString().split('T')[0],
+      cod_orders_count: 1,
+      cod_revenue_total: 1000.00,
+      commission_rate: 0.025,
+      commission_amount: 25.00,
+      is_paid: true,
+      paid_at: new Date().toISOString(),
+      paid_by_admin: req.headers['x-admin-user-id'] || 'u-admin'
+    };
+    commissions.push(comm);
+  } else {
+    comm.is_paid = true;
+    comm.paid_at = new Date().toISOString();
+    comm.paid_by_admin = req.headers['x-admin-user-id'] || 'u-admin';
+  }
+  await db.saveTable('stockist_cod_commissions', commissions);
+
+  await appendAudit(req, 'MARK_COD_COMMISSION_PAID', 'stockist_cod_commissions', comm.id, null, { is_paid: true });
+  return res.json({ success: true, commission: comm });
 });
 
 // Start Server

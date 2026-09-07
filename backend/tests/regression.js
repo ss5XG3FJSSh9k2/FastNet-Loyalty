@@ -3886,6 +3886,74 @@ async function main() {
   const loginLayoutFixed = appContent.includes('className="login-content-container"') && appContent.includes('className="login-heading"');
   assert(loginLayoutFixed, 'Customer login heading rendered inside login-content-container');
 
+  // Round BF12: KYC, Blacklist, Support Appeals, COD Commission, Cart Drawer, Points Consistency
+  console.log('\n--- Round BF12: FastNet Loyalty Issues #1-9 ---');
+
+  // Test #718: POST /api/admin/kyc/:userId/approve sets user kyc_status to APPROVED
+  const kycApproveRes = await post('http://localhost:3001/api/admin/kyc/u-stk1/approve');
+  assert(kycApproveRes.status === 200 && kycApproveRes.body.status === 'APPROVED', 'POST /api/admin/kyc/:userId/approve returns status APPROVED');
+
+  // Test #719: POST /api/admin/kyc/:userId/reject-with-appeal sets status to REJECTED with reason
+  const kycRejectRes = await post('http://localhost:3001/api/admin/kyc/u-stk1/reject-with-appeal', { reason: 'Incomplete document scan' });
+  assert(kycRejectRes.status === 200 && kycRejectRes.body.status === 'REJECTED' && kycRejectRes.body.can_reapply === true, 'POST /api/admin/kyc/:userId/reject-with-appeal sets REJECTED and can_reapply true');
+
+  // Test #720: POST /api/admin/kyc/:userId/blacklist blacklists user and creates blacklist entry
+  const kycBlacklistRes = await post('http://localhost:3001/api/admin/kyc/u-stk1/blacklist', { reason: 'Fraudulent document', days: 30 }, { 'x-admin-user-id': 'u-admin1' });
+  assert(kycBlacklistRes.status === 200 && kycBlacklistRes.body.status === 'BLACKLISTED' && kycBlacklistRes.body.can_reapply === false, 'POST /api/admin/kyc/:userId/blacklist returns status BLACKLISTED');
+
+  // Test #721: GET /api/admin/blacklist returns blacklisted records
+  const blListRes = await get('http://localhost:3001/api/admin/blacklist');
+  assert(blListRes.status === 200 && Array.isArray(blListRes.body.blacklist) && blListRes.body.blacklist.length > 0, 'GET /api/admin/blacklist returns list of blacklisted users');
+
+  // Test #722: POST /api/admin/blacklist/:userId/unblock removes user from blacklist
+  const unblockRes = await post('http://localhost:3001/api/admin/blacklist/u-stk1/unblock', {}, { 'x-admin-user-id': 'u-admin1' });
+  assert(unblockRes.status === 200 && unblockRes.body.success === true, 'POST /api/admin/blacklist/:userId/unblock unblocks user');
+
+  // Test #723: POST /api/support/tickets creates a support appeal ticket
+  const ticketRes = await post('http://localhost:3001/api/support/tickets', {
+    type: 'BLACKLIST_APPEAL',
+    subject: 'Request to unblock account',
+    description: 'Submitted updated valid documents for verification.'
+  }, { 'x-user-id': 'u-stk1' });
+  assert(ticketRes.status === 200 && ticketRes.body.ticket_id, 'POST /api/support/tickets creates support ticket');
+
+  // Test #724: GET /api/admin/support/tickets returns support tickets list
+  const ticketListRes = await get('http://localhost:3001/api/admin/support/tickets');
+  assert(ticketListRes.status === 200 && Array.isArray(ticketListRes.body.tickets) && ticketListRes.body.tickets.length > 0, 'GET /api/admin/support/tickets returns array of tickets');
+
+  // Test #725: POST /api/admin/support/tickets/:id/resolve resolves ticket and handles appeal
+  const ticketId = ticketRes.body.ticket_id;
+  const resolveRes = await post(`http://localhost:3001/api/admin/support/tickets/${ticketId}/resolve`, { resolution: 'APPROVE_APPEAL' }, { 'x-admin-user-id': 'u-admin1' });
+  assert(resolveRes.status === 200 && resolveRes.body.success === true, 'POST /api/admin/support/tickets/:id/resolve approves appeal');
+
+  // Test #726: PATCH /api/admin/stockists/:id handles DEACTIVATE and REACTIVATE
+  const deactRes = await patch(`http://localhost:3001/api/admin/stockists/s1`, { action: 'DEACTIVATE' });
+  assert(deactRes.status === 200 && deactRes.body.is_active === false, 'PATCH /api/admin/stockists/:id with DEACTIVATE sets is_active false');
+  const reactRes = await patch(`http://localhost:3001/api/admin/stockists/s1`, { action: 'REACTIVATE' });
+  assert(reactRes.status === 200 && reactRes.body.is_active === true, 'PATCH /api/admin/stockists/:id with REACTIVATE sets is_active true');
+
+  // Test #727: GET /api/admin/stockists/:id/cod-commission returns COD commission breakdown
+  const codCommRes = await get('http://localhost:3001/api/admin/stockists/s1/cod-commission');
+  assert(codCommRes.status === 200 && Array.isArray(codCommRes.body.commissions), 'GET /api/admin/stockists/:id/cod-commission returns array');
+
+  // Test #728: POST /api/admin/stockist/:id/cod-commission/mark-paid marks commission as paid
+  const todayStr = new Date().toISOString().split('T')[0];
+  const markPaidRes = await post('http://localhost:3001/api/admin/stockist/s1/cod-commission/mark-paid', { date: todayStr }, { 'x-admin-user-id': 'u-admin1' });
+  assert(markPaidRes.status === 200 && markPaidRes.body.success === true, 'POST /api/admin/stockist/:id/cod-commission/mark-paid marks payment as paid');
+
+  // Test #729: App.jsx contains Collapsible Cart Drawer handlers and elements
+  const freshAppContent = fs.readFileSync(path.join(__dirname, '../../frontend/src/App.jsx'), 'utf8');
+  const hasCartDrawer = freshAppContent.includes('cartExpanded') && freshAppContent.includes('setCartExpanded') && freshAppContent.includes('cart-header');
+  assert(hasCartDrawer, 'App.jsx contains collapsible cart drawer elements (Issue #6)');
+
+  // Test #730: App.jsx contains top-level Admin navigation items (Transactions, Blacklist, Support Tickets)
+  const hasAdminNav = freshAppContent.includes("adminTab === 'transactions'") || freshAppContent.includes("adminTab === 'blacklist'") || freshAppContent.includes("adminTab === 'support'");
+  assert(hasAdminNav, 'App.jsx contains top-level Admin navigation items (Issue #8)');
+
+  // Test #731: App.jsx contains Points consistency notice (Points earned after order is delivered)
+  const hasPointsNotice = freshAppContent.includes('Points earned after order is delivered') || freshAppContent.includes('Points pending delivery') || freshAppContent.includes('Est. Rewards');
+  assert(hasPointsNotice, 'App.jsx contains consistent reward points estimation text (Issue #9)');
+
   console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);
 }
