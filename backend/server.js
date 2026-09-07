@@ -3,6 +3,8 @@ const cors = require('cors');
 const db = require('./db');
 const cfg = require('./config');
 
+const fs = require('fs');
+const path = require('path');
 const multer = require('multer');
 const r2 = require('./lib/r2');
 
@@ -72,7 +74,9 @@ const uploadBillMiddleware = (req, res, next) => {
     { name: 'billFile', maxCount: 1 },
     { name: 'imageFile', maxCount: 1 },
     { name: 'image', maxCount: 1 },
-    { name: 'image_file', maxCount: 1 }
+    { name: 'image_file', maxCount: 1 },
+    { name: 'documentPhoto', maxCount: 1 },
+    { name: 'document_photo', maxCount: 1 }
   ])(req, res, (err) => {
     if (err) {
       if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
@@ -449,11 +453,45 @@ app.post('/api/customer/register-with-referral', async (req, res) => {
   return res.json(resObj);
 });
 
+// Serve KYC document photo
+app.get('/api/kyc/documents/:filename', (req, res) => {
+  const filepath = path.join('/tmp/kyc-uploads', req.params.filename);
+  if (fs.existsSync(filepath)) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Content-Type', 'image/jpeg');
+    return res.sendFile(filepath);
+  }
+  return res.status(404).json({ error: 'KYC document photo not found' });
+});
+
 // Register new Stockist (PENDING KYC)
-app.post('/api/auth/register-stockist', async (req, res) => {
+app.post('/api/auth/register-stockist', uploadBillMiddleware, async (req, res) => {
   const { phone, name, shopName, regionId, idType, idNumber, address } = req.body;
   if (!phone || !name || !shopName || !regionId || !idType || !idNumber || !address) {
     return res.status(400).json({ error: 'All fields are required' });
+  }
+
+  // 1. Validate ID number format
+  if (idType === "AADHAAR") {
+    if (!/^\d{12}$/.test(idNumber)) {
+      return res.status(400).json({ 
+        error: 'Invalid Aadhaar number. Must be exactly 12 digits.' 
+      });
+    }
+  }
+  if (idType === "VOTER_ID") {
+    if (!/^\w{10}$/.test(idNumber)) {
+      return res.status(400).json({ 
+        error: 'Invalid Voter ID format. Must be 10 characters.' 
+      });
+    }
+  }
+  if (idType === "TRADE_LICENSE") {
+    if (!/^\w{12,15}$/.test(idNumber)) {
+      return res.status(400).json({ 
+        error: 'Invalid Trade License format.' 
+      });
+    }
   }
 
   const users = await db.getTable('users');
@@ -462,8 +500,39 @@ app.post('/api/auth/register-stockist', async (req, res) => {
     return res.status(400).json({ error: 'This phone number is already registered as a stockist. Use a different number.' });
   }
 
+  const userId = 'u-' + generateId();
+  let documentPhotoUrl = req.body.documentPhotoUrl || req.body.document_photo_url || null;
+
+  const docFile = req.file || (req.files && (
+    (req.files['documentPhoto'] && req.files['documentPhoto'][0]) ||
+    (req.files['document_photo'] && req.files['document_photo'][0])
+  ));
+
+  if (docFile) {
+    const timestamp = Math.floor(Date.now() / 1000);
+    const filename = `${userId}_${idType}_${timestamp}.jpg`;
+    const kycDir = '/tmp/kyc-uploads';
+    try {
+      if (!fs.existsSync(kycDir)) {
+        fs.mkdirSync(kycDir, { recursive: true });
+      }
+      fs.writeFileSync(path.join(kycDir, filename), docFile.buffer);
+      documentPhotoUrl = `/api/kyc/documents/${filename}`;
+    } catch (e) {
+      console.error('Failed to save KYC file locally:', e);
+    }
+    try {
+      const uploadRes = await r2.uploadBillPhoto(docFile.buffer, docFile.mimetype || 'image/jpeg', 'kyc-documents');
+      if (uploadRes && uploadRes.key) {
+        documentPhotoUrl = `/api/images/${uploadRes.key}`;
+      }
+    } catch (e) {
+      // fallback to local path
+    }
+  }
+
   const user = {
-    id: 'u-' + generateId(),
+    id: userId,
     tenant_id: 't1',
     region_id: regionId,
     phone,
@@ -475,7 +544,8 @@ app.post('/api/auth/register-stockist', async (req, res) => {
       id_type: idType,
       id_number: idNumber,
       shop_name: shopName,
-      shop_address: address
+      shop_address: address,
+      document_photo_url: documentPhotoUrl
     },
     address,
     created_at: new Date().toISOString()
@@ -483,6 +553,26 @@ app.post('/api/auth/register-stockist', async (req, res) => {
 
   users.push(user);
   await db.saveTable('users', users);
+
+  // Also seed a stockist record for this user so admin stockist lists work seamlessly
+  const stockists = await db.getTable('stockists');
+  if (!stockists.some(s => s.user_id === userId)) {
+    const stockistId = 's-' + generateId();
+    stockists.push({
+      id: stockistId,
+      user_id: userId,
+      name: shopName,
+      region_id: regionId,
+      contact_name: name,
+      contact_phone: phone,
+      is_active: true,
+      opening_time: '09:00',
+      closing_time: '21:00',
+      created_at: new Date().toISOString()
+    });
+    await db.saveTable('stockists', stockists);
+  }
+
   return res.json({
     success: true,
     message: 'Registration submitted. Awaiting admin approval.',
