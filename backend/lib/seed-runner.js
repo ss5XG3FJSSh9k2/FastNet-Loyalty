@@ -58,8 +58,8 @@ const DEFAULT_DB = {
       cost_to_partner_rupees: 250,
       point_cost: 250,
       active_regions: ['r1'],
-      duration_days: 30,
-      is_timed: true,
+      duration_days: null,
+      is_timed: false,
       is_active: true,
       price: 250.00,
       created_at: '2026-08-01T00:00:00.000Z'

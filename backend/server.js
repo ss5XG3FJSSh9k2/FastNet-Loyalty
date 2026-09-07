@@ -2372,6 +2372,33 @@ app.post('/api/ledger/redeem', async (req, res) => {
     if (amount && parseFloat(amount) !== parseFloat(pkg.point_cost)) {
       return res.status(400).json({ error: 'amount_mismatch' });
     }
+
+    // Duration lock check for timed packages
+    const isTimed = pkg.is_timed === true && pkg.duration_days && Number(pkg.duration_days) > 0;
+    if (isTimed) {
+      const redemptions = await db.getTable('redemption_approvals');
+      const lastRedemption = redemptions
+        .filter(r => (r.customer_user_id === customerId || r.customer_id === customerId) && r.partner_package_id === partner_package_id)
+        .filter(r => r.status === 'FULFILLED')
+        .sort((a, b) => new Date(b.redeemed_at || b.created_at) - new Date(a.redeemed_at || a.created_at))[0];
+
+      if (lastRedemption) {
+        const nextAllowedIso = lastRedemption.next_redemption_allowed_at ||
+          (lastRedemption.redeemed_at ? new Date(new Date(lastRedemption.redeemed_at).getTime() + (Number(pkg.duration_days) * 24 * 60 * 60 * 1000)).toISOString() : null);
+
+        if (nextAllowedIso) {
+          const now = new Date();
+          if (now < new Date(nextAllowedIso)) {
+            const daysLeft = Math.ceil((new Date(nextAllowedIso) - now) / (1000 * 60 * 60 * 24));
+            return res.status(400).json({
+              error: 'Already redeemed',
+              message: `Available again in ${daysLeft} days`,
+              available_at: nextAllowedIso
+            });
+          }
+        }
+      }
+    }
   } else {
     // Legacy generic path validation
     const ALLOWED_REDEMPTION_TYPES = ['BROADBAND_DISCOUNT', 'BROADBAND_DISCOUNT_50', 'BROADBAND_DISCOUNT_100', 'WIFI_TOPUP', 'DATA_TOPUP', 'CABLE_RECHARGE'];
