@@ -394,6 +394,8 @@ CREATE TABLE IF NOT EXISTS partner_packages (
   cost_to_partner_rupees NUMERIC(12,2),
   point_cost INT,
   active_regions JSONB,
+  duration_days INT,
+  is_timed BOOLEAN DEFAULT false,
   is_active BOOLEAN DEFAULT true,
   price NUMERIC(12,2),
   created_at TIMESTAMPTZ,
@@ -444,6 +446,8 @@ CREATE TABLE IF NOT EXISTS redemption_approvals (
   partner_fulfilled_at TIMESTAMPTZ,
   disputed_at TIMESTAMPTZ,
   refund_ledger_id TEXT,
+  redeemed_at TIMESTAMPTZ,
+  next_redemption_allowed_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ,
   updated_at TIMESTAMPTZ
 );

@@ -58,6 +58,8 @@ const DEFAULT_DB = {
       cost_to_partner_rupees: 250,
       point_cost: 250,
       active_regions: ['r1'],
+      duration_days: 30,
+      is_timed: true,
       is_active: true,
       price: 250.00,
       created_at: '2026-08-01T00:00:00.000Z'
@@ -72,6 +74,8 @@ const DEFAULT_DB = {
       cost_to_partner_rupees: 500,
       point_cost: 500,
       active_regions: ['r1'],
+      duration_days: 30,
+      is_timed: true,
       is_active: true,
       price: 500.00,
       created_at: '2026-08-01T00:00:00.000Z'
@@ -86,6 +90,8 @@ const DEFAULT_DB = {
       cost_to_partner_rupees: 500,
       point_cost: 500,
       active_regions: ['r1'],
+      duration_days: 30,
+      is_timed: true,
       is_active: true,
       price: 500.00,
       created_at: '2026-08-01T00:00:00.000Z'
