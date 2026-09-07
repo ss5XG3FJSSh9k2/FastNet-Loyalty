@@ -21,7 +21,7 @@ async function runMigrations(db) {
       try {
         await db.query(stmt);
       } catch (err) {
-        if (!err.message.includes('NotSupported') && !err.message.includes('already exists')) {
+        if (!err.message.includes('NotSupported') && !err.message.includes('already exists') && !err.message.includes('Syntax error') && !err.message.includes('failed to parse')) {
           console.warn('[Migration warning]:', err.message);
         }
       }

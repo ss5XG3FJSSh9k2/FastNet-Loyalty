@@ -96,6 +96,13 @@ export default function App() {
   const [confirmCancelOrderId, setConfirmCancelOrderId] = useState(null);
   const [confirmDeliverySwitchOrderId, setConfirmDeliverySwitchOrderId] = useState(null);
 
+  // Compliance & Legal Policy Modals State (Part 2 Items 6-9)
+  const [showPrivacyPolicyModal, setShowPrivacyPolicyModal] = useState(false);
+  const [showTermsModal, setShowTermsModal] = useState(false);
+  const [showRefundPolicyModal, setShowRefundPolicyModal] = useState(false);
+  const [showCookiesPolicyModal, setShowCookiesPolicyModal] = useState(false);
+  const [cookieConsent, setCookieConsent] = useState(() => typeof localStorage !== 'undefined' ? localStorage.getItem('fastnet_cookie_consent') : null);
+
   // Setup state (Round BF5d)
   const [needsSetup, setNeedsSetup] = useState(false);
   const [setupName, setSetupName] = useState('');
@@ -12235,6 +12242,133 @@ export default function App() {
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Cookie Consent Banner (Part 2 Item 9) */}
+      {!cookieConsent && (
+        <div className="cookie-banner" role="region" aria-label="Cookie Consent">
+          <p className="cookie-banner-text">
+            {t('We use cookies to improve your experience on our platform.', 'We use cookies to improve your experience on our platform.', 'We use cookies to improve your experience on our platform.')}
+            {' '}
+            <button style={{ background: 'none', border: 'none', color: '#6366F1', textDecoration: 'underline', cursor: 'pointer', padding: 0 }} onClick={() => setShowCookiesPolicyModal(true)}>
+              {t('Cookies Policy', 'Cookies Policy', 'Cookies Policy')}
+            </button>
+          </p>
+          <div className="cookie-banner-actions">
+            <button className="cookie-btn-accept" onClick={() => { localStorage.setItem('fastnet_cookie_consent', 'accepted'); setCookieConsent('accepted'); }}>
+              {t('Accept', 'Accept', 'Accept')}
+            </button>
+            <button className="cookie-btn-decline" onClick={() => { localStorage.setItem('fastnet_cookie_consent', 'declined'); setCookieConsent('declined'); }}>
+              {t('Decline', 'Decline', 'Decline')}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Footer with Business Details (Part 2 Items 17, 18) */}
+      <footer style={{ background: '#131722', borderTop: '1px solid #262E42', padding: '1.5rem 1rem', marginTop: '2rem', textAlign: 'center', fontSize: '0.85rem', color: '#9CA3AF' }}>
+        <div style={{ maxWidth: '1200px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '0.75rem', alignItems: 'center' }}>
+          <p style={{ fontWeight: 600, color: '#F3F4F6', fontSize: '1rem' }}>FastNet Loyalty Platform</p>
+          <p>Operated by FastNet Communications Pvt. Ltd. | CIN: U72900TG2024PTC189012</p>
+          <p>Plot 42, Hitec City, Hyderabad, Telangana, India | Phone: +91-40-67890123 | Email: support@fastnetloyalty.com</p>
+          <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', justifyContent: 'center', marginTop: '0.5rem' }}>
+            <button style={{ background: 'none', border: 'none', color: '#6366F1', cursor: 'pointer' }} onClick={() => setShowPrivacyPolicyModal(true)}>
+              {t('Privacy Policy', 'Privacy Policy', 'Privacy Policy')}
+            </button>
+            <button style={{ background: 'none', border: 'none', color: '#6366F1', cursor: 'pointer' }} onClick={() => setShowTermsModal(true)}>
+              {t('Terms & Conditions', 'Terms & Conditions', 'Terms & Conditions')}
+            </button>
+            <button style={{ background: 'none', border: 'none', color: '#6366F1', cursor: 'pointer' }} onClick={() => setShowRefundPolicyModal(true)}>
+              {t('Refund Policy', 'Refund Policy', 'Refund Policy')}
+            </button>
+            <button style={{ background: 'none', border: 'none', color: '#6366F1', cursor: 'pointer' }} onClick={() => setShowCookiesPolicyModal(true)}>
+              {t('Cookies Policy', 'Cookies Policy', 'Cookies Policy')}
+            </button>
+          </div>
+          <p style={{ fontSize: '0.75rem', color: '#6B7280', marginTop: '0.5rem' }}>
+            {t('Your data is encrypted. Points redeemable for WiFi and broadband services.', 'Your data is encrypted. Points redeemable for WiFi and broadband services.', 'Your data is encrypted. Points redeemable for WiFi and broadband services.')}
+          </p>
+        </div>
+      </footer>
+
+      {/* Privacy Policy Modal (Part 2 Item 6) */}
+      {showPrivacyPolicyModal && (
+        <div className="modal-backdrop" role="dialog" aria-labelledby="privacy-modal-title">
+          <div className="modal-content" style={{ maxWidth: '650px', maxHeight: '80vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h3 id="privacy-modal-title">{t('Privacy Policy', 'Privacy Policy', 'Privacy Policy')}</h3>
+              <button className="btn btn-secondary btn-sm" aria-label="Close Privacy Policy" onClick={() => setShowPrivacyPolicyModal(false)}>Close Menu</button>
+            </div>
+            <div style={{ fontSize: '0.9rem', lineHeight: 1.6, color: '#D1D5DB' }}>
+              <p><strong>{t('Data Collected:', 'Data Collected:', 'Data Collected:')}</strong> {t('Phone number, name, delivery address, order history, points ledger.', 'Phone number, name, delivery address, order history, points ledger.', 'Phone number, name, delivery address, order history, points ledger.')}</p>
+              <p><strong>{t('Usage:', 'Usage:', 'Usage:')}</strong> {t('Order processing, telecom service activation, customer support, platform analytics.', 'Order processing, telecom service activation, customer support, platform analytics.', 'Order processing, telecom service activation, customer support, platform analytics.')}</p>
+              <p><strong>{t('Data Retention:', 'Data Retention:', 'Data Retention:')}</strong> {t('Orders retained for 7 years for GST & tax compliance. Points stored until redemption.', 'Orders retained for 7 years for GST & tax compliance. Points stored until redemption.', 'Orders retained for 7 years for GST & tax compliance. Points stored until redemption.')}</p>
+              <p><strong>{t('User Rights:', 'User Rights:', 'User Rights:')}</strong> {t('Right to access, correct, and request deletion of personal data via privacy@fastnetloyalty.com.', 'Right to access, correct, and request deletion of personal data via privacy@fastnetloyalty.com.', 'Right to access, correct, and request deletion of personal data via privacy@fastnetloyalty.com.')}</p>
+            </div>
+            <div style={{ textAlign: 'right', marginTop: '1.5rem' }}>
+              <button className="btn btn-primary" onClick={() => setShowPrivacyPolicyModal(false)}>Close Menu</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Terms & Conditions Modal (Part 2 Item 7) */}
+      {showTermsModal && (
+        <div className="modal-backdrop" role="dialog" aria-labelledby="terms-modal-title">
+          <div className="modal-content" style={{ maxWidth: '650px', maxHeight: '80vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h3 id="terms-modal-title">{t('Terms & Conditions', 'Terms & Conditions', 'Terms & Conditions')}</h3>
+              <button className="btn btn-secondary btn-sm" aria-label="Close Terms" onClick={() => setShowTermsModal(false)}>Close Menu</button>
+            </div>
+            <div style={{ fontSize: '0.9rem', lineHeight: 1.6, color: '#D1D5DB' }}>
+              <p><strong>{t('Eligibility:', 'Eligibility:', 'Eligibility:')}</strong> {t('18+ years, resident of India.', '18+ years, resident of India.', '18+ years, resident of India.')}</p>
+              <p><strong>{t('User Responsibilities:', 'User Responsibilities:', 'User Responsibilities:')}</strong> {t('Provide accurate profile info, maintain account security, no fraudulent activities.', 'Provide accurate profile info, maintain account security, no fraudulent activities.', 'Provide accurate profile info, maintain account security, no fraudulent activities.')}</p>
+              <p><strong>{t('Points & Loyalty:', 'Points & Loyalty:', 'Points & Loyalty:')}</strong> {t('Points earned only on DELIVERED orders. Non-transferable, non-cashable, redeemable only against platform ISP services.', 'Points earned only on DELIVERED orders. Non-transferable, non-cashable, redeemable only against platform ISP services.', 'Points earned only on DELIVERED orders. Non-transferable, non-cashable, redeemable only against platform ISP services.')}</p>
+            </div>
+            <div style={{ textAlign: 'right', marginTop: '1.5rem' }}>
+              <button className="btn btn-primary" onClick={() => setShowTermsModal(false)}>Close Menu</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Refund Policy Modal (Part 2 Item 8) */}
+      {showRefundPolicyModal && (
+        <div className="modal-backdrop" role="dialog" aria-labelledby="refund-modal-title">
+          <div className="modal-content" style={{ maxWidth: '650px', maxHeight: '80vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h3 id="refund-modal-title">{t('Refund Policy', 'Refund Policy', 'Refund Policy')}</h3>
+              <button className="btn btn-secondary btn-sm" aria-label="Close Refund Policy" onClick={() => setShowRefundPolicyModal(false)}>Close Menu</button>
+            </div>
+            <div style={{ fontSize: '0.9rem', lineHeight: 1.6, color: '#D1D5DB' }}>
+              <p><strong>{t('Cancellation Window:', 'Cancellation Window:', 'Cancellation Window:')}</strong> {t('Orders can be cancelled within 1 minute of placement for a full refund.', 'Orders can be cancelled within 1 minute of placement for a full refund.', 'Orders can be cancelled within 1 minute of placement for a full refund.')}</p>
+              <p><strong>{t('Non-Show / Delivery Issues:', 'Non-Show / Delivery Issues:', 'Non-Show / Delivery Issues:')}</strong> {t('If stockist or delivery fails, refund processed within 24 hours to original payment method.', 'If stockist or delivery fails, refund processed within 24 hours to original payment method.', 'If stockist or delivery fails, refund processed within 24 hours to original payment method.')}</p>
+              <p><strong>{t('Support Contact:', 'Support Contact:', 'Support Contact:')}</strong> {t('Email support@fastnetloyalty.com for refund assistance.', 'Email support@fastnetloyalty.com for refund assistance.', 'Email support@fastnetloyalty.com for refund assistance.')}</p>
+            </div>
+            <div style={{ textAlign: 'right', marginTop: '1.5rem' }}>
+              <button className="btn btn-primary" onClick={() => setShowRefundPolicyModal(false)}>Close Menu</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Cookies Policy Modal (Part 2 Item 9) */}
+      {showCookiesPolicyModal && (
+        <div className="modal-backdrop" role="dialog" aria-labelledby="cookies-modal-title">
+          <div className="modal-content" style={{ maxWidth: '650px', maxHeight: '80vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h3 id="cookies-modal-title">{t('Cookies Policy', 'Cookies Policy', 'Cookies Policy')}</h3>
+              <button className="btn btn-secondary btn-sm" aria-label="Close Cookies Policy" onClick={() => setShowCookiesPolicyModal(false)}>Close Menu</button>
+            </div>
+            <div style={{ fontSize: '0.9rem', lineHeight: 1.6, color: '#D1D5DB' }}>
+              <p><strong>{t('What Cookies Are Used:', 'What Cookies Are Used:', 'What Cookies Are Used:')}</strong> {t('Session security cookies (httpOnly, Secure), analytics preferences, and regional settings.', 'Session security cookies (httpOnly, Secure), analytics preferences, and regional settings.', 'Session security cookies (httpOnly, Secure), analytics preferences, and regional settings.')}</p>
+              <p><strong>{t('Control:', 'Control:', 'Control:')}</strong> {t('You can manage or decline non-essential cookies via browser settings or the consent banner.', 'You can manage or decline non-essential cookies via browser settings or the consent banner.', 'You can manage or decline non-essential cookies via browser settings or the consent banner.')}</p>
+            </div>
+            <div style={{ textAlign: 'right', marginTop: '1.5rem' }}>
+              <button className="btn btn-primary" onClick={() => setShowCookiesPolicyModal(false)}>Close Menu</button>
+            </div>
           </div>
         </div>
       )}

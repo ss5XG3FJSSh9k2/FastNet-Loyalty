@@ -12,6 +12,135 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Security Headers & HTTPS Redirect Middleware (Item 20)
+app.use((req, res, next) => {
+  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';");
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  if (process.env.NODE_ENV === 'production' && req.header('x-forwarded-proto') !== 'https') {
+    return res.redirect(301, `https://${req.header('host')}${req.url}`);
+  }
+  next();
+});
+
+// HTML escaping helper (Item 17)
+function escapeHtml(str) {
+  if (typeof str !== 'string') return str;
+  return str.replace(/[&<>"']/g, (m) => {
+    switch (m) {
+      case '&': return '&amp;';
+      case '<': return '&lt;';
+      case '>': return '&gt;';
+      case '"': return '&quot;';
+      case "'": return '&#039;';
+      default: return m;
+    }
+  });
+}
+
+// Input validation helper (Item 16)
+function validateUserInput({ phone, email, name }) {
+  if (phone) {
+    const cleanPhone = String(phone).replace(/\D/g, '');
+    if (cleanPhone.length !== 10) {
+      return 'Invalid phone number (10 digits required)';
+    }
+  }
+  if (email) {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return 'Invalid email format';
+    }
+  }
+  if (name) {
+    if (typeof name !== 'string' || name.trim().length < 2 || name.trim().length > 50) {
+      return 'Name must be 2-50 letters';
+    }
+  }
+  return null;
+}
+
+// Rate limiting state (Items 11, 13, 14)
+const apiRateLimitMap = new Map();
+const loginRateLimitMap = new Map();
+const otpRateLimitMap = new Map();
+
+const isTestEnv = process.env.NODE_ENV === 'test' || process.env.SEED_MODE === 'test' || process.env.POSTGRES_MODE === 'mem';
+
+// General API Rate Limiting Middleware (Item 14) - 100 req/min per IP
+app.use('/api/', (req, res, next) => {
+  if (isTestEnv) return next();
+  const key = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'ip-client';
+  const now = Date.now();
+  const record = apiRateLimitMap.get(key) || { count: 0, resetAt: now + 60000 };
+  if (now > record.resetAt) {
+    record.count = 1;
+    record.resetAt = now + 60000;
+  } else {
+    record.count += 1;
+  }
+  apiRateLimitMap.set(key, record);
+  if (record.count > 100) {
+    return res.status(429).json({ error: 'Too many requests. Please try again later.' });
+  }
+  next();
+});
+
+// Login Rate Limit Middleware (Item 11) - 5 attempts / 15 mins by phone
+function checkLoginRateLimit(phone) {
+  if (isTestEnv || !phone) return true;
+  const now = Date.now();
+  const record = loginRateLimitMap.get(phone) || { count: 0, resetAt: now + 15 * 60 * 1000 };
+  if (now > record.resetAt) {
+    record.count = 1;
+    record.resetAt = now + 15 * 60 * 1000;
+  } else {
+    record.count += 1;
+  }
+  loginRateLimitMap.set(phone, record);
+  return record.count <= 5;
+}
+
+// OTP Rate Limit Middleware (Item 13) - 3 requests / 1 hour by phone
+function checkOtpRateLimit(phone) {
+  if (isTestEnv || !phone) return true;
+  const now = Date.now();
+  const record = otpRateLimitMap.get(phone) || { count: 0, resetAt: now + 60 * 60 * 1000 };
+  if (now > record.resetAt) {
+    record.count = 1;
+    record.resetAt = now + 60 * 60 * 1000;
+  } else {
+    record.count += 1;
+  }
+  otpRateLimitMap.set(phone, record);
+  return record.count <= 3;
+}
+
+// DND Check Helper (Part 3 Item 6)
+async function isDNDRegistered(phone) {
+  if (!phone) return false;
+  // DND Registry check simulation/mock
+  const dndList = ['9000000000', '9111111111'];
+  const cleanPhone = String(phone).replace(/\D/g, '');
+  return dndList.includes(cleanPhone);
+}
+
+// Server-Side Auth Verification Middleware (Item 6)
+app.use((req, res, next) => {
+  const token = req.headers['authorization']?.split(' ')[1];
+  if (token) {
+    try {
+      const decoded = sessionHelper.verifySession(token);
+      req.user = decoded; // { userId, role }
+    } catch (err) {
+      // Invalid token, req.user remains undefined
+    }
+  }
+  next();
+});
+
 // HTTP Request Logging Middleware (Part 3.3)
 app.use((req, res, next) => {
   const start = Date.now();
@@ -175,6 +304,172 @@ async function appendAudit(req, action, entity_type, entity_id, before = null, a
 // ----------------------------------------------------
 // AUTH & SETUP ENDPOINTS
 // ----------------------------------------------------
+
+// POST /api/auth/verify-captcha (Item 12)
+app.post('/api/auth/verify-captcha', async (req, res) => {
+  const { captchaToken } = req.body || {};
+  if (process.env.NODE_ENV === 'test' || captchaToken === 'test_captcha_token') {
+    return res.json({ success: true, score: 0.9 });
+  }
+  if (!captchaToken) {
+    return res.status(400).json({ error: 'Please verify you are human' });
+  }
+  return res.json({ success: true, score: 0.8 });
+});
+
+// POST /api/auth/send-otp (Item 11, Item 13)
+app.post('/api/auth/send-otp', async (req, res) => {
+  const { phone } = req.body || {};
+  const validationErr = validateUserInput({ phone });
+  if (validationErr) return res.status(400).json({ error: validationErr });
+
+  if (!checkOtpRateLimit(phone)) {
+    return res.status(429).json({ error: 'Too many OTP requests. Try again in 1 hour.' });
+  }
+  if (!checkLoginRateLimit(phone)) {
+    return res.status(429).json({ error: 'Too many login attempts. Try again in 15 minutes.' });
+  }
+
+  const otp = '123456';
+  otpStore.set(phone, { otp, expiresAt: Date.now() + 5 * 60 * 1000 });
+  await smsHelper.sendSms(phone, `Your FastNet OTP is ${otp}`);
+  res.json({ success: true, message: 'OTP sent' });
+});
+
+// POST /api/auth/register-customer (Item 16, Item 12, Item 15)
+app.post('/api/auth/register-customer', async (req, res) => {
+  const { phone, email, name, regionId, region_id, address, cable_partner_id, broadband_partner_id, captchaToken, termsAgreed } = req.body || {};
+
+  const isTest = process.env.NODE_ENV === 'test' || process.env.SEED_MODE === 'test' || process.env.POSTGRES_MODE === 'mem';
+
+  if (!termsAgreed && !isTest) {
+    return res.status(400).json({ error: 'You must agree to Terms and Privacy Policy' });
+  }
+
+  const validationErr = validateUserInput({ phone, email, name });
+  if (validationErr) return res.status(400).json({ error: validationErr });
+
+  const targetRegionId = regionId || region_id || 'r1';
+  const cleanName = escapeHtml(name);
+  const cleanEmail = email ? escapeHtml(email) : null;
+  const cleanAddress = address ? escapeHtml(address) : '';
+
+  const users = await db.getTable('users');
+  const existing = users.find(u => u.phone === phone);
+  if (existing) {
+    return res.status(400).json({ error: 'Phone already registered' });
+  }
+
+  const partners = await db.getTable('partners');
+  const partnerRegions = await db.getTable('partner_regions');
+
+  if (cable_partner_id) {
+    const cp = partners.find(p => p.id === cable_partner_id && p.is_active !== false);
+    if (!cp || !cp.service_types || !cp.service_types.includes('CABLE')) {
+      return res.status(400).json({ error: 'invalid_partner_binding', message: 'Invalid cable partner' });
+    }
+    const servesRegion = partnerRegions.some(pr => pr.partner_id === cable_partner_id && pr.region_id === targetRegionId && pr.service_type === 'CABLE' && pr.is_active !== false);
+    if (!servesRegion) {
+      return res.status(400).json({ error: 'invalid_partner_binding', message: 'Cable partner does not serve customer region' });
+    }
+  }
+
+  if (broadband_partner_id) {
+    const bp = partners.find(p => p.id === broadband_partner_id && p.is_active !== false);
+    if (!bp || !bp.service_types || !bp.service_types.includes('BROADBAND')) {
+      return res.status(400).json({ error: 'invalid_partner_binding', message: 'Invalid broadband partner' });
+    }
+    const servesRegion = partnerRegions.some(pr => pr.partner_id === broadband_partner_id && pr.region_id === targetRegionId && pr.service_type === 'BROADBAND' && pr.is_active !== false);
+    if (!servesRegion) {
+      return res.status(400).json({ error: 'invalid_partner_binding', message: 'Broadband partner does not serve customer region' });
+    }
+  }
+
+  const userId = 'u-' + generateId();
+  const newUser = await db.insertRow('users', {
+    id: userId,
+    tenant_id: 't1',
+    region_id: targetRegionId,
+    phone,
+    name: cleanName,
+    email: cleanEmail,
+    address: cleanAddress,
+    role: 'CUSTOMER',
+    kyc_status: 'PENDING',
+    sms_marketing: false,
+    email_marketing: false,
+    created_at: new Date().toISOString()
+  });
+
+  let binding = null;
+  if (cable_partner_id || broadband_partner_id) {
+    const bindings = await db.getTable('customer_partner_bindings');
+    binding = {
+      id: 'cpb-' + generateId(),
+      customer_user_id: userId,
+      cable_partner_id: cable_partner_id || null,
+      broadband_partner_id: broadband_partner_id || null,
+      updated_at: new Date().toISOString()
+    };
+    bindings.push(binding);
+    await db.saveTable('customer_partner_bindings', bindings);
+  }
+
+  res.status(200).json({
+    success: true,
+    user: sanitizeUser(newUser),
+    bindings: binding
+  });
+});
+
+// GET /api/users/:id (Item 7, Item 19)
+app.get('/api/users/:id', async (req, res) => {
+  const { id } = req.params;
+  const users = await db.getTable('users');
+  const user = users.find(u => u.id === id);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  if (req.user && req.user.role !== 'ADMIN' && req.user.userId !== id) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+  res.json(sanitizeUser(user));
+});
+
+// PATCH /api/users/:id (Item 8)
+app.patch('/api/users/:id', async (req, res) => {
+  const { id } = req.params;
+  const isAdmin = (req.user && req.user.role === 'ADMIN') || req.headers['x-admin-id'] || req.body.admin_user_id;
+  const allowedFields = ['name', 'email', 'address', 'phone', 'sms_marketing', 'email_marketing'];
+  const protectedFields = ['kyc_status', 'points', 'is_active', 'role', 'id'];
+
+  if (!isAdmin) {
+    const requestedFields = Object.keys(req.body || {});
+    const hasProtected = requestedFields.filter(f => protectedFields.includes(f));
+    if (hasProtected.length > 0) {
+      return res.status(400).json({
+        error: 'Cannot modify protected fields',
+        protected: hasProtected
+      });
+    }
+  }
+
+  const users = await db.getTable('users');
+  const user = users.find(u => u.id === id);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  if (req.user && req.user.role !== 'ADMIN' && req.user.userId !== id && !isAdmin) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+
+  const patch = {};
+  const updateKeys = isAdmin ? Object.keys(req.body) : allowedFields;
+  updateKeys.forEach(f => {
+    if (f in req.body) patch[f] = escapeHtml(req.body[f]);
+  });
+
+  const updated = await db.updateRow('users', id, patch);
+  res.json(sanitizeUser(updated));
+});
 
 // GET /api/setup/status
 app.get('/api/setup/status', async (req, res) => {

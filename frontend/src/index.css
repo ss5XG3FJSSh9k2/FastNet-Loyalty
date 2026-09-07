@@ -50,6 +50,61 @@ button, input, select, textarea {
   font-family: inherit;
 }
 
+/* WCAG AA Focus Visible & Accessibility Outlines (Part 2.1) */
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid #6366F1 !important;
+  outline-offset: 2px !important;
+}
+
+/* Cookie Consent Banner Styling (Item 2.2 #9) */
+.cookie-banner {
+  position: fixed;
+  bottom: 1rem;
+  left: 1rem;
+  right: 1rem;
+  max-width: 600px;
+  margin: 0 auto;
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-color);
+  padding: 1rem 1.25rem;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+  z-index: 9999;
+}
+.cookie-banner-text {
+  font-size: 0.875rem;
+  color: var(--text-main);
+}
+.cookie-banner-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+.cookie-btn-accept {
+  background: var(--primary);
+  color: #fff;
+  border: none;
+  padding: 0.4rem 0.85rem;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.cookie-btn-decline {
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border-color);
+  padding: 0.4rem 0.85rem;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
 /* Scrollbar styling */
 ::-webkit-scrollbar {
   width: 6px;
