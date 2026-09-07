@@ -1060,6 +1060,14 @@ app.get('/api/products/search-alternatives', async (req, res) => {
 // STOCKIST ENDPOINTS
 // ----------------------------------------------------
 
+function calculateIsShopOpen(stockist) {
+  if (!stockist.opening_time || !stockist.closing_time) return true;
+  const now = new Date();
+  const currentTime = now.getHours().toString().padStart(2, '0') + ':' + 
+                       now.getMinutes().toString().padStart(2, '0');
+  return currentTime >= stockist.opening_time && currentTime < stockist.closing_time;
+}
+
 app.get('/api/stockists', async (req, res) => {
   const { regionId } = req.query;
   const stockists = await db.getTable('stockists');
@@ -1083,7 +1091,7 @@ app.get('/api/stockists', async (req, res) => {
       reliabilityBadge = 'New Stockist (Verified)';
     }
 
-    return { ...s, reliabilityBadge, product_count: shopProducts.length };
+    return { ...s, reliabilityBadge, product_count: shopProducts.length, is_shop_open: calculateIsShopOpen(s) };
   });
 
   return res.json(enriched);
@@ -1096,7 +1104,21 @@ app.get('/api/stockists/by-user/:userId', async (req, res) => {
   if (!stockist) {
     return res.status(404).json({ error: 'Stockist record not found or pending KYC' });
   }
-  return res.json(stockist);
+  return res.json({
+    ...stockist,
+    is_shop_open: calculateIsShopOpen(stockist)
+  });
+});
+
+app.get('/api/stockists/:id', async (req, res) => {
+  const { id } = req.params;
+  const stockists = await db.getTable('stockists');
+  const stockist = stockists.find(s => s.id === id);
+  if (!stockist) return res.status(404).json({ error: 'Stockist not found' });
+  return res.json({
+    ...stockist,
+    is_shop_open: calculateIsShopOpen(stockist)
+  });
 });
 
 app.get('/api/stockists/:id/stats', async (req, res) => {

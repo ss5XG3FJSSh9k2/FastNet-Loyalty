@@ -6314,8 +6314,46 @@ export default function App() {
                                         )}
                                       </div>
                                     </div>
-                                    <button className="btn btn-accent" style={{ padding: '0.35rem 0.75rem', fontSize: '0.75rem', whiteSpace: 'nowrap' }} onClick={() => { setSelectedStockist(s); setPreviousStockistId(null); }}>
-                                      {t('Shop', 'खरीदारी करें', 'বাজার করুন')}
+                                    <button 
+                                      className="btn btn-accent" 
+                                      style={{ 
+                                        padding: '0.35rem 0.75rem', 
+                                        fontSize: '0.75rem', 
+                                        whiteSpace: 'nowrap',
+                                        opacity: isOpen ? 1 : 0.5,
+                                        cursor: isOpen ? 'pointer' : 'not-allowed'
+                                      }} 
+                                      disabled={!isOpen}
+                                      onClick={async () => {
+                                        if (!isOpen) {
+                                          triggerConfirmModal(
+                                            t('Shop Closed', 'दुकान बंद है', 'দোকান বন্ধ'),
+                                            t(`This shop is closed. It reopens at ${s.opening_time || '09:00'}`, `यह दुकान बंद है। यह ${s.opening_time || '09:00'} पर पुनः खुलती है`, `এই দোকানটি বন্ধ। এটি পুনরায় খোলে ${s.opening_time || '09:00'}-এ`),
+                                            () => {},
+                                            false
+                                          );
+                                          return;
+                                        }
+                                        try {
+                                          const pRes = await fetch(`${API_BASE}/products?regionId=${currentUser.region_id}&stockistId=${s.id}`);
+                                          const prods = await pRes.json();
+                                          if (Array.isArray(prods) && prods.length === 0) {
+                                            triggerConfirmModal(
+                                              t('No Items', 'कोई सामान नहीं', 'কোনো জিনিসপত্র নেই'),
+                                              t('This shop has no items available.', 'इस दुकान में कोई सामान उपलब्ध नहीं है।', 'এই দোকানে কোনো सामान उपलब्ध नहीं है।'),
+                                              () => {},
+                                              false
+                                            );
+                                            return;
+                                          }
+                                        } catch (e) {}
+                                        setSelectedStockist(s); 
+                                        setPreviousStockistId(null); 
+                                      }}
+                                    >
+                                      {isOpen 
+                                        ? t('Shop', 'खरीदारी करें', 'বাজার করুন') 
+                                        : `${t('Closed', 'बंद', 'বন্ধ')} • ${s.opening_time || '09:00'}`}
                                     </button>
                                   </div>
                                 );
