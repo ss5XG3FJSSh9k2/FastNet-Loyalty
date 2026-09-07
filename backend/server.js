@@ -2804,6 +2804,45 @@ app.post('/api/admin/approve-kyc', async (req, res) => {
   return res.json({ success: true, stockist: newStockist });
 });
 
+app.post('/api/admin/kyc/:userId/disapprove', async (req, res) => {
+  const { userId } = req.params;
+  const { reason } = req.body;
+  
+  if (!reason) {
+    return res.status(400).json({ error: 'Reason is required' });
+  }
+  
+  const users = await db.getTable('users');
+  const user = users.find(u => u.id === userId);
+  if (!user || user.role !== 'STOCKIST') {
+    return res.status(404).json({ error: 'Stockist not found' });
+  }
+  
+  // Update user status
+  user.kyc_status = 'REJECTED';
+  user.kyc_rejection_reason = reason;
+  user.kyc_rejection_at = new Date().toISOString();
+  
+  await db.saveTable('users', users);
+  
+  // Send notification
+  if (user.phone && smsHelper.isSmsConfigured()) {
+    try {
+      await smsHelper.sendSms(user.phone, `KYC Application Rejected: Your KYC application was rejected. Reason: ${reason}. You can reapply anytime.`);
+    } catch (e) {
+      console.error('Failed to send KYC rejection SMS:', e);
+    }
+  }
+  
+  // Log audit
+  await appendAudit(req, 'DISAPPROVE_KYC', 'user', userId, 
+    { kyc_status: 'PENDING' }, 
+    { kyc_status: 'REJECTED', kyc_rejection_reason: reason }
+  );
+  
+  return res.json({ success: true, message: 'KYC rejected' });
+});
+
 // Self-service Phone Change Requests & Verification
 app.post('/api/customer/phone-change/request', async (req, res) => {
   const { user_id, new_phone } = req.body;
