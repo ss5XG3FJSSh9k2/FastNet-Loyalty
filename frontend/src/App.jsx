@@ -251,6 +251,8 @@ export default function App() {
 
   const [cartExpanded, setCartExpanded] = useState(false);
   const [blacklistedUsers, setBlacklistedUsers] = useState([]);
+  const [blacklistSearch, setBlacklistSearch] = useState('');
+  const [blacklistFilter, setBlacklistFilter] = useState('all');
   const [adminSupportTickets, setAdminSupportTickets] = useState([]);
   const [showSupportTicketModal, setShowSupportTicketModal] = useState(false);
   const [supportTicketType, setSupportTicketType] = useState('BLACKLIST_APPEAL');
@@ -5057,11 +5059,11 @@ export default function App() {
             Phone + OTP
           </button>
           <button 
-            className={`btn ${partnerLoginTab === 'password' ? 'btn-primary' : 'btn-secondary'}`} 
-            style={{ flex: 1, fontSize: '0.75rem', opacity: !partnerSetupCompleted ? 0.6 : 1 }} 
+            className={`btn ${partnerLoginTab === 'password' ? 'btn-primary' : 'btn-secondary'} ${!partnerSetupCompleted ? 'disabled' : ''}`} 
+            style={{ flex: 1, fontSize: '0.75rem', opacity: !partnerSetupCompleted ? 0.5 : 1, cursor: !partnerSetupCompleted ? 'not-allowed' : 'pointer' }} 
             disabled={!partnerSetupCompleted}
-            title={!partnerSetupCompleted ? "Complete first-time setup via Phone + OTP first" : ""}
-            onClick={() => setPartnerLoginTab('password')}
+            title={!partnerSetupCompleted ? "Set up email and password after first login" : "Email + Password Login"}
+            onClick={() => partnerSetupCompleted && setPartnerLoginTab('password')}
           >
             Email + Password
           </button>
@@ -8879,6 +8881,20 @@ export default function App() {
               >
                 <AlertTriangle size={16} /> Fraud Reports {adminFraudReports.filter(r=>['NEW','TRIAGING'].includes(r.status)).length > 0 && <span className="badge badge-warning" style={{ marginLeft: '0.25rem', fontSize: '0.65rem' }}>{adminFraudReports.filter(r=>['NEW','TRIAGING'].includes(r.status)).length}</span>}
               </button>
+              <button 
+                className={`admin-nav-item ${adminTab === 'blacklist' ? 'active' : ''}`} 
+                onClick={() => { 
+                  setAdminTab('blacklist'); 
+                  fetchDbState();
+                  if (typeof window !== 'undefined' && window.history && window.history.pushState) {
+                    window.history.pushState(null, '', '/admin/blacklist');
+                  }
+                }}
+                data-path="/admin/blacklist"
+                data-tab="blacklist"
+              >
+                <ShieldAlert size={16} /> Blacklist {blacklistedUsers.length > 0 && <span className="badge badge-danger" style={{ marginLeft: '0.25rem', fontSize: '0.65rem' }}>{blacklistedUsers.length}</span>}
+              </button>
               <button className={`admin-nav-item ${adminTab === 'partners' ? 'active' : ''}`} onClick={() => { setAdminTab('partners'); fetchAdminPartners(); }}>
                 <UserPlus size={16} /> Partners ({adminPartners.length})
               </button>
@@ -9877,46 +9893,78 @@ export default function App() {
                     View accounts blocked due to fraudulent documentation, duplicate phone numbers, or platform abuse. Unblock upon successful appeal or extend penalty duration.
                   </p>
 
+                  <div className="blacklist-filters" style={{ display: 'flex', gap: '0.75rem', marginBottom: '1.25rem' }}>
+                    <input 
+                      type="text"
+                      placeholder="Search by phone or name..." 
+                      className="text-input"
+                      style={{ flex: 1, maxWidth: '300px' }}
+                      value={blacklistSearch} 
+                      onChange={e => setBlacklistSearch(e.target.value)} 
+                    />
+                    <select 
+                      className="text-input"
+                      style={{ width: '180px' }}
+                      value={blacklistFilter} 
+                      onChange={e => setBlacklistFilter(e.target.value)}
+                    >
+                      <option value="all">All</option>
+                      <option value="FRAUD">Fraud</option>
+                      <option value="DUPLICATE">Duplicate Phone</option>
+                      <option value="DISPUTED">Disputed Document</option>
+                    </select>
+                  </div>
+
                   <table className="admin-table">
                     <thead>
                       <tr>
-                        <th>Name / Store</th>
                         <th>Phone</th>
-                        <th>Role</th>
+                        <th>Name</th>
                         <th>Reason</th>
                         <th>Blacklisted Until</th>
                         <th>Actions</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {blacklistedUsers.map(u => (
-                        <tr key={u.user_id}>
-                          <td><strong>{u.name}</strong></td>
-                          <td>{u.phone}</td>
-                          <td><span className="badge badge-secondary">{u.role}</span></td>
-                          <td style={{ color: 'var(--danger)', fontSize: '0.8rem' }}>{u.reason}</td>
-                          <td>{u.blacklist_until ? new Date(u.blacklist_until).toLocaleDateString() : 'Permanent'}</td>
-                          <td>
-                            <div style={{ display: 'flex', gap: '0.3rem' }}>
-                              <button className="btn btn-accent" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }} onClick={() => {
-                                triggerConfirmModal(
-                                  'Lift Blacklist',
-                                  `Lift blacklist for ${u.name}? They will be able to submit updated documents.`,
-                                  () => handleUnblockBlacklist(u.user_id)
-                                );
-                              }}>
-                                Lift Blacklist
-                              </button>
-                              <button className="btn btn-secondary" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }} onClick={() => handleExtendBlacklist(u.user_id, 30)}>
-                                Extend 30 Days
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
+                      {blacklistedUsers
+                        .filter(u => {
+                          const matchesSearch = !blacklistSearch || 
+                            (u.phone && u.phone.includes(blacklistSearch)) ||
+                            (u.name && u.name.toLowerCase().includes(blacklistSearch.toLowerCase()));
+                          const matchesFilter = blacklistFilter === 'all' || 
+                            (u.reason && u.reason.toUpperCase().includes(blacklistFilter.toUpperCase()));
+                          return matchesSearch && matchesFilter;
+                        })
+                        .map(u => (
+                          <tr key={u.user_id || u.id}>
+                            <td>{u.phone}</td>
+                            <td><strong>{u.name}</strong></td>
+                            <td style={{ color: 'var(--danger)', fontSize: '0.8rem' }}>{u.reason || u.kyc_blacklist_reason}</td>
+                            <td>{u.blacklist_until || u.kyc_blacklist_until ? new Date(u.blacklist_until || u.kyc_blacklist_until).toLocaleDateString() : 'Permanent'}</td>
+                            <td>
+                              <div style={{ display: 'flex', gap: '0.3rem' }}>
+                                <button className="btn btn-secondary" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }} onClick={() => setAdminTab('support_tickets')}>
+                                  View Appeal
+                                </button>
+                                <button className="btn btn-secondary" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }} onClick={() => handleExtendBlacklist(u.user_id || u.id, 30)}>
+                                  Extend 30 Days
+                                </button>
+                                <button className="btn btn-accent" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }} onClick={() => {
+                                  triggerConfirmModal(
+                                    'Lift Blacklist',
+                                    `Lift blacklist for ${u.name}? They will be able to submit updated documents.`,
+                                    () => handleUnblockBlacklist(u.user_id || u.id)
+                                  );
+                                }}>
+                                  Lift Blacklist
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
                       {blacklistedUsers.length === 0 && (
                         <tr>
-                          <td colSpan="6" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
+                          <td colSpan="5" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
                             No blacklisted users currently on record.
                           </td>
                         </tr>
@@ -10463,66 +10511,6 @@ export default function App() {
                 </div>
               )}
 
-              {adminTab === 'kyc' && (
-                <div>
-                  <h2 style={{ fontSize: '1.4rem', marginBottom: '1rem' }}>Pending KYC Approvals</h2>
-                  <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
-                    Verify local grocery stores applying to open shops on the FastNet Hyperlocal Marketplace. Approve to assign local wholesale suppliers.
-                  </p>
-
-                  <table className="admin-table">
-                    <thead>
-                      <tr>
-                        <th>Name</th>
-                        <th>Phone</th>
-                        <th>Region</th>
-                        <th>ID Type</th>
-                        <th>ID Number</th>
-                        <th>Shop Name</th>
-                        <th>Shop Address</th>
-                        <th>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {pendingKyc.map(u => {
-                        let kyc = u.kyc_details || {};
-                        if (typeof kyc === 'string') {
-                          try { kyc = JSON.parse(kyc); } catch (e) { kyc = {}; }
-                        }
-                        return (
-                          <tr key={u.id}>
-                            <td>{u.name}</td>
-                            <td>{u.phone}</td>
-                            <td>{u.region_id === 'r1' ? 'Kolkata South' : 'Rural Bishnupur'}</td>
-                            <td>{kyc.id_type || u.kyc_id_type || '-'}</td>
-                            <td>{kyc.id_number || u.kyc_id_number || '-'}</td>
-                            <td>{kyc.shop_name || u.shop_name || `${u.name} Store`}</td>
-                            <td>{kyc.shop_address || u.shop_address || u.address || '-'}</td>
-                            <td>
-                              <button className="btn btn-accent" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }} onClick={() => {
-                                triggerConfirmModal(
-                                  'Approve Stockist KYC',
-                                  `Approve ${u.name} as stockist? A vendor will be auto-assigned based on their region.`,
-                                  () => handleApproveKyc(u.id)
-                                );
-                              }}>
-                                Approve
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                      {pendingKyc.length === 0 && (
-                        <tr>
-                          <td colSpan="8" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
-                            No stockists awaiting KYC approval right now.
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              )}
 
               {(adminTab === 'config' || adminTab === 'rates') && (
                 <div>
@@ -12933,6 +12921,65 @@ export default function App() {
             </div>
             <div style={{ textAlign: 'right', marginTop: '1.5rem' }}>
               <button className="btn btn-primary" onClick={() => setShowCookiesPolicyModal(false)}>Close Menu</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* KYC Action Modal (Reject / Blacklist) */}
+      {showKycActionModal && (
+        <div className="modal-overlay">
+          <div className="modal-content glass-card" style={{ maxWidth: '450px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h3 style={{ fontSize: '1.1rem', margin: 0 }}>
+                {kycActionType === 'BLACKLIST' ? 'Blacklist User' : 'Reject KYC Application'}
+              </h3>
+              <button className="btn btn-secondary" style={{ padding: '0.2rem 0.5rem' }} onClick={() => setShowKycActionModal(false)}>
+                <X size={14} />
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+              <div className="input-group">
+                <label className="input-label">Reason *</label>
+                <textarea 
+                  className="text-input" 
+                  rows={3}
+                  placeholder={kycActionType === 'BLACKLIST' ? 'Reason for blacklisting account...' : 'Reason for rejection...'}
+                  value={kycActionReason}
+                  onChange={e => setKycActionReason(e.target.value)}
+                />
+              </div>
+
+              {kycActionType === 'BLACKLIST' && (
+                <div className="input-group">
+                  <label className="input-label">Blacklist Duration (Days)</label>
+                  <input 
+                    type="number" 
+                    className="text-input" 
+                    value={kycActionDays} 
+                    onChange={e => setKycActionDays(parseInt(e.target.value, 10) || 30)} 
+                  />
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+                <button className="btn btn-secondary" onClick={() => setShowKycActionModal(false)}>
+                  Cancel
+                </button>
+                <button 
+                  className={kycActionType === 'BLACKLIST' ? 'btn btn-danger' : 'btn btn-primary'}
+                  onClick={() => {
+                    if (kycActionType === 'BLACKLIST') {
+                      handleBlacklistKycUser(kycActionUserId, kycActionReason, kycActionDays);
+                    } else {
+                      handleRejectKycWithAppeal(kycActionUserId, kycActionReason);
+                    }
+                  }}
+                >
+                  {kycActionType === 'BLACKLIST' ? 'Confirm Blacklist' : 'Submit Rejection'}
+                </button>
+              </div>
             </div>
           </div>
         </div>

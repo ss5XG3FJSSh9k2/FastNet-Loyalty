@@ -3281,6 +3281,26 @@ app.post('/api/admin/kyc/:userId/reject-with-appeal', async (req, res) => {
   return res.json({ success: true, status: user.kyc_status, can_reapply: user.kyc_status !== 'BLACKLISTED' });
 });
 
+// Alias for Reject KYC
+app.post('/api/admin/kyc/:userId/reject', async (req, res) => {
+  const { userId } = req.params;
+  const { reason } = req.body || {};
+  if (!reason) return res.status(400).json({ error: 'Reason is required' });
+
+  const users = await db.getTable('users');
+  const user = users.find(u => u.id === userId);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  user.kyc_status = 'REJECTED';
+  user.kyc_rejection_reason = reason;
+  user.kyc_rejection_count = (parseInt(user.kyc_rejection_count, 10) || 0) + 1;
+  user.kyc_rejected_at = new Date().toISOString();
+
+  await db.saveTable('users', users);
+  await appendAudit(req, 'REJECT_KYC', 'user', userId, null, { kyc_status: user.kyc_status, reason });
+  return res.json({ success: true, status: user.kyc_status, can_reapply: true });
+});
+
 // Blacklist User Endpoint
 app.post('/api/admin/kyc/:userId/blacklist', async (req, res) => {
   const { userId } = req.params;
@@ -3363,6 +3383,28 @@ app.post('/api/admin/blacklist/:userId/unblock', async (req, res) => {
   await db.saveTable('user_blacklist', filtered);
 
   await appendAudit(req, 'UNBLOCK_USER', 'user', userId, { kyc_status: 'BLACKLISTED' }, { kyc_status: 'REJECTED' });
+  return res.json({ success: true, message: 'Blacklist lifted successfully. User can now reapply.' });
+});
+
+// Alias for Lift Blacklist
+app.post('/api/admin/blacklist/:userId/lift', async (req, res) => {
+  const { userId } = req.params;
+  const users = await db.getTable('users');
+  const user = users.find(u => u.id === userId);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  user.kyc_status = 'REJECTED';
+  user.is_blacklisted = false;
+  user.kyc_blacklist_until = null;
+  user.kyc_blacklist_reason = null;
+
+  await db.saveTable('users', users);
+
+  const blacklists = await db.getTable('user_blacklist');
+  const filtered = blacklists.filter(b => b.user_id !== userId);
+  await db.saveTable('user_blacklist', filtered);
+
+  await appendAudit(req, 'LIFT_BLACKLIST', 'user', userId, { kyc_status: 'BLACKLISTED' }, { kyc_status: 'REJECTED' });
   return res.json({ success: true, message: 'Blacklist lifted successfully. User can now reapply.' });
 });
 

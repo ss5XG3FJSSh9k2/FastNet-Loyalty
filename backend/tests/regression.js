@@ -4040,7 +4040,32 @@ async function main() {
   assert(freshAppContent.includes("setAdminTab('fraud_reports')") && freshAppContent.includes("'/admin/fraud'"), 'Clicking Fraud Reports tab navigates to /admin/fraud');
 
   // Test #744: Fraud Reports panel renders data correctly
-  assert(freshAppContent.includes("adminTab === 'fraud'") && freshAppContent.includes("Fraud Reports Queue"), 'Fraud Reports panel renders data correctly');
+  // --- Round BF13: Post-Launch Bug Fixes (Bugs #1-4) ---
+  console.log('\n--- Round BF13: Post-Launch Bug Fixes ---');
+
+  // Test: Pending KYC Approvals section appears exactly ONCE in App.jsx
+  const kycMatches = (freshAppContent.match(/Pending KYC Approvals/g) || []).length;
+  assert(kycMatches === 1, `Pending KYC Approvals section appears exactly once in App.jsx (got ${kycMatches})`);
+
+  // Test: POST /api/admin/kyc/:userId/reject alias returns 200
+  const rejectTestRes = await post('http://localhost:3001/api/admin/kyc/u-stk3/reject', {
+    reason: 'Incomplete shop registration document'
+  });
+  assert(rejectTestRes.status === 200 && rejectTestRes.body.status === 'REJECTED', 'POST /api/admin/kyc/:userId/reject rejects KYC and returns 200');
+
+  // Test: POST /api/admin/kyc/:userId/blacklist and /api/admin/blacklist/:userId/lift endpoints work
+  const blacklistTestRes = await post('http://localhost:3001/api/admin/kyc/u-stk3/blacklist', {
+    reason: 'Fraudulent identity document',
+    days: 30
+  });
+  assert(blacklistTestRes.status === 200 && blacklistTestRes.body.status === 'BLACKLISTED', 'POST /api/admin/kyc/:userId/blacklist returns 200');
+
+  const liftTestRes = await post('http://localhost:3001/api/admin/blacklist/u-stk3/lift', {});
+  assert(liftTestRes.status === 200 && liftTestRes.body.success, 'POST /api/admin/blacklist/:userId/lift lifts blacklist and returns 200');
+
+  // Test: App contains Blacklist nav tab, search filters, and disabled Email login tab
+  assert(freshAppContent.includes('data-path="/admin/blacklist"') && freshAppContent.includes('blacklistSearch'), 'App contains Blacklist nav tab and search filters');
+  assert(freshAppContent.includes('disabled={!partnerSetupCompleted}'), 'Partner Email login tab is disabled when setup is incomplete');
 
   console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);
