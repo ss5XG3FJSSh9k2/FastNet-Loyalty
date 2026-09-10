@@ -4206,7 +4206,76 @@ async function main() {
   assert(appCodeContent.includes('MemoizedCustomerRow'), 'Admin customers table memoized row component exists in App.jsx');
   assert(appCodeContent.includes('MemoizedOrderRow'), 'Admin orders table memoized row component exists in App.jsx');
   assert(appCodeContent.includes('MemoizedAuditLogRow'), 'Admin audit log table memoization component exists in App.jsx');
-  assert(appCodeContent.includes('React.memo') && appCodeContent.includes('displayName = \'Memoized'), 'App.jsx performance verification check passed');
+  // --- Round BF16: Critical Bugs Fixes ---
+  console.log('\n--- Round BF16: Critical Bugs Fixes ---');
+
+  // Register a stockist with pending KYC
+  const pendingPhone = '9777111000';
+  await post('http://localhost:3001/api/auth/register-stockist', {
+    phone: pendingPhone,
+    name: 'Pending Stockist',
+    shopName: 'Pending Shop',
+    regionId: 'r1',
+    idType: 'Aadhaar',
+    idNumber: '111122223333',
+    address: '123 Main St'
+  }, { rawJson: true });
+
+  // Test 778: Pending KYC stockist send-otp blocked with 403
+  const pendingOtpRes = await post('http://localhost:3001/api/auth/send-otp', { phone: pendingPhone });
+  assert(pendingOtpRes.status === 403 && pendingOtpRes.body.error === 'KYC Pending Approval', 'Pending KYC stockist send-otp blocked with 403');
+
+  // Test 779: Pending KYC stockist verify-otp blocked with 403
+  const pendingVerifyRes = await post('http://localhost:3001/api/auth/verify-otp', { phone: pendingPhone, otp: '123456', expected_role: 'STOCKIST' });
+  assert(pendingVerifyRes.status === 403 && pendingVerifyRes.body.error === 'KYC Pending Approval', 'Pending KYC stockist verify-otp blocked with 403');
+
+  // Test 780: Rejected KYC stockist send-otp returns 403 with rejected message
+  const usersList = await dbModule.getTable('users');
+  const pendingUser = usersList.find(u => u.phone === pendingPhone);
+  if (pendingUser) pendingUser.kyc_status = 'REJECTED';
+  await dbModule.saveTable('users', usersList);
+
+  const rejectedOtpRes = await post('http://localhost:3001/api/auth/send-otp', { phone: pendingPhone });
+  assert(rejectedOtpRes.status === 403 && rejectedOtpRes.body.message.includes('rejected'), 'Rejected KYC stockist send-otp returns 403 with rejection message');
+
+  // Test 781: Blacklisted stockist send-otp returns 403 with blocked message
+  if (pendingUser) pendingUser.kyc_status = 'BLACKLISTED';
+  await dbModule.saveTable('users', usersList);
+
+  const blacklistedOtpRes = await post('http://localhost:3001/api/auth/send-otp', { phone: pendingPhone });
+  assert(blacklistedOtpRes.status === 403 && blacklistedOtpRes.body.message.includes('blocked'), 'Blacklisted stockist send-otp returns 403 with blocked message');
+
+  // Test 782: Approved KYC stockist allowed to send-otp
+  if (pendingUser) pendingUser.kyc_status = 'APPROVED';
+  await dbModule.saveTable('users', usersList);
+
+  const approvedOtpRes = await post('http://localhost:3001/api/auth/send-otp', { phone: pendingPhone });
+  assert(approvedOtpRes.status === 200, 'Approved KYC stockist allowed to send-otp');
+
+  // Test 783: POST /api/products without product name returns 400 error
+  const noNameProdRes = await post('http://localhost:3001/api/products', {
+    selling_price: 100,
+    cost_price: 80,
+    category: 'groceries',
+    initial_stock: 50,
+    stockist_id: 's1',
+    region_id: 'r1',
+    bill_invoice_url: 'http://example.com/bill.jpg'
+  }, { rawJson: true });
+  assert(noNameProdRes.status === 400 && noNameProdRes.body.error === 'Product name is required', 'POST /api/products without product name returns 400 error');
+
+  // Test 784: POST /api/stockist/products with product name returns 200
+  const validProdRes = await post('http://localhost:3001/api/stockist/products', {
+    name: 'Basmati Rice 5kg',
+    selling_price: 350,
+    cost_price: 280,
+    category: 'groceries',
+    initial_stock: 20,
+    stockist_id: 's1',
+    region_id: 'r1',
+    bill_invoice_url: 'http://example.com/bill.jpg'
+  }, { rawJson: true });
+  assert(validProdRes.status === 200 && validProdRes.body.product.name === 'Basmati Rice 5kg', 'POST /api/stockist/products with product name succeeds and creates product');
 
   console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);

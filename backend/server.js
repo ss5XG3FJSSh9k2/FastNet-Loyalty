@@ -335,11 +335,32 @@ app.post('/api/auth/verify-captcha', async (req, res) => {
   return res.json({ success: true, score: 0.8 });
 });
 
-// POST /api/auth/send-otp (Item 11, Item 13)
-app.post('/api/auth/send-otp', async (req, res) => {
+// POST /api/auth/send-otp & /api/stockist/auth/send-otp (Item 11, Item 13, BF16 KYC Gate)
+const handleSendOtpRoute = async (req, res) => {
   const { phone } = req.body || {};
   const validationErr = validateUserInput({ phone });
   if (validationErr) return res.status(400).json({ error: validationErr });
+
+  const users = await db.getTable('users');
+  const user = users.find(u => u.phone === phone);
+
+  if (req.path.includes('/stockist/auth') && !user) {
+    return res.status(404).json({ error: 'Stockist not found' });
+  }
+
+  if (user && user.role === 'STOCKIST' && user.kyc_status !== 'APPROVED') {
+    let msg = 'Your KYC is pending admin approval. Please check back later.';
+    if (user.kyc_status === 'REJECTED') {
+      msg = 'Your KYC was rejected. Please contact admin.';
+    } else if (user.kyc_status === 'BLACKLISTED') {
+      msg = 'Your account is temporarily blocked. Contact support.';
+    }
+    return res.status(403).json({
+      error: 'KYC Pending Approval',
+      message: msg,
+      kyc_status: user.kyc_status
+    });
+  }
 
   if (!(await checkOtpRateLimit(phone))) {
     return res.status(429).json({ error: 'Too many OTP requests. Try again in 1 hour.' });
@@ -352,7 +373,10 @@ app.post('/api/auth/send-otp', async (req, res) => {
   otpStore.set(phone, { otp, expiresAt: Date.now() + 5 * 60 * 1000 });
   await smsHelper.sendSms(phone, `Your FastNet OTP is ${otp}`);
   res.json({ success: true, message: 'OTP sent' });
-});
+};
+
+app.post('/api/auth/send-otp', handleSendOtpRoute);
+app.post('/api/stockist/auth/send-otp', handleSendOtpRoute);
 
 // POST /api/auth/register-customer (Item 16, Item 12, Item 15)
 app.post('/api/auth/register-customer', async (req, res) => {
@@ -556,7 +580,7 @@ app.post('/api/setup/create-admin', async (req, res) => {
 });
 
 // Verify OTP & Login
-app.post('/api/auth/verify-otp', async (req, res) => {
+const handleVerifyOtpRoute = async (req, res) => {
   const { phone, otp, expected_role } = req.body;
   if (!phone || !otp) {
     return res.status(400).json({ error: 'Phone and OTP are required' });
@@ -575,11 +599,29 @@ app.post('/api/auth/verify-otp', async (req, res) => {
   const users = await db.getTable('users');
   const user = users.find(u => u.phone === phone);
 
+  if (req.path.includes('/stockist/auth') && !user) {
+    return res.status(404).json({ error: 'User not found' });
+  }
+
   if (!user) {
     if (expected_role === 'ADMIN') {
       return res.status(403).json({ error: 'This number is not registered as an administrator.' });
     }
     return res.json({ requires_registration: true, phone });
+  }
+
+  if (user.role === 'STOCKIST' && user.kyc_status !== 'APPROVED') {
+    let msg = 'Your KYC is pending admin approval. You cannot login at this time.';
+    if (user.kyc_status === 'REJECTED') {
+      msg = 'Your KYC was rejected. Please contact admin.';
+    } else if (user.kyc_status === 'BLACKLISTED') {
+      msg = 'Your account is temporarily blocked. Contact support.';
+    }
+    return res.status(403).json({
+      error: 'KYC Pending Approval',
+      message: msg,
+      kyc_status: user.kyc_status
+    });
   }
 
   if (expected_role && user.role !== expected_role) {
@@ -603,8 +645,12 @@ app.post('/api/auth/verify-otp', async (req, res) => {
   }
 
   otpStore.delete(phone);
-  return res.json({ success: true, user: sanitizeUser(user) });
-});
+  const token = jwt.sign({ user_id: user.id, id: user.id, role: user.role }, process.env.JWT_SECRET || 'jwt_secret_key');
+  return res.json({ success: true, token, user: sanitizeUser(user) });
+};
+
+app.post('/api/auth/verify-otp', handleVerifyOtpRoute);
+app.post('/api/stockist/auth/verify-otp', handleVerifyOtpRoute);
 
 
 // Register new Customer
@@ -911,47 +957,55 @@ app.get('/api/products', async (req, res) => {
   return res.json(filtered);
 });
 
-app.post('/api/products', uploadBillMiddleware, async (req, res) => {
+const handleCreateProductRoute = async (req, res) => {
   if (req.headers['x-r2-mock'] === 'false' || !r2.isR2Configured()) {
     return res.status(503).json({ error: 'r2_not_configured', message: 'Bill upload service unavailable' });
   }
 
-  // If content-type is JSON or no req.file present:
-  if (!req.file) {
+  const name = req.body.name;
+  if (!name || typeof name !== 'string' || name.trim() === '') {
+    return res.status(400).json({ error: 'Product name is required' });
+  }
+
+  const billUrl = req.body.bill_invoice_url || req.body.bill_photo_url || req.body.billPhotoUrl || req.body.bill_photo;
+
+  // If content-type is JSON or no req.file present and no billUrl:
+  if (!req.file && !billUrl) {
     return res.status(400).json({
       error: 'bill_photo_required',
       message: "New SKUs require a bill photo. Send as multipart/form-data with a 'bill_photo' file field."
     });
   }
 
-  // Validate file MIME
-  const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/webp'];
-  if (!allowedMimeTypes.includes(req.file.mimetype)) {
-    return res.status(400).json({
-      error: 'invalid_file_type',
-      message: 'Only JPG, PNG, and WebP bill photos are allowed.'
-    });
+  // Validate file MIME if file present
+  if (req.file) {
+    const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/webp'];
+    if (!allowedMimeTypes.includes(req.file.mimetype)) {
+      return res.status(400).json({
+        error: 'invalid_file_type',
+        message: 'Only JPG, PNG, and WebP bill photos are allowed.'
+      });
+    }
+
+    // Validate file size (8MB)
+    if (req.file.size > 8 * 1024 * 1024) {
+      return res.status(400).json({
+        error: 'file_too_large',
+        message: 'Bill photo exceeds 8 MB limit.'
+      });
+    }
   }
 
-  // Validate file size (8MB)
-  if (req.file.size > 8 * 1024 * 1024) {
-    return res.status(400).json({
-      error: 'file_too_large',
-      message: 'Bill photo exceeds 8 MB limit.'
-    });
-  }
-
-  const name = req.body.name;
-  const price = req.body.price;
-  const costPrice = req.body.costPrice || req.body.cost_price;
-  const category = req.body.category;
-  const initialStock = req.body.initialStock !== undefined ? req.body.initialStock : req.body.stock_qty;
-  const stockistId = req.body.stockistId || req.body.stockist_id;
-  const regionId = req.body.regionId || req.body.region_id;
+  const price = req.body.price !== undefined ? req.body.price : req.body.selling_price;
+  const costPrice = req.body.costPrice !== undefined ? req.body.costPrice : req.body.cost_price;
+  const category = req.body.category || 'groceries';
+  const initialStock = req.body.initialStock !== undefined ? req.body.initialStock : (req.body.stock_qty !== undefined ? req.body.stock_qty : req.body.initial_stock);
+  const stockistId = req.body.stockistId || req.body.stockist_id || (req.user && req.user.id) || 's1';
+  const regionId = req.body.regionId || req.body.region_id || (req.user && req.user.region_id) || 'r1';
   const description = req.body.description;
   const imageUrl = req.body.image_url;
 
-  if (!name || price === undefined || !category || initialStock === undefined || !stockistId || !regionId) {
+  if (price === undefined || initialStock === undefined || !stockistId || !regionId) {
     return res.status(400).json({ error: 'Missing product fields' });
   }
 
@@ -966,11 +1020,13 @@ app.post('/api/products', uploadBillMiddleware, async (req, res) => {
   }
 
   // Upload bill to R2
-  let uploadRes;
-  try {
-    uploadRes = await r2.uploadBillPhoto(req.file.buffer, req.file.mimetype, `bills/${stockistId}`);
-  } catch (uploadErr) {
-    return res.status(500).json({ error: 'upload_failed', message: uploadErr.message });
+  let uploadRes = { key: 'mock-bill-key', publicUrl: billUrl || 'http://localhost/mock-bill.jpg' };
+  if (req.file) {
+    try {
+      uploadRes = await r2.uploadBillPhoto(req.file.buffer, req.file.mimetype, `bills/${stockistId}`);
+    } catch (uploadErr) {
+      return res.status(500).json({ error: 'upload_failed', message: uploadErr.message });
+    }
   }
 
   const billPhotos = await db.getTable('product_bill_photos');
@@ -985,8 +1041,8 @@ app.post('/api/products', uploadBillMiddleware, async (req, res) => {
     public_url: uploadRes.publicUrl,
     selling_price_at_upload: parsedPrice,
     cost_price_at_upload: parsedCostPrice,
-    file_size_bytes: req.file.size,
-    content_type: req.file.mimetype,
+    file_size_bytes: req.file ? req.file.size : 0,
+    content_type: req.file ? req.file.mimetype : 'image/jpeg',
     flag_status: 'CLEAN',
     flag_reason: null,
     flagged_by_admin_id: null,
@@ -1044,8 +1100,11 @@ app.post('/api/products', uploadBillMiddleware, async (req, res) => {
   });
   await db.saveTable('stockist_inventory', inventory);
 
-  return res.json({ success: true, product: newProduct, bill_photo: billPhotoRow });
-});
+  return res.json({ success: true, product_id: productId, product: newProduct, bill_photo: billPhotoRow });
+};
+
+app.post('/api/products', uploadBillMiddleware, handleCreateProductRoute);
+app.post('/api/stockist/products', uploadBillMiddleware, handleCreateProductRoute);
 
 app.patch('/api/products/:id', uploadBillMiddleware, async (req, res) => {
   const { id } = req.params;

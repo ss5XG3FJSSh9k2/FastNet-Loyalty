@@ -2073,7 +2073,7 @@ export default function App() {
         setOtpSent(true);
         showToast('OTP sent successfully! Enter 123456');
       } else {
-        showToast(data.error || 'Failed to send OTP', 'error');
+        showToast(data.message || data.error || 'Failed to send OTP', 'error');
       }
     } catch (err) {
       showToast('Backend connection error', 'error');
@@ -2108,7 +2108,7 @@ export default function App() {
           setLoginOtp('');
         }
       } else {
-        showToast(data.error || 'Invalid OTP', 'error');
+        showToast(data.message || data.error || 'Invalid OTP', 'error');
       }
     } catch (err) {
       showToast('Authentication service error', 'error');
@@ -9971,7 +9971,7 @@ export default function App() {
                             <td>{u.phone}</td>
                             <td>{regions.find(r => r.id === u.region_id)?.name || u.region_id || 'Kolkata South'}</td>
                             <td>{kyc.id_type || u.kyc_id_type || '-'}</td>
-                            <td>{kyc.id_number || u.kyc_id_number || '-'}</td>
+                            <td>{formatAadhaar(kyc.id_number || u.kyc_id_number) || '-'}</td>
                             <td>{kyc.shop_name || u.shop_name || `${u.name} Store`}</td>
                             <td>{kyc.shop_address || u.shop_address || u.address || '-'}</td>
                             <td>
