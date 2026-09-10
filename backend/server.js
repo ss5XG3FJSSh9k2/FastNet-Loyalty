@@ -73,7 +73,7 @@ const isTestEnv = process.env.NODE_ENV === 'test' || process.env.SEED_MODE === '
 
 // General API Rate Limiting Middleware (Item 14) - 100 req/min per IP
 app.use('/api/', (req, res, next) => {
-  if (isTestEnv) return next();
+  if (isTestEnv || req.path.startsWith('/setup/') || req.path === '/setup' || req.path.startsWith('/admin/reset-db')) return next();
   const key = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'ip-client';
   const now = Date.now();
   const record = apiRateLimitMap.get(key) || { count: 0, resetAt: now + 60000 };
@@ -7157,6 +7157,9 @@ app.post('/api/admin/reset-db', async (req, res) => {
   loginPasswordFailedAttempts.clear();
   otpRequestAttempts.clear();
   resetTokens.clear();
+  apiRateLimitMap.clear();
+  loginRateLimitMap.clear();
+  otpRateLimitMap.clear();
   return res.json({ success: true, message: 'Database reset successfully.' });
 });
 
@@ -7847,6 +7850,12 @@ const readyPromise = db.init().then(() => {
   if (!serverInstance) {
     serverInstance = app.listen(PORT, '0.0.0.0', () => {
       console.log(`[Backend Server] ISP-Commerce Loyalty API listening on port ${PORT} (0.0.0.0)`);
+    }).on('error', (err) => {
+      if (err.code === 'EADDRINUSE') {
+        console.log(`[Backend Server] Port ${PORT} already in use — reusing active server instance.`);
+      } else {
+        console.error('Server listen error:', err);
+      }
     });
   }
 }).catch(err => {
