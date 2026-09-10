@@ -77,6 +77,96 @@ async function backfillReferralCodes(dbInterface) {
   }
 }
 
+async function dedupeStockists(dbInterface) {
+  try {
+    const stockists = await dbInterface.getTable('stockists');
+    if (!stockists || stockists.length === 0) return;
+
+    const groups = new Map();
+    for (const s of stockists) {
+      const key = s.phone || s.contact_phone || s.user_id || s.id;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(s);
+    }
+
+    let changed = false;
+    const keptStockists = [];
+
+    for (const [key, group] of groups.entries()) {
+      if (group.length === 1) {
+        keptStockists.push(group[0]);
+        continue;
+      }
+
+      changed = true;
+      let kept = group.find(s => s.vendor_id);
+      if (!kept) {
+        group.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+        kept = group[0];
+      }
+
+      const dropped = group.filter(s => s.id !== kept.id);
+      const droppedIds = dropped.map(s => s.id);
+
+      const tablesToRepoint = [
+        'products', 'orders', 'order_items', 'stockist_inventory', 'stockist_vendors',
+        'stockist_commission_rates', 'points_earn_config', 'commission_config',
+        'stockist_cod_commissions', 'split_payouts'
+      ];
+
+      for (const table of tablesToRepoint) {
+        try {
+          const rows = await dbInterface.getTable(table);
+          let tableModified = false;
+          for (const row of rows) {
+            if (row.stockist_id && droppedIds.includes(row.stockist_id)) {
+              row.stockist_id = kept.id;
+              tableModified = true;
+            }
+          }
+          if (tableModified) {
+            await dbInterface.saveTable(table, rows);
+          }
+        } catch (err) {
+          // ignore
+        }
+      }
+
+      for (const d of dropped) {
+        if (!kept.vendor_id && d.vendor_id) kept.vendor_id = d.vendor_id;
+        if (!kept.name && d.name) kept.name = d.name;
+        if (!kept.phone && d.phone) kept.phone = d.phone;
+      }
+
+      keptStockists.push(kept);
+    }
+
+    if (changed) {
+      await dbInterface.saveTable('stockists', keptStockists);
+    }
+  } catch (e) {
+    console.warn('[Dedupe warning]:', e.message);
+  }
+}
+
+async function normalizeClosingTimes(dbInterface) {
+  try {
+    const stockists = await dbInterface.getTable('stockists');
+    let changed = false;
+    for (const s of stockists) {
+      if (s.closing_time === '24:00') {
+        s.closing_time = '23:59';
+        changed = true;
+      }
+    }
+    if (changed) {
+      await dbInterface.saveTable('stockists', stockists);
+    }
+  } catch (e) {
+    // ignore
+  }
+}
+
 let initPromise = null;
 
 async function init() {
@@ -114,6 +204,9 @@ async function init() {
       await seedRunner.seedDatabase(dbInterface);
       await backfillReferralCodes(dbInterface);
     }
+
+    await dedupeStockists(dbInterface);
+    await normalizeClosingTimes(dbInterface);
   })();
   return initPromise;
 }
@@ -140,6 +233,8 @@ async function resetForTest() {
   if (seedMode === 'test') {
     await seedRunner.seedDatabase(dbInterface);
     await backfillReferralCodes(dbInterface);
+    await dedupeStockists(dbInterface);
+    await normalizeClosingTimes(dbInterface);
   }
 }
 
@@ -179,6 +274,14 @@ async function insertRow(tableName, row, client = null) {
     row.referral_code = code;
   }
 
+  if (['stockists', 'partners', 'vendors'].includes(tableName) && row.phone !== undefined) {
+    if (row.contact_phone === undefined) row.contact_phone = row.phone;
+    delete row.phone;
+  }
+  if (tableName === 'stockists') {
+    delete row.updated_at;
+  }
+
   const keys = Object.keys(row);
   if (keys.length === 0) throw new Error('Cannot insert empty row');
 
@@ -203,6 +306,13 @@ async function insertRow(tableName, row, client = null) {
 async function updateRow(tableName, id, patch, client = null) {
   if (tableName === 'points_ledger') {
     throw new Error('points_ledger is append-only');
+  }
+  if (['stockists', 'partners', 'vendors'].includes(tableName) && patch.phone !== undefined) {
+    if (patch.contact_phone === undefined) patch.contact_phone = patch.phone;
+    delete patch.phone;
+  }
+  if (tableName === 'stockists') {
+    delete patch.updated_at;
   }
 
   const keys = Object.keys(patch).filter(k => k !== 'id');

@@ -496,6 +496,11 @@ export default function App() {
   const [regShopName, setRegShopName] = useState('');
   const [regKycType2, setRegKycType2] = useState('Aadhaar');
   const [regKycNumber2, setRegKycNumber2] = useState('');
+  const [aadhaarDigits, setAadhaarDigits] = useState('');
+  const [aadhaarDisplay, setAadhaarDisplay] = useState('');
+  const [aadhaarError, setAadhaarError] = useState('');
+  const [regDocPhoto, setRegDocPhoto] = useState(null);
+  const [loginErrorMessage, setLoginErrorMessage] = useState('');
   const [stockistPendingUser, setStockistPendingUser] = useState(null);
 
   // Round P3 — Customer Signup Partner Selection & Profile State
@@ -682,13 +687,16 @@ export default function App() {
     return `₹${Number(val).toFixed(2)}`;
   };
 
-  const formatAadhaar = (val) => {
-    if (!val) return '—';
-    const clean = String(val).replace(/\D/g, '');
+  const formatAadhaar = (raw) => (raw ? String(raw).replace(/\D/g, '').slice(0, 12).replace(/(\d{4})(?=\d)/g, '$1-') : '');
+
+  // Aadhaar masking helper (supports XXXX-XXXX- and xxxx-xxxx-)
+  const maskAadhaar = (n) => {
+    if (!n) return '—';
+    const clean = String(n).replace(/\D/g, '');
     if (clean.length === 12) {
-      return `xxxx-xxxx-${clean.slice(8)}`;
+      return `XXXX-XXXX-${clean.slice(8)}`;
     }
-    return String(val);
+    return String(n);
   };
 
   // Multi-lingual & Simulation States
@@ -2071,9 +2079,13 @@ export default function App() {
       logApi('POST', '/auth/send-otp', { phone: loginPhone }, res.status, data);
       if (res.ok) {
         setOtpSent(true);
+        setLoginErrorMessage('');
         showToast('OTP sent successfully! Enter 123456');
       } else {
-        showToast(data.message || data.error || 'Failed to send OTP', 'error');
+        setOtpSent(false);
+        const errText = data.message || data.error || 'Failed to send OTP';
+        setLoginErrorMessage(errText);
+        showToast(errText, 'error');
       }
     } catch (err) {
       showToast('Backend connection error', 'error');
@@ -2314,9 +2326,9 @@ export default function App() {
     setSlotError(false);
 
     if (cartFulfillment === 'DELIVERY' || cartFulfillment === 'HOME_DELIVERY') {
-      const activeAddress = (deliveryAddress || profileAddress || currentUser?.address || '').trim();
-      if (!activeAddress) {
-        showToast(t('Please enter a delivery address for Home Delivery', 'कृपया होम डिलीवरी के लिए वितरण पता दर्ज करें', 'হোম ডেলিভারির জন্য অনুগ্রহ করে একটি ডেলিভারি ঠিকানা লিখুন'), 'error');
+      const activeAddress = (deliveryAddress !== undefined && deliveryAddress !== '' ? deliveryAddress : (profileAddress || currentUser?.address || '')).trim();
+      if (!activeAddress || activeAddress.length < 5) {
+        showToast(t('Please enter a valid delivery address (minimum 5 characters)', 'कृपया एक मान्य डिलीवरी पता दर्ज करें (कम से कम 5 अक्षर)', 'অনুগ্রহ করে একটি বৈধ ডেলিভারি ঠিকানা লিখুন (কমপক্ষে ৫টি অক্ষর)'), 'error');
         return;
       }
     }
@@ -2336,7 +2348,7 @@ export default function App() {
         customerId: currentUser.id,
         stores,
         fulfillmentType: cartFulfillment,
-        deliveryAddress: (deliveryAddress || profileAddress || currentUser?.address || '').trim(),
+        deliveryAddress: (deliveryAddress !== undefined && deliveryAddress !== '' ? deliveryAddress : (profileAddress || currentUser?.address || '')).trim(),
         paymentMethod: cartFulfillment === 'PICKUP' ? 'UPI' : 'COD'
       };
 
@@ -2716,30 +2728,53 @@ export default function App() {
 
 
 
+  const onAadhaarChange = (e) => {
+    const digits = e.target.value.replace(/\D/g, '').slice(0, 12);
+    setAadhaarDigits(digits);
+    setAadhaarDisplay(formatAadhaar(digits));
+    setAadhaarError(digits.length === 12 || digits.length === 0
+      ? '' : 'Aadhaar must be exactly 12 digits');
+  };
+
   const handleStockistRegister = async () => {
-    if (!regName || !loginPhone || !regShopName || !regKycNumber2 || !regAddress) {
+    if (!regName || !loginPhone || !regShopName || !regAddress || !regRegion) {
       showToast('All fields required', 'error'); return;
     }
-    const normKycType = String(regKycType2 || '').toUpperCase();
-    if (normKycType.includes('AADHAAR') || normKycType.includes('AADHAR')) {
-      const cleanAadhaar = regKycNumber2.replace(/\D/g, '');
-      if (cleanAadhaar.length !== 12) {
-        showToast(t('Aadhaar number must contain exactly 12 digits', 'आधार संख्या में ठीक 12 अंक होने चाहिए', 'আধার নম্বরটি ঠিক ১২ টি সংখ্যার হতে হবে'), 'error');
+    const isAadhaar = String(regKycType2 || '').toUpperCase().includes('AADHAAR') || String(regKycType2 || '').toUpperCase().includes('AADHAR');
+    if (isAadhaar) {
+      if (aadhaarDigits.length !== 12) {
+        showToast(t('Aadhaar must be exactly 12 digits', 'आधार संख्या में ठीक 12 अंक होने चाहिए', 'আধার নম্বরটি ঠিক ১২ টি সংখ্যার হতে হবে'), 'error');
         return;
       }
+    } else if (!regKycNumber2) {
+      showToast(t('Document ID number is required', 'दस्तावेज़ नंबर आवश्यक है', 'ডকুমেন্ট নম্বর আবশ্যক'), 'error');
+      return;
+    }
+    if (!regDocPhoto) {
+      showToast(t('Document photo upload is required', 'दस्तावेज़ फोटो अपलोड आवश्यक है', 'ডকুমেন্ট ফটো আপলোড আবশ্যক'), 'error');
+      return;
     }
     try {
-      const payload = { phone: loginPhone, name: regName, shopName: regShopName, regionId: regRegion, idType: regKycType2, idNumber: regKycNumber2, address: regAddress };
-      const res = await fetch(`${API_BASE}/auth/register-stockist`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      const formData = new FormData();
+      formData.append('phone', loginPhone);
+      formData.append('name', regName);
+      formData.append('shopName', regShopName);
+      formData.append('regionId', regRegion);
+      formData.append('idType', regKycType2);
+      formData.append('idNumber', isAadhaar ? aadhaarDigits : regKycNumber2);
+      formData.append('address', regAddress);
+      formData.append('documentPhoto', regDocPhoto);
+
+      const res = await fetch(`${API_BASE}/auth/register-stockist`, { method: 'POST', body: formData });
       const data = await res.json();
-      logApi('POST', '/auth/register-stockist', payload, res.status, data);
+      logApi('POST', '/auth/register-stockist', { phone: loginPhone, name: regName, shopName: regShopName }, res.status, data);
       if (res.ok) {
         setStockistPendingUser(data.user);
         showToast(t('Registration submitted! Awaiting admin approval.', 'पंजीकरण सबमिट!', 'নিবন্ধন জমা হয়েছে!'), 'warning');
         setShowStockistSignup(false);
-        setRegName(''); setRegShopName(''); setRegKycNumber2(''); setRegAddress(''); setOtpSent(false);
+        setRegName(''); setRegShopName(''); setRegKycNumber2(''); setAadhaarDigits(''); setAadhaarDisplay(''); setAadhaarError(''); setRegAddress(''); setRegDocPhoto(null); setOtpSent(false);
       } else {
-        showToast(data.error || 'Registration failed', 'error');
+        showToast(data.message || data.error || 'Registration failed', 'error');
       }
     } catch (err) { showToast('Registration error', 'error'); }
   };
@@ -2914,6 +2949,15 @@ export default function App() {
       showToast('Name and phone are required', 'error');
       return;
     }
+    const timeRegex = /^([01]\d|2[0-3]):[0-5]\d$/;
+    if (createStkOpen && (createStkOpen === '24:00' || !timeRegex.test(createStkOpen))) {
+      showToast(t('Opening time must be between 00:00 and 23:59', 'खुलने का समय 00:00 और 23:59 के बीच होना चाहिए', 'খোলার সময় 00:00 থেকে 23:59 এর মধ্যে হতে হবে'), 'error');
+      return;
+    }
+    if (createStkClose && (createStkClose === '24:00' || !timeRegex.test(createStkClose))) {
+      showToast(t('Closing time must be between 00:00 and 23:59', 'बंद होने का समय 00:00 और 23:59 के बीच होना चाहिए', 'বন্ধের সময় 00:00 থেকে 23:59 এর মধ্যে হতে হবে'), 'error');
+      return;
+    }
     try {
       const payload = {
         name: createStkName,
@@ -2945,6 +2989,19 @@ export default function App() {
 
   const handleEditStockist = async () => {
     if (!selectedStockistDetail) return;
+    const timeRegex = /^([01]\d|2[0-3]):[0-5]\d$/;
+    if (!editStkName || editStkName.trim().length < 2) {
+      showToast(t('Stockist name must be at least 2 characters', 'स्टॉकिस्ट का नाम कम से कम 2 अक्षरों का होना चाहिए', 'স্টকিস্টের নাম কমপক্ষে 2 অক্ষরের হতে হবে'), 'error');
+      return;
+    }
+    if (editStkOpen && (editStkOpen === '24:00' || !timeRegex.test(editStkOpen))) {
+      showToast(t('Opening time must be between 00:00 and 23:59', 'खुलने का समय 00:00 और 23:59 के बीच होना चाहिए', 'খোলার সময় 00:00 থেকে 23:59 এর মধ্যে হতে হবে'), 'error');
+      return;
+    }
+    if (editStkClose && (editStkClose === '24:00' || !timeRegex.test(editStkClose))) {
+      showToast(t('Closing time must be between 00:00 and 23:59', 'बंद होने का समय 00:00 और 23:59 के बीच होना चाहिए', 'বন্ধের সময় 00:00 থেকে 23:59 এর মধ্যে হতে হবে'), 'error');
+      return;
+    }
     try {
       const payload = {
         name: editStkName,
@@ -3789,7 +3846,11 @@ export default function App() {
   };
 
   const handleAddNewProduct = async () => {
-    if (!newProdName || !newProdPrice || !newProdInitialStock) {
+    if (!newProdName || newProdName.trim().length < 2) {
+      showToast(t('Product name must be at least 2 characters', 'उत्पाद का नाम कम से कम 2 अक्षरों का होना चाहिए', 'পণ্যের নাম কমপক্ষে 2 অক্ষরের হতে হবে'), 'error');
+      return;
+    }
+    if (!newProdPrice || !newProdInitialStock) {
       showToast('Please fill all required product fields', 'error');
       return;
     }
@@ -4112,9 +4173,14 @@ export default function App() {
                 placeholder="Enter 10-digit mobile number" 
                 className="text-input" 
                 value={loginPhone}
-                onChange={e => setLoginPhone(e.target.value.replace(/\D/g,'').substring(0,10))}
+                onChange={e => { setLoginPhone(e.target.value.replace(/\D/g,'').substring(0,10)); setLoginErrorMessage(''); }}
               />
             </div>
+            {loginErrorMessage && (
+              <div style={{ color: 'var(--danger)', fontSize: '0.8rem', marginBottom: '0.75rem', background: 'rgba(239,68,68,0.1)', padding: '0.6rem', borderRadius: '6px', border: '1px solid var(--danger)', lineHeight: 1.4 }}>
+                {loginErrorMessage}
+              </div>
+            )}
             <button className="btn" onClick={handleSendOtp}>Send One-Time Password</button>
             
             {isDevMode && (
@@ -4300,7 +4366,7 @@ export default function App() {
               )}
             </div>
             <div className="input-group">
-              <label className="input-label">{t('Delivery Address (Optional)', 'डिलीवरी पता', 'ডেলিভারি ঠিকানা')}</label>
+              <label className="input-label">{t('Delivery Address (optional — you can add this at checkout)', 'डिलीवरी का पता (वैकल्पिक — आप इसे चेकआउट पर जोड़ सकते हैं)', 'ডেলিভারি ঠিকানা (ঐচ্ছিক — আপনি চেকআউটে এটি যোগ করতে পারেন)')}</label>
               <input type="text" placeholder="e.g. 12 Main Road, Garia" className="text-input" value={regAddress} onChange={e => setRegAddress(e.target.value)} />
             </div>
             <div className="input-group">
@@ -4344,24 +4410,69 @@ export default function App() {
               )}
             </div>
             <div className="input-group">
-              <label className="input-label">{t('KYC Document Type', 'KYC दस्तावेज़ प्रकार', 'KYC ডকুমেন্ট ধরন')}</label>
-              <select className="text-input" value={regKycType2} onChange={e => setRegKycType2(e.target.value)}>
+              <label className="input-label">{t('KYC Document Type', 'KYC दस्तावेज़ प्रकार', 'KYC ডকুমেন্ট ধরন')} *</label>
+              <select className="text-input" value={regKycType2} onChange={e => { setRegKycType2(e.target.value); setAadhaarDigits(''); setAadhaarDisplay(''); setAadhaarError(''); setRegKycNumber2(''); }}>
                 <option value="Aadhaar">Aadhaar Card</option>
                 <option value="Voter ID">Voter ID</option>
                 <option value="Trade License">Trade License</option>
               </select>
             </div>
+            {regKycType2 === 'Aadhaar' ? (
+              <div className="input-group">
+                <label className="input-label">{t('Aadhaar Number', 'आधार नंबर', 'আধার নম্বর')} *</label>
+                <input 
+                  type="text" 
+                  placeholder="1234-5678-9012" 
+                  className="text-input" 
+                  value={aadhaarDisplay} 
+                  onChange={onAadhaarChange} 
+                  maxLength={14}
+                />
+                {aadhaarError && <p style={{ color: 'var(--danger)', fontSize: '0.75rem', marginTop: '0.25rem' }}>{aadhaarError}</p>}
+              </div>
+            ) : (
+              <div className="input-group">
+                <label className="input-label">{t('Document ID Number', 'दस्तावेज़ नंबर', 'ডকুমেন্ট নম্বর')} *</label>
+                <input 
+                  type="text" 
+                  placeholder={t('Enter ID Number', 'आईडी दर्ज करें', 'আইডি লিখুন')} 
+                  className="text-input" 
+                  value={regKycNumber2} 
+                  onChange={e => setRegKycNumber2(e.target.value)} 
+                />
+              </div>
+            )}
             <div className="input-group">
-              <label className="input-label">{t('Document ID Number', 'दस्तावेज़ नंबर', 'ডকুমেন্ট নম্বর')}</label>
-              <input type="text" placeholder="e.g. 1234-5678-9012" className="text-input" value={regKycNumber2} onChange={e => setRegKycNumber2(e.target.value)} />
+              <label className="input-label">{t('Document Photo', 'दस्तावेज़ फोटो', 'ডকুমেন্ট ফটো')} *</label>
+              <input 
+                type="file" 
+                accept="image/*" 
+                className="text-input" 
+                onChange={e => setRegDocPhoto(e.target.files ? e.target.files[0] : null)} 
+              />
+              {!regDocPhoto && (
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.7rem', marginTop: '0.25rem' }}>
+                  {t('Photo upload is required for verification', 'सत्यापन के लिए फोटो अपलोड आवश्यक है', 'যাচাইয়ের জন্য ছবি আপলোড বাধ্যতামূলক')}
+                </p>
+              )}
             </div>
             <div className="input-group">
-              <label className="input-label">{t('Shop Address', 'दुकान का पता', 'দোকানের ঠিকানা')}</label>
+              <label className="input-label">{t('Shop Address', 'दुकान का पता', 'দোকানের ঠিকানা')} *</label>
               <input type="text" placeholder="e.g. Shop 5, Market Road" className="text-input" value={regAddress} onChange={e => setRegAddress(e.target.value)} />
             </div>
             <div style={{ display: 'flex', gap: '0.5rem' }}>
               <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => { setShowStockistSignup(false); setOtpSent(false); }}>← {t('Back', 'वापस', 'ফিরে')}</button>
-              <button className="btn btn-accent" style={{ flex: 2 }} onClick={handleStockistRegister}>{t('Submit for KYC Review', 'KYC समीक्षा सबमिट', 'KYC পর্যালোচনায় জমা')}</button>
+              <button 
+                className="btn btn-accent" 
+                style={{ flex: 2 }} 
+                onClick={handleStockistRegister}
+                disabled={
+                  !regName || !regShopName || !regAddress || !regRegion || !regDocPhoto ||
+                  (regKycType2 === 'Aadhaar' ? aadhaarDigits.length !== 12 : !regKycNumber2)
+                }
+              >
+                {t('Submit for KYC Review', 'KYC समीक्षा सबमिट', 'KYC পর্যালোচনায় জমা')}
+              </button>
             </div>
           </>
         ) : (
@@ -6746,11 +6857,15 @@ export default function App() {
                               .map(s => {
                                 const isOpen = (() => {
                                   if (!s.opening_time || !s.closing_time) return true;
+                                  let closing = s.closing_time;
+                                  if (closing === '24:00') closing = '23:59';
+                                  const opening = s.opening_time;
                                   const now = new Date();
-                                  const curMins = now.getHours() * 60 + now.getMinutes();
-                                  const [opH, opM] = s.opening_time.split(':').map(Number);
-                                  const [clH, clM] = s.closing_time.split(':').map(Number);
-                                  return curMins >= (opH * 60 + opM) && curMins <= (clH * 60 + clM);
+                                  const curTime = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
+                                  if (closing <= opening) {
+                                    return curTime >= opening || curTime < closing;
+                                  }
+                                  return curTime >= opening && curTime < closing;
                                 })();
 
                                 const productCountLabel = (s.product_count !== undefined && s.product_count === 0)
@@ -7112,12 +7227,44 @@ export default function App() {
                                   );
                                 })()}
                                 
-                                <button className="btn" style={{ width: '100%', fontSize: '0.8rem', border: slotError ? '2px solid var(--danger)' : undefined }} onClick={handleCheckout}>
-                                  {cartFulfillment === 'PICKUP'
-                                    ? <><Key size={14} style={{ marginRight: '0.25rem' }} />{t('Place Pickup Order', 'पिकअप ऑर्डर दें', 'পিকআপ অর্ডার দিন')}</>
-                                    : <><Truck size={14} style={{ marginRight: '0.25rem' }} />{t('Place Delivery Order (COD)', 'डिलीवरी ऑर्डर (COD)', 'ডেলিভারি অর্ডার (COD)')}</>
-                                  }
-                                </button>
+                                {cartFulfillment === 'DELIVERY' && (
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', marginTop: '0.4rem', borderTop: '1px solid var(--border-color)', paddingTop: '0.4rem' }}>
+                                    <label style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                                      {t('Delivery Address', 'डिलीवरी का पता', 'ডেলিভারি ঠিকানা')} <span style={{ color: 'var(--danger)' }}>*</span>
+                                    </label>
+                                    <textarea
+                                      className="text-input"
+                                      style={{ height: '50px', fontSize: '0.75rem', width: '100%', resize: 'none' }}
+                                      placeholder={t('Enter delivery address (minimum 5 characters)...', 'डिलीवरी पता दर्ज करें (कम से कम 5 अक्षर)...', 'ডেলিভারি ঠিকানা লিখুন (কমপক্ষে ৫টি অক্ষর)...')}
+                                      value={deliveryAddress !== undefined && deliveryAddress !== '' ? deliveryAddress : (profileAddress || currentUser?.address || '')}
+                                      onChange={e => setDeliveryAddress(e.target.value)}
+                                    />
+                                    {((deliveryAddress !== undefined && deliveryAddress !== '' ? deliveryAddress : (profileAddress || currentUser?.address || '')).trim().length < 5) && (
+                                      <small style={{ color: 'var(--danger)', fontSize: '0.65rem' }}>
+                                        {t('Address must be at least 5 characters', 'पता कम से कम 5 अक्षरों का होना चाहिए', 'ঠিকানা কমপক্ষে ৫টি অক্ষরের হতে হবে')}
+                                      </small>
+                                    )}
+                                  </div>
+                                )}
+                                
+                                {(() => {
+                                  const activeDeliveryAddr = (deliveryAddress !== undefined && deliveryAddress !== '' ? deliveryAddress : (profileAddress || currentUser?.address || '')).trim();
+                                  const isDeliveryDisabled = cartFulfillment === 'DELIVERY' && activeDeliveryAddr.length < 5;
+
+                                  return (
+                                    <button 
+                                      className="btn" 
+                                      style={{ width: '100%', fontSize: '0.8rem', border: slotError ? '2px solid var(--danger)' : undefined, opacity: isDeliveryDisabled ? 0.6 : 1 }} 
+                                      onClick={handleCheckout}
+                                      disabled={isDeliveryDisabled}
+                                    >
+                                      {cartFulfillment === 'PICKUP'
+                                        ? <><Key size={14} style={{ marginRight: '0.25rem' }} />{t('Place Pickup Order', 'पिकअप ऑर्डर दें', 'পিকআপ অর্ডার দিন')}</>
+                                        : <><Truck size={14} style={{ marginRight: '0.25rem' }} />{t('Place Delivery Order (COD)', 'डिलीवरी ऑर्डर (COD)', 'ডেলিভারি অর্ডার (COD)')}</>
+                                      }
+                                    </button>
+                                  );
+                                })()}
                               </div>
                             )}
                           </>
@@ -8684,8 +8831,16 @@ export default function App() {
                         </h3>
                         
                         <div className="input-group">
-                          <label className="input-label">{t('Product Name', 'उत्पाद का नाम', 'পণ্যের নাম')}</label>
-                          <input type="text" className="text-input" value={newProdName} onChange={e => setNewProdName(e.target.value)} />
+                          <label className="input-label">{t('Product Name', 'उत्पाद का नाम', 'পণ্যের নাম')} *</label>
+                          <input 
+                            type="text" 
+                            className="text-input" 
+                            value={newProdName} 
+                            onChange={e => setNewProdName(e.target.value)} 
+                            placeholder={t('e.g. Basmati Rice 1kg', 'उदा. बासमती चावल 1 किग्रा', 'যেমন বাসমতী চাল ১ কেজি')}
+                            maxLength={80}
+                            required
+                          />
                         </div>
                         
                         <div className="input-group">
@@ -8794,7 +8949,12 @@ export default function App() {
                         </div>
                         
                         <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
-                          <button className="btn btn-accent" style={{ flex: 1 }} onClick={handleAddNewProduct}>
+                          <button 
+                            className="btn btn-accent" 
+                            style={{ flex: 1 }} 
+                            onClick={handleAddNewProduct}
+                            disabled={!newProdName || newProdName.trim().length < 2}
+                          >
                             {t('Add Product', 'उत्पाद जोड़ें', 'পণ্য যোগ করুন')}
                           </button>
                           <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setShowAddProductModal(false)}>
@@ -9741,7 +9901,7 @@ export default function App() {
                           {(healthData?.stockist_volume_leaderboard || []).map(s => (
                             <tr key={s.stockist_id}>
                               <td>{s.stockist_name}</td>
-                              <td>{regions.find(r => r.id === s.region_id)?.name || s.region_id || 'Kolkata South'}</td>
+                              <td>{regions.find(r => r.id === s.region_id)?.name || s.region_id || '—'}</td>
                               <td style={{ fontWeight: 'bold', color: 'var(--accent)' }}>₹{(s.gmv_30d || 0).toFixed(2)}</td>
                             </tr>
                           ))}
@@ -9969,9 +10129,9 @@ export default function App() {
                           <tr key={u.id}>
                             <td>{u.name}</td>
                             <td>{u.phone}</td>
-                            <td>{regions.find(r => r.id === u.region_id)?.name || u.region_id || 'Kolkata South'}</td>
+                            <td>{regions.find(r => r.id === u.region_id)?.name || u.region_id || '-'}</td>
                             <td>{kyc.id_type || u.kyc_id_type || '-'}</td>
-                            <td>{formatAadhaar(kyc.id_number || u.kyc_id_number) || '-'}</td>
+                            <td>{maskAadhaar(kyc.id_number || u.kyc_id_number)}</td>
                             <td>{kyc.shop_name || u.shop_name || `${u.name} Store`}</td>
                             <td>{kyc.shop_address || u.shop_address || u.address || '-'}</td>
                             <td>
@@ -12165,39 +12325,100 @@ export default function App() {
         <div className="modal-overlay">
           <div className="modal-content glass-card" style={{ maxWidth: '450px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-              <h3 style={{ fontSize: '1.1rem', margin: 0 }}>Edit Stockist Details</h3>
+              <h3 style={{ fontSize: '1.1rem', margin: 0 }}>{t('Edit Stockist Details', 'स्टॉकिस्ट विवरण संपादित करें', 'স্টকিস্টের বিবরণ সম্পাদনা করুন')}</h3>
               <button className="btn btn-secondary" style={{ padding: '0.2rem 0.5rem' }} onClick={() => setShowEditStockistModal(false)}><X size={14} /></button>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
               <div className="input-group">
-                <label className="input-label">Stockist Name</label>
-                <input type="text" className="text-input" value={editStkName} onChange={e => setEditStkName(e.target.value)} />
+                <label htmlFor="edit-stk-name" className="input-label">
+                  {t('Shop Name', 'दुकान का नाम', 'দোকানের নাম')} <span style={{ color: 'var(--danger)' }}>*</span>
+                </label>
+                <input 
+                  id="edit-stk-name" 
+                  type="text" 
+                  className="text-input" 
+                  value={editStkName} 
+                  onChange={e => setEditStkName(e.target.value)} 
+                  required
+                />
               </div>
               <div className="input-group">
-                <label className="input-label">Address</label>
-                <input type="text" className="text-input" value={editStkAddress} onChange={e => setEditStkAddress(e.target.value)} />
+                <label htmlFor="edit-stk-address" className="input-label">
+                  {t('Shop Address', 'दुकान का पता', 'দোকানের ঠিকানা')} <span style={{ color: 'var(--danger)' }}>*</span>
+                </label>
+                <input 
+                  id="edit-stk-address" 
+                  type="text" 
+                  className="text-input" 
+                  value={editStkAddress} 
+                  onChange={e => setEditStkAddress(e.target.value)} 
+                  required
+                />
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.5rem' }}>
                 <div className="input-group">
-                  <label className="input-label">Opening Time</label>
-                  <input type="text" className="text-input" value={editStkOpen} onChange={e => setEditStkOpen(e.target.value)} />
+                  <label htmlFor="edit-stk-open" className="input-label">
+                    {t('Opening Time', 'खुलने का समय', 'খোলার সময়')} <span style={{ color: 'var(--danger)' }}>*</span>
+                  </label>
+                  <input 
+                    id="edit-stk-open" 
+                    type="text" 
+                    placeholder="HH:MM" 
+                    className="text-input" 
+                    value={editStkOpen} 
+                    onChange={e => setEditStkOpen(e.target.value)} 
+                    required
+                  />
                 </div>
                 <div className="input-group">
-                  <label className="input-label">Closing Time</label>
-                  <input type="text" className="text-input" value={editStkClose} onChange={e => setEditStkClose(e.target.value)} />
+                  <label htmlFor="edit-stk-close" className="input-label">
+                    {t('Closing Time', 'बंद होने का समय', 'বন্ধের সময়')} <span style={{ color: 'var(--danger)' }}>*</span>
+                  </label>
+                  <input 
+                    id="edit-stk-close" 
+                    type="text" 
+                    placeholder="HH:MM" 
+                    className="text-input" 
+                    value={editStkClose} 
+                    onChange={e => setEditStkClose(e.target.value)} 
+                    required
+                  />
                 </div>
                 <div className="input-group">
-                  <label className="input-label">Prep ETA (min)</label>
-                  <input type="number" className="text-input" value={editStkEta} onChange={e => setEditStkEta(e.target.value)} />
+                  <label htmlFor="edit-stk-eta" className="input-label">
+                    {t('Prep ETA (min)', 'तैयारी का समय (मिनट)', 'প্রস্তুতি সময় (মিনিট)')} <span style={{ color: 'var(--danger)' }}>*</span>
+                  </label>
+                  <input 
+                    id="edit-stk-eta" 
+                    type="number" 
+                    className="text-input" 
+                    value={editStkEta} 
+                    onChange={e => setEditStkEta(e.target.value)} 
+                    required
+                  />
                 </div>
               </div>
               <div className="input-group">
-                <label className="input-label">Delivery Radius (km)</label>
-                <input type="number" step="0.5" className="text-input" value={editStkRadius} onChange={e => setEditStkRadius(e.target.value)} />
+                <label htmlFor="edit-stk-radius" className="input-label">
+                  {t('Delivery Radius (km)', 'डिलीवरी का दायरा (किमी)', 'ডেলিভারি ব্যাসার্ধ (কিমি)')} <span style={{ color: 'var(--danger)' }}>*</span>
+                </label>
+                <input 
+                  id="edit-stk-radius" 
+                  type="number" 
+                  step="0.5" 
+                  className="text-input" 
+                  value={editStkRadius} 
+                  onChange={e => setEditStkRadius(e.target.value)} 
+                  required
+                />
               </div>
               <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
-                <button className="btn btn-secondary" onClick={() => setShowEditStockistModal(false)}>Cancel</button>
-                <button className="btn btn-accent" onClick={handleEditStockist}>Save Changes</button>
+                <button className="btn btn-secondary" onClick={() => setShowEditStockistModal(false)}>
+                  {t('Cancel', 'रद्द करें', 'বাতিল করুন')}
+                </button>
+                <button className="btn btn-accent" onClick={handleEditStockist}>
+                  {t('Save Changes', 'बदलाव सहेजें', 'পরিবর্তন সংরক্ষণ করুন')}
+                </button>
               </div>
             </div>
           </div>

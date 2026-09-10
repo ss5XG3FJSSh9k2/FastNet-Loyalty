@@ -145,13 +145,50 @@ async function isDNDRegistered(phone) {
   return dndList.includes(cleanPhone);
 }
 
-// Server-Side Auth Verification Middleware (Item 6)
-app.use((req, res, next) => {
+function stockistKycGate(user) {
+  if (!user) return { blocked: true, code: 404, body: { error: 'Stockist not found' } };
+  if (user.kyc_status === 'APPROVED') return { blocked: false };
+
+  const messages = {
+    PENDING:     'Your KYC is pending admin approval. Please check back later.',
+    REJECTED:    'Your KYC application was rejected. Contact support to reapply.',
+    BLACKLISTED: 'This account is blocked. Contact support.'
+  };
+  return {
+    blocked: true,
+    code: 403,
+    body: {
+      error: 'KYC_NOT_APPROVED',
+      kyc_status: user.kyc_status || 'PENDING',
+      message: messages[user.kyc_status] || messages.PENDING
+    }
+  };
+}
+
+// Server-Side Auth Verification Middleware (Item 6, Issue 1 KYC Gate)
+app.use(async (req, res, next) => {
   const token = req.headers['authorization']?.split(' ')[1];
   if (token) {
     try {
-      const decoded = sessionHelper.verifySession(token);
+      let decoded = null;
+      try {
+        decoded = jwt.verify(token, sessionHelper.getSecret());
+      } catch (e) {
+        decoded = sessionHelper.verifySession(token);
+      }
       req.user = decoded; // { userId, role }
+      if (decoded) {
+        const userId = decoded.userId || decoded.user_id || decoded.id;
+        const users = await db.getTable('users');
+        const user = users.find(u => u.id === userId);
+        if (user && user.role === 'STOCKIST' && user.kyc_status !== 'APPROVED') {
+          const rawPath = req.path || req.originalUrl?.split('?')[0] || req.url?.split('?')[0];
+          if (!rawPath.startsWith('/api/auth') && !rawPath.startsWith('/api/stockist/auth') && !rawPath.startsWith('/api/health') && !rawPath.startsWith('/api/admin')) {
+            const gate = stockistKycGate(user);
+            return res.status(gate.code).json(gate.body);
+          }
+        }
+      }
     } catch (err) {
       // Invalid token, req.user remains undefined
     }
@@ -342,24 +379,15 @@ const handleSendOtpRoute = async (req, res) => {
   if (validationErr) return res.status(400).json({ error: validationErr });
 
   const users = await db.getTable('users');
-  const user = users.find(u => u.phone === phone);
+  const user = users.find(u => u.phone === phone && u.role === 'STOCKIST') || users.find(u => u.phone === phone);
 
-  if (req.path.includes('/stockist/auth') && !user) {
-    return res.status(404).json({ error: 'Stockist not found' });
-  }
-
-  if (user && user.role === 'STOCKIST' && user.kyc_status !== 'APPROVED') {
-    let msg = 'Your KYC is pending admin approval. Please check back later.';
-    if (user.kyc_status === 'REJECTED') {
-      msg = 'Your KYC was rejected. Please contact admin.';
-    } else if (user.kyc_status === 'BLACKLISTED') {
-      msg = 'Your account is temporarily blocked. Contact support.';
-    }
-    return res.status(403).json({
-      error: 'KYC Pending Approval',
-      message: msg,
-      kyc_status: user.kyc_status
-    });
+  if (req.path.includes('/stockist/auth')) {
+    const stockistUser = user && user.role === 'STOCKIST' ? user : null;
+    const gate = stockistKycGate(stockistUser);
+    if (gate.blocked) return res.status(gate.code).json(gate.body);
+  } else if (user && user.role === 'STOCKIST') {
+    const gate = stockistKycGate(user);
+    if (gate.blocked) return res.status(gate.code).json(gate.body);
   }
 
   if (!(await checkOtpRateLimit(phone))) {
@@ -597,10 +625,12 @@ const handleVerifyOtpRoute = async (req, res) => {
   }
 
   const users = await db.getTable('users');
-  const user = users.find(u => u.phone === phone);
+  const user = users.find(u => u.phone === phone && u.role === 'STOCKIST') || users.find(u => u.phone === phone);
 
-  if (req.path.includes('/stockist/auth') && !user) {
-    return res.status(404).json({ error: 'User not found' });
+  if (req.path.includes('/stockist/auth')) {
+    const stockistUser = user && user.role === 'STOCKIST' ? user : null;
+    const gate = stockistKycGate(stockistUser);
+    if (gate.blocked) return res.status(gate.code).json(gate.body);
   }
 
   if (!user) {
@@ -610,18 +640,9 @@ const handleVerifyOtpRoute = async (req, res) => {
     return res.json({ requires_registration: true, phone });
   }
 
-  if (user.role === 'STOCKIST' && user.kyc_status !== 'APPROVED') {
-    let msg = 'Your KYC is pending admin approval. You cannot login at this time.';
-    if (user.kyc_status === 'REJECTED') {
-      msg = 'Your KYC was rejected. Please contact admin.';
-    } else if (user.kyc_status === 'BLACKLISTED') {
-      msg = 'Your account is temporarily blocked. Contact support.';
-    }
-    return res.status(403).json({
-      error: 'KYC Pending Approval',
-      message: msg,
-      kyc_status: user.kyc_status
-    });
+  if (user.role === 'STOCKIST' || expected_role === 'STOCKIST') {
+    const gate = stockistKycGate(user);
+    if (gate.blocked) return res.status(gate.code).json(gate.body);
   }
 
   if (expected_role && user.role !== expected_role) {
@@ -813,18 +834,25 @@ app.get('/api/kyc/documents/:filename', (req, res) => {
 
 // Register new Stockist (PENDING KYC)
 app.post('/api/auth/register-stockist', uploadBillMiddleware, async (req, res) => {
-  const { phone, name, shopName, regionId, idType, idNumber, address } = req.body;
+  const phone = req.body.phone;
+  const name = req.body.name;
+  const shopName = req.body.shopName || req.body.shop_name;
+  const regionId = req.body.regionId || req.body.region_id;
+  const idType = req.body.idType || req.body.id_type || req.body.kyc_id_type;
+  const idNumber = req.body.idNumber || req.body.id_number || req.body.kyc_id_number;
+  const address = req.body.address || req.body.shop_address;
   if (!phone || !name || !shopName || !regionId || !idType || !idNumber || !address) {
     return res.status(400).json({ error: 'All fields are required' });
   }
 
   // 1. Validate ID number format
   const normIdType = String(idType || '').toUpperCase();
-  if (normIdType === "AADHAAR" || normIdType === "AADHAR") {
-    const cleanAadhaar = String(idNumber || '').replace(/\D/g, '');
-    if (cleanAadhaar.length !== 12) {
+  let cleanIdNumber = idNumber;
+  if (normIdType.includes('AADHAAR') || normIdType.includes('AADHAR')) {
+    cleanIdNumber = String(idNumber || '').replace(/\D/g, '');
+    if (!/^\d{12}$/.test(cleanIdNumber)) {
       return res.status(400).json({ 
-        error: 'Invalid Aadhaar number. Must be exactly 12 digits.' 
+        error: 'Aadhaar must be exactly 12 digits' 
       });
     }
   }
@@ -868,12 +896,14 @@ app.post('/api/auth/register-stockist', uploadBillMiddleware, async (req, res) =
       fs.writeFileSync(path.join(kycDir, filename), docFile.buffer);
       documentPhotoUrl = `/api/kyc/documents/${filename}`;
     } catch (e) {
-      console.error('Failed to save KYC file locally:', e);
+      console.error('Failed to save KYC upload file locally:', e);
     }
     try {
-      const uploadRes = await r2.uploadBillPhoto(docFile.buffer, docFile.mimetype || 'image/jpeg', 'kyc-documents');
-      if (uploadRes && uploadRes.key) {
-        documentPhotoUrl = `/api/images/${uploadRes.key}`;
+      if (r2.isR2Configured()) {
+        const uploadRes = await r2.uploadBillPhoto(docFile.buffer, docFile.mimetype || 'image/jpeg', `kyc-docs/${userId}`);
+        if (uploadRes && uploadRes.publicUrl) {
+          documentPhotoUrl = uploadRes.publicUrl;
+        }
       }
     } catch (e) {
       // fallback to local path
@@ -891,7 +921,7 @@ app.post('/api/auth/register-stockist', uploadBillMiddleware, async (req, res) =
     no_show_count: 0,
     kyc_details: {
       id_type: idType,
-      id_number: idNumber,
+      id_number: cleanIdNumber,
       shop_name: shopName,
       shop_address: address,
       document_photo_url: documentPhotoUrl
@@ -905,7 +935,7 @@ app.post('/api/auth/register-stockist', uploadBillMiddleware, async (req, res) =
 
   // Also seed a stockist record for this user so admin stockist lists work seamlessly
   const stockists = await db.getTable('stockists');
-  if (!stockists.some(s => s.user_id === userId)) {
+  if (!stockists.some(s => s.user_id === userId || (s.contact_phone && s.contact_phone === phone) || (s.phone && s.phone === phone))) {
     const stockistId = 's-' + generateId();
     stockists.push({
       id: stockistId,
@@ -914,6 +944,7 @@ app.post('/api/auth/register-stockist', uploadBillMiddleware, async (req, res) =
       region_id: regionId,
       contact_name: name,
       contact_phone: phone,
+      phone: phone,
       is_active: true,
       opening_time: '09:00',
       closing_time: '21:00',
@@ -962,8 +993,8 @@ const handleCreateProductRoute = async (req, res) => {
     return res.status(503).json({ error: 'r2_not_configured', message: 'Bill upload service unavailable' });
   }
 
-  const name = req.body.name;
-  if (!name || typeof name !== 'string' || name.trim() === '') {
+  const name = String(req.body.name || '').trim();
+  if (name.length < 2) {
     return res.status(400).json({ error: 'Product name is required' });
   }
 
@@ -1433,12 +1464,27 @@ app.get('/api/products/search-alternatives', async (req, res) => {
 // STOCKIST ENDPOINTS
 // ----------------------------------------------------
 
-function calculateIsShopOpen(stockist) {
+// OPEN/CLOSED RULE (Issue 6):
+// If closing <= opening, the shop is treated as closing after midnight (overnight shop).
+// An overnight shop (e.g. 22:00 to 02:00) is open if currentTime >= opening OR currentTime < closing.
+// A daytime shop (e.g. 09:00 to 21:00) is open if currentTime >= opening AND currentTime < closing.
+function calculateIsShopOpen(stockist, currentTimeStr) {
   if (!stockist.opening_time || !stockist.closing_time) return true;
-  const now = new Date();
-  const currentTime = now.getHours().toString().padStart(2, '0') + ':' + 
-                       now.getMinutes().toString().padStart(2, '0');
-  return currentTime >= stockist.opening_time && currentTime < stockist.closing_time;
+  let closing = stockist.closing_time;
+  if (closing === '24:00') closing = '23:59';
+  const opening = stockist.opening_time;
+
+  let currentTime = currentTimeStr;
+  if (!currentTime) {
+    const now = new Date();
+    currentTime = now.getHours().toString().padStart(2, '0') + ':' + 
+                  now.getMinutes().toString().padStart(2, '0');
+  }
+
+  if (closing <= opening) {
+    return currentTime >= opening || currentTime < closing;
+  }
+  return currentTime >= opening && currentTime < closing;
 }
 
 app.get('/api/stockists', async (req, res) => {
@@ -1880,8 +1926,8 @@ async function runFraudDetection(order, customer) {
   }
 }
 
-// POST /api/orders — multi-store aware, slot-required, HELD payment, CONFIRMING state
-app.post('/api/orders', async (req, res) => {
+// POST /api/orders & /api/orders/create — multi-store aware, slot-required, HELD payment, CONFIRMING state
+const handleCreateOrderRoute = async (req, res) => {
   // Supports both old format { customerId, stockistId, items, fulfillmentType }
   // and new format { customerId, stores: [{ stockistId, items, pickupSlot }], fulfillmentType, paymentMethod }
   const { customerId, fulfillmentType, paymentMethod } = req.body;
@@ -1911,8 +1957,8 @@ app.post('/api/orders', async (req, res) => {
   if (reqFulfillment === 'DELIVERY' || reqFulfillment === 'HOME_DELIVERY') {
     const reqAddress = req.body.deliveryAddress !== undefined ? req.body.deliveryAddress : req.body.delivery_address !== undefined ? req.body.delivery_address : req.body.address;
     const deliveryAddr = ((reqAddress !== undefined ? reqAddress : customer.address) || '').trim();
-    if (!deliveryAddr) {
-      return res.status(400).json({ error: 'Delivery address is required for home delivery.' });
+    if (!deliveryAddr || deliveryAddr.length < 5) {
+      return res.status(400).json({ error: 'Delivery address is required for home delivery (minimum 5 characters).' });
     }
   }
 
@@ -2135,7 +2181,9 @@ app.post('/api/orders', async (req, res) => {
     earnRatePercent: createdOrders[0].earn_rate_used,
     order: createdOrders[0]
   });
-});
+};
+app.post('/api/orders', handleCreateOrderRoute);
+app.post('/api/orders/create', handleCreateOrderRoute);
 
 // Cancel an order — enforces cancel window
 app.post('/api/orders/:id/cancel', async (req, res) => {
@@ -3194,45 +3242,60 @@ app.post('/api/admin/approve-kyc', async (req, res) => {
   const user = users[userIndex];
   const stockists = await db.getTable('stockists');
   const shopName = (user.kyc_details && user.kyc_details.shop_name) ? user.kyc_details.shop_name : user.name + ' Store';
-  const newStockist = {
-    id: 's-' + generateId(),
-    tenant_id: user.tenant_id,
-    region_id: user.region_id,
-    user_id: user.id,
-    name: shopName,
-    vendor_id: vendorId,
-    delivery_radius_km: parseFloat(deliveryRadius) || 5.0,
-    min_order_value: 0,
-    is_active: true,
-    opening_time: cfg.DEFAULT_OPENING_TIME,
-    closing_time: cfg.DEFAULT_CLOSING_TIME,
-    prep_eta_minutes: cfg.DEFAULT_PREP_ETA_MINUTES,
-    created_at: new Date().toISOString()
-  };
-
-  stockists.push(newStockist);
+  let targetStockist = stockists.find(s => s.user_id === userId || (s.phone && s.phone === user.phone) || (s.contact_phone && s.contact_phone === user.phone));
+  if (!targetStockist) {
+    targetStockist = {
+      id: 's-' + generateId(),
+      tenant_id: user.tenant_id,
+      region_id: user.region_id,
+      user_id: user.id,
+      name: shopName,
+      phone: user.phone,
+      contact_phone: user.phone,
+      contact_name: user.name,
+      vendor_id: vendorId,
+      delivery_radius_km: parseFloat(deliveryRadius) || 5.0,
+      min_order_value: 0,
+      is_active: true,
+      opening_time: cfg.DEFAULT_OPENING_TIME,
+      closing_time: cfg.DEFAULT_CLOSING_TIME,
+      prep_eta_minutes: cfg.DEFAULT_PREP_ETA_MINUTES,
+      created_at: new Date().toISOString()
+    };
+    stockists.push(targetStockist);
+  } else {
+    targetStockist.vendor_id = vendorId;
+    targetStockist.is_active = true;
+    if (deliveryRadius) targetStockist.delivery_radius_km = parseFloat(deliveryRadius) || targetStockist.delivery_radius_km || 5.0;
+    if (minOrderValue !== undefined) targetStockist.min_order_value = parseFloat(minOrderValue) || 0;
+    if (shopName) targetStockist.name = shopName;
+  }
   await db.saveTable('stockists', stockists);
 
   const stockistVendors = await db.getTable('stockist_vendors');
-  stockistVendors.push({ id: 'sv-' + generateId(), stockist_id: newStockist.id, vendor_id: vendorId, approved_at: new Date().toISOString() });
-  await db.saveTable('stockist_vendors', stockistVendors);
+  if (!stockistVendors.some(sv => sv.stockist_id === targetStockist.id && sv.vendor_id === vendorId)) {
+    stockistVendors.push({ id: 'sv-' + generateId(), stockist_id: targetStockist.id, vendor_id: vendorId, approved_at: new Date().toISOString() });
+    await db.saveTable('stockist_vendors', stockistVendors);
+  }
 
   const products = (await db.getTable('products')).filter(p => p.region_id === user.region_id);
   const inventory = await db.getTable('stockist_inventory');
   products.forEach(p => {
-    inventory.push({
-      id: 'sinv-' + generateId(),
-      stockist_id: newStockist.id,
-      product_id: p.id,
-      stock_qty: 0,
-      stock_quantity: 0,
-      is_available: false,
-      created_at: new Date().toISOString()
-    });
+    if (!inventory.some(inv => inv.stockist_id === targetStockist.id && inv.product_id === p.id)) {
+      inventory.push({
+        id: 'sinv-' + generateId(),
+        stockist_id: targetStockist.id,
+        product_id: p.id,
+        stock_qty: 0,
+        stock_quantity: 0,
+        is_available: false,
+        created_at: new Date().toISOString()
+      });
+    }
   });
   await db.saveTable('stockist_inventory', inventory);
 
-  return res.json({ success: true, stockist: newStockist });
+  return res.json({ success: true, stockist: targetStockist });
 });
 
 app.post('/api/admin/kyc/:userId/disapprove', async (req, res) => {
@@ -4366,13 +4429,28 @@ app.post('/api/admin/stockists', async (req, res) => {
   if (!name || !region_id || !phone) {
     return res.status(400).json({ error: 'Name, region_id, and phone are required' });
   }
+
+  const timeRegex = /^([01]\d|2[0-3]):[0-5]\d$/;
+  if (opening_time && (opening_time === '24:00' || !timeRegex.test(opening_time))) {
+    return res.status(400).json({ error: 'Opening time must be between 00:00 and 23:59' });
+  }
+  if (closing_time && (closing_time === '24:00' || !timeRegex.test(closing_time))) {
+    return res.status(400).json({ error: 'Closing time must be between 00:00 and 23:59' });
+  }
+
+  const stockists = await db.getTable('stockists');
   const users = await db.getTable('users');
+  const cleanPhone = phone.trim();
+  const clash = stockists.find(s => s.phone === cleanPhone || s.contact_phone === cleanPhone);
+  const userClash = users.find(u => u.phone === cleanPhone && u.role === 'STOCKIST');
+  if (clash || userClash) return res.status(409).json({ error: 'Stockist already exists for this phone' });
+
   const newUserId = 'u-stk-' + generateId();
   const newUser = {
     id: newUserId,
     tenant_id: 't1',
     region_id,
-    phone: phone.trim(),
+    phone: cleanPhone,
     name: name.trim(),
     role: 'STOCKIST',
     kyc_status: 'APPROVED',
@@ -4383,7 +4461,6 @@ app.post('/api/admin/stockists', async (req, res) => {
   users.push(newUser);
   await db.saveTable('users', users);
   
-  const stockists = await db.getTable('stockists');
   const newStockistId = 's-' + generateId();
   const newStockist = {
     id: newStockistId,
@@ -4391,6 +4468,9 @@ app.post('/api/admin/stockists', async (req, res) => {
     region_id,
     user_id: newUserId,
     name: name.trim(),
+    phone: cleanPhone,
+    contact_phone: cleanPhone,
+    contact_name: name.trim(),
     vendor_id: vendor_id || 'v1',
     delivery_radius_km: parseFloat(delivery_radius_km) || 3.0,
     min_order_value: 0,
@@ -4424,6 +4504,15 @@ app.post('/api/admin/stockists/:id', async (req, res) => {
   const stockists = await db.getTable('stockists');
   const stockist = stockists.find(s => s.id === id);
   if (!stockist) return res.status(404).json({ error: 'Stockist not found' });
+
+  const timeRegex = /^([01]\d|2[0-3]):[0-5]\d$/;
+  if (opening_time && (opening_time === '24:00' || !timeRegex.test(opening_time))) {
+    return res.status(400).json({ error: 'Opening time must be between 00:00 and 23:59' });
+  }
+  if (closing_time && (closing_time === '24:00' || !timeRegex.test(closing_time))) {
+    return res.status(400).json({ error: 'Closing time must be between 00:00 and 23:59' });
+  }
+
   const before = { name: stockist.name, opening_time: stockist.opening_time, closing_time: stockist.closing_time, prep_eta_minutes: stockist.prep_eta_minutes, delivery_radius_km: stockist.delivery_radius_km };
   if (name) stockist.name = name.trim();
   if (opening_time) stockist.opening_time = opening_time;
