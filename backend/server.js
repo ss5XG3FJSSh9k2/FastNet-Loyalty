@@ -69,11 +69,19 @@ const apiRateLimitMap = new Map();
 const loginRateLimitMap = new Map();
 const otpRateLimitMap = new Map();
 
-const isTestEnv = process.env.NODE_ENV === 'test' || process.env.SEED_MODE === 'test' || process.env.POSTGRES_MODE === 'mem';
+const isTestEnv = () => process.env.SKIP_RATE_LIMIT === 'true' || process.env.NODE_ENV === 'test' || process.env.SEED_MODE === 'test' || process.env.POSTGRES_MODE === 'mem';
 
 // General API Rate Limiting Middleware (Item 14) - 100 req/min per IP
-app.use('/api/', (req, res, next) => {
-  if (isTestEnv || req.path.startsWith('/setup/') || req.path === '/setup' || req.path.startsWith('/admin/reset-db')) return next();
+app.use('/api/', async (req, res, next) => {
+  if (isTestEnv() || req.path.includes('/api/setup') || req.path.startsWith('/setup/') || req.path === '/setup' || req.path.startsWith('/admin/reset-db') || req.path.startsWith('/admin/clear-rate-limits')) return next();
+
+  if (req.path.includes('/auth/send-otp') || req.path.endsWith('/send-otp') || req.path.includes('login-otp-request')) {
+    try {
+      const users = await db.getTable('users');
+      if (Array.isArray(users) && users.length === 0) return next();
+    } catch (e) {}
+  }
+
   const key = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'ip-client';
   const now = Date.now();
   const record = apiRateLimitMap.get(key) || { count: 0, resetAt: now + 60000 };
@@ -91,8 +99,12 @@ app.use('/api/', (req, res, next) => {
 });
 
 // Login Rate Limit Middleware (Item 11) - 5 attempts / 15 mins by phone
-function checkLoginRateLimit(phone) {
-  if (isTestEnv || !phone) return true;
+async function checkLoginRateLimit(phone) {
+  if (process.env.SKIP_RATE_LIMIT === 'true' || !phone) return true;
+  try {
+    const users = await db.getTable('users');
+    if (Array.isArray(users) && users.length === 0) return true;
+  } catch (e) {}
   const now = Date.now();
   const record = loginRateLimitMap.get(phone) || { count: 0, resetAt: now + 15 * 60 * 1000 };
   if (now > record.resetAt) {
@@ -105,9 +117,13 @@ function checkLoginRateLimit(phone) {
   return record.count <= 5;
 }
 
-// OTP Rate Limit Middleware (Item 13) - 3 requests / 1 hour by phone
-function checkOtpRateLimit(phone) {
-  if (isTestEnv || !phone) return true;
+// OTP Rate Limit Middleware (Item 13) - 5 requests / 1 hour by phone
+async function checkOtpRateLimit(phone) {
+  if (process.env.SKIP_RATE_LIMIT === 'true' || !phone) return true;
+  try {
+    const users = await db.getTable('users');
+    if (Array.isArray(users) && users.length === 0) return true;
+  } catch (e) {}
   const now = Date.now();
   const record = otpRateLimitMap.get(phone) || { count: 0, resetAt: now + 60 * 60 * 1000 };
   if (now > record.resetAt) {
@@ -117,7 +133,7 @@ function checkOtpRateLimit(phone) {
     record.count += 1;
   }
   otpRateLimitMap.set(phone, record);
-  return record.count <= 3;
+  return record.count <= 5;
 }
 
 // DND Check Helper (Part 3 Item 6)
@@ -325,10 +341,10 @@ app.post('/api/auth/send-otp', async (req, res) => {
   const validationErr = validateUserInput({ phone });
   if (validationErr) return res.status(400).json({ error: validationErr });
 
-  if (!checkOtpRateLimit(phone)) {
+  if (!(await checkOtpRateLimit(phone))) {
     return res.status(429).json({ error: 'Too many OTP requests. Try again in 1 hour.' });
   }
-  if (!checkLoginRateLimit(phone)) {
+  if (!(await checkLoginRateLimit(phone))) {
     return res.status(429).json({ error: 'Too many login attempts. Try again in 15 minutes.' });
   }
 
@@ -537,18 +553,6 @@ app.post('/api/setup/create-admin', async (req, res) => {
     console.error('Error creating admin in setup:', err);
     res.status(500).json({ error: 'Failed to create administrator account.' });
   }
-});
-
-// Send Mock OTP
-app.post('/api/auth/send-otp', async (req, res) => {
-  const { phone } = req.body;
-  if (!phone) {
-    return res.status(400).json({ error: 'Phone number is required' });
-  }
-  const otp = '123456';
-  otpStore.set(phone, { otp, expiresAt: Date.now() + 5 * 60 * 1000 });
-  console.log(`[SMS Gateway] Sent OTP ${otp} to phone ${phone}`);
-  return res.json({ success: true, message: 'OTP sent successfully (Use 123456 for demo)' });
 });
 
 // Verify OTP & Login
@@ -7161,6 +7165,20 @@ app.post('/api/admin/reset-db', async (req, res) => {
   loginRateLimitMap.clear();
   otpRateLimitMap.clear();
   return res.json({ success: true, message: 'Database reset successfully.' });
+});
+
+// Clear Rate Limits Endpoint (Dev Only)
+app.post('/api/admin/clear-rate-limits', (req, res) => {
+  if (process.env.NODE_ENV === 'production' || req.headers['x-node-env'] === 'production') {
+    return res.status(403).json({ error: 'Not allowed in production' });
+  }
+  apiRateLimitMap.clear();
+  loginRateLimitMap.clear();
+  otpRateLimitMap.clear();
+  loginPasswordFailedAttempts.clear();
+  otpRequestAttempts.clear();
+  resetTokens.clear();
+  return res.json({ success: true, message: 'Rate limits cleared' });
 });
 
 app.post('/api/admin/override-table', async (req, res) => {

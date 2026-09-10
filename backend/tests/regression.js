@@ -4067,6 +4067,54 @@ async function main() {
   assert(freshAppContent.includes('data-path="/admin/blacklist"') && freshAppContent.includes('blacklistSearch'), 'App contains Blacklist nav tab and search filters');
   assert(freshAppContent.includes('disabled={!partnerSetupCompleted}'), 'Partner Email login tab is disabled when setup is incomplete');
 
+  // --- Round BF14: Rate Limit Fix Spec ---
+  const origNodeEnv = process.env.NODE_ENV;
+
+  await post('http://localhost:3001/api/admin/reset-db', {});
+
+  const currentUsers = await dbModule.getTable('users');
+  const savedUsersState = [...currentUsers];
+  currentUsers.length = 0;
+  await dbModule.saveTable('users', currentUsers);
+
+  const freshOtpRes = await post('http://localhost:3001/api/auth/send-otp', { phone: '9888877770' });
+  assert(freshOtpRes.status === 200 && freshOtpRes.body.success, 'Fresh DB allows OTP');
+
+  for (const u of savedUsersState) currentUsers.push(u);
+  await dbModule.saveTable('users', currentUsers);
+
+  const limitTestPhone = '9888877779';
+  let isSixthBlocked = false;
+  for (let i = 0; i < 6; i++) {
+    const res = await post('http://localhost:3001/api/auth/send-otp', { phone: limitTestPhone });
+    if (i === 5 && res.status === 429) {
+      isSixthBlocked = true;
+    }
+  }
+  assert(isSixthBlocked, '6th OTP attempt blocked');
+
+  await post('http://localhost:3001/api/admin/reset-db', {});
+  const postResetOtpRes = await post('http://localhost:3001/api/auth/send-otp', { phone: limitTestPhone });
+  assert(postResetOtpRes.status === 200 && postResetOtpRes.body.success, 'DB reset clears rate limits');
+
+  for (let i = 0; i < 6; i++) {
+    await post('http://localhost:3001/api/auth/send-otp', { phone: limitTestPhone });
+  }
+  const clearRateLimitRes = await post('http://localhost:3001/api/admin/clear-rate-limits', {});
+  assert(clearRateLimitRes.status === 200 && clearRateLimitRes.body.success, 'Manual clear works');
+
+  const postClearOtpRes = await post('http://localhost:3001/api/auth/send-otp', { phone: limitTestPhone });
+  assert(postClearOtpRes.status === 200 && postClearOtpRes.body.success, 'OTP send succeeds after manual rate limit clear');
+
+  process.env.NODE_ENV = 'production';
+  const prodClearRes = await post('http://localhost:3001/api/admin/clear-rate-limits', {}, { headers: { 'x-node-env': 'production', 'x-forwarded-proto': 'https' } });
+  assert(prodClearRes.status === 403, 'Production blocks clear');
+
+  process.env.NODE_ENV = origNodeEnv;
+
+  const bf14AppContent = fs.readFileSync(path.join(__dirname, '../../frontend/src/App.jsx'), 'utf8');
+  assert(bf14AppContent.includes('handleClearRateLimits') && bf14AppContent.includes('Clear Rate Limits'), 'App.jsx contains handleClearRateLimits and Clear Rate Limits button');
+
   console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);
 

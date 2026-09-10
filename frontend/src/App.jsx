@@ -650,6 +650,35 @@ export default function App() {
     setDeliveredComment('');
   };
 
+  const handleClearRateLimits = async () => {
+    triggerConfirmModal(
+      t('Clear Rate Limits', 'दर सीमाएँ साफ़ करें', 'রেট সীমা মুছুন'),
+      t('Are you sure you want to clear all rate limit counters?', 'क्या आप वाकई सभी दर सीमा काउंटरों को साफ़ करना चाहते हैं?', 'আপনি কি নিশ্চিত যে আপনি সমস্ত রেট সীমা কাউন্টার মুছতে চান?'),
+      async () => {
+        try {
+          const res = await fetch(`${API_BASE}/admin/clear-rate-limits`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${localStorage.getItem('token')}`,
+              'Content-Type': 'application/json'
+            }
+          });
+          const data = await res.json();
+          if (res.ok) {
+            showToast(t('Rate limits cleared', 'दर सीमाएँ साफ़ कर दी गईं', 'রেট সীমা মুছে ফেলা হয়েছে'), 'success');
+          } else {
+            showToast(data.error || 'Failed to clear rate limits', 'error');
+          }
+        } catch (err) {
+          showToast('Network error clearing rate limits', 'error');
+        }
+      },
+      true,
+      t('Yes, Clear', 'हाँ, साफ़ करें', 'হ্যাঁ, মুছুন'),
+      t('Cancel', 'रद्द करें', 'বাতিল')
+    );
+  };
+
   const handleDeliveredSkipReview = () => {
     setDeliveredModalOrder(null);
     setDeliveredRating(5);
@@ -10708,6 +10737,17 @@ export default function App() {
                       </div>
                     </div>
                   </div>
+                  {process.env.NODE_ENV !== 'production' && (
+                    <div style={{ marginTop: '1.5rem', paddingTop: '1rem', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+                      <button 
+                        className="btn btn-secondary" 
+                        style={{ fontSize: '0.8rem', padding: '0.4rem 0.8rem', border: '1px solid var(--warning)', color: 'var(--warning)' }} 
+                        onClick={handleClearRateLimits}
+                      >
+                        Clear Rate Limits
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
 
