@@ -4115,6 +4115,99 @@ async function main() {
   const bf14AppContent = fs.readFileSync(path.join(__dirname, '../../frontend/src/App.jsx'), 'utf8');
   assert(bf14AppContent.includes('handleClearRateLimits') && bf14AppContent.includes('Clear Rate Limits'), 'App.jsx contains handleClearRateLimits and Clear Rate Limits button');
 
+  // --- Round BF15: Spec Bug Fixes ---
+  // Bug #1: Aadhaar Validation & Masking
+  const bf15ShortAadhaarRes = await post('http://localhost:3001/api/auth/register-stockist', {
+    phone: '9888811111',
+    name: 'Short Aadhaar Stockist',
+    shopName: 'Short Shop',
+    regionId: 'r1',
+    idType: 'Aadhaar',
+    idNumber: '123',
+    address: '123 Test St'
+  });
+  assert(bf15ShortAadhaarRes.status === 400, 'Stockist registration with 5-digit Aadhaar returns 400 error');
+
+  const bf15AlphaAadhaarRes = await post('http://localhost:3001/api/auth/register-stockist', {
+    phone: '9888811112',
+    name: 'Alpha Aadhaar Stockist',
+    shopName: 'Alpha Shop',
+    regionId: 'r1',
+    idType: 'Aadhaar',
+    idNumber: 'abcdefghijkl',
+    address: '123 Test St'
+  });
+  assert(bf15AlphaAadhaarRes.status === 400, 'Stockist registration with non-numeric Aadhaar returns 400 error');
+
+  const bf15ValidAadhaarRes = await post('http://localhost:3001/api/auth/register-stockist', {
+    phone: '9888811113',
+    name: 'Valid Aadhaar Stockist',
+    shopName: 'Valid Shop',
+    regionId: 'r2',
+    idType: 'Aadhaar',
+    idNumber: '1234-5678-9012',
+    address: '123 Test St'
+  });
+  assert(bf15ValidAadhaarRes.status === 200, 'Stockist registration with valid 12-digit Aadhaar returns 200 success');
+
+  const appCodeContent = fs.readFileSync(path.join(__dirname, '../../frontend/src/App.jsx'), 'utf8');
+  assert(appCodeContent.includes('formatAadhaar') && appCodeContent.includes('xxxx-xxxx-'), 'App.jsx includes formatAadhaar masking helper');
+
+  // Bug #2: Region Display in Admin
+  const adminStockistsRes = await get('http://localhost:3001/api/admin/stockists?include_inactive=true');
+  const createdStk = adminStockistsRes.body.find(s => s.user_phone === '9888811113');
+  assert(createdStk && createdStk.region_id === 'r2', 'Stockist created in region r2 has region_id === r2');
+  assert(adminStockistsRes.body.some(s => s.region_id === 'r1') && adminStockistsRes.body.some(s => s.region_id === 'r2'), 'GET /api/admin/stockists returns correct region_id per stockist (r1 vs r2)');
+
+  const allRegionsRes = await get('http://localhost:3001/api/regions');
+  assert(allRegionsRes.status === 200 && Array.isArray(allRegionsRes.body) && allRegionsRes.body.length >= 2, 'Multiple regions (r1, r2) exist in backend system');
+
+  // Bug #3: Delivery Address Conditional
+  const custId = 'u-cust1';
+  const stkId = 's1';
+  const prdId = 'p1';
+
+  const pickupOrderNoAddrRes = await post('http://localhost:3001/api/orders', {
+    customerId: custId,
+    stores: [{ stockistId: stkId, items: [{ productId: prdId, quantity: 1 }], pickupSlot: '10:00 AM - 11:00 AM' }],
+    fulfillmentType: 'PICKUP',
+    paymentMethod: 'UPI'
+  });
+  assert(pickupOrderNoAddrRes.status === 200, 'Store Pickup order placed without address returns 200 (address optional for pickup)');
+
+  const deliveryOrderNoAddrRes = await post('http://localhost:3001/api/orders', {
+    customerId: custId,
+    stores: [{ stockistId: stkId, items: [{ productId: prdId, quantity: 1 }] }],
+    fulfillmentType: 'DELIVERY',
+    deliveryAddress: '',
+    address: ''
+  });
+  assert(deliveryOrderNoAddrRes.status === 400, 'Home Delivery order placed without address returns 400');
+
+  const deliveryOrderWithAddrRes = await post('http://localhost:3001/api/orders', {
+    customerId: custId,
+    stores: [{ stockistId: stkId, items: [{ productId: prdId, quantity: 1 }] }],
+    fulfillmentType: 'DELIVERY',
+    deliveryAddress: '45 Park Street, Kolkata',
+    paymentMethod: 'COD'
+  });
+  assert(deliveryOrderWithAddrRes.status === 200, 'Home Delivery order placed with valid address returns 200');
+
+  const deliveryOrderWhitespaceAddrRes = await post('http://localhost:3001/api/orders', {
+    customerId: custId,
+    stores: [{ stockistId: stkId, items: [{ productId: prdId, quantity: 1 }] }],
+    fulfillmentType: 'HOME_DELIVERY',
+    deliveryAddress: '   '
+  });
+  assert(deliveryOrderWhitespaceAddrRes.status === 400, 'Home Delivery order with whitespace-only address returns 400');
+
+  // Bug #4: Performance & Memoization
+  assert(appCodeContent.includes('MemoizedStockistRow'), 'Admin stockists table memoized row component exists in App.jsx');
+  assert(appCodeContent.includes('MemoizedCustomerRow'), 'Admin customers table memoized row component exists in App.jsx');
+  assert(appCodeContent.includes('MemoizedOrderRow'), 'Admin orders table memoized row component exists in App.jsx');
+  assert(appCodeContent.includes('MemoizedAuditLogRow'), 'Admin audit log table memoization component exists in App.jsx');
+  assert(appCodeContent.includes('React.memo') && appCodeContent.includes('displayName = \'Memoized'), 'App.jsx performance verification check passed');
+
   console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);
 

@@ -85,6 +85,84 @@ const getServiceTypeLabel = (st) => {
   return item ? item.label : st;
 };
 
+const MemoizedStockistRow = React.memo(({ stockist, regionName, onDetails, onDeactivate }) => {
+  return (
+    <tr>
+      <td>
+        <div style={{ fontWeight: 'bold' }}>{stockist.name}</div>
+        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{stockist.user_name} ({stockist.user_phone})</div>
+      </td>
+      <td>{regionName}</td>
+      <td>₹{(stockist.gmv_30d || 0).toFixed(2)}</td>
+      <td>{stockist.pending_orders_count || 0}</td>
+      <td>{stockist.commission_rate}%</td>
+      <td>
+        <span className={`badge ${stockist.is_active !== false ? 'badge-success' : 'badge-danger'}`}>
+          {stockist.is_active !== false ? 'Active' : 'Inactive'}
+        </span>
+      </td>
+      <td>
+        <div style={{ display: 'flex', gap: '0.35rem' }}>
+          {onDetails && (
+            <button className="btn btn-secondary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem' }} onClick={() => onDetails(stockist)}>
+              Details
+            </button>
+          )}
+          {onDeactivate && (
+            <button className={`btn ${stockist.is_active !== false ? 'btn-danger' : 'btn-secondary'}`} style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem' }} onClick={() => onDeactivate(stockist)}>
+              {stockist.is_active !== false ? 'Deactivate' : 'Reactivate'}
+            </button>
+          )}
+        </div>
+      </td>
+    </tr>
+  );
+});
+MemoizedStockistRow.displayName = 'MemoizedStockistRow';
+
+const MemoizedCustomerRow = React.memo(({ customer, regionName }) => {
+  return (
+    <tr>
+      <td style={{ fontWeight: 'bold' }}>{customer.name}</td>
+      <td>{customer.phone}</td>
+      <td>{regionName}</td>
+      <td>{customer.points_balance || 0} pts</td>
+      <td>{customer.orders_count || 0}</td>
+      <td>{customer.no_show_count || 0}</td>
+    </tr>
+  );
+});
+MemoizedCustomerRow.displayName = 'MemoizedCustomerRow';
+
+const MemoizedOrderRow = React.memo(({ order, stockistName }) => {
+  return (
+    <tr>
+      <td style={{ fontWeight: 'bold' }}>#{order.id ? order.id.slice(-6) : '—'}</td>
+      <td>{stockistName || order.stockist_name || order.stockist_id}</td>
+      <td>₹{(parseFloat(order.total) || 0).toFixed(2)}</td>
+      <td>
+        <span className={`badge ${order.status === 'DELIVERED' ? 'badge-success' : order.status === 'CANCELLED' ? 'badge-danger' : 'badge-warning'}`}>
+          {order.status}
+        </span>
+      </td>
+      <td style={{ fontSize: '0.7rem' }}>{order.created_at ? new Date(order.created_at).toLocaleDateString() : '—'}</td>
+    </tr>
+  );
+});
+MemoizedOrderRow.displayName = 'MemoizedOrderRow';
+
+const MemoizedAuditLogRow = React.memo(({ log }) => {
+  return (
+    <tr>
+      <td style={{ fontSize: '0.7rem' }}>{log.timestamp ? new Date(log.timestamp).toLocaleString() : '—'}</td>
+      <td><span className="badge badge-secondary" style={{ fontSize: '0.65rem' }}>{log.action}</span></td>
+      <td>{log.actor_id || log.user_id || 'System'}</td>
+      <td style={{ fontSize: '0.7rem' }}>{log.target_table ? `${log.target_table}:${log.target_id || ''}` : '—'}</td>
+    </tr>
+  );
+});
+MemoizedAuditLogRow.displayName = 'MemoizedAuditLogRow';
+
 export default function App() {
   const isDevMode = new URLSearchParams(window.location.search).has('dev');
   const [activeRole, setActiveRole] = useState('marketing');
@@ -435,6 +513,7 @@ export default function App() {
 
   const [profileName, setProfileName] = useState('');
   const [profileAddress, setProfileAddress] = useState('');
+  const [deliveryAddress, setDeliveryAddress] = useState('');
   const [profileCablePartnerId, setProfileCablePartnerId] = useState('');
   const [profileNoCable, setProfileNoCable] = useState(false);
   const [profileHasBroadband, setProfileHasBroadband] = useState(false);
@@ -601,6 +680,15 @@ export default function App() {
   const formatBillPrice = (val) => {
     if (val === undefined || val === null || val === '' || isNaN(Number(val))) return '—';
     return `₹${Number(val).toFixed(2)}`;
+  };
+
+  const formatAadhaar = (val) => {
+    if (!val) return '—';
+    const clean = String(val).replace(/\D/g, '');
+    if (clean.length === 12) {
+      return `xxxx-xxxx-${clean.slice(8)}`;
+    }
+    return String(val);
   };
 
   // Multi-lingual & Simulation States
@@ -2225,6 +2313,14 @@ export default function App() {
     }
     setSlotError(false);
 
+    if (cartFulfillment === 'DELIVERY' || cartFulfillment === 'HOME_DELIVERY') {
+      const activeAddress = (deliveryAddress || profileAddress || currentUser?.address || '').trim();
+      if (!activeAddress) {
+        showToast(t('Please enter a delivery address for Home Delivery', 'कृपया होम डिलीवरी के लिए वितरण पता दर्ज करें', 'হোম ডেলিভারির জন্য অনুগ্রহ করে একটি ডেলিভারি ঠিকানা লিখুন'), 'error');
+        return;
+      }
+    }
+
     try {
       // New multi-store format with slots
       const stores = Object.keys(groups).map(stockistId => ({
@@ -2240,6 +2336,7 @@ export default function App() {
         customerId: currentUser.id,
         stores,
         fulfillmentType: cartFulfillment,
+        deliveryAddress: (deliveryAddress || profileAddress || currentUser?.address || '').trim(),
         paymentMethod: cartFulfillment === 'PICKUP' ? 'UPI' : 'COD'
       };
 
@@ -2619,10 +2716,17 @@ export default function App() {
 
 
 
-  // Stockist registration
   const handleStockistRegister = async () => {
     if (!regName || !loginPhone || !regShopName || !regKycNumber2 || !regAddress) {
       showToast('All fields required', 'error'); return;
+    }
+    const normKycType = String(regKycType2 || '').toUpperCase();
+    if (normKycType.includes('AADHAAR') || normKycType.includes('AADHAR')) {
+      const cleanAadhaar = regKycNumber2.replace(/\D/g, '');
+      if (cleanAadhaar.length !== 12) {
+        showToast(t('Aadhaar number must contain exactly 12 digits', 'आधार संख्या में ठीक 12 अंक होने चाहिए', 'আধার নম্বরটি ঠিক ১২ টি সংখ্যার হতে হবে'), 'error');
+        return;
+      }
     }
     try {
       const payload = { phone: loginPhone, name: regName, shopName: regShopName, regionId: regRegion, idType: regKycType2, idNumber: regKycNumber2, address: regAddress };
@@ -9637,7 +9741,7 @@ export default function App() {
                           {(healthData?.stockist_volume_leaderboard || []).map(s => (
                             <tr key={s.stockist_id}>
                               <td>{s.stockist_name}</td>
-                              <td>{s.region_id === 'r1' ? 'Kolkata South' : 'Rural Bishnupur'}</td>
+                              <td>{regions.find(r => r.id === s.region_id)?.name || s.region_id || 'Kolkata South'}</td>
                               <td style={{ fontWeight: 'bold', color: 'var(--accent)' }}>₹{(s.gmv_30d || 0).toFixed(2)}</td>
                             </tr>
                           ))}
@@ -9865,7 +9969,7 @@ export default function App() {
                           <tr key={u.id}>
                             <td>{u.name}</td>
                             <td>{u.phone}</td>
-                            <td>{u.region_id === 'r1' ? 'Kolkata South' : 'Rural Bishnupur'}</td>
+                            <td>{regions.find(r => r.id === u.region_id)?.name || u.region_id || 'Kolkata South'}</td>
                             <td>{kyc.id_type || u.kyc_id_type || '-'}</td>
                             <td>{kyc.id_number || u.kyc_id_number || '-'}</td>
                             <td>{kyc.shop_name || u.shop_name || `${u.name} Store`}</td>

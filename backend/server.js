@@ -773,8 +773,10 @@ app.post('/api/auth/register-stockist', uploadBillMiddleware, async (req, res) =
   }
 
   // 1. Validate ID number format
-  if (idType === "AADHAAR") {
-    if (!/^\d{12}$/.test(idNumber)) {
+  const normIdType = String(idType || '').toUpperCase();
+  if (normIdType === "AADHAAR" || normIdType === "AADHAR") {
+    const cleanAadhaar = String(idNumber || '').replace(/\D/g, '');
+    if (cleanAadhaar.length !== 12) {
       return res.status(400).json({ 
         error: 'Invalid Aadhaar number. Must be exactly 12 digits.' 
       });
@@ -1839,11 +1841,20 @@ app.post('/api/orders', async (req, res) => {
   const customer = users.find(u => u.id === customerId);
   if (!customer) return res.status(404).json({ error: 'Customer not found' });
 
-  const reqFulfillment = fulfillmentType || 'PICKUP';
+  const reqFulfillment = (fulfillmentType || 'PICKUP').toUpperCase();
 
   // §C9: multi-store cart forces PICKUP
-  if (stores.length > 1 && reqFulfillment === 'DELIVERY') {
+  if (stores.length > 1 && (reqFulfillment === 'DELIVERY' || reqFulfillment === 'HOME_DELIVERY')) {
     return res.status(400).json({ error: 'Multi-store orders are pickup only. Please switch to Store Pickup.' });
+  }
+
+  // Delivery address required for Home Delivery
+  if (reqFulfillment === 'DELIVERY' || reqFulfillment === 'HOME_DELIVERY') {
+    const reqAddress = req.body.deliveryAddress !== undefined ? req.body.deliveryAddress : req.body.delivery_address !== undefined ? req.body.delivery_address : req.body.address;
+    const deliveryAddr = ((reqAddress !== undefined ? reqAddress : customer.address) || '').trim();
+    if (!deliveryAddr) {
+      return res.status(400).json({ error: 'Delivery address is required for home delivery.' });
+    }
   }
 
   // §E13: pickup orders require a slot per store
