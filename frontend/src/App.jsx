@@ -11186,7 +11186,7 @@ export default function App() {
                         style={{ fontSize: '0.8rem', padding: '0.4rem 0.8rem', border: '1px solid var(--warning)', color: 'var(--warning)' }} 
                         onClick={handleClearRateLimits}
                       >
-                        Clear Rate Limits
+                        {t('Clear Rate Limits', 'दर सीमाएँ साफ़ करें', 'রেট সীমা মুছুন')}
                       </button>
                     </div>
                   )}

@@ -68,6 +68,7 @@ function validateUserInput({ phone, email, name }) {
 const apiRateLimitMap = new Map();
 const loginRateLimitMap = new Map();
 const otpRateLimitMap = new Map();
+const otpHourlyLimitMap = new Map();
 
 const isTestEnv = () => process.env.SKIP_RATE_LIMIT === 'true' || process.env.NODE_ENV === 'test' || process.env.SEED_MODE === 'test' || process.env.POSTGRES_MODE === 'mem';
 
@@ -117,23 +118,70 @@ async function checkLoginRateLimit(phone) {
   return record.count <= 5;
 }
 
-// OTP Rate Limit Middleware (Item 13) - 5 requests / 1 hour by phone
+// OTP Rate Limit Middleware (Item 13, BF20) - 5 requests / 15 mins by phone, 20 / hour absolute cap
 async function checkOtpRateLimit(phone) {
-  if (process.env.SKIP_RATE_LIMIT === 'true' || !phone) return true;
+  if (process.env.SKIP_RATE_LIMIT === 'true' || !phone) return { allowed: true };
   try {
     const users = await db.getTable('users');
-    if (Array.isArray(users) && users.length === 0) return true;
+    if (Array.isArray(users) && users.length === 0) return { allowed: true };
   } catch (e) {}
+
   const now = Date.now();
-  const record = otpRateLimitMap.get(phone) || { count: 0, resetAt: now + 60 * 60 * 1000 };
-  if (now > record.resetAt) {
-    record.count = 1;
-    record.resetAt = now + 60 * 60 * 1000;
+  const hourlyWindow = cfg.OTP_RATE_LIMIT_HOURLY_WINDOW_MS || 60 * 60 * 1000;
+  const hourlyMax = cfg.OTP_RATE_LIMIT_HOURLY_MAX || 20;
+  const shortWindow = cfg.OTP_RATE_LIMIT_SHORT_WINDOW_MS || 15 * 60 * 1000;
+  const shortMax = cfg.OTP_RATE_LIMIT_SHORT_MAX || 5;
+
+  // 1. Absolute hourly cap (20 per hour) - not cleared on successful verification
+  const hourlyRecord = otpHourlyLimitMap.get(phone) || { count: 0, resetAt: now + hourlyWindow };
+  if (now > hourlyRecord.resetAt) {
+    hourlyRecord.count = 1;
+    hourlyRecord.resetAt = now + hourlyWindow;
   } else {
-    record.count += 1;
+    hourlyRecord.count += 1;
   }
-  otpRateLimitMap.set(phone, record);
-  return record.count <= 5;
+  otpHourlyLimitMap.set(phone, hourlyRecord);
+
+  if (hourlyRecord.count > hourlyMax) {
+    const remainingMs = Math.max(0, hourlyRecord.resetAt - now);
+    const remainingMinutes = Math.max(1, Math.ceil(remainingMs / 60000));
+    return {
+      allowed: false,
+      reason: 'hourly',
+      retry_after: hourlyRecord.resetAt,
+      error: `Too many OTP requests. Try again in ${remainingMinutes} minute${remainingMinutes === 1 ? '' : 's'}.`
+    };
+  }
+
+  // 2. Short window (5 per 15 mins) - cleared on successful verification
+  const shortRecord = otpRateLimitMap.get(phone) || { count: 0, resetAt: now + shortWindow };
+  if (now > shortRecord.resetAt) {
+    shortRecord.count = 1;
+    shortRecord.resetAt = now + shortWindow;
+  } else {
+    shortRecord.count += 1;
+  }
+  otpRateLimitMap.set(phone, shortRecord);
+
+  if (shortRecord.count > shortMax) {
+    const remainingMs = Math.max(0, shortRecord.resetAt - now);
+    const remainingMinutes = Math.max(1, Math.ceil(remainingMs / 60000));
+    return {
+      allowed: false,
+      reason: 'short',
+      retry_after: shortRecord.resetAt,
+      error: 'Too many OTP requests. Try again in 15 minutes.'
+    };
+  }
+
+  return { allowed: true };
+}
+
+function clearOtpRateLimit(phone) {
+  if (!phone) return;
+  otpRateLimitMap.delete(phone);
+  loginRateLimitMap.delete(phone);
+  otpRequestAttempts.delete(phone);
 }
 
 // DND Check Helper (Part 3 Item 6)
@@ -390,8 +438,9 @@ const handleSendOtpRoute = async (req, res) => {
     if (gate.blocked) return res.status(gate.code).json(gate.body);
   }
 
-  if (!(await checkOtpRateLimit(phone))) {
-    return res.status(429).json({ error: 'Too many OTP requests. Try again in 1 hour.' });
+  const otpLimit = await checkOtpRateLimit(phone);
+  if (!otpLimit.allowed) {
+    return res.status(429).json({ error: otpLimit.error, retry_after: otpLimit.retry_after });
   }
   if (!(await checkLoginRateLimit(phone))) {
     return res.status(429).json({ error: 'Too many login attempts. Try again in 15 minutes.' });
@@ -669,6 +718,7 @@ const handleVerifyOtpRoute = async (req, res) => {
   }
 
   otpStore.delete(phone);
+  clearOtpRateLimit(phone);
   const token = jwt.sign({ user_id: user.id, id: user.id, role: user.role }, process.env.JWT_SECRET || 'jwt_secret_key');
   return res.json({ success: true, token, user: sanitizeUser(user) });
 };
@@ -4873,6 +4923,8 @@ const handlePartnerOtpVerify = async (req, res) => {
     return res.status(401).json({ error: 'Invalid credentials or OTP' });
   }
 
+  clearOtpRateLimit(phone);
+
   if (!user.email || !user.password_hash) {
     const setupToken = jwt.sign(
       { user_id: user.id, setup_mode: true },
@@ -7287,6 +7339,7 @@ app.post('/api/admin/reset-db', async (req, res) => {
   apiRateLimitMap.clear();
   loginRateLimitMap.clear();
   otpRateLimitMap.clear();
+  otpHourlyLimitMap.clear();
   return res.json({ success: true, message: 'Database reset successfully.' });
 });
 
@@ -7298,6 +7351,7 @@ app.post('/api/admin/clear-rate-limits', (req, res) => {
   apiRateLimitMap.clear();
   loginRateLimitMap.clear();
   otpRateLimitMap.clear();
+  otpHourlyLimitMap.clear();
   loginPasswordFailedAttempts.clear();
   otpRequestAttempts.clear();
   resetTokens.clear();
@@ -7706,5 +7760,16 @@ const readyPromise = db.init().then(() => {
   console.error('Failed to initialize DB server:', err);
 });
 
-module.exports = { app, calculateSettlement, calculatePartnerPayout, getCommissionConfig, readyPromise, assertNoDuplicateRoutes };
+module.exports = { 
+  app, 
+  calculateSettlement, 
+  calculatePartnerPayout, 
+  getCommissionConfig, 
+  readyPromise, 
+  assertNoDuplicateRoutes,
+  clearOtpRateLimit,
+  checkOtpRateLimit,
+  otpRateLimitMap,
+  otpHourlyLimitMap
+};
 

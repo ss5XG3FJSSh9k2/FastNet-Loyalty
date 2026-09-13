@@ -4568,6 +4568,92 @@ async function main() {
   const serverCodeBf19 = fs.readFileSync(path.join(__dirname, '../server.js'), 'utf8');
   assert(!serverCodeBf19.includes('blacklisted_until'), 'server.js contains zero references to blacklisted_until (standardized on kyc_blacklist_until)');
 
+  // Round BF20: OTP Rate Limiter Verification & Multi-Role Testing
+  console.log('\n--- Round BF20: OTP Rate Limiter & Window Tuning ---');
+
+  // Test: 6 sends without verification trips the limit (refusal states 15 minutes)
+  await post('http://localhost:3001/api/admin/clear-rate-limits', {});
+  const bf20TestPhone = '9876543210';
+  for (let i = 1; i <= 5; i++) {
+    const res = await post('http://localhost:3001/api/auth/send-otp', { phone: bf20TestPhone });
+    assert(res.status === 200 && res.body.success, `OTP send #${i} succeeds`);
+  }
+  const bf20SixthSend = await post('http://localhost:3001/api/auth/send-otp', { phone: bf20TestPhone });
+  assert(bf20SixthSend.status === 429, '6 sends without verification trips the limit');
+  assert(bf20SixthSend.body.error && bf20SixthSend.body.error.includes('15 minutes'), 'Refusal message states 15 minutes, not 1 hour');
+  assert(typeof bf20SixthSend.body.retry_after === 'number', 'Response contains numeric retry_after timestamp');
+
+  // Test: failed verification does NOT clear the counter (6th send is still refused)
+  const bf20WrongVerify = await post('http://localhost:3001/api/auth/verify-otp', { phone: bf20TestPhone, otp: '999999' });
+  assert(bf20WrongVerify.status === 400, 'failed verification returns 400');
+  const bf20SendAfterFailedVerify = await post('http://localhost:3001/api/auth/send-otp', { phone: bf20TestPhone });
+  assert(bf20SendAfterFailedVerify.status === 429, 'failed verification does NOT clear the counter');
+
+  // Test: successful verification clears that phone's OTP counter (5 more immediately allowed)
+  await post('http://localhost:3001/api/admin/clear-rate-limits', {});
+  for (let i = 1; i <= 5; i++) {
+    const res = await post('http://localhost:3001/api/auth/send-otp', { phone: bf20TestPhone });
+    assert(res.status === 200, `Initial send #${i} succeeds`);
+  }
+  const bf20SuccessVerify = await post('http://localhost:3001/api/auth/verify-otp', { phone: bf20TestPhone, otp: '123456' });
+  assert(bf20SuccessVerify.status === 200 && bf20SuccessVerify.body.token, 'OTP verification succeeds and issues token');
+  // Immediately send 5 more - all 5 must succeed because counter was cleared
+  for (let i = 1; i <= 5; i++) {
+    const res = await post('http://localhost:3001/api/auth/send-otp', { phone: bf20TestPhone });
+    assert(res.status === 200, `successful verification clears that phone's OTP counter (send #${i})`);
+  }
+
+  // Test: the 20/hour absolute cap trips regardless of successful verifications
+  // We have sent 10 OTPs so far this hour for bf20TestPhone.
+  // Verify and send 5 more (total 15), then verify and send 5 more (total 20).
+  await post('http://localhost:3001/api/auth/verify-otp', { phone: bf20TestPhone, otp: '123456' });
+  for (let i = 11; i <= 15; i++) {
+    const res = await post('http://localhost:3001/api/auth/send-otp', { phone: bf20TestPhone });
+    assert(res.status === 200, `Send #${i} succeeds under hourly cap`);
+  }
+  await post('http://localhost:3001/api/auth/verify-otp', { phone: bf20TestPhone, otp: '123456' });
+  for (let i = 16; i <= 20; i++) {
+    const res = await post('http://localhost:3001/api/auth/send-otp', { phone: bf20TestPhone });
+    assert(res.status === 200, `Send #${i} succeeds at hourly cap`);
+  }
+  // Now verify again (so short counter is cleared) and attempt the 21st send
+  await post('http://localhost:3001/api/auth/verify-otp', { phone: bf20TestPhone, otp: '123456' });
+  const bf20TwentyFirstSend = await post('http://localhost:3001/api/auth/send-otp', { phone: bf20TestPhone });
+  assert(bf20TwentyFirstSend.status === 429, 'the 20/hour absolute cap trips regardless of successful verifications');
+  assert(bf20TwentyFirstSend.body.error && bf20TwentyFirstSend.body.error.includes('Too many OTP requests'), 'Hourly cap returns error message with remaining time');
+  assert(typeof bf20TwentyFirstSend.body.retry_after === 'number', 'Hourly cap returns retry_after timestamp');
+
+  // Test: clear-rate-limits returns 403 when NODE_ENV=production
+  const prevEnv = process.env.NODE_ENV;
+  process.env.NODE_ENV = 'production';
+  const bf20ProdClear = await post('http://localhost:3001/api/admin/clear-rate-limits', {}, { headers: { 'x-node-env': 'production', 'x-forwarded-proto': 'https' } });
+  assert(bf20ProdClear.status === 403 && bf20ProdClear.body.error === 'Not allowed in production', 'clear-rate-limits returns 403 when NODE_ENV=production');
+  process.env.NODE_ENV = prevEnv;
+
+  // Clear rate limits in dev to verify immediate unblock
+  const bf20DevClear = await post('http://localhost:3001/api/admin/clear-rate-limits', {});
+  assert(bf20DevClear.status === 200 && bf20DevClear.body.success, 'POST /api/admin/clear-rate-limits succeeds in dev');
+  const bf20UnblockedSend = await post('http://localhost:3001/api/auth/send-otp', { phone: bf20TestPhone });
+  assert(bf20UnblockedSend.status === 200, 'OTP send unblocked immediately after clear-rate-limits');
+
+  // Test: the empty-users-table bypass still permits first-run setup
+  const existingUsers = await dbModule.getTable('users');
+  await dbModule.saveTable('users', []);
+  for (let i = 1; i <= 8; i++) {
+    const emptyBypassRes = await post('http://localhost:3001/api/auth/send-otp', { phone: '9999911111' });
+    assert(emptyBypassRes.status === 200, `the empty-users-table bypass still permits first-run setup (attempt #${i})`);
+  }
+  await dbModule.saveTable('users', existingUsers);
+  await post('http://localhost:3001/api/admin/clear-rate-limits', {});
+
+  // Test: verification step 1: log in and out 6 times in a row with verification -> all succeed
+  for (let i = 1; i <= 6; i++) {
+    const sendRes = await post('http://localhost:3001/api/auth/send-otp', { phone: bf20TestPhone });
+    assert(sendRes.status === 200, `Login and out step #${i} send-otp succeeds`);
+    const verifyRes = await post('http://localhost:3001/api/auth/verify-otp', { phone: bf20TestPhone, otp: '123456' });
+    assert(verifyRes.status === 200 && verifyRes.body.token, `Login and out step #${i} verify-otp succeeds`);
+  }
+
   console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);
 
