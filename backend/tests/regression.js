@@ -4154,6 +4154,10 @@ async function main() {
   assert(appCodeContent.includes('formatAadhaar') && appCodeContent.includes('xxxx-xxxx-'), 'App.jsx includes formatAadhaar masking helper');
 
   // Bug #2: Region Display in Admin
+  const regUser = (await dbModule.getTable('users')).find(u => u.phone === '9888811113');
+  if (regUser) {
+    await post('http://localhost:3001/api/admin/approve-kyc', { userId: regUser.id, vendorId: 'v1' });
+  }
   const adminStockistsRes = await get('http://localhost:3001/api/admin/stockists?include_inactive=true');
   const createdStk = adminStockistsRes.body.find(s => s.user_phone === '9888811113');
   assert(createdStk && createdStk.region_id === 'r2', 'Stockist created in region r2 has region_id === r2');
@@ -4444,6 +4448,43 @@ async function main() {
   assert(appCodeFinal.includes('handleShowUnmaskedId') && appCodeFinal.includes('handleHideUnmaskedId'), 'App.jsx contains handleShowUnmaskedId and handleHideUnmaskedId');
   assert(appCodeFinal.includes('handleViewDocument') && appCodeFinal.includes('showKycDocumentModal'), 'App.jsx contains handleViewDocument and showKycDocumentModal');
   assert(appCodeFinal.includes('No document'), 'App.jsx contains disabled No document label for stockist without document');
+
+  // Round BF18-9: Unapproved (PENDING) stockists filter & kyc_status badge derivation
+  console.log('\n--- Round BF18-9: Stockists Inclusion Filter & Badge Derivation ---');
+
+  // Test: All Stockists returns only APPROVED by default
+  const defaultStksRes = await get('http://localhost:3001/api/admin/stockists');
+  assert(defaultStksRes.status === 200 && Array.isArray(defaultStksRes.body), 'GET /api/admin/stockists returns 200 array');
+  assert(defaultStksRes.body.length > 0, 'All Stockists default returns non-empty list');
+  const allApprovedByDefault = defaultStksRes.body.every(s => s.kyc_status === 'APPROVED');
+  assert(allApprovedByDefault, 'All Stockists returns only APPROVED by default');
+
+  // Test: All Stockists with show_inactive returns APPROVED + DEACTIVATED only
+  const deactStkRes = await post('http://localhost:3001/api/admin/stockists/s2/deactivate');
+  assert(deactStkRes.status === 200, 'Deactivate stockist s2 succeeds');
+
+  const inactiveStksRes = await get('http://localhost:3001/api/admin/stockists?include_inactive=true');
+  assert(inactiveStksRes.status === 200 && Array.isArray(inactiveStksRes.body), 'GET /api/admin/stockists?include_inactive=true returns 200 array');
+  const validStatusesOnly = inactiveStksRes.body.every(s => s.kyc_status === 'APPROVED' || s.kyc_status === 'DEACTIVATED');
+  assert(validStatusesOnly, 'All Stockists with show_inactive returns APPROVED + DEACTIVATED only');
+  const hasDeactivatedInList = inactiveStksRes.body.some(s => s.kyc_status === 'DEACTIVATED');
+  assert(hasDeactivatedInList, 'Deactivated stockist appears in include_inactive list');
+
+  // Reactivate s2
+  await post('http://localhost:3001/api/admin/stockists/s2/reactivate');
+
+  // Test: a PENDING stockist is absent from All Stockists in both modes
+  const hasPendingDefault = defaultStksRes.body.some(s => s.kyc_status === 'PENDING' || s.user_id === 'u-stk3' || s.user_id === 'u-stk5');
+  assert(!hasPendingDefault, 'a PENDING stockist is absent from All Stockists default mode');
+  const hasPendingInactive = inactiveStksRes.body.some(s => s.kyc_status === 'PENDING' || s.user_id === 'u-stk3' || s.user_id === 'u-stk5');
+  assert(!hasPendingInactive, 'a PENDING stockist is absent from All Stockists include_inactive mode');
+
+  // Test: the status badge value derives from kyc_status for each of the five statuses
+  const appCodeBf189 = fs.readFileSync(path.join(__dirname, '../../frontend/src/App.jsx'), 'utf8');
+  assert(appCodeBf189.includes('renderKycStatusBadge'), 'App.jsx contains renderKycStatusBadge helper');
+  assert(appCodeBf189.includes('ACTIVE') && appCodeBf189.includes('INACTIVE') && appCodeBf189.includes('PENDING'), 'App.jsx badge helper handles ACTIVE, INACTIVE, PENDING');
+  assert(appCodeBf189.includes('REJECTED') && appCodeBf189.includes('BLACKLISTED'), 'App.jsx badge helper handles REJECTED, BLACKLISTED');
+  assert(appCodeBf189.includes("ACTIVE_LIST_STATUSES = ['APPROVED']"), "App.jsx uses inclusion list ACTIVE_LIST_STATUSES = ['APPROVED']");
 
   console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);

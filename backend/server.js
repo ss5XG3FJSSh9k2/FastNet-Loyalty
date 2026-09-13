@@ -4430,28 +4430,46 @@ app.get('/api/admin/stockists', async (req, res) => {
   const orders = await db.getTable('orders');
   const rates = await db.getTable('stockist_commission_rates');
   const users = await db.getTable('users');
-  
-  const filtered = includeInactive ? stockists : stockists.filter(s => s.is_active !== false);
+
+  const ACTIVE_LIST_STATUSES = ['APPROVED'];
+  const INACTIVE_LIST_STATUSES = ['DEACTIVATED'];
+
+  const visibleStatuses = includeInactive
+    ? [...ACTIVE_LIST_STATUSES, ...INACTIVE_LIST_STATUSES]
+    : ACTIVE_LIST_STATUSES;
+
   const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
-  
-  const result = filtered.map(s => {
+
+  const result = [];
+  for (const s of stockists) {
+    const user = users.find(u => u.id === s.user_id || (u.phone && (u.phone === s.phone || u.phone === s.contact_phone)));
+    let kycStatus = user ? user.kyc_status : (s.is_active !== false ? 'APPROVED' : 'DEACTIVATED');
+    if (s.is_active === false && kycStatus === 'APPROVED') {
+      kycStatus = 'DEACTIVATED';
+    }
+
+    if (!visibleStatuses.includes(kycStatus)) {
+      continue;
+    }
+
     const stkOrders = orders.filter(o => o.stockist_id === s.id);
     const delivered30d = stkOrders.filter(o => o.status === 'DELIVERED' && new Date(o.created_at).getTime() >= thirtyDaysAgo);
     const gmv30d = delivered30d.reduce((sum, o) => sum + (parseFloat(o.total) || parseFloat(o.subtotal) || 0), 0);
     const pendingCount = stkOrders.filter(o => ['CONFIRMING', 'PENDING', 'ACCEPTED', 'PREPARING'].includes(o.status)).length;
     const stkRates = rates.filter(r => r.stockist_id === s.id);
     const latestRate = stkRates.length > 0 ? stkRates[stkRates.length - 1].rate_percent : 10.0;
-    const user = users.find(u => u.id === s.user_id);
-    return {
+
+    result.push({
       ...s,
-      is_active: s.is_active !== false,
+      is_active: kycStatus === 'APPROVED',
+      kyc_status: kycStatus,
       user_name: user ? user.name : s.name,
-      user_phone: user ? user.phone : '',
+      user_phone: user ? user.phone : (s.phone || s.contact_phone || ''),
       gmv_30d: gmv30d,
       pending_orders_count: pendingCount,
       commission_rate: latestRate
-    };
-  });
+    });
+  }
   return res.json(result);
 });
 
@@ -4460,32 +4478,41 @@ app.get('/api/admin/stockists/:id', async (req, res) => {
   const stockists = await db.getTable('stockists');
   const stockist = stockists.find(s => s.id === id);
   if (!stockist) return res.status(404).json({ error: 'Stockist not found' });
+
   const users = await db.getTable('users');
-  const user = users.find(u => u.id === stockist.user_id);
+  const user = users.find(u => u.id === stockist.user_id || (u.phone && (u.phone === stockist.phone || u.phone === stockist.contact_phone)));
+  let kycStatus = user ? user.kyc_status : (stockist.is_active !== false ? 'APPROVED' : 'DEACTIVATED');
+  if (stockist.is_active === false && kycStatus === 'APPROVED') {
+    kycStatus = 'DEACTIVATED';
+  }
+
   const rawOrders2 = (await db.getTable('orders')).filter(o => o.stockist_id === id);
   const orders = await Promise.all(rawOrders2.map(o => enrichOrder(o)));
   const rates = (await db.getTable('stockist_commission_rates')).filter(r => r.stockist_id === id);
   const latestRate = rates.length > 0 ? rates[rates.length - 1].rate_percent : 10.0;
-  
+
   const deliveredOrders = orders.filter(o => o.status === 'DELIVERED');
   const totalCommissionEarned = deliveredOrders.reduce((sum, o) => sum + ((parseFloat(o.subtotal) || 0) * (latestRate / 100)), 0);
-  
+
   const inventory = (await db.getTable('stockist_inventory')).filter(si => si.stockist_id === id);
 
   return res.json({
     ...stockist,
-    stockist: { ...stockist, is_active: stockist.is_active !== false, commission_rate: latestRate },
+    is_active: kycStatus === 'APPROVED',
+    kyc_status: kycStatus,
+    user_name: user ? user.name : stockist.name,
+    user_phone: user ? user.phone : (stockist.phone || stockist.contact_phone || ''),
+    stockist: { ...stockist, is_active: kycStatus === 'APPROVED', kyc_status: kycStatus, commission_rate: latestRate },
     user: user ? {
       ...user,
       name: user.name,
       phone: user.phone,
-      kyc_status: user.kyc_status,
+      kyc_status: kycStatus,
       kyc_details: user.kyc_details,
       address: user.address,
-      is_active: user.is_active !== false
+      is_active: kycStatus === 'APPROVED'
     } : null,
     orders,
-    commission_rates: rates,
     total_commission_earned: totalCommissionEarned,
     inventory
   });

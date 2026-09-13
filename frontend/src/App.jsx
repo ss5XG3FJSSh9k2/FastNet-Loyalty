@@ -703,6 +703,26 @@ export default function App() {
     return String(n);
   };
 
+  const renderKycStatusBadge = (status, isActive) => {
+    const st = String(status || '').toUpperCase();
+    if (st === 'APPROVED' && isActive !== false) {
+      return <span className="badge badge-success">ACTIVE</span>;
+    }
+    if (st === 'DEACTIVATED' || isActive === false) {
+      return <span className="badge badge-secondary">INACTIVE</span>;
+    }
+    if (st === 'PENDING') {
+      return <span className="badge badge-warning">PENDING</span>;
+    }
+    if (st === 'REJECTED') {
+      return <span className="badge badge-danger">REJECTED</span>;
+    }
+    if (st === 'BLACKLISTED') {
+      return <span className="badge badge-danger">BLACKLISTED</span>;
+    }
+    return <span className="badge badge-secondary">{st || 'INACTIVE'}</span>;
+  };
+
   // Multi-lingual & Simulation States
   const [lang, setLang] = useState('en');
   const t = (en, hi, bn) => lang === 'hi' ? hi : lang === 'bn' ? bn : en;
@@ -9793,11 +9813,18 @@ export default function App() {
                     <tbody>
                       {adminStockists
                         .filter(s => adminRegionFilter === 'ALL' || s.region_id === adminRegionFilter)
-                        .filter(s => adminIncludeInactiveStockists ? true : s.is_active !== false)
+                        .filter(s => {
+                          const ACTIVE_LIST_STATUSES = ['APPROVED'];
+                          const INACTIVE_LIST_STATUSES = ['DEACTIVATED'];
+                          const visible = adminIncludeInactiveStockists
+                            ? [...ACTIVE_LIST_STATUSES, ...INACTIVE_LIST_STATUSES]
+                            : ACTIVE_LIST_STATUSES;
+                          return visible.includes(s.kyc_status);
+                        })
                         .map(s => {
                           const vName = vendors.find(v => v.id === s.vendor_id)?.name || s.vendor_id || 'N/A';
                           return (
-                            <tr key={s.id} style={s.is_active === false ? { opacity: 0.6, background: 'rgba(255,255,255,0.02)' } : {}}>
+                            <tr key={s.id} style={s.is_active === false || s.kyc_status === 'DEACTIVATED' ? { opacity: 0.6, background: 'rgba(255,255,255,0.02)' } : {}}>
                               <td style={{ fontWeight: 'bold' }}>{s.name}</td>
                               <td>{regions.find(r => r.id === s.region_id)?.name || s.region_id}</td>
                               <td>{vName}</td>
@@ -9805,9 +9832,7 @@ export default function App() {
                               <td style={{ color: 'var(--accent)', fontWeight: 'bold' }}>₹{(s.gmv_30d || 0).toFixed(2)}</td>
                               <td>{s.pending_orders_count || 0}</td>
                               <td>
-                                <span className={`badge ${s.is_active !== false ? 'badge-success' : 'badge-secondary'}`}>
-                                  {s.is_active !== false ? 'Active' : 'Inactive'}
-                                </span>
+                                {renderKycStatusBadge(s.kyc_status, s.is_active)}
                               </td>
                               <td>
                                 <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
@@ -13145,7 +13170,7 @@ export default function App() {
               <div><strong>30-Day GMV:</strong> ₹{(selectedStockistDetail.gmv_30d || 0).toFixed(2)}</div>
               <div><strong>Pending Orders:</strong> {selectedStockistDetail.pending_orders_count || 0}</div>
               <div><strong>KYC Date:</strong> {selectedStockistDetail.created_at ? new Date(selectedStockistDetail.created_at).toLocaleDateString() : 'N/A'}</div>
-              <div><strong>Status:</strong> <span className={`badge ${selectedStockistDetail.is_active !== false ? 'badge-success' : 'badge-secondary'}`}>{selectedStockistDetail.is_active !== false ? 'Active' : 'Inactive'}</span></div>
+              <div><strong>Status:</strong> {renderKycStatusBadge(selectedStockistDetail.kyc_status, selectedStockistDetail.is_active)}</div>
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '1rem' }}>
               <button className="btn btn-secondary" onClick={() => setShowStockistDetailModal(false)}>Close</button>
