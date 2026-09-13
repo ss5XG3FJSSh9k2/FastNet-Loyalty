@@ -12611,7 +12611,7 @@ export default function App() {
               <h3 style={{ fontSize: '1.1rem', margin: 0 }}>Change Commission Rate</h3>
               <button className="btn btn-secondary" style={{ padding: '0.2rem 0.5rem' }} onClick={() => setShowCommissionRateModal(false)}><X size={14} /></button>
             </div>
-            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Stockist: <strong>{selectedStockistDetail.name}</strong> (Current: {selectedStockistDetail.commission_rate}%)</p>
+            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Stockist: <strong>{selectedStockistDetail.name}</strong> (Current: {selectedStockistDetail.stockist?.commission_rate ?? selectedStockistDetail.commission_rate ?? 10}%)</p>
             
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', margin: '1rem 0' }}>
               <div className="input-group">
@@ -13206,33 +13206,70 @@ export default function App() {
         </div>
       )}
       {/* Stockist Detail Modal Overlay */}
-      {showStockistDetailModal && selectedStockistDetail && (
-        <div className="modal-overlay">
-          <div className="modal-content glass-card" style={{ maxWidth: '550px', maxHeight: '80vh', overflowY: 'auto' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-              <h3 style={{ fontSize: '1.2rem', margin: 0 }}>Stockist Details: {selectedStockistDetail.name}</h3>
-              <button className="btn btn-secondary" style={{ padding: '0.2rem 0.5rem' }} onClick={() => setShowStockistDetailModal(false)}><X size={14} /></button>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.85rem', fontSize: '0.8rem', marginBottom: '1rem' }}>
-              <div><strong>Shop Name:</strong> {selectedStockistDetail.name}</div>
-              <div><strong>Phone / Owner:</strong> {selectedStockistDetail.phone}</div>
-              <div><strong>Region:</strong> {regions.find(r => r.id === selectedStockistDetail.region_id)?.name || selectedStockistDetail.region_id}</div>
-              <div><strong>Wholesaler:</strong> {vendors.find(v => v.id === selectedStockistDetail.vendor_id)?.name || selectedStockistDetail.vendor_id || 'N/A'}</div>
-              <div><strong>Commission Rate:</strong> {selectedStockistDetail.commission_rate}%</div>
-              <div><strong>Delivery Radius:</strong> {selectedStockistDetail.delivery_radius_km || 3.0} km</div>
-              <div><strong>Min Order Value:</strong> ₹{selectedStockistDetail.min_order_value || 0}</div>
-              <div><strong>Product Count:</strong> {selectedStockistDetail.product_count ?? selectedStockistDetail.products?.length ?? 0} SKUs</div>
-              <div><strong>30-Day GMV:</strong> ₹{(selectedStockistDetail.gmv_30d || 0).toFixed(2)}</div>
-              <div><strong>Pending Orders:</strong> {selectedStockistDetail.pending_orders_count || 0}</div>
-              <div><strong>KYC Date:</strong> {selectedStockistDetail.created_at ? new Date(selectedStockistDetail.created_at).toLocaleDateString() : 'N/A'}</div>
-              <div><strong>Status:</strong> {renderKycStatusBadge(selectedStockistDetail.kyc_status, selectedStockistDetail.is_active)}</div>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '1rem' }}>
-              <button className="btn btn-secondary" onClick={() => setShowStockistDetailModal(false)}>Close</button>
+      {showStockistDetailModal && selectedStockistDetail && (() => {
+        const phone = selectedStockistDetail.user_phone
+          || selectedStockistDetail.user?.phone
+          || selectedStockistDetail.phone
+          || selectedStockistDetail.stockist?.phone
+          || '—';
+        const ownerName = selectedStockistDetail.user_name
+          || selectedStockistDetail.user?.name
+          || '';
+        const rate = selectedStockistDetail.stockist?.commission_rate
+          ?? selectedStockistDetail.commission_rate
+          ?? null;
+        const regId = selectedStockistDetail.region_id || selectedStockistDetail.stockist?.region_id;
+        const regName = (regions.find(r => r.id === regId) || adminRegionsList.find(r => r.id === regId) || {}).name || regId || '—';
+        const vendorId = selectedStockistDetail.vendor_id || selectedStockistDetail.stockist?.vendor_id;
+        const vendorName = vendors.find(v => v.id === vendorId)?.name || vendorId || 'N/A';
+        const radius = selectedStockistDetail.delivery_radius_km ?? selectedStockistDetail.stockist?.delivery_radius_km ?? 3.0;
+        const minOrder = selectedStockistDetail.min_order_value ?? selectedStockistDetail.stockist?.min_order_value ?? 0;
+        const productCount = selectedStockistDetail.product_count ?? selectedStockistDetail.inventory?.length ?? selectedStockistDetail.products?.length ?? 0;
+        const gmv = selectedStockistDetail.gmv_30d ?? (selectedStockistDetail.orders?.filter(o => o.status === 'DELIVERED').reduce((sum, o) => sum + (parseFloat(o.total) || parseFloat(o.subtotal) || 0), 0)) ?? 0;
+        const pendingOrders = selectedStockistDetail.pending_orders_count ?? (selectedStockistDetail.orders?.filter(o => !['DELIVERED', 'CANCELLED'].includes(o.status)).length) ?? 0;
+        const kycDate = selectedStockistDetail.created_at || selectedStockistDetail.stockist?.created_at || selectedStockistDetail.user?.created_at;
+        const kycStatus = selectedStockistDetail.kyc_status || selectedStockistDetail.stockist?.kyc_status || 'PENDING';
+        const isActive = selectedStockistDetail.is_active ?? selectedStockistDetail.stockist?.is_active ?? (kycStatus === 'APPROVED');
+        const shopName = selectedStockistDetail.name || selectedStockistDetail.stockist?.name || '—';
+
+        return (
+          <div className="modal-overlay">
+            <div className="modal-content glass-card" style={{ maxWidth: '550px', maxHeight: '80vh', overflowY: 'auto' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                <h3 style={{ fontSize: '1.2rem', margin: 0 }}>Stockist Details: {shopName}</h3>
+                <button className="btn btn-secondary" style={{ padding: '0.2rem 0.5rem' }} onClick={() => setShowStockistDetailModal(false)}><X size={14} /></button>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.85rem', fontSize: '0.8rem', marginBottom: '1rem' }}>
+                <div><strong>Shop Name:</strong> {shopName}</div>
+                <div>
+                  <strong>Phone / Owner:</strong>{' '}
+                  {phone !== '—' ? (
+                    <a href={`tel:${phone}`} style={{ color: 'var(--primary)', textDecoration: 'underline' }}>
+                      {phone}
+                    </a>
+                  ) : (
+                    '—'
+                  )}
+                  {ownerName && ownerName !== shopName ? ` (${ownerName})` : ''}
+                </div>
+                <div><strong>Region:</strong> {regName}</div>
+                <div><strong>Wholesaler:</strong> {vendorName}</div>
+                <div><strong>Commission Rate:</strong> {rate != null ? `${rate}%` : '—'}</div>
+                <div><strong>Delivery Radius:</strong> {radius} km</div>
+                <div><strong>Min Order Value:</strong> ₹{minOrder}</div>
+                <div><strong>Product Count:</strong> {productCount} SKUs</div>
+                <div><strong>30-Day GMV:</strong> ₹{(parseFloat(gmv) || 0).toFixed(2)}</div>
+                <div><strong>Pending Orders:</strong> {pendingOrders}</div>
+                <div><strong>KYC Date:</strong> {kycDate ? new Date(kycDate).toLocaleDateString() : 'N/A'}</div>
+                <div><strong>Status:</strong> {renderKycStatusBadge(kycStatus, isActive)}</div>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '1rem' }}>
+                <button className="btn btn-secondary" onClick={() => setShowStockistDetailModal(false)}>Close</button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Self-Service Phone Change Modal Overlay */}
       {showSelfServicePhoneModal && (

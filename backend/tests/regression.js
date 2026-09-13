@@ -4689,6 +4689,27 @@ async function main() {
   assert(!appJsxBf21a.includes("v.region_id === 'r1' ? 'Kolkata South' : 'Rural West Bengal'"), 'App.jsx does not use hardcoded ternary for wholesaler region');
   assert(appJsxBf21a.includes("regions.find(r => r.id === v.region_id)") || appJsxBf21a.includes("regions.find"), 'App.jsx resolves wholesaler region from regions list');
 
+  // Round BF21-B: Stockist Details Modal Key Mappings
+  console.log('\n--- Round BF21-B: Stockist Details Modal Key Mappings ---');
+
+  // Test: GET /api/admin/stockists/:id returns user_phone and stockist.commission_rate
+  const stockistDetailRes = await new Promise((resolve) => {
+    http.get('http://localhost:3001/api/admin/stockists/s1', (res) => {
+      let raw = '';
+      res.on('data', chunk => raw += chunk);
+      res.on('end', () => resolve({ status: res.statusCode, body: JSON.parse(raw) }));
+    });
+  });
+  assert(stockistDetailRes.status === 200, 'GET /api/admin/stockists/s1 returns 200');
+  assert(stockistDetailRes.body.user_phone !== undefined || (stockistDetailRes.body.user && stockistDetailRes.body.user.phone !== undefined), 'Stockist detail response contains user_phone or user.phone');
+  assert(stockistDetailRes.body.stockist && stockistDetailRes.body.stockist.commission_rate !== undefined, 'Stockist detail response contains stockist.commission_rate');
+
+  // Test: App.jsx binds phone with tel: link
+  const appJsxBf21b = fs.readFileSync(path.join(__dirname, '../../frontend/src/App.jsx'), 'utf8');
+  assert(appJsxBf21b.includes('user_phone') && appJsxBf21b.includes('href={`tel:${phone}`}'), 'App.jsx maps user_phone and renders a tel: link');
+  assert(appJsxBf21b.includes('stockist?.commission_rate'), 'App.jsx maps commission_rate from stockist.commission_rate');
+  assert(!appJsxBf21b.includes('{selectedStockistDetail.commission_rate}%'), 'App.jsx does not render bare % without fallback check');
+
   console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);
 
