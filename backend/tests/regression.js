@@ -4543,6 +4543,31 @@ async function main() {
   });
   assert(noPasswordUserRes.status === 401 && noPasswordUserRes.body.error === 'Invalid credentials', 'Known partner email with no password returns 401 Invalid credentials (no enumeration difference)');
 
+  // Round BF19: No duplicate route registrations
+  console.log('\n--- Round BF19: No Duplicate Route Registrations ---');
+
+  // Test: assertNoDuplicateRoutes exists and is exported
+  const { assertNoDuplicateRoutes } = require('../server.js');
+  assert(typeof assertNoDuplicateRoutes === 'function', 'assertNoDuplicateRoutes is exported as a function');
+
+  // Test: calling assertNoDuplicateRoutes on the real app does NOT throw (all dupes removed)
+  let noDupeError = null;
+  try { assertNoDuplicateRoutes(); } catch (e) { noDupeError = e; }
+  assert(noDupeError === null, 'assertNoDuplicateRoutes does not throw on the live app (no duplicates)');
+
+  // Test: assertNoDuplicateRoutes DOES throw when given a mock app with duplicate routes
+  const express = require('express');
+  const mockApp = express();
+  mockApp.get('/api/test/dup', (req, res) => res.json({}));
+  mockApp.get('/api/test/dup', (req, res) => res.json({}));
+  let dupeError = null;
+  try { assertNoDuplicateRoutes(mockApp); } catch (e) { dupeError = e; }
+  assert(dupeError !== null && dupeError.message.includes('Duplicate route registrations detected'), 'assertNoDuplicateRoutes throws on duplicate routes');
+
+  // Test: server.js no longer contains blacklisted_until field writes
+  const serverCodeBf19 = fs.readFileSync(path.join(__dirname, '../server.js'), 'utf8');
+  assert(!serverCodeBf19.includes('blacklisted_until'), 'server.js contains zero references to blacklisted_until (standardized on kyc_blacklist_until)');
+
   console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);
 
