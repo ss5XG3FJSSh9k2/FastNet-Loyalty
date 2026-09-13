@@ -11565,7 +11565,7 @@ export default function App() {
                             <tr key={v.id}>
                               <td style={{ fontFamily: 'monospace' }}>{v.id}</td>
                               <td>{v.name}</td>
-                              <td>{v.region_id === 'r1' ? 'Kolkata South' : 'Rural West Bengal'}</td>
+                              <td>{(regions.find(r => r.id === v.region_id) || adminRegionsList.find(r => r.id === v.region_id) || {}).name || v.region_id || '—'}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -12985,7 +12985,7 @@ export default function App() {
                 <h4 style={{ margin: '0 0 0.5rem 0', color: 'var(--primary)' }}>Service Regions ({(selectedPartnerDetail.regions || []).length})</h4>
                 {(selectedPartnerDetail.regions || []).map(r => (
                   <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.25rem 0' }}>
-                    <span>{r.region_id === 'r1' ? 'Kolkata South' : r.region_id === 'r2' ? 'Rural Bishnupur' : r.region_id} ({getServiceTypeLabel(r.service_type)})</span>
+                    <span>{(regions.find(reg => reg.id === r.region_id) || adminRegionsList.find(reg => reg.id === r.region_id) || {}).name || r.region_id || '—'} ({getServiceTypeLabel(r.service_type)})</span>
                     <span className={`badge ${r.is_active ? 'badge-success' : 'badge-secondary'}`}>{r.is_active ? 'Active' : 'Inactive'}</span>
                   </div>
                 ))}

@@ -4654,6 +4654,41 @@ async function main() {
     assert(verifyRes.status === 200 && verifyRes.body.token, `Login and out step #${i} verify-otp succeeds`);
   }
 
+  // Round BF21-A: Wholesaler Region Name Lookup
+  console.log('\n--- Round BF21-A: Wholesaler Region Name Lookup ---');
+
+  // Test: Register four wholesalers in four different regions -> all store submitted region_id
+  const testVendorRegions = ['r1', 'r2', 'r-north', 'r-east'];
+  const createdVendors = [];
+  for (const regId of testVendorRegions) {
+    const vRes = await post('http://localhost:3001/api/admin/vendors', {
+      name: `Wholesaler for ${regId}`,
+      regionId: regId
+    });
+    assert(vRes.status === 200 && vRes.body.success, `Vendor for ${regId} registered successfully`);
+    assert(vRes.body.vendor.region_id === regId, `Vendor has correct region_id ${regId}`);
+    createdVendors.push(vRes.body.vendor);
+  }
+
+  // Test: GET /api/admin/vendors returns all four with distinct region_id values
+  const allVendorsRes = await new Promise((resolve) => {
+    http.get('http://localhost:3001/api/admin/vendors', (res) => {
+      let raw = '';
+      res.on('data', chunk => raw += chunk);
+      res.on('end', () => resolve({ status: res.statusCode, body: JSON.parse(raw) }));
+    });
+  });
+  assert(allVendorsRes.status === 200, 'GET /api/admin/vendors returns 200');
+  for (const regId of testVendorRegions) {
+    const found = allVendorsRes.body.find(v => v.region_id === regId);
+    assert(Boolean(found), `Wholesaler list contains vendor with region_id ${regId}`);
+  }
+
+  // Test: App.jsx does NOT contain hardcoded ternary for wholesaler region
+  const appJsxBf21a = fs.readFileSync(path.join(__dirname, '../../frontend/src/App.jsx'), 'utf8');
+  assert(!appJsxBf21a.includes("v.region_id === 'r1' ? 'Kolkata South' : 'Rural West Bengal'"), 'App.jsx does not use hardcoded ternary for wholesaler region');
+  assert(appJsxBf21a.includes("regions.find(r => r.id === v.region_id)") || appJsxBf21a.includes("regions.find"), 'App.jsx resolves wholesaler region from regions list');
+
   console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);
 
