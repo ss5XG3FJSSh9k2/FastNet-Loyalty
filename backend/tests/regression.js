@@ -2186,8 +2186,8 @@ async function main() {
 
   const p4b_appJsx = fs.readFileSync(path.join(__dirname, '../../frontend/src/App.jsx'), 'utf8');
 
-  // Test 396: App.jsx contains Partner Login affordance and Email + Password & Phone + OTP
-  assert(p4b_appJsx.includes('Partner Login') && p4b_appJsx.includes('Email + Password') && p4b_appJsx.includes('Phone + OTP'), 'App.jsx contains a "Partner Login" affordance and both "Email + Password" and "Phone + OTP" strings');
+  // Test 396: App.jsx contains Partner Login affordance and Sign in with email & Phone + OTP
+  assert(p4b_appJsx.includes('Partner Login') && p4b_appJsx.includes('Sign in with email'), 'App.jsx contains a "Partner Login" affordance with "Sign in with email" option');
 
   // Test 397: App.jsx contains partnerAppTab state variable
   assert(p4b_appJsx.includes('partnerAppTab'), 'App.jsx contains partnerAppTab state variable');
@@ -3595,9 +3595,9 @@ async function main() {
   const partnerTabDefaultStateMatch = appContent.includes('useState(\'otp\');') || appContent.includes('useState("otp");');
   assert(partnerTabDefaultStateMatch, 'partner login default tab state in App.jsx is otp');
 
-  // Test #670: Grep: partner login Email tab in App.jsx renders hint
-  const partnerEmailHintMatch = appContent.includes('If you have not set a password yet, use Phone + OTP.');
-  assert(partnerEmailHintMatch, 'partner login Email tab renders password hint line');
+  // Test #670: Grep: partner login Email form in App.jsx renders return link
+  const partnerEmailReturnLinkMatch = appContent.includes('Back to phone login');
+  assert(partnerEmailReturnLinkMatch, 'partner login Email form renders Back to phone login link');
 
   // Test #671: Endpoint: a promoted partner (no email, no password set) authenticates via phone + OTP -> 200
   const bf9LeadForOtpRes = await post('http://localhost:3001/api/partner-leads', {
@@ -4063,9 +4063,9 @@ async function main() {
   const liftTestRes = await post('http://localhost:3001/api/admin/blacklist/u-stk3/lift', {});
   assert(liftTestRes.status === 200 && liftTestRes.body.success, 'POST /api/admin/blacklist/:userId/lift lifts blacklist and returns 200');
 
-  // Test: App contains Blacklist nav tab, search filters, and disabled Email login tab
+  // Test: App contains Blacklist nav tab, search filters, and Sign in with email link
   assert(freshAppContent.includes('data-path="/admin/blacklist"') && freshAppContent.includes('blacklistSearch'), 'App contains Blacklist nav tab and search filters');
-  assert(freshAppContent.includes('disabled={!partnerSetupCompleted}'), 'Partner Email login tab is disabled when setup is incomplete');
+  assert(freshAppContent.includes('Already set up email login? Sign in with email'), 'Partner login contains Sign in with email link instead of disabled tab');
 
   // --- Round BF14: Rate Limit Fix Spec ---
   const origNodeEnv = process.env.NODE_ENV;
@@ -4516,6 +4516,32 @@ async function main() {
   assert(appCodeBf1b.includes('PanelErrorBoundary'), 'App.jsx contains PanelErrorBoundary component');
   assert(appCodeBf1b.includes('No reason recorded'), 'App.jsx handles missing reason with No reason recorded fallback');
   assert(appCodeBf1b.includes('Array.isArray(blacklistedUsers)'), 'App.jsx safely handles blacklistedUsers response array/object structure');
+
+  // Round BF18-10: Partner Login UI & Security Non-Enumeration
+  console.log('\n--- Round BF18-10: Partner Login UI & Security Non-Enumeration ---');
+
+  const appCodeBf1810 = fs.readFileSync(path.join(__dirname, '../../frontend/src/App.jsx'), 'utf8');
+
+  // Test: the partner login page does not render an email tab by default
+  assert(!appCodeBf1810.includes("disabled={!partnerSetupCompleted}"), 'partner login page does not render an email tab by default');
+  assert(appCodeBf1810.includes("partnerLoginTab === 'password'"), 'partner login supports switching login forms');
+
+  // Test: the email form is reachable through the link
+  assert(appCodeBf1810.includes("Already set up email login? Sign in with email"), 'the email form link Sign in with email is present');
+  assert(appCodeBf1810.includes("Back to phone login"), 'the return link Back to phone login is present');
+
+  // Test: the email login endpoint returns the same generic error for an unknown email and for a known partner with no password set
+  const unknownEmailRes = await post('http://localhost:3001/api/partner/auth/login-password', {
+    email: 'nonexistent-partner@example.com',
+    password: 'Password123!'
+  });
+  assert(unknownEmailRes.status === 401 && unknownEmailRes.body.error === 'Invalid credentials', 'Unknown email login returns 401 Invalid credentials');
+
+  const noPasswordUserRes = await post('http://localhost:3001/api/partner/auth/login-password', {
+    email: 'adhya@fastnet.com',
+    password: 'Password123!'
+  });
+  assert(noPasswordUserRes.status === 401 && noPasswordUserRes.body.error === 'Invalid credentials', 'Known partner email with no password returns 401 Invalid credentials (no enumeration difference)');
 
   console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);

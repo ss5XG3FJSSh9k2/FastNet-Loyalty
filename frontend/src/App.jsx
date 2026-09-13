@@ -5423,26 +5423,8 @@ export default function App() {
           <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>FastNet Operator Hub</p>
         </div>
 
-        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem' }}>
-          <button className={`btn ${partnerLoginTab === 'otp' ? 'btn-primary' : 'btn-secondary'}`} style={{ flex: 1, fontSize: '0.75rem' }} onClick={() => setPartnerLoginTab('otp')}>
-            Phone + OTP
-          </button>
-          <button 
-            className={`btn ${partnerLoginTab === 'password' ? 'btn-primary' : 'btn-secondary'} ${!partnerSetupCompleted ? 'disabled' : ''}`} 
-            style={{ flex: 1, fontSize: '0.75rem', opacity: !partnerSetupCompleted ? 0.5 : 1, cursor: !partnerSetupCompleted ? 'not-allowed' : 'pointer' }} 
-            disabled={!partnerSetupCompleted}
-            title={!partnerSetupCompleted ? "Set up email and password after first login" : "Email + Password Login"}
-            onClick={() => partnerSetupCompleted && setPartnerLoginTab('password')}
-          >
-            Email + Password
-          </button>
-        </div>
-
         {partnerLoginTab === 'password' ? (
           <>
-            <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '0.75rem' }}>
-              If you have not set a password yet, use Phone + OTP.
-            </p>
             <div className="input-group">
               <label className="input-label">Partner Email</label>
               <input type="email" placeholder="partner@example.com" className="text-input" value={partnerLoginEmail} onChange={e => setPartnerLoginEmail(e.target.value)} />
@@ -5455,9 +5437,12 @@ export default function App() {
               Log in
             </button>
 
-            <div style={{ textAlign: 'center', marginTop: '0.75rem' }}>
+            <div style={{ textAlign: 'center', marginTop: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.5rem', alignItems: 'center' }}>
               <button style={{ background: 'none', border: 'none', color: 'var(--primary)', fontSize: '0.75rem', cursor: 'pointer', textDecoration: 'underline' }} onClick={() => setShowPartnerForgotForm(!showPartnerForgotForm)}>
                 Forgot password?
+              </button>
+              <button style={{ background: 'none', border: 'none', color: 'var(--primary)', fontSize: '0.75rem', cursor: 'pointer', textDecoration: 'underline' }} onClick={() => setPartnerLoginTab('otp')}>
+                {t("Back to phone login", "फ़ोन लॉगिन पर वापस जाएं", "ফোন লগইনে ফিরে যান")}
               </button>
             </div>
 
@@ -5482,6 +5467,14 @@ export default function App() {
                 <button className="btn btn-primary" style={{ width: '100%', marginTop: '1rem' }} onClick={handlePartnerSendOtp}>
                   Send One-Time Password
                 </button>
+                <div style={{ textAlign: 'center', marginTop: '1rem' }}>
+                  <button 
+                    style={{ background: 'none', border: 'none', color: 'var(--primary)', fontSize: '0.75rem', cursor: 'pointer', textDecoration: 'underline' }} 
+                    onClick={() => setPartnerLoginTab('password')}
+                  >
+                    {t("Already set up email login? Sign in with email", "क्या पहले से ईमेल लॉगिन सेट किया है? ईमेल से साइन इन करें", "ইতিমধ্যে ইমেল লগইন সেট করেছেন? ইমেল দিয়ে সাইন ইন করুন")}
+                  </button>
+                </div>
               </>
             ) : (
               <>
