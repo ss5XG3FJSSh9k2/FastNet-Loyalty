@@ -85,6 +85,35 @@ const getServiceTypeLabel = (st) => {
   return item ? item.label : st;
 };
 
+class PanelErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error, errorInfo) {
+    console.error("PanelErrorBoundary caught an error:", error, errorInfo);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ padding: '2rem', background: 'rgba(239, 68, 68, 0.1)', border: '1px solid var(--danger)', borderRadius: '8px', color: 'var(--danger)', margin: '1rem 0' }}>
+          <h3 style={{ marginBottom: '0.5rem' }}>Unable to load panel</h3>
+          <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '1rem' }}>
+            An unexpected error occurred while rendering this view ({this.state.error?.message || 'Unknown error'}).
+          </p>
+          <button className="btn btn-secondary" onClick={() => this.setState({ hasError: false, error: null })}>
+            Try Again
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 const MemoizedStockistRow = React.memo(({ stockist, regionName, onDetails, onDeactivate }) => {
   return (
     <tr>
@@ -1463,7 +1492,11 @@ export default function App() {
         const stksRes = await fetch(`${API_BASE}/admin/stockists?include_inactive=true`);
 
         const blRes = await fetch(`${API_BASE}/admin/blacklist`);
-        if (blRes.ok) setBlacklistedUsers(await blRes.json());
+        if (blRes.ok) {
+          const blData = await blRes.json();
+          const list = Array.isArray(blData) ? blData : (blData.blacklist || []);
+          setBlacklistedUsers(list);
+        }
 
         const stRes = await fetch(`${API_BASE}/admin/support/tickets`);
         if (stRes.ok) setAdminSupportTickets(await stRes.json());
@@ -10303,91 +10336,120 @@ export default function App() {
               )}
 
               {adminTab === 'blacklist' && (
-                <div>
-                  <h2 style={{ fontSize: '1.4rem', marginBottom: '1rem' }}>Blacklisted Users & Partners</h2>
-                  <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
-                    View accounts blocked due to fraudulent documentation, duplicate phone numbers, or platform abuse. Unblock upon successful appeal or extend penalty duration.
-                  </p>
+                <PanelErrorBoundary>
+                  <div>
+                    <h2 style={{ fontSize: '1.4rem', marginBottom: '1rem' }}>Blacklisted & Rejected Accounts</h2>
+                    <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
+                      View accounts blocked or rejected due to fraudulent documentation, duplicate phone numbers, or platform policy decisions.
+                    </p>
 
-                  <div className="blacklist-filters" style={{ display: 'flex', gap: '0.75rem', marginBottom: '1.25rem' }}>
-                    <input 
-                      type="text"
-                      placeholder="Search by phone or name..." 
-                      className="text-input"
-                      style={{ flex: 1, maxWidth: '300px' }}
-                      value={blacklistSearch} 
-                      onChange={e => setBlacklistSearch(e.target.value)} 
-                    />
-                    <select 
-                      className="text-input"
-                      style={{ width: '180px' }}
-                      value={blacklistFilter} 
-                      onChange={e => setBlacklistFilter(e.target.value)}
-                    >
-                      <option value="all">All</option>
-                      <option value="FRAUD">Fraud</option>
-                      <option value="DUPLICATE">Duplicate Phone</option>
-                      <option value="DISPUTED">Disputed Document</option>
-                    </select>
-                  </div>
+                    <div className="blacklist-filters" style={{ display: 'flex', gap: '0.75rem', marginBottom: '1.25rem' }}>
+                      <input 
+                        type="text"
+                        placeholder="Search by phone or name..." 
+                        className="text-input"
+                        style={{ flex: 1, maxWidth: '300px' }}
+                        value={blacklistSearch} 
+                        onChange={e => setBlacklistSearch(e.target.value)} 
+                      />
+                      <select 
+                        className="text-input"
+                        style={{ width: '180px' }}
+                        value={blacklistFilter} 
+                        onChange={e => setBlacklistFilter(e.target.value)}
+                      >
+                        <option value="all">All</option>
+                        <option value="FRAUD">Fraud</option>
+                        <option value="DUPLICATE">Duplicate Phone</option>
+                        <option value="DISPUTED">Disputed Document</option>
+                        <option value="REJECTED">Rejected</option>
+                        <option value="BLACKLISTED">Blacklisted</option>
+                      </select>
+                    </div>
 
-                  <table className="admin-table">
-                    <thead>
-                      <tr>
-                        <th>Phone</th>
-                        <th>Name</th>
-                        <th>Reason</th>
-                        <th>Blacklisted Until</th>
-                        <th>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {blacklistedUsers
-                        .filter(u => {
-                          const matchesSearch = !blacklistSearch || 
-                            (u.phone && u.phone.includes(blacklistSearch)) ||
-                            (u.name && u.name.toLowerCase().includes(blacklistSearch.toLowerCase()));
-                          const matchesFilter = blacklistFilter === 'all' || 
-                            (u.reason && u.reason.toUpperCase().includes(blacklistFilter.toUpperCase()));
-                          return matchesSearch && matchesFilter;
-                        })
-                        .map(u => (
-                          <tr key={u.user_id || u.id}>
-                            <td>{u.phone}</td>
-                            <td><strong>{u.name}</strong></td>
-                            <td style={{ color: 'var(--danger)', fontSize: '0.8rem' }}>{u.reason || u.kyc_blacklist_reason}</td>
-                            <td>{u.blacklist_until || u.kyc_blacklist_until ? new Date(u.blacklist_until || u.kyc_blacklist_until).toLocaleDateString() : 'Permanent'}</td>
-                            <td>
-                              <div style={{ display: 'flex', gap: '0.3rem' }}>
-                                <button className="btn btn-secondary" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }} onClick={() => setAdminTab('support_tickets')}>
-                                  View Appeal
-                                </button>
-                                <button className="btn btn-secondary" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }} onClick={() => handleExtendBlacklist(u.user_id || u.id, 30)}>
-                                  Extend 30 Days
-                                </button>
-                                <button className="btn btn-accent" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }} onClick={() => {
-                                  triggerConfirmModal(
-                                    'Lift Blacklist',
-                                    `Lift blacklist for ${u.name}? They will be able to submit updated documents.`,
-                                    () => handleUnblockBlacklist(u.user_id || u.id)
-                                  );
-                                }}>
-                                  Lift Blacklist
-                                </button>
-                              </div>
+                    <table className="admin-table">
+                      <thead>
+                        <tr>
+                          <th>Type</th>
+                          <th>Phone</th>
+                          <th>Name</th>
+                          <th>Reason</th>
+                          <th>Blacklisted Until</th>
+                          <th>Status</th>
+                          <th>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(Array.isArray(blacklistedUsers) ? blacklistedUsers : [])
+                          .filter(u => {
+                            const searchLower = (blacklistSearch || '').toLowerCase();
+                            const matchesSearch = !searchLower || 
+                              (u.phone && String(u.phone).toLowerCase().includes(searchLower)) ||
+                              (u.name && String(u.name).toLowerCase().includes(searchLower)) ||
+                              (u.type && String(u.type).toLowerCase().includes(searchLower));
+                            const filterUpper = (blacklistFilter || 'all').toUpperCase();
+                            const matchesFilter = filterUpper === 'ALL' || 
+                              (u.reason && String(u.reason).toUpperCase().includes(filterUpper)) ||
+                              (u.kyc_status && String(u.kyc_status).toUpperCase().includes(filterUpper));
+                            return matchesSearch && matchesFilter;
+                          })
+                          .map(u => {
+                            const expiryVal = u.blacklist_until || u.kyc_blacklist_until;
+                            let expiryDisplay = '—';
+                            if (expiryVal) {
+                              const parsed = new Date(expiryVal);
+                              expiryDisplay = !isNaN(parsed.getTime()) ? parsed.toLocaleDateString() : '—';
+                            } else if (u.kyc_status === 'BLACKLISTED') {
+                              expiryDisplay = 'Permanent';
+                            } else {
+                              expiryDisplay = '—';
+                            }
+
+                            const reasonText = u.reason || u.kyc_blacklist_reason || u.kyc_rejection_reason || 'No reason recorded';
+
+                            return (
+                              <tr key={u.user_id || u.id}>
+                                <td><span className="badge badge-secondary">{u.type || (u.role === 'PARTNER_LEAD' ? 'Partner Lead' : 'Stockist')}</span></td>
+                                <td>{u.phone || '—'}</td>
+                                <td><strong>{u.name || 'Unnamed'}</strong></td>
+                                <td style={{ color: 'var(--danger)', fontSize: '0.8rem' }}>{reasonText}</td>
+                                <td>{expiryDisplay}</td>
+                                <td>{renderKycStatusBadge(u.kyc_status || 'BLACKLISTED', true)}</td>
+                                <td>
+                                  <div style={{ display: 'flex', gap: '0.3rem' }}>
+                                    <button className="btn btn-secondary" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }} onClick={() => setAdminTab('support_tickets')}>
+                                      View Appeal
+                                    </button>
+                                    {u.kyc_status === 'BLACKLISTED' && (
+                                      <button className="btn btn-secondary" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }} onClick={() => handleExtendBlacklist(u.user_id || u.id, 30)}>
+                                        Extend 30 Days
+                                      </button>
+                                    )}
+                                    <button className="btn btn-accent" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }} onClick={() => {
+                                      triggerConfirmModal(
+                                        u.kyc_status === 'BLACKLISTED' ? 'Lift Blacklist' : 'Clear Rejection',
+                                        `Lift penalty for ${u.name || 'this user'}? They will be able to submit updated documents.`,
+                                        () => handleUnblockBlacklist(u.user_id || u.id)
+                                      );
+                                    }}>
+                                      {u.kyc_status === 'BLACKLISTED' ? 'Lift Blacklist' : 'Clear Rejection'}
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        {(!blacklistedUsers || !Array.isArray(blacklistedUsers) || blacklistedUsers.length === 0) && (
+                          <tr>
+                            <td colSpan="7" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
+                              No blacklisted or rejected users currently on record.
                             </td>
                           </tr>
-                        ))}
-                      {blacklistedUsers.length === 0 && (
-                        <tr>
-                          <td colSpan="5" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
-                            No blacklisted users currently on record.
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </PanelErrorBoundary>
               )}
 
               {adminTab === 'support_tickets' && (

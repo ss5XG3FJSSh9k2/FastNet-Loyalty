@@ -4486,6 +4486,37 @@ async function main() {
   assert(appCodeBf189.includes('REJECTED') && appCodeBf189.includes('BLACKLISTED'), 'App.jsx badge helper handles REJECTED, BLACKLISTED');
   assert(appCodeBf189.includes("ACTIVE_LIST_STATUSES = ['APPROVED']"), "App.jsx uses inclusion list ACTIVE_LIST_STATUSES = ['APPROVED']");
 
+  // Round BF18-1b: Blacklisted & Rejected Panel Robustness
+  console.log('\n--- Round BF18-1b: Blacklisted & Rejected Panel Robustness ---');
+
+  // Reject a stockist and blacklist a stockist for test coverage
+  await post('http://localhost:3001/api/admin/kyc/u-stk3/reject', { reason: 'Illegible ID photo' });
+  await post('http://localhost:3001/api/admin/kyc/u-stk1/blacklist', { reason: 'Duplicate document fraud', days: 30 });
+
+  const bf1bBlRes = await get('http://localhost:3001/api/admin/blacklist');
+  assert(bf1bBlRes.status === 200 && bf1bBlRes.body.success && Array.isArray(bf1bBlRes.body.blacklist), 'GET /api/admin/blacklist returns 200 with blacklist array');
+
+  const blacklistItems = bf1bBlRes.body.blacklist;
+  const rejectedRow = blacklistItems.find(r => r.kyc_status === 'REJECTED');
+  const blacklistedRow = blacklistItems.find(r => r.kyc_status === 'BLACKLISTED');
+
+  assert(rejectedRow, 'Blacklist endpoint returns a rejected row');
+  assert(blacklistedRow, 'Blacklist endpoint returns a blacklisted row');
+
+  // Test: the list endpoint returns the same field set for both row types, nulls included
+  const expectedKeys = ['id', 'user_id', 'name', 'phone', 'role', 'type', 'kyc_status', 'reason', 'blacklisted_at', 'blacklist_until', 'blacklisted_by'];
+  const rejectedHasAllKeys = expectedKeys.every(k => Object.prototype.hasOwnProperty.call(rejectedRow, k));
+  const blacklistedHasAllKeys = expectedKeys.every(k => Object.prototype.hasOwnProperty.call(blacklistedRow, k));
+  assert(rejectedHasAllKeys, 'Rejected row returns normalized field set with nulls where applicable');
+  assert(blacklistedHasAllKeys, 'Blacklisted row returns normalized field set with nulls where applicable');
+  assert(rejectedRow.blacklist_until === null, 'Rejected row has null blacklist_until expiry');
+
+  // Test: App.jsx contains PanelErrorBoundary and safe rendering for rejected / blacklisted rows
+  const appCodeBf1b = fs.readFileSync(path.join(__dirname, '../../frontend/src/App.jsx'), 'utf8');
+  assert(appCodeBf1b.includes('PanelErrorBoundary'), 'App.jsx contains PanelErrorBoundary component');
+  assert(appCodeBf1b.includes('No reason recorded'), 'App.jsx handles missing reason with No reason recorded fallback');
+  assert(appCodeBf1b.includes('Array.isArray(blacklistedUsers)'), 'App.jsx safely handles blacklistedUsers response array/object structure');
+
   console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);
 

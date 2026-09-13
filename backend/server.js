@@ -3548,23 +3548,49 @@ app.post('/api/admin/kyc/:userId/blacklist', async (req, res) => {
 // Admin Get Blacklist
 app.get('/api/admin/blacklist', async (req, res) => {
   const users = await db.getTable('users');
-  const blacklistRecords = await db.getTable('user_blacklist');
-  const blacklistedUsers = users.filter(u => u.kyc_status === 'BLACKLISTED' || u.kyc_blacklist_until);
+  const blacklistRecords = (await db.getTable('user_blacklist')) || [];
+  const partnerLeads = (await db.getTable('partner_leads')) || [];
 
-  const result = blacklistedUsers.map(u => {
+  const rejectedOrBlacklistedUsers = users.filter(u => 
+    u.kyc_status === 'BLACKLISTED' || u.kyc_status === 'REJECTED' || u.kyc_blacklist_until
+  );
+
+  const userResults = rejectedOrBlacklistedUsers.map(u => {
     const record = blacklistRecords.find(b => b.user_id === u.id) || {};
     return {
+      id: u.id,
       user_id: u.id,
-      name: u.name,
-      phone: u.phone,
-      role: u.role,
-      kyc_status: u.kyc_status,
-      reason: u.kyc_blacklist_reason || record.reason || 'Fraud/Abuse flag',
-      blacklisted_at: record.blacklisted_at || u.kyc_rejected_at || u.created_at,
-      blacklist_until: u.kyc_blacklist_until || record.blacklist_until,
-      blacklisted_by: record.blacklisted_by_admin_id || 'admin'
+      name: u.name || 'Unnamed User',
+      phone: u.phone || '',
+      role: u.role || 'STOCKIST',
+      type: u.role === 'PARTNER' ? 'Partner' : 'Stockist',
+      kyc_status: u.kyc_status || (u.kyc_blacklist_until ? 'BLACKLISTED' : 'REJECTED'),
+      reason: u.kyc_blacklist_reason || u.kyc_rejection_reason || record.reason || null,
+      blacklisted_at: (u.kyc_status === 'BLACKLISTED' || u.kyc_blacklist_until) ? (record.blacklisted_at || u.kyc_rejected_at || u.created_at || null) : null,
+      blacklist_until: u.kyc_blacklist_until || record.blacklist_until || null,
+      blacklisted_by: record.blacklisted_by_admin_id || null
     };
   });
+
+  const rejectedOrBlacklistedLeads = partnerLeads.filter(l => 
+    l.status === 'REJECTED' || l.status === 'BLACKLISTED'
+  );
+
+  const leadResults = rejectedOrBlacklistedLeads.map(l => ({
+    id: l.id,
+    user_id: l.id,
+    name: l.name || l.contact_name || 'Partner Lead',
+    phone: l.phone || '',
+    role: 'PARTNER_LEAD',
+    type: 'Partner Lead',
+    kyc_status: l.status || 'REJECTED',
+    reason: l.rejection_reason || l.reason || null,
+    blacklisted_at: l.status === 'BLACKLISTED' ? (l.blacklisted_at || l.updated_at || l.created_at || null) : null,
+    blacklist_until: l.blacklist_until || l.kyc_blacklist_until || null,
+    blacklisted_by: l.blacklisted_by || null
+  }));
+
+  const result = [...userResults, ...leadResults];
   return res.json({ success: true, blacklist: result });
 });
 
@@ -7864,38 +7890,7 @@ app.post('/api/admin/kyc/:userId/blacklist', async (req, res) => {
   return res.json({ success: true, status: 'BLACKLISTED', can_reapply: false, user, blacklist_entry: blEntry });
 });
 
-// 4. Admin Blacklist List
-app.get('/api/admin/blacklist', async (req, res) => {
-  const blacklists = await db.getTable('user_blacklist');
-  const users = await db.getTable('users');
-  const blacklistedUsers = users.filter(u => u.is_blacklisted || u.kyc_status === 'BLACKLISTED');
-  
-  const result = [...blacklists];
-  blacklistedUsers.forEach(usr => {
-    if (!result.some(b => b.user_id === usr.id)) {
-      result.push({
-        id: 'bl-' + usr.id,
-        user_id: usr.id,
-        phone: usr.phone,
-        reason: usr.blacklist_reason || usr.kyc_blacklist_reason || 'Blacklisted by admin',
-        blacklisted_at: usr.blacklisted_at || new Date().toISOString(),
-        blacklist_until: usr.blacklisted_until || usr.kyc_blacklist_until || null,
-        user_name: usr.name,
-        user_role: usr.role
-      });
-    }
-  });
-  const finalResult = result.map(bl => {
-    const usr = users.find(u => u.id === bl.user_id);
-    return {
-      ...bl,
-      user_name: bl.user_name || (usr ? usr.name : 'Unknown User'),
-      user_role: bl.user_role || (usr ? usr.role : 'UNKNOWN'),
-      phone: bl.phone || (usr ? usr.phone : '')
-    };
-  });
-  return res.json({ success: true, blacklist: finalResult });
-});
+// 4. Admin Blacklist List (handled at line 3548 above)
 
 // 5. Admin Blacklist Unblock
 app.post('/api/admin/blacklist/:userId/unblock', async (req, res) => {
