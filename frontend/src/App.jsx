@@ -8941,8 +8941,8 @@ export default function App() {
                   )}
 
                   {showAddProductModal && (
-                    <div style={{ position: 'absolute', inset: 0, background: 'rgba(11,14,20,0.96)', zIndex: 110, display: 'flex', flexDirection: 'column', padding: '1.5rem', justifyContent: 'center' }}>
-                      <div className="glass-card" style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                    <div style={{ position: 'absolute', inset: 0, background: 'rgba(11,14,20,0.96)', zIndex: 110, display: 'flex', flexDirection: 'column', padding: '1rem', overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
+                      <div className="glass-card" style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '2rem' }}>
                         <h3 style={{ fontSize: '1.1rem', color: 'white', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
                           <Package size={16} style={{ color: 'var(--accent)' }} />
                           {t('Add New SKU', 'नया SKU जोड़ें', 'নতুন SKU যোগ করুন')}
@@ -9084,8 +9084,8 @@ export default function App() {
                   )}
 
                   {editingProduct && (
-                    <div style={{ position: 'absolute', inset: 0, background: 'rgba(11,14,20,0.96)', zIndex: 110, display: 'flex', flexDirection: 'column', padding: '1.5rem', justifyContent: 'center' }}>
-                      <div className="glass-card" style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                    <div style={{ position: 'absolute', inset: 0, background: 'rgba(11,14,20,0.96)', zIndex: 110, display: 'flex', flexDirection: 'column', padding: '1rem', overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
+                      <div className="glass-card" style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '2rem' }}>
                         <h3 style={{ fontSize: '1.1rem', color: 'white', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
                           <Edit size={16} style={{ color: 'var(--accent)' }} />
                           {t('Edit SKU details', 'SKU विवरण संपादित करें', 'SKU বিবরণ সংশোধন করুন')}

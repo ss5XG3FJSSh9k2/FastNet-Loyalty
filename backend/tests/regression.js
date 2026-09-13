@@ -4710,6 +4710,32 @@ async function main() {
   assert(appJsxBf21b.includes('stockist?.commission_rate'), 'App.jsx maps commission_rate from stockist.commission_rate');
   assert(!appJsxBf21b.includes('{selectedStockistDetail.commission_rate}%'), 'App.jsx does not render bare % without fallback check');
 
+  // Round BF21-C: Add SKU Form Bounded Scroll & phone-screen Consolidation
+  console.log('\n--- Round BF21-C: Add SKU Form Bounded Scroll & phone-screen Consolidation ---');
+
+  // Test #922: index.css has single consolidated .phone-screen definition
+  const indexCssBf21c = fs.readFileSync(path.join(__dirname, '../../frontend/src/index.css'), 'utf8');
+  const phoneScreenMatches = indexCssBf21c.match(/\.phone-screen\s*\{/g);
+  assert(phoneScreenMatches && phoneScreenMatches.length === 1, 'index.css has exactly one consolidated .phone-screen definition');
+
+  // Test #923: consolidated .phone-screen contains padding-top: 10px
+  const phoneScreenBlock = indexCssBf21c.match(/\.phone-screen\s*\{[^}]*\}/s);
+  assert(phoneScreenBlock && phoneScreenBlock[0].includes('padding-top: 10px'), 'consolidated .phone-screen contains padding-top: 10px');
+
+  // Test #924: Add SKU modal container in App.jsx has bounded scrolling (overflowY: 'auto' and WebkitOverflowScrolling)
+  const appJsxBf21c = fs.readFileSync(path.join(__dirname, '../../frontend/src/App.jsx'), 'utf8');
+  assert(appJsxBf21c.includes("showAddProductModal && (") && appJsxBf21c.includes("overflowY: 'auto'") && appJsxBf21c.includes("WebkitOverflowScrolling: 'touch'"), 'Add SKU modal container has bounded overflowY: auto and WebkitOverflowScrolling: touch');
+
+  // Test #925: Add SKU modal overlay does not use clipping justifyContent: 'center'
+  const addModalIdx = appJsxBf21c.indexOf('{showAddProductModal && (');
+  const addModalChunk = appJsxBf21c.slice(addModalIdx, addModalIdx + 400);
+  assert(!addModalChunk.includes("justifyContent: 'center'"), 'Add SKU modal overlay does not use clipping justifyContent: center');
+
+  // Test #926: Edit SKU modal container also has bounded scrolling
+  const editModalIdx = appJsxBf21c.indexOf('{editingProduct && (');
+  const editModalChunk = appJsxBf21c.slice(editModalIdx, editModalIdx + 400);
+  assert(editModalChunk.includes("overflowY: 'auto'") && editModalChunk.includes("WebkitOverflowScrolling: 'touch'"), 'Edit SKU modal container has bounded scrolling');
+
   console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);
 
