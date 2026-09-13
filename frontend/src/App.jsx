@@ -343,6 +343,10 @@ export default function App() {
   const [kycActionReason, setKycActionReason] = useState('');
   const [kycActionDays, setKycActionDays] = useState(30);
 
+  const [revealedIds, setRevealedIds] = useState({});
+  const [showKycDocumentModal, setShowKycDocumentModal] = useState(false);
+  const [selectedKycDocument, setSelectedKycDocument] = useState(null);
+
   const [stockistCodData, setStockistCodData] = useState(null);
 
   const [adminCustomers, setAdminCustomers] = useState([]);
@@ -3525,6 +3529,74 @@ export default function App() {
       }
     } catch (err) {
       showToast('Admin server error', 'error');
+    }
+  };
+
+  const handleShowUnmaskedId = async (userId) => {
+    try {
+      const adminId = (currentUser && currentUser.role === 'ADMIN') ? currentUser.id : (currentUser?.id || '');
+      const res = await fetch(`${API_BASE}/admin/kyc/${userId}/document`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token') || ''}`,
+          'x-admin-user-id': adminId,
+          'x-admin-id': adminId
+        }
+      });
+      const data = await res.json();
+      if (res.ok && data.id_number) {
+        setRevealedIds(prev => ({ ...prev, [userId]: data.id_number }));
+      } else {
+        showToast(data.error || 'Failed to reveal ID', 'error');
+      }
+    } catch (err) {
+      showToast('Network error revealing ID', 'error');
+    }
+  };
+
+  const handleHideUnmaskedId = (userId) => {
+    setRevealedIds(prev => {
+      const updated = { ...prev };
+      delete updated[userId];
+      return updated;
+    });
+  };
+
+  const handleViewDocument = async (u) => {
+    try {
+      const adminId = (currentUser && currentUser.role === 'ADMIN') ? currentUser.id : (currentUser?.id || '');
+      const res = await fetch(`${API_BASE}/admin/kyc/${u.id}/document`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token') || ''}`,
+          'x-admin-user-id': adminId,
+          'x-admin-id': adminId
+        }
+      });
+      const data = await res.json();
+      if (res.ok) {
+        let docUrl = data.document_photo_url;
+        if (!docUrl) {
+          let kyc = u.kyc_details || {};
+          if (typeof kyc === 'string') {
+            try { kyc = JSON.parse(kyc); } catch (e) { kyc = {}; }
+          }
+          docUrl = kyc.document_photo_url || u.document_photo_url;
+        }
+        if (!docUrl) {
+          showToast('No document uploaded for this stockist', 'error');
+          return;
+        }
+        setSelectedKycDocument({
+          url: docUrl,
+          userName: u.name,
+          idType: data.id_type || u.kyc_id_type || 'ID',
+          idNumber: data.id_number || u.kyc_id_number || ''
+        });
+        setShowKycDocumentModal(true);
+      } else {
+        showToast(data.error || 'Failed to fetch document', 'error');
+      }
+    } catch (err) {
+      showToast('Network error fetching document', 'error');
     }
   };
 
@@ -10114,6 +10186,7 @@ export default function App() {
                         <th>Region</th>
                         <th>ID Type</th>
                         <th>ID Number</th>
+                        <th>Document</th>
                         <th>Shop Name</th>
                         <th>Shop Address</th>
                         <th>Actions</th>
@@ -10125,13 +10198,38 @@ export default function App() {
                         if (typeof kyc === 'string') {
                           try { kyc = JSON.parse(kyc); } catch (e) { kyc = {}; }
                         }
+                        const hasDocument = Boolean(kyc.document_photo_url || u.document_photo_url);
                         return (
                           <tr key={u.id}>
                             <td>{u.name}</td>
                             <td>{u.phone}</td>
                             <td>{regions.find(r => r.id === u.region_id)?.name || u.region_id || '-'}</td>
                             <td>{kyc.id_type || u.kyc_id_type || '-'}</td>
-                            <td>{maskAadhaar(kyc.id_number || u.kyc_id_number)}</td>
+                            <td>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                <span>{revealedIds[u.id] ? formatAadhaar(revealedIds[u.id]) : maskAadhaar(kyc.id_number || u.kyc_id_number)}</span>
+                                {revealedIds[u.id] ? (
+                                  <button className="btn btn-secondary btn-sm" style={{ padding: '0.15rem 0.4rem', fontSize: '0.7rem' }} onClick={() => handleHideUnmaskedId(u.id)}>
+                                    Hide
+                                  </button>
+                                ) : (
+                                  <button className="btn btn-secondary btn-sm" style={{ padding: '0.15rem 0.4rem', fontSize: '0.7rem' }} onClick={() => handleShowUnmaskedId(u.id)}>
+                                    Show
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                            <td>
+                              {hasDocument ? (
+                                <button className="btn btn-secondary btn-sm" style={{ padding: '0.15rem 0.4rem', fontSize: '0.75rem' }} onClick={() => handleViewDocument(u)}>
+                                  View Document
+                                </button>
+                              ) : (
+                                <button className="btn btn-secondary btn-sm" disabled style={{ padding: '0.15rem 0.4rem', fontSize: '0.75rem', opacity: 0.5, cursor: 'not-allowed' }}>
+                                  No document
+                                </button>
+                              )}
+                            </td>
                             <td>{kyc.shop_name || u.shop_name || `${u.name} Store`}</td>
                             <td>{kyc.shop_address || u.shop_address || u.address || '-'}</td>
                             <td>
@@ -10169,7 +10267,7 @@ export default function App() {
                       })}
                       {pendingKyc.length === 0 && (
                         <tr>
-                          <td colSpan="8" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
+                          <td colSpan="9" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
                             No stockists awaiting KYC approval right now.
                           </td>
                         </tr>
@@ -13345,6 +13443,37 @@ export default function App() {
                   {kycActionType === 'BLACKLIST' ? 'Confirm Blacklist' : 'Submit Rejection'}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* KYC Document Viewing Modal */}
+      {showKycDocumentModal && selectedKycDocument && (
+        <div className="modal-backdrop" onClick={() => setShowKycDocumentModal(false)}>
+          <div className="modal-content" style={{ maxWidth: '600px', width: '90%' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h3 style={{ margin: 0, fontSize: '1.2rem' }}>
+                KYC Document — {selectedKycDocument.userName}
+              </h3>
+              <button className="btn btn-secondary" style={{ padding: '0.2rem 0.5rem' }} onClick={() => setShowKycDocumentModal(false)}>
+                <X size={16} />
+              </button>
+            </div>
+            <div style={{ marginBottom: '1rem', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+              <strong>{selectedKycDocument.idType}:</strong> {selectedKycDocument.idNumber ? formatAadhaar(selectedKycDocument.idNumber) : 'N/A'}
+            </div>
+            <div style={{ textAlign: 'center', background: '#000', padding: '1rem', borderRadius: '8px', maxHeight: '60vh', overflow: 'auto' }}>
+              <img 
+                src={selectedKycDocument.url} 
+                alt="KYC Document" 
+                style={{ maxWidth: '100%', maxHeight: '50vh', objectFit: 'contain', display: 'block', margin: '0 auto' }} 
+              />
+            </div>
+            <div style={{ marginTop: '1rem', textAlign: 'right' }}>
+              <button className="btn btn-secondary" onClick={() => setShowKycDocumentModal(false)}>
+                Close
+              </button>
             </div>
           </div>
         </div>

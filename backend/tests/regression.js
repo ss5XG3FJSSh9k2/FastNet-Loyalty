@@ -4417,6 +4417,34 @@ async function main() {
   // Issue 8: Customer signup delivery address label updated to optional note
   assert(latestAppCode.includes('Delivery Address (optional — you can add this at checkout)'), 'App.jsx includes updated customer signup delivery address label');
 
+  // Issue BF18-6b: GET /api/admin/kyc-queue returns masked ID numbers
+  const bf18bKycQueueRes = await get('http://localhost:3001/api/admin/kyc-queue');
+  assert(bf18bKycQueueRes.status === 200 && Array.isArray(bf18bKycQueueRes.body), 'GET /api/admin/kyc-queue returns 200 array');
+  const pendingStockist = bf18bKycQueueRes.body.find(u => u.id === 'u-stk3');
+  assert(pendingStockist && pendingStockist.kyc_details.id_number.startsWith('XXXX-XXXX-'), 'GET /api/admin/kyc-queue returns masked id_number');
+
+  // Issue BF18-6b: GET /api/admin/kyc/:userId/document with non-admin token/header returns 403
+  const nonAdminDocRes = await get('http://localhost:3001/api/admin/kyc/u-stk3/document');
+  assert(nonAdminDocRes.status === 403, 'GET /api/admin/kyc/:userId/document without admin headers returns 403');
+
+  // Issue BF18-6b: GET /api/admin/kyc/:userId/document with valid admin header returns unmasked ID
+  const adminDocRes = await get('http://localhost:3001/api/admin/kyc/u-stk3/document', { headers: { 'x-admin-user-id': 'u-admin' } });
+  assert(adminDocRes.status === 200 && adminDocRes.body.id_number === '1234-5678-9012', 'GET /api/admin/kyc/:userId/document returns unmasked id_number for admin');
+
+  // Issue BF18-6b: GET /api/admin/kyc/u-stk5/document returns document_photo_url
+  const adminDocRes5 = await get('http://localhost:3001/api/admin/kyc/u-stk5/document', { headers: { 'x-admin-user-id': 'u-admin' } });
+  assert(adminDocRes5.status === 200 && adminDocRes5.body.document_photo_url === '/api/kyc/documents/sample-aadhaar.jpg', 'GET /api/admin/kyc/:userId/document returns uploaded photo URL');
+
+  // Issue BF18-6b: Static route GET /api/kyc/documents/sample-aadhaar.jpg serves the file
+  const docFileRes = await get('http://localhost:3001/api/kyc/documents/sample-aadhaar.jpg');
+  assert(docFileRes.status === 200, 'GET /api/kyc/documents/sample-aadhaar.jpg returns 200');
+
+  // Issue BF18-6b: App.jsx contains Show, Hide, View Document buttons, revealedIds state, and showKycDocumentModal
+  const appCodeFinal = fs.readFileSync(path.join(__dirname, '../../frontend/src/App.jsx'), 'utf8');
+  assert(appCodeFinal.includes('handleShowUnmaskedId') && appCodeFinal.includes('handleHideUnmaskedId'), 'App.jsx contains handleShowUnmaskedId and handleHideUnmaskedId');
+  assert(appCodeFinal.includes('handleViewDocument') && appCodeFinal.includes('showKycDocumentModal'), 'App.jsx contains handleViewDocument and showKycDocumentModal');
+  assert(appCodeFinal.includes('No document'), 'App.jsx contains disabled No document label for stockist without document');
+
   console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);
 

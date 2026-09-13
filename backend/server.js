@@ -823,11 +823,17 @@ app.post('/api/customer/register-with-referral', async (req, res) => {
 
 // Serve KYC document photo
 app.get('/api/kyc/documents/:filename', (req, res) => {
-  const filepath = path.join('/tmp/kyc-uploads', req.params.filename);
+  const filepath = path.join(__dirname, 'uploads', 'kyc', req.params.filename);
   if (fs.existsSync(filepath)) {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Content-Type', 'image/jpeg');
     return res.sendFile(filepath);
+  }
+  const tmpPath = path.join('/tmp/kyc-uploads', req.params.filename);
+  if (fs.existsSync(tmpPath)) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Content-Type', 'image/jpeg');
+    return res.sendFile(tmpPath);
   }
   return res.status(404).json({ error: 'KYC document photo not found' });
 });
@@ -888,7 +894,7 @@ app.post('/api/auth/register-stockist', uploadBillMiddleware, async (req, res) =
   if (docFile) {
     const timestamp = Math.floor(Date.now() / 1000);
     const filename = `${userId}_${idType}_${timestamp}.jpg`;
-    const kycDir = '/tmp/kyc-uploads';
+    const kycDir = path.join(__dirname, 'uploads', 'kyc');
     try {
       if (!fs.existsSync(kycDir)) {
         fs.mkdirSync(kycDir, { recursive: true });
@@ -3220,10 +3226,71 @@ app.delete('/api/admin/commission-config/:id', async (req, res) => {
   return res.json({ success: true, message: 'Store override deleted' });
 });
 
+function maskIdNumber(idNum) {
+  if (!idNum) return 'XXXX-XXXX-XXXX';
+  const clean = String(idNum).replace(/\D/g, '');
+  if (clean.length === 12) {
+    return 'XXXX-XXXX-' + clean.slice(8);
+  }
+  if (String(idNum).length > 4) {
+    return 'X'.repeat(String(idNum).length - 4) + String(idNum).slice(-4);
+  }
+  return 'XXXX-XXXX-XXXX';
+}
+
 app.get('/api/admin/kyc-queue', async (req, res) => {
   const users = await db.getTable('users');
-  const pending = users.filter(u => u.role === 'STOCKIST' && u.kyc_status === 'PENDING');
+  const pending = users.filter(u => u.role === 'STOCKIST' && u.kyc_status === 'PENDING').map(u => {
+    let kyc = u.kyc_details || {};
+    if (typeof kyc === 'string') {
+      try { kyc = JSON.parse(kyc); } catch (e) { kyc = {}; }
+    }
+    const rawId = kyc.id_number || u.kyc_id_number || '';
+    const maskedId = maskIdNumber(rawId);
+    return {
+      ...u,
+      kyc_id_number: maskedId,
+      kyc_details: {
+        ...kyc,
+        id_number: maskedId
+      }
+    };
+  });
   return res.json(pending);
+});
+
+app.get('/api/admin/kyc/:userId/document', async (req, res) => {
+  const adminIdHeader = req.headers['x-admin-user-id'] || req.headers['x-admin-id'];
+  const isAdmin = adminIdHeader || (req.user && (req.user.role === 'ADMIN' || req.user.role === 'PARTNER_ADMIN'));
+  if (!isAdmin) {
+    return res.status(403).json({ error: 'Admin authorization required' });
+  }
+
+  const userId = req.params.userId;
+  const users = await db.getTable('users');
+  const user = users.find(u => u.id === userId);
+  if (!user) {
+    return res.status(404).json({ error: 'Stockist user not found' });
+  }
+
+  let kyc = user.kyc_details || {};
+  if (typeof kyc === 'string') {
+    try { kyc = JSON.parse(kyc); } catch (e) { kyc = {}; }
+  }
+
+  const idNumber = kyc.id_number || user.kyc_id_number || '';
+  const idType = kyc.id_type || user.kyc_id_type || 'Aadhaar';
+  const docUrl = kyc.document_photo_url || user.document_photo_url || null;
+
+  await appendAudit(req, 'VIEW_KYC_DOCUMENT', 'user', userId, null, { id_number_accessed: true });
+
+  return res.json({
+    success: true,
+    user_id: userId,
+    id_number: idNumber,
+    id_type: idType,
+    document_photo_url: docUrl
+  });
 });
 
 app.post('/api/admin/approve-kyc', async (req, res) => {
