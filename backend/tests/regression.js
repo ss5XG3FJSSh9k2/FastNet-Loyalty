@@ -4736,6 +4736,17 @@ async function main() {
   const editModalChunk = appJsxBf21c.slice(editModalIdx, editModalIdx + 400);
   assert(editModalChunk.includes("overflowY: 'auto'") && editModalChunk.includes("WebkitOverflowScrolling: 'touch'"), 'Edit SKU modal container has bounded scrolling');
 
+  // TESTER-18: KYC ID Lookup Endpoint
+  console.log('\n--- TESTER-18: KYC ID Lookup Endpoint ---');
+  const kycLookupInvalid = await get('http://localhost:3001/api/admin/stockists/lookup-by-id?kyc_id=123');
+  assert(kycLookupInvalid.status === 400, 'KYC ID lookup with length < 12 returns 400');
+  
+  const kycLookupUnknown = await get('http://localhost:3001/api/admin/stockists/lookup-by-id?kyc_id=999999999999');
+  assert(kycLookupUnknown.status === 404, 'KYC ID lookup for unknown ID returns 404');
+  
+  const auditLogAfterLookup = await get('http://localhost:3001/api/admin/audit-log');
+  assert(auditLogAfterLookup.body.some(a => a.action === 'SEARCH_KYC_ID' && a.before && a.before.query === '999999999999'), 'Audit log contains SEARCH_KYC_ID entry for the lookup');
+
   console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);
 

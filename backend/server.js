@@ -4500,6 +4500,54 @@ app.get('/api/admin/stockists', async (req, res) => {
   }
   return res.json(result);
 });
+app.get('/api/admin/stockists/lookup-by-id', async (req, res) => {
+  const { kyc_id } = req.query;
+  if (!kyc_id || kyc_id.length !== 12) return res.status(400).json({ error: 'Invalid KYC ID' });
+
+  await appendAudit(req, 'SEARCH_KYC_ID', 'admin', 'lookup', { query: kyc_id }, {});
+
+  const users = await db.getTable('users');
+  const user = users.find(u => {
+    if (!u.kyc_details) return false;
+    let kyc;
+    try { kyc = typeof u.kyc_details === 'string' ? JSON.parse(u.kyc_details) : u.kyc_details; } catch(e) { return false; }
+    return kyc.id_number === kyc_id || u.kyc_id_number === kyc_id;
+  });
+
+  if (!user) return res.status(404).json({ error: 'Not found' });
+
+  const stockists = await db.getTable('stockists');
+  const stockist = stockists.find(s => s.user_id === user.id || s.phone === user.phone || s.contact_phone === user.phone);
+  
+  if (!stockist) return res.status(404).json({ error: 'Not found' });
+
+  const orders = await db.getTable('orders');
+  const rates = await db.getTable('stockist_commission_rates');
+  const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+
+  const stkOrders = orders.filter(o => o.stockist_id === stockist.id);
+  const delivered30d = stkOrders.filter(o => o.status === 'DELIVERED' && new Date(o.created_at).getTime() >= thirtyDaysAgo);
+  const gmv30d = delivered30d.reduce((sum, o) => sum + (parseFloat(o.total) || parseFloat(o.subtotal) || 0), 0);
+  const pendingCount = stkOrders.filter(o => ['CONFIRMING', 'PENDING', 'ACCEPTED', 'PREPARING'].includes(o.status)).length;
+  const stkRates = rates.filter(r => r.stockist_id === stockist.id);
+  const latestRate = stkRates.length > 0 ? stkRates[stkRates.length - 1].rate_percent : 10.0;
+  
+  let kycStatus = user.kyc_status || (stockist.is_active !== false ? 'APPROVED' : 'DEACTIVATED');
+  if (stockist.is_active === false && kycStatus === 'APPROVED') {
+    kycStatus = 'DEACTIVATED';
+  }
+
+  return res.json({
+    ...stockist,
+    is_active: kycStatus === 'APPROVED',
+    kyc_status: kycStatus,
+    user_name: user.name,
+    user_phone: user.phone,
+    gmv_30d: gmv30d,
+    pending_orders_count: pendingCount,
+    commission_rate: latestRate
+  });
+});
 
 app.get('/api/admin/stockists/:id', async (req, res) => {
   const { id } = req.params;

@@ -395,6 +395,10 @@ export default function App() {
 
   const [adminStockists, setAdminStockists] = useState([]);
   const [adminIncludeInactiveStockists, setAdminIncludeInactiveStockists] = useState(false);
+  const [adminStockistSearchField, setAdminStockistSearchField] = useState('ALL');
+  const [adminStockistSearchText, setAdminStockistSearchText] = useState('');
+  const [adminStockistLookupResult, setAdminStockistLookupResult] = useState(null);
+  const [adminStockistLookupLoading, setAdminStockistLookupLoading] = useState(false);
   const [selectedStockistDetail, setSelectedStockistDetail] = useState(null);
   const [showStockistDetailModal, setShowStockistDetailModal] = useState(false);
   const [showSelfServicePhoneModal, setShowSelfServicePhoneModal] = useState(false);
@@ -3142,6 +3146,25 @@ export default function App() {
         showToast(d.error || 'Region change failed', 'error');
       }
     } catch (e) { showToast('Error changing region', 'error'); }
+  };
+
+  const handleKycLookup = async () => {
+    if (adminStockistSearchField !== 'KYC_ID' || adminStockistSearchText.length !== 12) return;
+    setAdminStockistLookupLoading(true);
+    setAdminStockistLookupResult(null);
+    try {
+      const res = await fetch(`${API_BASE}/admin/stockists/lookup-by-id?kyc_id=${adminStockistSearchText}`);
+      if (res.ok) {
+        setAdminStockistLookupResult(await res.json());
+      } else {
+        setAdminStockistLookupResult('NOT_FOUND');
+      }
+    } catch (err) {
+      console.error('Error looking up KYC ID:', err);
+      setAdminStockistLookupResult('NOT_FOUND');
+    } finally {
+      setAdminStockistLookupLoading(false);
+    }
   };
 
   const handleToggleStockistDeactivate = async (stk) => {
@@ -9806,8 +9829,56 @@ export default function App() {
 
               {adminTab === 'stockists' && (
                 <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                    <h2 style={{ fontSize: '1.4rem', margin: 0 }}>All Stockists</h2>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '1rem' }}>
+                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                      <select 
+                        className="text-input" 
+                        style={{ fontSize: '0.8rem', padding: '0.35rem 0.5rem', width: 'auto', background: 'var(--bg-panel)' }}
+                        value={adminStockistSearchField}
+                        onChange={e => {
+                          setAdminStockistSearchField(e.target.value);
+                          setAdminStockistSearchText('');
+                          setAdminStockistLookupResult(null);
+                        }}
+                      >
+                        <option value="ALL">All fields</option>
+                        <option value="NAME">Owner name</option>
+                        <option value="SHOP">Shop name</option>
+                        <option value="PHONE">Phone</option>
+                        <option value="KYC_ID">KYC ID number</option>
+                      </select>
+                      <input 
+                        type="text" 
+                        className="text-input"
+                        placeholder={adminStockistSearchField === 'KYC_ID' ? 'Enter full 12-digit ID' : t('Search...', 'खोजें...', 'খুঁজুন...')}
+                        maxLength={adminStockistSearchField === 'KYC_ID' ? 12 : undefined}
+                        style={{ fontSize: '0.8rem', padding: '0.35rem 0.5rem', width: '220px', background: 'var(--bg-panel)' }}
+                        value={adminStockistSearchText}
+                        onChange={e => {
+                          if (adminStockistSearchField === 'KYC_ID') {
+                            setAdminStockistSearchText(e.target.value.replace(/\D/g, '').slice(0, 12));
+                            setAdminStockistLookupResult(null);
+                          } else {
+                            setAdminStockistSearchText(e.target.value);
+                          }
+                        }}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter' && adminStockistSearchField === 'KYC_ID' && adminStockistSearchText.length === 12) {
+                            handleKycLookup();
+                          }
+                        }}
+                      />
+                      {adminStockistSearchField === 'KYC_ID' && (
+                        <button 
+                          className="btn btn-primary" 
+                          style={{ fontSize: '0.8rem', padding: '0.35rem 0.75rem' }}
+                          disabled={adminStockistSearchText.length < 12 || adminStockistLookupLoading}
+                          onClick={handleKycLookup}
+                        >
+                          {adminStockistLookupLoading ? '...' : 'Lookup'}
+                        </button>
+                      )}
+                    </div>
                     <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
                       <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.35rem', cursor: 'pointer' }}>
                         <input 
@@ -9823,94 +9894,159 @@ export default function App() {
                     </div>
                   </div>
 
-                  <table className="admin-table">
-                    <thead>
-                      <tr>
-                        <th>Name / Shop</th>
-                        <th>Region</th>
-                        <th>Vendor</th>
-                        <th>Commission Rate</th>
-                        <th>30d Earnings (GMV)</th>
-                        <th>Pending Orders</th>
-                        <th>Status</th>
-                        <th>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {adminStockists
-                        .filter(s => adminRegionFilter === 'ALL' || s.region_id === adminRegionFilter)
-                        .filter(s => {
-                          const ACTIVE_LIST_STATUSES = ['APPROVED'];
-                          const INACTIVE_LIST_STATUSES = ['DEACTIVATED'];
-                          const visible = adminIncludeInactiveStockists
-                            ? [...ACTIVE_LIST_STATUSES, ...INACTIVE_LIST_STATUSES]
-                            : ACTIVE_LIST_STATUSES;
-                          return visible.includes(s.kyc_status);
-                        })
-                        .map(s => {
-                          const vName = vendors.find(v => v.id === s.vendor_id)?.name || s.vendor_id || 'N/A';
-                          return (
-                            <tr key={s.id} style={s.is_active === false || s.kyc_status === 'DEACTIVATED' ? { opacity: 0.6, background: 'rgba(255,255,255,0.02)' } : {}}>
-                              <td style={{ fontWeight: 'bold' }}>{s.name}</td>
-                              <td>{regions.find(r => r.id === s.region_id)?.name || s.region_id}</td>
-                              <td>{vName}</td>
-                              <td style={{ color: 'var(--primary)', fontWeight: 'bold' }}>{s.commission_rate}%</td>
-                              <td style={{ color: 'var(--accent)', fontWeight: 'bold' }}>₹{(s.gmv_30d || 0).toFixed(2)}</td>
-                              <td>{s.pending_orders_count || 0}</td>
-                              <td>
-                                {renderKycStatusBadge(s.kyc_status, s.is_active)}
-                              </td>
-                              <td>
-                                <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
-                                  <button className="btn btn-secondary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem' }} onClick={async () => {
-                                    const res = await fetch(`${API_BASE}/admin/stockists/${s.id}`);
-                                    if (res.ok) {
-                                      setSelectedStockistDetail(await res.json());
-                                      setShowStockistDetailModal(true);
-                                    }
-                                  }}>
-                                    Details
-                                  </button>
-                                  <button className="btn btn-secondary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem' }} onClick={() => {
-                                    setSelectedStockistDetail(s); setEditStkName(s.name); setEditStkAddress(s.address || ''); setEditStkOpen(s.opening_time || '08:00'); setEditStkClose(s.closing_time || '20:00'); setEditStkEta(s.prep_eta_minutes || 15); setEditStkRadius(s.delivery_radius_km || 3.0); setShowEditStockistModal(true);
-                                  }}>
-                                    Edit
-                                  </button>
-                                  <button className="btn btn-secondary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem' }} onClick={() => {
-                                    setSelectedStockistDetail(s); setNewCommissionRate(s.commission_rate.toString()); setCommissionRatePreview(null); setCommissionTypedConfirm(''); setShowCommissionRateModal(true);
-                                  }}>
-                                    Commission
-                                  </button>
-                                  <button className="btn btn-secondary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem' }} onClick={async () => {
-                                    setSelectedStockistDetail(s); setNewStockistRegion(s.region_id);
-                                    const ordersRes = await fetch(`${API_BASE}/orders?stockistId=${s.id}`);
-                                    if (ordersRes.ok) {
-                                      const oList = await ordersRes.json();
-                                      setStockistBindingsCount(new Set(oList.map(ord => ord.customer_id)).size);
-                                    }
-                                    setShowStockistRegionModal(true);
-                                  }}>
-                                    Region
-                                  </button>
-                                  <button className={`btn ${s.is_active !== false ? 'btn-warning' : 'btn-secondary'}`} style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem' }} onClick={() => handleToggleStockistDeactivate(s)}>
-                                    {s.is_active !== false ? 'Deactivate' : 'Reactivate'}
-                                  </button>
-                                  {s.hasOrders ? (
-                                    <button className="btn btn-secondary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem', opacity: 0.4, cursor: 'not-allowed' }} title="Cannot delete: stockist has order history. Deactivate instead." disabled>
-                                      Delete
+                  {adminStockistSearchField === 'KYC_ID' ? (
+                    <div style={{ background: 'var(--bg-panel)', padding: '2rem', borderRadius: '8px', textAlign: 'center', marginTop: '1rem', border: '1px solid var(--border-color)' }}>
+                      {adminStockistLookupResult === 'NOT_FOUND' ? (
+                        <p style={{ color: 'var(--text-muted)' }}>No stockist found with that ID number</p>
+                      ) : adminStockistLookupResult ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem' }}>
+                          <h3 style={{ margin: 0 }}>Found: {adminStockistLookupResult.name}</h3>
+                          <p style={{ margin: 0, color: 'var(--text-muted)' }}>Owner: {adminStockistLookupResult.user_name} | Phone: {adminStockistLookupResult.user_phone}</p>
+                          <button 
+                            className="btn btn-secondary" 
+                            onClick={async () => {
+                              const res = await fetch(`${API_BASE}/admin/stockists/${adminStockistLookupResult.id}`);
+                              if (res.ok) {
+                                setSelectedStockistDetail(await res.json());
+                                setShowStockistDetailModal(true);
+                              }
+                            }}
+                          >
+                            View Details
+                          </button>
+                        </div>
+                      ) : (
+                        <p style={{ color: 'var(--text-muted)' }}>Enter the full 12-digit ID number</p>
+                      )}
+                    </div>
+                  ) : (
+                    <table className="admin-table">
+                      <thead>
+                        <tr>
+                          <th>Name / Shop</th>
+                          <th>Region</th>
+                          <th>Vendor</th>
+                          <th>Commission Rate</th>
+                          <th>30d Earnings (GMV)</th>
+                          <th>Pending Orders</th>
+                          <th>Status</th>
+                          <th>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(() => {
+                          const filteredList = adminStockists
+                            .filter(s => adminRegionFilter === 'ALL' || s.region_id === adminRegionFilter)
+                            .filter(s => {
+                              const ACTIVE_LIST_STATUSES = ['APPROVED'];
+                              const INACTIVE_LIST_STATUSES = ['DEACTIVATED'];
+                              const visible = adminIncludeInactiveStockists
+                                ? [...ACTIVE_LIST_STATUSES, ...INACTIVE_LIST_STATUSES]
+                                : ACTIVE_LIST_STATUSES;
+                              return visible.includes(s.kyc_status);
+                            })
+                            .filter(s => {
+                              if (!adminStockistSearchText.trim()) return true;
+                              const q = adminStockistSearchText.toLowerCase();
+                              const qDigits = q.replace(/\D/g, '');
+                              const isMostlyDigits = q.length > 0 && (qDigits.length / q.length) > 0.6;
+                              
+                              const name = String(s.name || '').toLowerCase();
+                              const owner = String(s.user_name || '').toLowerCase();
+                              const phoneStr = String(s.user_phone || s.phone || s.contact_phone || '');
+                              const phoneDigits = phoneStr.replace(/\D/g, '');
+
+                              if (adminStockistSearchField === 'ALL') {
+                                if (name.includes(q) || owner.includes(q)) return true;
+                                if (isMostlyDigits && qDigits && phoneDigits.includes(qDigits)) return true;
+                                if (!isMostlyDigits && phoneStr.toLowerCase().includes(q)) return true;
+                                return false;
+                              } else if (adminStockistSearchField === 'NAME') {
+                                return owner.includes(q);
+                              } else if (adminStockistSearchField === 'SHOP') {
+                                return name.includes(q);
+                              } else if (adminStockistSearchField === 'PHONE') {
+                                return qDigits && phoneDigits.includes(qDigits);
+                              }
+                              return true;
+                            });
+
+                          if (filteredList.length === 0) {
+                            return (
+                              <tr>
+                                <td colSpan="8" style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
+                                  No stockists match your search
+                                </td>
+                              </tr>
+                            );
+                          }
+
+                          return filteredList.map(s => {
+                            const vName = vendors.find(v => v.id === s.vendor_id)?.name || s.vendor_id || 'N/A';
+                            return (
+                              <tr key={s.id} style={s.is_active === false || s.kyc_status === 'DEACTIVATED' ? { opacity: 0.6, background: 'rgba(255,255,255,0.02)' } : {}}>
+                                <td style={{ fontWeight: 'bold' }}>{s.name}</td>
+                                <td>{regions.find(r => r.id === s.region_id)?.name || s.region_id}</td>
+                                <td>{vName}</td>
+                                <td style={{ color: 'var(--primary)', fontWeight: 'bold' }}>{s.commission_rate}%</td>
+                                <td style={{ color: 'var(--accent)', fontWeight: 'bold' }}>₹{(s.gmv_30d || 0).toFixed(2)}</td>
+                                <td>{s.pending_orders_count || 0}</td>
+                                <td>
+                                  {renderKycStatusBadge(s.kyc_status, s.is_active)}
+                                </td>
+                                <td>
+                                  <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+                                    <button className="btn btn-secondary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem' }} onClick={async () => {
+                                      const res = await fetch(`${API_BASE}/admin/stockists/${s.id}`);
+                                      if (res.ok) {
+                                        setSelectedStockistDetail(await res.json());
+                                        setShowStockistDetailModal(true);
+                                      }
+                                    }}>
+                                      Details
                                     </button>
-                                  ) : (
-                                    <button className="btn btn-danger" style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem' }} onClick={() => handleDeleteStockist(s)}>
-                                      Delete
+                                    <button className="btn btn-secondary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem' }} onClick={() => {
+                                      setSelectedStockistDetail(s); setEditStkName(s.name); setEditStkAddress(s.address || ''); setEditStkOpen(s.opening_time || '08:00'); setEditStkClose(s.closing_time || '20:00'); setEditStkEta(s.prep_eta_minutes || 15); setEditStkRadius(s.delivery_radius_km || 3.0); setShowEditStockistModal(true);
+                                    }}>
+                                      Edit
                                     </button>
-                                  )}
-                                </div>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                    </tbody>
-                  </table>
+                                    <button className="btn btn-secondary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem' }} onClick={() => {
+                                      setSelectedStockistDetail(s); setNewCommissionRate(s.commission_rate.toString()); setCommissionRatePreview(null); setCommissionTypedConfirm(''); setShowCommissionRateModal(true);
+                                    }}>
+                                      Commission
+                                    </button>
+                                    <button className="btn btn-secondary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem' }} onClick={async () => {
+                                      setSelectedStockistDetail(s); setNewStockistRegion(s.region_id);
+                                      const ordersRes = await fetch(`${API_BASE}/orders?stockistId=${s.id}`);
+                                      if (ordersRes.ok) {
+                                        const oList = await ordersRes.json();
+                                        setStockistBindingsCount(new Set(oList.map(ord => ord.customer_id)).size);
+                                      }
+                                      setShowStockistRegionModal(true);
+                                    }}>
+                                      Region
+                                    </button>
+                                    <button className={`btn ${s.is_active !== false ? 'btn-warning' : 'btn-secondary'}`} style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem' }} onClick={() => handleToggleStockistDeactivate(s)}>
+                                      {s.is_active !== false ? 'Deactivate' : 'Reactivate'}
+                                    </button>
+                                    {s.hasOrders ? (
+                                      <button className="btn btn-secondary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem', opacity: 0.4, cursor: 'not-allowed' }} title="Cannot delete: stockist has order history. Deactivate instead." disabled>
+                                        Delete
+                                      </button>
+                                    ) : (
+                                      <button className="btn btn-danger" style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem' }} onClick={() => handleDeleteStockist(s)}>
+                                        Delete
+                                      </button>
+                                    )}
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          });
+                        })()}
+                      </tbody>
+                    </table>
+                  )}
                 </div>
               )}
 
