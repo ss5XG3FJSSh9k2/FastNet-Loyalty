@@ -1084,7 +1084,7 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (activeRole === 'admin') {
+    if (activeRole === "admin") {
       fetchAdminVendors(showInactiveVendors);
     }
   }, [showInactiveVendors, activeRole]);
@@ -10904,22 +10904,14 @@ export default function App() {
                                 <td>{renderKycStatusBadge(u.kyc_status || 'BLACKLISTED', true)}</td>
                                 <td>
                                   <div style={{ display: 'flex', gap: '0.3rem' }}>
-                                    <button className="btn btn-secondary" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }} onClick={() => setAdminTab('support_tickets')}>
-                                      View Appeal
-                                    </button>
-                                    {u.kyc_status === 'BLACKLISTED' && (
-                                      <button className="btn btn-secondary" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }} onClick={() => handleExtendBlacklist(u.user_id || u.id, 30)}>
-                                        Extend 30 Days
-                                      </button>
-                                    )}
                                     <button className="btn btn-accent" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }} onClick={() => {
                                       triggerConfirmModal(
-                                        u.kyc_status === 'BLACKLISTED' ? 'Lift Blacklist' : 'Clear Rejection',
-                                        `Lift penalty for ${u.name || 'this user'}? They will be able to submit updated documents.`,
-                                        () => handleUnblockBlacklist(u.user_id || u.id)
+                                        'Restore Account',
+                                        `Restore account for ${u.name || 'this user'}? They will be able to log in and submit updated documents.`,
+                                        () => handleRestoreUser(u.user_id || u.id)
                                       );
                                     }}>
-                                      {u.kyc_status === 'BLACKLISTED' ? 'Lift Blacklist' : 'Clear Rejection'}
+                                      Restore Account
                                     </button>
                                   </div>
                                 </td>
@@ -10939,69 +10931,7 @@ export default function App() {
                 </PanelErrorBoundary>
               )}
 
-              {adminTab === 'support_tickets' && (
-                <div>
-                  <h2 style={{ fontSize: '1.4rem', marginBottom: '1rem' }}>Support Tickets & Appeals</h2>
-                  <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
-                    Review blacklist appeals, document resubmissions, and general user inquiries filed from the mobile apps.
-                  </p>
 
-                  <table className="admin-table">
-                    <thead>
-                      <tr>
-                        <th>Ticket ID</th>
-                        <th>User</th>
-                        <th>Phone</th>
-                        <th>Type</th>
-                        <th>Subject</th>
-                        <th>Description</th>
-                        <th>Status</th>
-                        <th>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {adminSupportTickets.map(t => (
-                        <tr key={t.id}>
-                          <td><code>{t.id}</code></td>
-                          <td>{t.user_name}</td>
-                          <td>{t.user_phone}</td>
-                          <td><span className="badge badge-warning">{t.type}</span></td>
-                          <td><strong>{t.subject}</strong></td>
-                          <td style={{ maxWidth: '200px', fontSize: '0.75rem' }}>{t.description}</td>
-                          <td>
-                            <span className={`badge ${t.status === 'OPEN' ? 'badge-danger' : 'badge-success'}`}>{t.status}</span>
-                          </td>
-                          <td>
-                            {t.status === 'OPEN' && (
-                              <div style={{ display: 'flex', gap: '0.3rem' }}>
-                                <button className="btn btn-accent" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }} onClick={() => {
-                                  triggerConfirmModal(
-                                    'Approve Appeal',
-                                    `Approve appeal for ${t.user_name}? Blacklist will be lifted and account reset for reapplication.`,
-                                    () => handleResolveSupportTicket(t.id, 'APPROVE_APPEAL')
-                                  );
-                                }}>
-                                  ✓ Approve Appeal
-                                </button>
-                                <button className="btn btn-secondary" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }} onClick={() => handleResolveSupportTicket(t.id, 'REJECT_APPEAL')}>
-                                  ✗ Reject
-                                </button>
-                              </div>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                      {adminSupportTickets.length === 0 && (
-                        <tr>
-                          <td colSpan="8" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
-                            No support tickets filed yet.
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              )}
 
               {adminTab === 'redemption_approvals' && (
                 <div>

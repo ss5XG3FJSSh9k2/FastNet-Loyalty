@@ -27,9 +27,9 @@ CREATE TABLE IF NOT EXISTS stockist_cod_commissions (
     stockist_id VARCHAR(255) NOT NULL,
     date VARCHAR(50) NOT NULL,
     cod_orders_count INTEGER DEFAULT 0,
-    cod_revenue_total DECIMAL(10,2) DEFAULT 0.00,
-    commission_rate DECIMAL(5,4) DEFAULT 0.025,
-    commission_amount DECIMAL(10,2) DEFAULT 0.00,
+    cod_revenue_total REAL DEFAULT 0.00,
+    commission_rate REAL DEFAULT 0.025,
+    commission_amount REAL DEFAULT 0.00,
     is_paid BOOLEAN DEFAULT FALSE,
     paid_at TIMESTAMP WITH TIME ZONE,
     paid_by_admin VARCHAR(255)
@@ -46,4 +46,4 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS blacklist_reason TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS kyc_blacklist_reason TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS kyc_blacklist_until TIMESTAMP WITH TIME ZONE;
 ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS resolution_notes TEXT;
-
+ALTER TABLE users ADD COLUMN IF NOT EXISTS repeat_rejection BOOLEAN DEFAULT FALSE;

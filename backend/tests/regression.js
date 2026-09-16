@@ -3402,6 +3402,7 @@ async function main() {
     id: 's-zero-prod',
     tenant_id: 't1',
     region_id: 'r1',
+    user_id: 'u-stk1',
     name: 'Zero Product Store',
     is_active: true,
     opening_time: '08:00',
@@ -3909,33 +3910,32 @@ async function main() {
   assert(kycRejectRes.status === 200 && kycRejectRes.body.status === 'REJECTED' && kycRejectRes.body.can_reapply === true, 'POST /api/admin/kyc/:userId/reject-with-appeal sets REJECTED and can_reapply true');
 
   // Test #720: POST /api/admin/kyc/:userId/blacklist blacklists user and creates blacklist entry
-  const kycBlacklistRes = await post('http://localhost:3001/api/admin/kyc/u-stk1/blacklist', { reason: 'Fraudulent document', days: 30 }, { 'x-admin-user-id': 'u-admin1' });
+  const kycBlacklistRes = await post('http://localhost:3001/api/admin/kyc/u-stk1/blacklist', { reason: 'Fraudulent document' }, { 'x-admin-user-id': 'u-admin1' });
   assert(kycBlacklistRes.status === 200 && kycBlacklistRes.body.status === 'BLACKLISTED' && kycBlacklistRes.body.can_reapply === false, 'POST /api/admin/kyc/:userId/blacklist returns status BLACKLISTED');
 
   // Test #721: GET /api/admin/blacklist returns blacklisted records
   const blListRes = await get('http://localhost:3001/api/admin/blacklist');
   assert(blListRes.status === 200 && Array.isArray(blListRes.body.blacklist) && blListRes.body.blacklist.length > 0, 'GET /api/admin/blacklist returns list of blacklisted users');
 
-  // Test #722: POST /api/admin/blacklist/:userId/unblock removes user from blacklist
-  const unblockRes = await post('http://localhost:3001/api/admin/blacklist/u-stk1/unblock', {}, { 'x-admin-user-id': 'u-admin1' });
-  assert(unblockRes.status === 200 && unblockRes.body.success === true, 'POST /api/admin/blacklist/:userId/unblock unblocks user');
+  // Test #722: POST /api/admin/blacklist/:userId/restore restores user to pending
+  const restoreRes = await post('http://localhost:3001/api/admin/blacklist/u-stk1/restore', {}, { 'x-admin-user-id': 'u-admin1' });
+  assert(restoreRes.status === 200 && restoreRes.body.success === true, 'POST /api/admin/blacklist/:userId/restore restores user');
 
-  // Test #723: POST /api/support/tickets creates a support appeal ticket
+  // Test #723: POST /api/support/tickets now returns 404 (removed)
   const ticketRes = await post('http://localhost:3001/api/support/tickets', {
     type: 'BLACKLIST_APPEAL',
     subject: 'Request to unblock account',
     description: 'Submitted updated valid documents for verification.'
   }, { 'x-user-id': 'u-stk1' });
-  assert(ticketRes.status === 200 && ticketRes.body.ticket_id, 'POST /api/support/tickets creates support ticket');
+  assert(ticketRes.status === 404, 'POST /api/support/tickets returns 404 (feature removed)');
 
-  // Test #724: GET /api/admin/support/tickets returns support tickets list
+  // Test #724: GET /api/admin/support/tickets returns 404 (removed)
   const ticketListRes = await get('http://localhost:3001/api/admin/support/tickets');
-  assert(ticketListRes.status === 200 && Array.isArray(ticketListRes.body.tickets) && ticketListRes.body.tickets.length > 0, 'GET /api/admin/support/tickets returns array of tickets');
+  assert(ticketListRes.status === 404, 'GET /api/admin/support/tickets returns 404 (feature removed)');
 
-  // Test #725: POST /api/admin/support/tickets/:id/resolve resolves ticket and handles appeal
-  const ticketId = ticketRes.body.ticket_id;
-  const resolveRes = await post(`http://localhost:3001/api/admin/support/tickets/${ticketId}/resolve`, { resolution: 'APPROVE_APPEAL' }, { 'x-admin-user-id': 'u-admin1' });
-  assert(resolveRes.status === 200 && resolveRes.body.success === true, 'POST /api/admin/support/tickets/:id/resolve approves appeal');
+  // Test #725: POST /api/admin/support/tickets/:id/resolve returns 404 (removed)
+  const resolveRes = await post(`http://localhost:3001/api/admin/support/tickets/st-fake/resolve`, { resolution: 'APPROVE_APPEAL' }, { 'x-admin-user-id': 'u-admin1' });
+  assert(resolveRes.status === 404, 'POST /api/admin/support/tickets/:id/resolve returns 404 (feature removed)');
 
   // Test #726: PATCH /api/admin/stockists/:id handles DEACTIVATE and REACTIVATE
   const deactRes = await patch(`http://localhost:3001/api/admin/stockists/s1`, { action: 'DEACTIVATE' });
@@ -4053,15 +4053,14 @@ async function main() {
   });
   assert(rejectTestRes.status === 200 && rejectTestRes.body.status === 'REJECTED', 'POST /api/admin/kyc/:userId/reject rejects KYC and returns 200');
 
-  // Test: POST /api/admin/kyc/:userId/blacklist and /api/admin/blacklist/:userId/lift endpoints work
+  // Test: POST /api/admin/kyc/:userId/blacklist and /api/admin/blacklist/:userId/restore endpoints work
   const blacklistTestRes = await post('http://localhost:3001/api/admin/kyc/u-stk3/blacklist', {
-    reason: 'Fraudulent identity document',
-    days: 30
+    reason: 'Fraudulent identity document'
   });
   assert(blacklistTestRes.status === 200 && blacklistTestRes.body.status === 'BLACKLISTED', 'POST /api/admin/kyc/:userId/blacklist returns 200');
 
-  const liftTestRes = await post('http://localhost:3001/api/admin/blacklist/u-stk3/lift', {});
-  assert(liftTestRes.status === 200 && liftTestRes.body.success, 'POST /api/admin/blacklist/:userId/lift lifts blacklist and returns 200');
+  const liftTestRes = await post('http://localhost:3001/api/admin/blacklist/u-stk3/restore', {});
+  assert(liftTestRes.status === 200 && liftTestRes.body.success, 'POST /api/admin/blacklist/:userId/restore restores blacklist and returns 200');
 
   // Test: App contains Blacklist nav tab, search filters, and Sign in with email link
   assert(freshAppContent.includes('data-path="/admin/blacklist"') && freshAppContent.includes('blacklistSearch'), 'App contains Blacklist nav tab and search filters');
@@ -4491,7 +4490,7 @@ async function main() {
 
   // Reject a stockist and blacklist a stockist for test coverage
   await post('http://localhost:3001/api/admin/kyc/u-stk3/reject', { reason: 'Illegible ID photo' });
-  await post('http://localhost:3001/api/admin/kyc/u-stk1/blacklist', { reason: 'Duplicate document fraud', days: 30 });
+  await post('http://localhost:3001/api/admin/kyc/u-stk1/blacklist', { reason: 'Duplicate document fraud' });
 
   const bf1bBlRes = await get('http://localhost:3001/api/admin/blacklist');
   assert(bf1bBlRes.status === 200 && bf1bBlRes.body.success && Array.isArray(bf1bBlRes.body.blacklist), 'GET /api/admin/blacklist returns 200 with blacklist array');
@@ -4504,12 +4503,11 @@ async function main() {
   assert(blacklistedRow, 'Blacklist endpoint returns a blacklisted row');
 
   // Test: the list endpoint returns the same field set for both row types, nulls included
-  const expectedKeys = ['id', 'user_id', 'name', 'phone', 'role', 'type', 'kyc_status', 'reason', 'blacklisted_at', 'blacklist_until', 'blacklisted_by'];
+  const expectedKeys = ['id', 'user_id', 'name', 'phone', 'role', 'type', 'kyc_status', 'reason', 'blacklisted_at', 'blacklisted_by', 'repeat_rejection'];
   const rejectedHasAllKeys = expectedKeys.every(k => Object.prototype.hasOwnProperty.call(rejectedRow, k));
   const blacklistedHasAllKeys = expectedKeys.every(k => Object.prototype.hasOwnProperty.call(blacklistedRow, k));
   assert(rejectedHasAllKeys, 'Rejected row returns normalized field set with nulls where applicable');
   assert(blacklistedHasAllKeys, 'Blacklisted row returns normalized field set with nulls where applicable');
-  assert(rejectedRow.blacklist_until === null, 'Rejected row has null blacklist_until expiry');
 
   // Test: App.jsx contains PanelErrorBoundary and safe rendering for rejected / blacklisted rows
   const appCodeBf1b = fs.readFileSync(path.join(__dirname, '../../frontend/src/App.jsx'), 'utf8');
@@ -4566,7 +4564,7 @@ async function main() {
 
   // Test: server.js no longer contains blacklisted_until field writes
   const serverCodeBf19 = fs.readFileSync(path.join(__dirname, '../server.js'), 'utf8');
-  assert(!serverCodeBf19.includes('blacklisted_until'), 'server.js contains zero references to blacklisted_until (standardized on kyc_blacklist_until)');
+  assert(!serverCodeBf19.includes('blacklisted_until'), 'server.js contains zero references to blacklisted_until');
 
   // Round BF20: OTP Rate Limiter Verification & Multi-Role Testing
   console.log('\n--- Round BF20: OTP Rate Limiter & Window Tuning ---');

@@ -64,7 +64,7 @@ async function evaluateRegistrationFlags(user, clientIp, isBackfill = false) {
 
     if (matches.length > 0) {
       // Check hard block
-      const hasActiveBlacklist = matches.some(m => m.kyc_status === 'BLACKLISTED' && m.kyc_blacklist_until && new Date(m.kyc_blacklist_until) > new Date());
+      const hasActiveBlacklist = matches.some(m => m.kyc_status === 'BLACKLISTED');
       if (hasActiveBlacklist && !isBackfill) {
         throw new Error('BLACKLIST_BLOCK');
       }

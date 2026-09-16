@@ -1485,10 +1485,20 @@ function calculateIsShopOpen(stockist, currentTimeStr) {
   return currentTime >= opening && currentTime < closing;
 }
 
+const isCustomerVisible = (stockist, users) => {
+  if (!stockist || !stockist.is_active) return false;
+  const owner = users.find(u => u.id === stockist.user_id || u.phone === stockist.phone || u.phone === stockist.contact_phone);
+  if (!owner) return false;
+  return owner.kyc_status === 'APPROVED';
+};
+
 app.get('/api/stockists', async (req, res) => {
   const { regionId } = req.query;
   const stockists = await db.getTable('stockists');
-  const filtered = regionId ? stockists.filter(s => s.region_id === regionId && s.is_active) : stockists;
+  const users = await db.getTable('users');
+  
+  const visibleStockists = stockists.filter(s => isCustomerVisible(s, users));
+  const filtered = regionId ? visibleStockists.filter(s => s.region_id === regionId) : visibleStockists;
 
   const orders = await db.getTable('orders');
   const products = await db.getTable('products');
@@ -1530,8 +1540,9 @@ app.get('/api/stockists/by-user/:userId', async (req, res) => {
 app.get('/api/stockists/:id', async (req, res) => {
   const { id } = req.params;
   const stockists = await db.getTable('stockists');
+  const users = await db.getTable('users');
   const stockist = stockists.find(s => s.id === id);
-  if (!stockist) return res.status(404).json({ error: 'Stockist not found' });
+  if (!stockist || !isCustomerVisible(stockist, users)) return res.status(404).json({ error: 'Stockist not found' });
   return res.json({
     ...stockist,
     is_shop_open: calculateIsShopOpen(stockist)
@@ -1540,6 +1551,11 @@ app.get('/api/stockists/:id', async (req, res) => {
 
 app.get('/api/stockists/:id/stats', async (req, res) => {
   const { id } = req.params;
+  const stockists = await db.getTable('stockists');
+  const users = await db.getTable('users');
+  const stockist = stockists.find(s => s.id === id);
+  if (!stockist || !isCustomerVisible(stockist, users)) return res.status(404).json({ error: 'Stockist not found' });
+
   const orders = (await db.getTable('orders')).filter(o => o.stockist_id === id);
   const todayStr = getISTDateString();
 
@@ -1990,6 +2006,9 @@ const handleCreateOrderRoute = async (req, res) => {
 
     const stockist = stockistsTable.find(s => s.id === stockistId);
     if (!stockist) return res.status(404).json({ error: `Stockist ${stockistId} not found` });
+    if (!isCustomerVisible(stockist, users)) {
+      return res.status(400).json({ error: 'stockist_unavailable', message: 'This shop is no longer accepting orders.' });
+    }
 
     let subtotal = 0;
     let totalProfitMargin = 0;
@@ -3522,7 +3541,7 @@ app.post('/api/admin/kyc/:userId/reject-with-appeal', async (req, res) => {
 app.post('/api/admin/kyc/:userId/reject', async (req, res) => {
   const { userId } = req.params;
   const { reason } = req.body || {};
-  if (!reason) return res.status(400).json({ error: 'Reason is required' });
+  if (!reason || reason.trim().length < 5) return res.status(400).json({ error: 'Reason must be at least 5 characters' });
 
   const users = await db.getTable('users');
   const user = users.find(u => u.id === userId);
@@ -3532,26 +3551,28 @@ app.post('/api/admin/kyc/:userId/reject', async (req, res) => {
   user.kyc_rejection_reason = reason;
   user.kyc_rejection_count = (parseInt(user.kyc_rejection_count, 10) || 0) + 1;
   user.kyc_rejected_at = new Date().toISOString();
+  
+  if (user.kyc_rejection_count >= 3) {
+    user.repeat_rejection = true;
+  }
 
   await db.saveTable('users', users);
-  await appendAudit(req, 'REJECT_KYC', 'user', userId, null, { kyc_status: user.kyc_status, reason });
+  await appendAudit(req, 'REJECT_KYC', 'user', userId, null, { kyc_status: user.kyc_status, reason, repeat_rejection: user.repeat_rejection || false });
   return res.json({ success: true, status: user.kyc_status, can_reapply: true });
 });
 
 // Blacklist User Endpoint
 app.post('/api/admin/kyc/:userId/blacklist', async (req, res) => {
   const { userId } = req.params;
-  const { reason, days } = req.body;
-  if (!reason) return res.status(400).json({ error: 'Reason is required' });
+  const { reason } = req.body;
+  if (!reason || reason.trim().length < 5) return res.status(400).json({ error: 'Reason must be at least 5 characters' });
 
   const users = await db.getTable('users');
   const user = users.find(u => u.id === userId);
   if (!user) return res.status(404).json({ error: 'User not found' });
 
-  const numDays = parseInt(days, 10) || 30;
   user.kyc_status = 'BLACKLISTED';
   user.kyc_blacklist_reason = reason;
-  user.kyc_blacklist_until = new Date(Date.now() + numDays * 24 * 60 * 60 * 1000).toISOString();
 
   const blacklist = await db.getTable('user_blacklist');
   blacklist.push({
@@ -3560,7 +3581,6 @@ app.post('/api/admin/kyc/:userId/blacklist', async (req, res) => {
     phone: user.phone,
     reason: reason,
     blacklisted_at: new Date().toISOString(),
-    blacklist_until: user.kyc_blacklist_until,
     blacklisted_by_admin_id: req.user ? req.user.id : 'admin-system'
   });
   await db.saveTable('user_blacklist', blacklist);
@@ -3574,8 +3594,8 @@ app.post('/api/admin/kyc/:userId/blacklist', async (req, res) => {
   }
 
   await db.saveTable('users', users);
-  await appendAudit(req, 'BLACKLIST_USER', 'user', userId, null, { kyc_status: 'BLACKLISTED', reason, blacklist_until: user.kyc_blacklist_until });
-  return res.json({ success: true, status: 'BLACKLISTED', can_reapply: false, until: user.kyc_blacklist_until });
+  await appendAudit(req, 'BLACKLIST_USER', 'user', userId, null, { kyc_status: 'BLACKLISTED', reason });
+  return res.json({ success: true, status: 'BLACKLISTED', can_reapply: false });
 });
 
 // Admin Get Blacklist
@@ -3585,7 +3605,7 @@ app.get('/api/admin/blacklist', async (req, res) => {
   const partnerLeads = (await db.getTable('partner_leads')) || [];
 
   const rejectedOrBlacklistedUsers = users.filter(u => 
-    u.kyc_status === 'BLACKLISTED' || u.kyc_status === 'REJECTED' || u.kyc_blacklist_until
+    u.kyc_status === 'BLACKLISTED' || u.kyc_status === 'REJECTED'
   );
 
   const userResults = rejectedOrBlacklistedUsers.map(u => {
@@ -3597,11 +3617,11 @@ app.get('/api/admin/blacklist', async (req, res) => {
       phone: u.phone || '',
       role: u.role || 'STOCKIST',
       type: u.role === 'PARTNER' ? 'Partner' : 'Stockist',
-      kyc_status: u.kyc_status || (u.kyc_blacklist_until ? 'BLACKLISTED' : 'REJECTED'),
+      kyc_status: u.kyc_status,
       reason: u.kyc_blacklist_reason || u.kyc_rejection_reason || record.reason || null,
-      blacklisted_at: (u.kyc_status === 'BLACKLISTED' || u.kyc_blacklist_until) ? (record.blacklisted_at || u.kyc_rejected_at || u.created_at || null) : null,
-      blacklist_until: u.kyc_blacklist_until || record.blacklist_until || null,
-      blacklisted_by: record.blacklisted_by_admin_id || null
+      blacklisted_at: (u.kyc_status === 'BLACKLISTED') ? (record.blacklisted_at || u.kyc_rejected_at || u.created_at || null) : null,
+      blacklisted_by: record.blacklisted_by_admin_id || null,
+      repeat_rejection: u.repeat_rejection || false
     };
   });
 
@@ -3619,7 +3639,6 @@ app.get('/api/admin/blacklist', async (req, res) => {
     kyc_status: l.status || 'REJECTED',
     reason: l.rejection_reason || l.reason || null,
     blacklisted_at: l.status === 'BLACKLISTED' ? (l.blacklisted_at || l.updated_at || l.created_at || null) : null,
-    blacklist_until: l.blacklist_until || l.kyc_blacklist_until || null,
     blacklisted_by: l.blacklisted_by || null
   }));
 
@@ -3627,17 +3646,21 @@ app.get('/api/admin/blacklist', async (req, res) => {
   return res.json({ success: true, blacklist: result });
 });
 
-// Admin Unblock Blacklisted User
-app.post('/api/admin/blacklist/:userId/unblock', async (req, res) => {
+// Admin Restore Blacklisted/Rejected User to Pending
+app.post('/api/admin/blacklist/:userId/restore', async (req, res) => {
   const { userId } = req.params;
   const users = await db.getTable('users');
   const user = users.find(u => u.id === userId);
   if (!user) return res.status(404).json({ error: 'User not found' });
 
-  user.kyc_status = 'REJECTED';
+  const beforeStatus = user.kyc_status;
+  
+  user.kyc_status = 'PENDING';
   user.is_blacklisted = false;
   user.kyc_blacklist_until = null;
   user.kyc_blacklist_reason = null;
+  user.kyc_rejection_reason = null;
+  user.repeat_rejection = false;
 
   await db.saveTable('users', users);
 
@@ -3645,142 +3668,8 @@ app.post('/api/admin/blacklist/:userId/unblock', async (req, res) => {
   const filtered = blacklists.filter(b => b.user_id !== userId);
   await db.saveTable('user_blacklist', filtered);
 
-  await appendAudit(req, 'UNBLOCK_USER', 'user', userId, { kyc_status: 'BLACKLISTED' }, { kyc_status: 'REJECTED' });
-  return res.json({ success: true, message: 'Blacklist lifted successfully. User can now reapply.' });
-});
-
-// Alias for Lift Blacklist
-app.post('/api/admin/blacklist/:userId/lift', async (req, res) => {
-  const { userId } = req.params;
-  const users = await db.getTable('users');
-  const user = users.find(u => u.id === userId);
-  if (!user) return res.status(404).json({ error: 'User not found' });
-
-  user.kyc_status = 'REJECTED';
-  user.is_blacklisted = false;
-  user.kyc_blacklist_until = null;
-  user.kyc_blacklist_reason = null;
-
-  await db.saveTable('users', users);
-
-  const blacklists = await db.getTable('user_blacklist');
-  const filtered = blacklists.filter(b => b.user_id !== userId);
-  await db.saveTable('user_blacklist', filtered);
-
-  await appendAudit(req, 'LIFT_BLACKLIST', 'user', userId, { kyc_status: 'BLACKLISTED' }, { kyc_status: 'REJECTED' });
-  return res.json({ success: true, message: 'Blacklist lifted successfully. User can now reapply.' });
-});
-
-// Admin Extend Blacklist
-app.post('/api/admin/blacklist/:userId/extend', async (req, res) => {
-  const { userId } = req.params;
-  const { days } = req.body || {};
-  const numDays = parseInt(days, 10) || 30;
-
-  const users = await db.getTable('users');
-  const user = users.find(u => u.id === userId);
-  if (!user) return res.status(404).json({ error: 'User not found' });
-
-  const currentUntil = user.kyc_blacklist_until ? new Date(user.kyc_blacklist_until).getTime() : Date.now();
-  const newUntil = new Date(currentUntil + numDays * 24 * 60 * 60 * 1000).toISOString();
-  user.kyc_blacklist_until = newUntil;
-  await db.saveTable('users', users);
-
-  const blacklists = (await db.getTable('user_blacklist')) || [];
-  const bl = blacklists.find(b => b.user_id === userId);
-  if (bl) {
-    bl.blacklist_until = newUntil;
-    await db.saveTable('user_blacklist', blacklists);
-  }
-
-  await appendAudit(req, 'EXTEND_BLACKLIST', 'user', userId, null, { blacklist_until: user.kyc_blacklist_until, days: numDays });
-  return res.json({ success: true, blacklist_until: user.kyc_blacklist_until, message: `Blacklist extended by ${numDays} days` });
-});
-
-// Support Tickets Endpoints
-app.post('/api/support/tickets', async (req, res) => {
-  const { userId, type, subject, description, photoUrl, photo_url } = req.body || {};
-  const callerId = req.headers['x-user-id'] || userId || (req.user ? req.user.id : 'anonymous');
-  if (!subject || !description) {
-    return res.status(400).json({ error: 'Subject and description are required' });
-  }
-
-  const tickets = await db.getTable('support_tickets');
-  const newTicket = {
-    id: 'st-' + generateId(),
-    user_id: callerId,
-    type: type || 'BLACKLIST_APPEAL',
-    subject: subject.trim(),
-    description: description.trim(),
-    photo_url: photoUrl || photo_url || null,
-    status: 'OPEN',
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-    resolved_by_admin_id: null,
-    resolution: null
-  };
-  tickets.push(newTicket);
-  await db.saveTable('support_tickets', tickets);
-  return res.json({ success: true, ticket_id: newTicket.id, ticket: newTicket });
-});
-
-app.get('/api/support/tickets', async (req, res) => {
-  const { userId } = req.query;
-  const tickets = await db.getTable('support_tickets');
-  if (userId) {
-    return res.json({ success: true, tickets: tickets.filter(t => t.user_id === userId) });
-  }
-  return res.json({ success: true, tickets });
-});
-
-app.get('/api/admin/support/tickets', async (req, res) => {
-  const tickets = await db.getTable('support_tickets');
-  const users = await db.getTable('users');
-  const enriched = tickets.map(t => {
-    const u = users.find(usr => usr.id === t.user_id);
-    return {
-      ...t,
-      user_name: u ? u.name : 'Unknown User',
-      user_phone: u ? u.phone : '-',
-      user_role: u ? u.role : 'UNKNOWN',
-      user_kyc_status: u ? u.kyc_status : '-'
-    };
-  }).reverse();
-  return res.json({ success: true, tickets: enriched });
-});
-
-app.post('/api/admin/support/tickets/:id/resolve', async (req, res) => {
-  const { id } = req.params;
-  const { resolution, notes } = req.body || {};
-  const tickets = await db.getTable('support_tickets');
-  const ticket = tickets.find(t => t.id === id);
-  if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
-
-  ticket.status = 'RESOLVED';
-  ticket.resolution = resolution || 'RESOLVED';
-  ticket.resolution_notes = notes || null;
-  ticket.resolved_by_admin_id = req.headers['x-admin-user-id'] || (req.user ? req.user.id : 'admin');
-  ticket.updated_at = new Date().toISOString();
-
-  if (resolution === 'APPROVE_APPEAL') {
-    const users = await db.getTable('users');
-    const user = users.find(u => u.id === ticket.user_id);
-    if (user) {
-      user.kyc_status = 'REJECTED'; // Allow user to resubmit documents or reapply
-      user.kyc_blacklist_until = null;
-      user.kyc_blacklist_reason = null;
-      await db.saveTable('users', users);
-    }
-    if (ticket.user_id) {
-      const blacklists = (await db.getTable('user_blacklist')) || [];
-      const filtered = blacklists.filter(b => b.user_id !== ticket.user_id);
-      await db.saveTable('user_blacklist', filtered);
-    }
-  }
-
-  await db.saveTable('support_tickets', tickets);
-  await appendAudit(req, 'RESOLVE_SUPPORT_TICKET', 'support_ticket', id, null, { resolution, ticket });
-  return res.json({ success: true, ticket });
+  await appendAudit(req, 'RESTORE_TO_PENDING', 'user', userId, { kyc_status: beforeStatus }, { kyc_status: 'PENDING' });
+  return res.json({ success: true, message: 'User restored to pending successfully.' });
 });
 
 // Patch Stockist (Deactivate / Reactivate / Blacklist)
@@ -3805,13 +3694,12 @@ app.patch('/api/admin/stockists/:id', async (req, res) => {
     if (user) { user.is_active = true; await db.saveTable('users', users); }
     await appendAudit(req, 'REACTIVATE_STOCKIST', 'stockist', id, { is_active: false }, { is_active: true });
   } else if (action === 'BLACKLIST') {
+    if (!reason || reason.trim().length < 5) return res.status(400).json({ error: 'Reason must be at least 5 characters' });
     stockist.is_active = false;
     await db.saveTable('stockists', stockists);
     if (user) {
-      const numDays = parseInt(days, 10) || 30;
       user.kyc_status = 'BLACKLISTED';
       user.kyc_blacklist_reason = reason || 'Fraud/Abuse flag from admin portal';
-      user.kyc_blacklist_until = new Date(Date.now() + numDays * 86400000).toISOString();
       await db.saveTable('users', users);
 
       const blacklist = await db.getTable('user_blacklist');
@@ -3821,7 +3709,6 @@ app.patch('/api/admin/stockists/:id', async (req, res) => {
         phone: user.phone,
         reason: user.kyc_blacklist_reason,
         blacklisted_at: new Date().toISOString(),
-        blacklist_until: user.kyc_blacklist_until,
         blacklisted_by_admin_id: req.user ? req.user.id : 'admin-system'
       });
       await db.saveTable('user_blacklist', blacklist);
