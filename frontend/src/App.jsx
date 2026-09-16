@@ -10223,7 +10223,7 @@ export default function App() {
                             })
                             .filter(s => {
                               if (!adminStockistSearchText.trim()) return true;
-                              const q = adminStockistSearchText.toLowerCase();
+                              const q = adminStockistSearchText.trim().toLowerCase();
                               const qDigits = q.replace(/\D/g, '');
                               const isMostlyDigits = q.length > 0 && (qDigits.length / q.length) > 0.6;
                               
@@ -10251,7 +10251,17 @@ export default function App() {
                             return (
                               <tr>
                                 <td colSpan="8" style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
-                                  No stockists match your search
+                                  {adminStockistSearchField === 'KYC_ID' ? (
+                                    "No stockist found with that ID number."
+                                  ) : (
+                                    adminIncludeInactiveStockists ? (
+                                      "No stockists match your search."
+                                    ) : (
+                                      <span>
+                                        No approved stockists match. Try <button className="btn-link" style={{ padding: 0, border: 'none', background: 'transparent', color: 'var(--primary)', cursor: 'pointer', textDecoration: 'underline' }} onClick={() => setAdminIncludeInactiveStockists(true)}>Show Inactive</button>, or check <button className="btn-link" style={{ padding: 0, border: 'none', background: 'transparent', color: 'var(--primary)', cursor: 'pointer', textDecoration: 'underline' }} onClick={() => setAdminTab('blacklist')}>Blacklisted & Rejected</button>.
+                                      </span>
+                                    )
+                                  )}
                                 </td>
                               </tr>
                             );
@@ -10261,7 +10271,13 @@ export default function App() {
                             const vName = vendors.find(v => v.id === s.vendor_id)?.name || s.vendor_id || 'N/A';
                             return (
                               <tr key={s.id} style={s.is_active === false || s.kyc_status === 'DEACTIVATED' ? { opacity: 0.6, background: 'rgba(255,255,255,0.02)' } : {}}>
-                                <td style={{ fontWeight: 'bold' }}>{s.name}</td>
+                                <td>
+                                  <div style={{ fontWeight: 'bold' }}>{s.name}</div>
+                                  <div style={{ fontSize: '0.85em', fontWeight: 'normal', opacity: 0.8 }}>
+                                    {s.user_name || <span style={{ fontStyle: 'italic' }}>No Owner Record</span>}
+                                    {s.user_phone ? ` (${s.user_phone})` : (s.phone ? ` (${s.phone})` : '')}
+                                  </div>
+                                </td>
                                 <td>{regions.find(r => r.id === s.region_id)?.name || s.region_id}</td>
                                 <td>{vName}</td>
                                 <td style={{ color: 'var(--primary)', fontWeight: 'bold' }}>{s.commission_rate}%</td>
