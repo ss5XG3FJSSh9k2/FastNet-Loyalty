@@ -5717,7 +5717,7 @@ export default function App() {
               <>
                 <div className="input-group">
                   <label className="input-label">Registered Phone Number</label>
-                  <input type="tel" placeholder="10-digit mobile number" className="text-input" value={partnerLoginPhone} onChange={e => setPartnerLoginPhone(e.target.value.replace(/\D/g,''))} />
+                  <input type="tel" inputMode="numeric" maxLength={10} placeholder="10-digit mobile number" className="text-input" value={partnerLoginPhone} onChange={e => setPartnerLoginPhone(e.target.value.replace(/\D/g,'').slice(0, 10))} />
                 </div>
                 <button className="btn btn-primary" style={{ width: '100%', marginTop: '1rem' }} onClick={handlePartnerSendOtp}>
                   Send One-Time Password
@@ -5735,7 +5735,7 @@ export default function App() {
               <>
                 <div className="input-group">
                   <label className="input-label">Enter OTP (Demo: 123456)</label>
-                  <input type="text" placeholder="6-digit OTP" className="text-input" value={partnerLoginOtp} onChange={e => setPartnerLoginOtp(e.target.value)} />
+                  <input type="tel" inputMode="numeric" maxLength={6} placeholder="6-digit OTP" className="text-input" value={partnerLoginOtp} onChange={e => setPartnerLoginOtp(e.target.value.replace(/\D/g, '').slice(0, 6))} />
                 </div>
                 <button className="btn btn-primary" style={{ width: '100%', marginTop: '1rem' }} onClick={handlePartnerVerifyOtp}>
                   Verify
@@ -6258,7 +6258,7 @@ export default function App() {
                     </div>
                     <div className="input-group">
                       <label className="input-label">{t('Contact Phone', 'संपर्क फोन', 'যোগাযোগ ফোন')}</label>
-                      <input type="tel" className="text-input" value={pProfContactPhone} onChange={e => setPProfContactPhone(e.target.value)} />
+                      <input type="tel" inputMode="numeric" maxLength={10} className="text-input" value={pProfContactPhone} onChange={e => setPProfContactPhone(e.target.value.replace(/\D/g, '').slice(0, 10))} />
                       {pProfContactPhone !== initialContactPhone && (
                         <div style={{ marginTop: '0.35rem', fontSize: '0.7rem' }}>
                           <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
@@ -6754,11 +6754,7 @@ export default function App() {
               onChange={(e) => setPartnerContactName(e.target.value)}
             />
             <input 
-              type="text" 
-              placeholder="Phone Number" 
-              className="text-input" 
-              value={partnerPhone}
-              onChange={(e) => setPartnerPhone(e.target.value.replace(/\D/g,''))}
+              type="tel" inputMode="numeric" maxLength={10} placeholder="Phone Number" className="text-input" value={partnerPhone} onChange={(e) => setPartnerPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
             />
             <input 
               type="email" 
@@ -6799,7 +6795,10 @@ export default function App() {
                 <option key={r.id} value={r.id}>{r.name}</option>
               ))}
             </select>
-            <button className="btn" onClick={handlePartnerSubmit}>Get in touch</button>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+              <button className="btn" onClick={handlePartnerSubmit} disabled={partnerPhone.length !== 10}>Get in touch</button>
+              {partnerPhone.length > 0 && partnerPhone.length !== 10 && <div style={{ color: 'var(--danger)', fontSize: '0.75rem', textAlign: 'center' }}>Enter 10 digits</div>}
+            </div>
           </div>
         </div>
       </div>
@@ -12257,11 +12256,7 @@ export default function App() {
                   {t('Phone Number (10 digits)', 'फ़ोन नंबर (10 अंक)', 'ফোন নম্বর (১০ সংখ্যা)')}
                 </label>
                 <input
-                  type="tel"
-                  className="text-input"
-                  placeholder="9876543210"
-                  value={setupPhone}
-                  onChange={e => setSetupPhone(e.target.value)}
+                  type="tel" inputMode="numeric" className="text-input" placeholder="9876543210" value={setupPhone} onChange={e => setSetupPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
                   maxLength={10}
                   style={{ width: '100%', padding: '0.65rem 0.85rem', fontSize: '0.85rem' }}
                 />
@@ -12734,15 +12729,15 @@ export default function App() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', margin: '1rem 0' }}>
               <div className="input-group">
                 <label className="input-label">Current Phone OTP (Demo: 123456)</label>
-                <input type="text" className="text-input" placeholder="123456" value={changePhoneCurrentOtp} onChange={e => setChangePhoneCurrentOtp(e.target.value)} />
+                <input type="tel" inputMode="numeric" maxLength={6} className="text-input" placeholder="123456" value={changePhoneCurrentOtp} onChange={e => setChangePhoneCurrentOtp(e.target.value.replace(/\D/g, '').slice(0, 6))} />
               </div>
               <div className="input-group">
                 <label className="input-label">New Phone Number</label>
-                <input type="text" className="text-input" placeholder="9830099999" value={changePhoneNewNumber} onChange={e => setChangePhoneNewNumber(e.target.value)} />
+                <input type="tel" inputMode="numeric" maxLength={10} className="text-input" placeholder="9830099999" value={changePhoneNewNumber} onChange={e => setChangePhoneNewNumber(e.target.value.replace(/\D/g, '').slice(0, 10))} />
               </div>
               <div className="input-group">
                 <label className="input-label">New Phone OTP (Demo: 123456)</label>
-                <input type="text" className="text-input" placeholder="123456" value={changePhoneNewOtp} onChange={e => setChangePhoneNewOtp(e.target.value)} />
+                <input type="tel" inputMode="numeric" maxLength={6} className="text-input" placeholder="123456" value={changePhoneNewOtp} onChange={e => setChangePhoneNewOtp(e.target.value.replace(/\D/g, '').slice(0, 6))} />
               </div>
             </div>
             <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
@@ -12898,7 +12893,7 @@ export default function App() {
               </div>
               <div className="input-group">
                 <label className="input-label">Phone Number (Login user)</label>
-                <input type="text" className="text-input" placeholder="9830011223" value={createStkPhone} onChange={e => setCreateStkPhone(e.target.value)} />
+                <input type="tel" inputMode="numeric" maxLength={10} className="text-input" placeholder="9830011223" value={createStkPhone} onChange={e => setCreateStkPhone(e.target.value.replace(/\D/g, '').slice(0, 10))} />
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
                 <div className="input-group">
@@ -13814,11 +13809,7 @@ export default function App() {
                 <div className="input-group">
                   <label className="input-label">New 10-Digit Phone Number</label>
                   <input
-                    type="text"
-                    className="text-input"
-                    placeholder="Enter new phone number"
-                    value={selfServiceNewPhone}
-                    onChange={e => setSelfServiceNewPhone(e.target.value)}
+                    type="tel" inputMode="numeric" maxLength={10} className="text-input" placeholder="Enter new phone number" value={selfServiceNewPhone} onChange={e => setSelfServiceNewPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
                   />
                 </div>
                 <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
@@ -14113,3 +14104,6 @@ export default function App() {
     </div>
   );
 }
+
+
+

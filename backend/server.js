@@ -43,12 +43,30 @@ function escapeHtml(str) {
   });
 }
 
+function normalizePhone(phone) {
+  if (!phone) return phone;
+  let cleanPhone = String(phone).replace(/\D/g, '');
+  if (cleanPhone.length === 12 && cleanPhone.startsWith('91')) {
+    cleanPhone = cleanPhone.slice(2);
+  }
+  return cleanPhone;
+}
+
+function checkPhone(phone, res) {
+  const cleanPhone = normalizePhone(phone);
+  if (!cleanPhone || cleanPhone.length !== 10) {
+    res.status(400).json({ error: 'invalid_phone', message: 'Enter a valid 10-digit mobile number.' });
+    return null;
+  }
+  return cleanPhone;
+}
+
 // Input validation helper (Item 16)
 function validateUserInput({ phone, email, name }) {
-  if (phone) {
-    const cleanPhone = String(phone).replace(/\D/g, '');
-    if (cleanPhone.length !== 10) {
-      return 'Invalid phone number (10 digits required)';
+  if (phone !== undefined) {
+    const cleanPhone = normalizePhone(phone);
+    if (!cleanPhone || cleanPhone.length !== 10) {
+      return 'invalid_phone';
     }
   }
   if (email) {
@@ -458,7 +476,7 @@ app.post('/api/stockist/auth/send-otp', handleSendOtpRoute);
 
 // POST /api/auth/register-customer (Item 16, Item 12, Item 15)
 app.post('/api/auth/register-customer', async (req, res) => {
-  const { phone, email, name, regionId, region_id, address, cable_partner_id, broadband_partner_id, captchaToken, termsAgreed } = req.body || {};
+  let { phone, email, name, regionId, region_id, address, cable_partner_id, broadband_partner_id, captchaToken, termsAgreed } = req.body || {};
 
   const isTest = process.env.NODE_ENV === 'test' || process.env.SEED_MODE === 'test' || process.env.POSTGRES_MODE === 'mem';
 
@@ -466,7 +484,11 @@ app.post('/api/auth/register-customer', async (req, res) => {
     return res.status(400).json({ error: 'You must agree to Terms and Privacy Policy' });
   }
 
-  const validationErr = validateUserInput({ phone, email, name });
+  const validPhone = checkPhone(phone, res);
+  if (!validPhone) return;
+  phone = validPhone;
+
+  const validationErr = validateUserInput({ email, name });
   if (validationErr) return res.status(400).json({ error: validationErr });
 
   const targetRegionId = regionId || region_id || 'r1';
@@ -614,13 +636,13 @@ app.post('/api/setup/create-admin', async (req, res) => {
       return res.status(403).json({ error: 'Setup has already been completed.' });
     }
 
-    const { name, phone } = req.body || {};
+    let { name, phone } = req.body || {};
     if (!name || typeof name !== 'string' || !name.trim() || name.trim().length > 120) {
       return res.status(400).json({ error: 'Name is required (max 120 chars).' });
     }
-    if (!phone || typeof phone !== 'string' || !/^\d{10}$/.test(phone.trim())) {
-      return res.status(400).json({ error: 'Valid 10-digit phone number is required.' });
-    }
+    const validPhone = checkPhone(phone, res);
+    if (!validPhone) return;
+    phone = validPhone;
 
     const cleanName = name.trim();
     const cleanPhone = phone.trim();
@@ -732,12 +754,15 @@ app.post('/api/stockist/auth/verify-otp', handleVerifyOtpRoute);
 
 // Register new Customer with Referral Code
 app.post('/api/customer/register-with-referral', async (req, res) => {
-  const { phone, name, address, cable_partner_id, broadband_partner_id, referral_code } = req.body;
+  let { phone, name, address, cable_partner_id, broadband_partner_id, referral_code } = req.body;
   const regionId = req.body.region_id || req.body.regionId;
 
   if (!phone || !name || !regionId) {
     return res.status(400).json({ error: 'Name, phone, and region are required' });
   }
+  const validPhone = checkPhone(phone, res);
+  if (!validPhone) return;
+  phone = validPhone;
 
   const users = await db.getTable('users');
   if (users.some(u => u.phone === phone)) {
@@ -828,7 +853,11 @@ app.get('/api/kyc/documents/:filename', (req, res) => {
 
 // Register new Stockist (PENDING KYC)
 app.post('/api/auth/register-stockist', uploadBillMiddleware, async (req, res) => {
-  const phone = req.body.phone;
+  let phone = req.body.phone;
+  const validPhone = checkPhone(phone, res);
+  if (!validPhone) return;
+  phone = validPhone;
+
   const name = req.body.name;
   const shopName = req.body.shopName || req.body.shop_name;
   const regionId = req.body.regionId || req.body.region_id;
@@ -3757,11 +3786,13 @@ app.post(['/api/admin/stockist/:id/cod-commission/mark-paid', '/api/admin/stocki
 
 // Self-service Phone Change Requests & Verification
 app.post('/api/customer/phone-change/request', async (req, res) => {
-  const { user_id, new_phone } = req.body;
+  let { user_id, new_phone } = req.body;
   if (!user_id || !new_phone) {
     return res.status(400).json({ error: 'User ID and new phone number are required' });
   }
-  const cleanPhone = new_phone.trim();
+  const validPhone = checkPhone(new_phone, res);
+  if (!validPhone) return;
+  const cleanPhone = validPhone;
   const users = await db.getTable('users');
   const existing = users.find(u => u.phone === cleanPhone);
   if (existing) {
@@ -3771,14 +3802,16 @@ app.post('/api/customer/phone-change/request', async (req, res) => {
 });
 
 app.post('/api/customer/phone-change/verify', async (req, res) => {
-  const { user_id, new_phone, otp } = req.body;
+  let { user_id, new_phone, otp } = req.body;
   if (!user_id || !new_phone || !otp) {
     return res.status(400).json({ error: 'User ID, new phone, and OTP are required' });
   }
   if (otp !== '123456') {
     return res.status(400).json({ error: 'Invalid OTP' });
   }
-  const cleanPhone = new_phone.trim();
+  const validPhone = checkPhone(new_phone, res);
+  if (!validPhone) return;
+  const cleanPhone = validPhone;
   const users = await db.getTable('users');
   const user = users.find(u => u.id === user_id);
   if (!user) {
@@ -4082,10 +4115,13 @@ app.get('/api/admin/vendors/:id/references', async (req, res) => {
 
 // Partner Leads Routes
 app.post('/api/partner-leads', async (req, res) => {
-  const { name, contact_name, phone, email, service_type, service_types, region_id } = req.body;
+  let { name, contact_name, phone, email, service_type, service_types, region_id } = req.body;
   if (!name || !phone) {
     return res.status(400).json({ error: 'Name and phone are required' });
   }
+  const validPhone = checkPhone(phone, res);
+  if (!validPhone) return;
+  phone = validPhone;
   let finalServiceTypes = service_types;
   if (!finalServiceTypes || !Array.isArray(finalServiceTypes) || finalServiceTypes.length === 0) {
     if (service_type === 'BOTH') {
@@ -4374,11 +4410,14 @@ app.post('/api/admin/customers/:id', async (req, res) => {
 
 app.post('/api/admin/customers/:id/phone-change', async (req, res) => {
   const { id } = req.params;
-  const { currentPhoneOtp, newPhone, newPhoneOtp } = req.body;
+  let { currentPhoneOtp, newPhone, newPhoneOtp } = req.body;
   const users = await db.getTable('users');
   const user = users.find(u => u.id === id && u.role === 'CUSTOMER');
   if (!user) return res.status(404).json({ error: 'Customer not found' });
   if (!newPhone || !newPhone.trim()) return res.status(400).json({ error: 'New phone is required' });
+  const validPhone = checkPhone(newPhone, res);
+  if (!validPhone) return;
+  newPhone = validPhone;
   if (currentPhoneOtp && currentPhoneOtp !== '123456') {
     return res.status(400).json({ error: 'Invalid OTP for current phone' });
   }
@@ -4596,10 +4635,14 @@ app.get('/api/admin/stockists/:id', async (req, res) => {
 });
 
 app.post('/api/admin/stockists', async (req, res) => {
-  const { name, region_id, vendor_id, phone, delivery_radius_km, opening_time, closing_time, prep_eta_minutes, commission_rate } = req.body;
+  let { name, region_id, vendor_id, phone, delivery_radius_km, opening_time, closing_time, prep_eta_minutes, commission_rate } = req.body;
   if (!name || !region_id || !phone) {
     return res.status(400).json({ error: 'Name, region_id, and phone are required' });
   }
+  const validPhone = checkPhone(phone, res);
+  if (!validPhone) return;
+  phone = validPhone;
+
 
   const timeRegex = /^([01]\d|2[0-3]):[0-5]\d$/;
   if (opening_time && (opening_time === '24:00' || !timeRegex.test(opening_time))) {
@@ -4936,8 +4979,11 @@ app.post('/api/partner/auth/login-password', async (req, res) => {
 
 // 3.3 POST /api/partner/auth/login-otp-request
 app.post('/api/partner/auth/login-otp-request', async (req, res) => {
-  const { phone } = req.body;
+  let { phone } = req.body;
   if (!phone) return res.status(400).json({ error: 'Phone number is required' });
+  const validPhone = checkPhone(phone, res);
+  if (!validPhone) return;
+  phone = validPhone;
 
   const now = Date.now();
   let attempts = otpRequestAttempts.get(phone) || [];
@@ -7788,12 +7834,45 @@ function assertNoDuplicateRoutes(appToTest) {
   }
 }
 
+async function reportMalformedPhones() {
+  const users = await db.getTable('users');
+  const partnerLeads = await db.getTable('partner_leads');
+  
+  let adminCount = 0;
+  let customerCount = 0;
+  let stockistCount = 0;
+  let partnerLeadCount = 0;
+
+  for (const u of users) {
+    if (u.phone) {
+      const norm = normalizePhone(u.phone);
+      if (norm.length !== 10) {
+        if (u.role === 'ADMIN') adminCount++;
+        else if (u.role === 'CUSTOMER') customerCount++;
+        else if (u.role === 'STOCKIST') stockistCount++;
+      }
+    }
+  }
+
+  for (const l of partnerLeads) {
+    if (l.phone) {
+      const norm = normalizePhone(l.phone);
+      if (norm.length !== 10) {
+        partnerLeadCount++;
+      }
+    }
+  }
+
+  console.log(`[Diagnostic] Malformed phones found: Users(ADMIN: ${adminCount}, CUSTOMER: ${customerCount}, STOCKIST: ${stockistCount}), PartnerLeads(${partnerLeadCount})`);
+}
+
 // Start Server
 const PORT = process.env.PORT || 3001;
 let serverInstance = null;
 const readyPromise = db.init().then(() => {
   checkConfigWarnings();
   assertNoDuplicateRoutes(app);
+  reportMalformedPhones();
   if (!serverInstance) {
     serverInstance = app.listen(PORT, '0.0.0.0', () => {
       console.log(`[Backend Server] ISP-Commerce Loyalty API listening on port ${PORT} (0.0.0.0)`);
