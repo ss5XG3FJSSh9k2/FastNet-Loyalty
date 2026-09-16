@@ -1,5 +1,7 @@
 /* global FormData, URLSearchParams */
-import React, { useState, useEffect, useRef } from 'react';
+/* eslint-disable react-hooks/exhaustive-deps */
+/* eslint-disable no-unused-vars */
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   ShoppingBag, 
   Home,
@@ -852,7 +854,42 @@ export default function App() {
     }
   }, [dbState?.orders, currentUser?.id]);
   const triggerConfirmModal = (title, message, onConfirm, danger, yesLabel, noLabel) => {
-    setConfirmModal({ title, message, onConfirm, danger, yesLabel, noLabel });
+    setConfirmModal({
+      isOpen: true,
+      title,
+      message,
+      onConfirm: () => {
+        onConfirm();
+        setConfirmModal({ isOpen: false });
+      },
+      danger,
+      yesLabel: yesLabel || t('Yes', 'हाँ', 'হ্যাঁ'),
+      noLabel: noLabel || t('Cancel', 'रद्द करें', 'বাতিল করুন')
+    });
+  };
+
+  const handleClearFlag = async () => {
+    if (!flagClearData || !flagClearNote) return;
+    const { userId, flagId } = flagClearData;
+    const adminId = currentUser?.id || 'admin';
+    try {
+      const res = await fetch(`${API_BASE}/admin/kyc/${userId}/flags/${flagId}/clear`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer `, 'x-admin-user-id': adminId, 'x-admin-id': adminId },
+        body: JSON.stringify({ note: flagClearNote })
+      });
+      if (res.ok) {
+        fetchDbState();
+        setFlagClearData(null);
+        setFlagClearNote('');
+      } else {
+        const data = await res.json();
+        alert(data.error || 'Failed to clear flag');
+      }
+    } catch (e) {
+      console.error(e);
+      alert('Error clearing flag');
+    }
   };
 
   useEffect(() => {
@@ -996,6 +1033,9 @@ export default function App() {
 
   // Admin Dashboard State
   const [pendingKyc, setPendingKyc] = useState([]);
+  const [expandedKycRow, setExpandedKycRow] = useState(null);
+  const [flagClearData, setFlagClearData] = useState(null);
+  const [flagClearNote, setFlagClearNote] = useState('');
   const [commissionRates, setCommissionRates] = useState([]);
   const [anomalies, setAnomalies] = useState([]);
   const [pendingRedemptions, setPendingRedemptions] = useState([]);
@@ -10371,6 +10411,7 @@ export default function App() {
                         <th>Name</th>
                         <th>Phone</th>
                         <th>Region</th>
+                        <th>Risk</th>
                         <th>ID Type</th>
                         <th>ID Number</th>
                         <th>Document</th>
@@ -10380,18 +10421,38 @@ export default function App() {
                       </tr>
                     </thead>
                     <tbody>
-                      {pendingKyc.map(u => {
+                      {[...pendingKyc].sort((a, b) => {
+                        const aActive = (a.flags || []).filter(f => !f.cleared_at).length;
+                        const bActive = (b.flags || []).filter(f => !f.cleared_at).length;
+                        return bActive - aActive;
+                      }).map(u => {
                         let kyc = u.kyc_details || {};
                         if (typeof kyc === 'string') {
                           try { kyc = JSON.parse(kyc); } catch (e) { kyc = {}; }
                         }
                         const hasDocument = Boolean(kyc.document_photo_url || u.document_photo_url);
+                        const activeFlags = (u.flags || []).filter(f => !f.cleared_at);
+                        const hasHigh = activeFlags.some(f => f.severity === 'HIGH');
+                        const hasMedium = activeFlags.some(f => f.severity === 'MEDIUM');
+                        let badgeClass = 'badge-secondary';
+                        if (hasHigh) badgeClass = 'badge-danger';
+                        else if (hasMedium) badgeClass = 'badge-warning';
                         return (
-                          <tr key={u.id}>
-                            <td>{u.name}</td>
-                            <td>{u.phone}</td>
-                            <td>{regions.find(r => r.id === u.region_id)?.name || u.region_id || '-'}</td>
-                            <td>{kyc.id_type || u.kyc_id_type || '-'}</td>
+                          <React.Fragment key={u.id}>
+                            <tr>
+                              <td>{u.name}</td>
+                              <td>{u.phone}</td>
+                              <td>{regions.find(r => r.id === u.region_id)?.name || u.region_id || '-'}</td>
+                              <td>
+                                {activeFlags.length > 0 ? (
+                                  <span className={`badge ${badgeClass}`} style={{ cursor: 'pointer' }} onClick={() => setExpandedKycRow(expandedKycRow === u.id ? null : u.id)}>
+                                    {activeFlags.length} Flag{activeFlags.length > 1 ? 's' : ''} {expandedKycRow === u.id ? '▼' : '▶'}
+                                  </span>
+                                ) : (
+                                  <span className="badge badge-success">Clean</span>
+                                )}
+                              </td>
+                              <td>{kyc.id_type || u.kyc_id_type || '-'}</td>
                             <td>
                               <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                                 <span>{revealedIds[u.id] ? formatAadhaar(revealedIds[u.id]) : maskAadhaar(kyc.id_number || u.kyc_id_number)}</span>
@@ -10422,11 +10483,20 @@ export default function App() {
                             <td>
                               <div style={{ display: 'flex', gap: '0.3rem' }}>
                                 <button className="btn btn-accent" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }} onClick={() => {
-                                  triggerConfirmModal(
-                                    t('Approve Stockist KYC', 'स्टॉकिस्ट KYC स्वीकृत करें', 'স্টকিস্ট KYC অনুমোদন করুন'),
-                                    `Approve ${u.name} as stockist? A vendor will be auto-assigned based on their region.`,
-                                    () => handleApproveKyc(u.id)
-                                  );
+                                  if (hasHigh) {
+                                    const flagListText = activeFlags.filter(f => f.severity === 'HIGH').map(f => `• ${f.flag_type} — ${f.detail}`).join('\n');
+                                    triggerConfirmModal(
+                                      t('Approve Stockist KYC', 'स्टॉकिस्ट KYC स्वीकृत करें', 'স্টকিস্ট KYC অনুমোদন করুন'),
+                                      `This application has ${activeFlags.filter(f => f.severity === 'HIGH').length} high-severity flags:\n${flagListText}\n\nApprove anyway?`,
+                                      () => handleApproveKyc(u.id)
+                                    );
+                                  } else {
+                                    triggerConfirmModal(
+                                      t('Approve Stockist KYC', 'स्टॉकिस्ट KYC स्वीकृत करें', 'স্টকিস্ট KYC অনুমোদন করুন'),
+                                      `Approve ${u.name} as stockist? A vendor will be auto-assigned based on their region.`,
+                                      () => handleApproveKyc(u.id)
+                                    );
+                                  }
                                 }}>
                                   ✓ Approve
                                 </button>
@@ -10450,8 +10520,44 @@ export default function App() {
                               </div>
                             </td>
                           </tr>
-                        );
-                      })}
+                          {expandedKycRow === u.id && (
+                            <tr className="flags-panel" style={{ background: 'var(--surface-light)' }}>
+                              <td colSpan="10" style={{ padding: '1rem' }}>
+                                <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '0.9rem' }}>Risk Flags</h4>
+                                {u.flags && u.flags.length > 0 ? (
+                                  <ul style={{ paddingLeft: '1.2rem', margin: 0, fontSize: '0.85rem' }}>
+                                    {u.flags.map(f => (
+                                      <li key={f.id} style={{ marginBottom: '0.4rem', opacity: f.cleared_at ? 0.6 : 1, textDecoration: f.cleared_at ? 'line-through' : 'none' }}>
+                                        <strong style={{ color: f.severity === 'HIGH' ? 'var(--danger-color)' : (f.severity === 'MEDIUM' ? 'var(--warning-color)' : 'inherit') }}>[{f.severity}] {f.flag_type}</strong>: {f.detail}
+                                        {f.related_user_ids && f.related_user_ids.length > 0 && (
+                                          <span style={{ marginLeft: '0.5rem', fontStyle: 'italic' }}>
+                                            (Matches: {f.related_user_ids.join(', ')})
+                                          </span>
+                                        )}
+                                        {!f.cleared_at ? (
+                                          <button className="btn btn-secondary btn-sm" style={{ marginLeft: '1rem', fontSize: '0.65rem', padding: '0.1rem 0.3rem' }} onClick={() => setFlagClearData({ userId: u.id, flagId: f.id })}>Clear</button>
+                                        ) : (
+                                          <span style={{ marginLeft: '1rem', fontSize: '0.7rem', color: 'var(--text-muted)' }}>Cleared by {f.cleared_by} - {f.cleared_note}</span>
+                                        )}
+                                        {flagClearData && flagClearData.flagId === f.id && (
+                                          <div style={{ display: 'inline-block', marginLeft: '0.5rem' }}>
+                                            <input type="text" placeholder="Note required" value={flagClearNote} onChange={e => setFlagClearNote(e.target.value)} style={{ padding: '0.1rem 0.3rem', fontSize: '0.7rem', width: '150px' }} />
+                                            <button className="btn btn-accent btn-sm" style={{ marginLeft: '0.3rem', fontSize: '0.65rem', padding: '0.1rem 0.3rem' }} onClick={handleClearFlag}>Confirm</button>
+                                            <button className="btn btn-secondary btn-sm" style={{ marginLeft: '0.3rem', fontSize: '0.65rem', padding: '0.1rem 0.3rem' }} onClick={() => { setFlagClearData(null); setFlagClearNote(''); }}>Cancel</button>
+                                          </div>
+                                        )}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                ) : (
+                                  <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>No flags recorded.</div>
+                                )}
+                              </td>
+                            </tr>
+                          )}
+                        </React.Fragment>
+                      );
+                    })}
                       {pendingKyc.length === 0 && (
                         <tr>
                           <td colSpan="9" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>

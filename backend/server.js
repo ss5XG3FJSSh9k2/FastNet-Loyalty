@@ -9,6 +9,7 @@ const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
 const r2 = require('./lib/r2');
+const { evaluateRegistrationFlags } = require('./lib/kyc-flags');
 
 const app = express();
 app.use(cors());
@@ -838,29 +839,13 @@ app.post('/api/auth/register-stockist', uploadBillMiddleware, async (req, res) =
     return res.status(400).json({ error: 'All fields are required' });
   }
 
-  // 1. Validate ID number format
+  // 1. Prepare ID number format
   const normIdType = String(idType || '').toUpperCase();
   let cleanIdNumber = idNumber;
   if (normIdType.includes('AADHAAR') || normIdType.includes('AADHAR')) {
     cleanIdNumber = String(idNumber || '').replace(/\D/g, '');
-    if (!/^\d{12}$/.test(cleanIdNumber)) {
-      return res.status(400).json({ 
-        error: 'Aadhaar must be exactly 12 digits' 
-      });
-    }
-  }
-  if (idType === "VOTER_ID") {
-    if (!/^\w{10}$/.test(idNumber)) {
-      return res.status(400).json({ 
-        error: 'Invalid Voter ID format. Must be 10 characters.' 
-      });
-    }
-  }
-  if (idType === "TRADE_LICENSE") {
-    if (!/^\w{12,15}$/.test(idNumber)) {
-      return res.status(400).json({ 
-        error: 'Invalid Trade License format.' 
-      });
+    if (cleanIdNumber.length !== 12) {
+      return res.status(400).json({ error: 'Aadhaar must be 12 digits' });
     }
   }
 
@@ -920,11 +905,31 @@ app.post('/api/auth/register-stockist', uploadBillMiddleware, async (req, res) =
       document_photo_url: documentPhotoUrl
     },
     address,
-    created_at: new Date().toISOString()
+    created_at: new Date().toISOString(),
+    registration_ip: req.ip || req.connection.remoteAddress
   };
+
+  let flags = [];
+  try {
+    flags = await evaluateRegistrationFlags(user, user.registration_ip);
+  } catch (err) {
+    if (err.message === 'BLACKLIST_BLOCK') {
+      return res.status(403).json({ error: 'This application cannot be processed. Contact support.' });
+    }
+    console.error('Flag evaluation error:', err);
+  }
 
   users.push(user);
   await db.saveTable('users', users);
+
+  if (flags.length > 0) {
+    const regFlags = (await db.getTable('registration_flags')) || [];
+    for (const f of flags) {
+      f.created_at = new Date().toISOString();
+      regFlags.push(f);
+    }
+    await db.saveTable('registration_flags', regFlags);
+  }
 
   // Also seed a stockist record for this user so admin stockist lists work seamlessly
   const stockists = await db.getTable('stockists');
@@ -3227,6 +3232,8 @@ function maskIdNumber(idNum) {
 
 app.get('/api/admin/kyc-queue', async (req, res) => {
   const users = await db.getTable('users');
+  const regFlags = (await db.getTable('registration_flags')) || [];
+
   const pending = users.filter(u => u.role === 'STOCKIST' && u.kyc_status === 'PENDING').map(u => {
     let kyc = u.kyc_details || {};
     if (typeof kyc === 'string') {
@@ -3234,16 +3241,49 @@ app.get('/api/admin/kyc-queue', async (req, res) => {
     }
     const rawId = kyc.id_number || u.kyc_id_number || '';
     const maskedId = maskIdNumber(rawId);
+    
+    const userFlags = regFlags.filter(f => f.user_id === u.id);
+    const summary = { high: 0, medium: 0, low: 0 };
+    for (const f of userFlags) {
+      if (!f.cleared_at) {
+        if (f.severity === 'HIGH') summary.high++;
+        else if (f.severity === 'MEDIUM') summary.medium++;
+        else if (f.severity === 'LOW') summary.low++;
+      }
+    }
+
     return {
       ...u,
       kyc_id_number: maskedId,
       kyc_details: {
         ...kyc,
         id_number: maskedId
-      }
+      },
+      flags: userFlags,
+      flag_summary: summary
     };
   });
   return res.json(pending);
+});
+
+app.post('/api/admin/kyc/:userId/flags/:flagId/clear', async (req, res) => {
+  const adminIdHeader = req.headers['x-admin-user-id'] || req.headers['x-admin-id'];
+  if (!adminIdHeader) return res.status(403).json({ error: 'Unauthorized' });
+  const note = req.body.note;
+  if (!note) return res.status(400).json({ error: 'Note is required' });
+
+  const regFlags = (await db.getTable('registration_flags')) || [];
+  const flag = regFlags.find(f => f.id === req.params.flagId && f.user_id === req.params.userId);
+  if (!flag) return res.status(404).json({ error: 'Flag not found' });
+  if (flag.cleared_at) return res.status(400).json({ error: 'Flag already cleared' });
+
+  flag.cleared_by = adminIdHeader;
+  flag.cleared_at = new Date().toISOString();
+  flag.cleared_note = note;
+
+  await db.saveTable('registration_flags', regFlags);
+  await appendAudit(req, 'CLEAR_KYC_FLAG', 'registration_flags', flag.id, null, { note, cleared_by: adminIdHeader });
+  return res.json({ success: true, flag });
 });
 
 app.get('/api/admin/kyc/:userId/document', async (req, res) => {
@@ -3292,6 +3332,12 @@ app.post('/api/admin/approve-kyc', async (req, res) => {
 
   users[userIndex].kyc_status = 'APPROVED';
   await db.saveTable('users', users);
+
+  const regFlags = (await db.getTable('registration_flags')) || [];
+  const activeHighFlags = regFlags.filter(f => f.user_id === userId && !f.cleared_at && f.severity === 'HIGH');
+  if (activeHighFlags.length > 0) {
+    await appendAudit(req, 'APPROVE_FLAGGED_KYC', 'users', userId, null, { flags: activeHighFlags.map(f => f.flag_type) });
+  }
 
   const user = users[userIndex];
   const stockists = await db.getTable('stockists');
