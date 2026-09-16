@@ -1068,6 +1068,10 @@ export default function App() {
     localStorage.setItem('fastnet_offline_queue', JSON.stringify(offlineQueue));
   }, [offlineQueue]);
 
+  const [vendors, setVendors] = useState([]);
+  const [showInactiveVendors, setShowInactiveVendors] = useState(false);
+  const [selectedVendorId, setSelectedVendorId] = useState('');
+
   const fetchAdminVendors = async (includeInactive = showInactiveVendors) => {
     try {
       const res = await adminFetch(`/admin/vendors${includeInactive ? '?include_inactive=true' : ''}`);
@@ -1084,10 +1088,6 @@ export default function App() {
       fetchAdminVendors(showInactiveVendors);
     }
   }, [showInactiveVendors, activeRole]);
-
-  const [vendors, setVendors] = useState([]);
-  const [showInactiveVendors, setShowInactiveVendors] = useState(false);
-  const [selectedVendorId, setSelectedVendorId] = useState('');
 
   // Admin Dashboard State
   const [pendingKyc, setPendingKyc] = useState([]);
