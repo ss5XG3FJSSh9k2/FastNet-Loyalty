@@ -47,3 +47,12 @@ These rules are law. They were each earned by a real failure in this project. Vi
 - Orders reach the stockist queue immediately. Multi-store carts are pickup-only, one sub-order per store.
 - No-show: 30-min grace → one reschedule → 20-min grace → auto-cancel (refund minus commission).
 - Points reveal to the customer happens in the Delivered popup, not at checkout.
+
+## 9. COMMIT BEFORE RESET, PUSH WHEN DONE
+- **Commit before any reset:** Never run `git reset --hard` over uncommitted changes. If `git status` is not clean, commit first: `git add -A && git commit -m "wip: <ticket> — <what works so far>"`. A `wip:` commit is always acceptable.
+- **Commit as you go:** Do not reach the end of a long ticket before the first commit. Commit whenever a discrete piece works.
+- **Push when the gates pass:** When a ticket is complete and the gate battery passes, push before starting the next ticket. Unpushed work is invisible to the tester and dies with the machine.
+- **Check before you reset:** Make this the actual first action of every task, before the fetch: `git status --short`. Output is not empty → commit it before resetting. Output is empty → reset is safe.
+- **Recovering work:** Always check `git reflog | head -30` and `git fsck --lost-found` before re-implementing anything that previously worked.
+- Every ticket report must end with: `Commit: <hash> pushed to master`. If work is not pushed, state why. Do not report a ticket as DONE while its code exists only in an uncommitted working tree.
+- If work vanishes without a reset, report the output of `git status`, `git log --oneline -5`, and `git reflog | head -20` before rebuilding.
