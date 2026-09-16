@@ -10048,7 +10048,7 @@ export default function App() {
                     <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                       <select 
                         className="text-input" 
-                        style={{ fontSize: '0.8rem', padding: '0.35rem 0.5rem', width: 'auto', background: 'var(--bg-panel)' }}
+                        style={{ fontSize: '0.8rem', padding: '0.35rem 0.5rem', width: 'auto' }}
                         value={adminStockistSearchField}
                         onChange={e => {
                           setAdminStockistSearchField(e.target.value);
