@@ -925,6 +925,18 @@ async function main() {
   });
   assert(leadStatusRes.status === 200, 'Lead status updated to CONTACTED');
 
+  const leadRejectFailRes = await post(`http://localhost:3001/api/admin/partner-leads/${leadId}/status`, {
+    status: 'REJECTED',
+    reason: 'no'
+  });
+  assert(leadRejectFailRes.status === 400, 'Lead status update to REJECTED fails with short reason');
+
+  const leadRejectSuccessRes = await post(`http://localhost:3001/api/admin/partner-leads/${leadId}/status`, {
+    status: 'REJECTED',
+    reason: 'Not a good fit right now'
+  });
+  assert(leadRejectSuccessRes.status === 200, 'Lead status update to REJECTED succeeds with valid reason');
+
   const auditLogRes = await get('http://localhost:3001/api/admin/audit-log');
   assert(auditLogRes.status === 200, 'GET /api/admin/audit-log succeeds');
   assert(auditLogRes.body.length >= 5, 'Audit log contains entries for admin actions');

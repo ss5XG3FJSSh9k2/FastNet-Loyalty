@@ -4139,18 +4139,38 @@ app.get('/api/admin/partner-leads', async (req, res) => {
 
 app.post('/api/admin/partner-leads/:id/status', async (req, res) => {
   const { id } = req.params;
-  const { status } = req.body;
+  const { status, reason } = req.body;
   const validStatuses = ['NEW', 'CONTACTED', 'NEGOTIATING', 'ONBOARDED', 'REJECTED'];
   if (!status || !validStatuses.includes(status)) {
     return res.status(400).json({ error: 'Invalid status' });
   }
+  
+  if (status === 'REJECTED') {
+    if (!reason || reason.trim().length < 5) {
+      return res.status(400).json({ error: 'Rejection reason must be at least 5 characters' });
+    }
+  }
+
   const leads = await db.getTable('partner_leads');
   const lead = leads.find(l => l.id === id);
   if (!lead) return res.status(404).json({ error: 'Lead not found' });
   const oldStatus = lead.status || 'NEW';
+  
   lead.status = status;
+  if (status === 'REJECTED') {
+    lead.reason = reason.trim();
+  } else if (status === 'NEW' && reason === 'Reconsidered') {
+    lead.reason = null;
+  }
+  
   await db.saveTable('partner_leads', leads);
-  await appendAudit(req, 'UPDATE_LEAD_STATUS', 'partner_lead', id, { status: oldStatus }, { status });
+  
+  const auditDetails = { status };
+  if (status === 'REJECTED') {
+    auditDetails.reason = reason.trim();
+  }
+  
+  await appendAudit(req, 'UPDATE_LEAD_STATUS', 'partner_lead', id, { status: oldStatus }, auditDetails);
   return res.json({ success: true, lead });
 });
 
