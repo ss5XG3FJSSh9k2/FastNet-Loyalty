@@ -402,17 +402,11 @@ export default function App() {
   const [blacklistedUsers, setBlacklistedUsers] = useState([]);
   const [blacklistSearch, setBlacklistSearch] = useState('');
   const [blacklistFilter, setBlacklistFilter] = useState('all');
-  const [adminSupportTickets, setAdminSupportTickets] = useState([]);
-  const [showSupportTicketModal, setShowSupportTicketModal] = useState(false);
-  const [supportTicketType, setSupportTicketType] = useState('BLACKLIST_APPEAL');
-  const [supportTicketSubject, setSupportTicketSubject] = useState('');
-  const [supportTicketDescription, setSupportTicketDescription] = useState('');
 
   const [showKycActionModal, setShowKycActionModal] = useState(false);
   const [kycActionUserId, setKycActionUserId] = useState(null);
   const [kycActionType, setKycActionType] = useState('REJECT_APPEAL');
   const [kycActionReason, setKycActionReason] = useState('');
-  const [kycActionDays, setKycActionDays] = useState(30);
 
   const [revealedIds, setRevealedIds] = useState({});
   const [showKycDocumentModal, setShowKycDocumentModal] = useState(false);
@@ -1603,9 +1597,7 @@ export default function App() {
           setBlacklistedUsers(list);
         }
 
-        const stRes = await fetch(`${API_BASE}/admin/support/tickets`);
-        if (stRes.ok) setAdminSupportTickets(await stRes.json());
-        
+
         const fraudRes = await fetch(`${API_BASE}/admin/fraud-reports`);
         const auditRes = await fetch(`${API_BASE}/admin/audit-log`);
         const ccRes = await fetch(`${API_BASE}/admin/commission-config`);
@@ -3515,17 +3507,17 @@ export default function App() {
   // ADMIN DASHBOARD LOGIC
   // ----------------------------------------------------
 
-  const handleRejectKycWithAppeal = async (userId, reason) => {
+  const handleRejectKyc = async (userId, reason) => {
     if (!reason) { showToast('Reason is required for rejection', 'error'); return; }
     try {
-      const res = await fetch(`${API_BASE}/admin/kyc/${userId}/reject-with-appeal`, {
+      const res = await fetch(`${API_BASE}/admin/kyc/${userId}/reject`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reason })
       });
       const data = await res.json();
       if (res.ok) {
-        showToast('KYC rejected with appeal option');
+        showToast('KYC rejected');
         setShowKycActionModal(false);
         fetchDbState();
       } else {
@@ -3534,17 +3526,17 @@ export default function App() {
     } catch (e) { showToast('Server error rejecting KYC', 'error'); }
   };
 
-  const handleBlacklistKycUser = async (userId, reason, days = 30) => {
+  const handleBlacklistKycUser = async (userId, reason) => {
     if (!reason) { showToast('Reason is required for blacklisting', 'error'); return; }
     try {
       const res = await fetch(`${API_BASE}/admin/kyc/${userId}/blacklist`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reason, days })
+        body: JSON.stringify({ reason })
       });
       const data = await res.json();
       if (res.ok) {
-        showToast(`User blacklisted for ${days} days`);
+        showToast('User blacklisted');
         setShowKycActionModal(false);
         fetchDbState();
       } else {
@@ -3553,81 +3545,28 @@ export default function App() {
     } catch (e) { showToast('Server error blacklisting user', 'error'); }
   };
 
-  const handleUnblockBlacklist = async (userId) => {
+  const handleRestoreAccount = async (userId) => {
     try {
-      const res = await fetch(`${API_BASE}/admin/blacklist/${userId}/unblock`, { method: 'POST' });
-      const data = await res.json();
+      const adminId = currentUser?.role === 'ADMIN' ? currentUser.id : 'u-admin1';
+      const res = await fetch(`${API_BASE}/admin/blacklist/${userId}/restore`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token') || ''}`,
+          'x-admin-user-id': adminId,
+          'x-admin-id': adminId
+        }
+      });
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        showToast('Blacklist lifted successfully');
+        showToast('Account restored to pending review');
         fetchDbState();
       } else {
-        showToast(data.error || 'Failed to unblock', 'error');
+        showToast(data.message || data.error || `Restore failed (${res.status})`, 'error');
       }
-    } catch (e) { showToast('Server error lifting blacklist', 'error'); }
+    } catch (e) { showToast('Server error restoring account', 'error'); }
   };
 
-  const handleExtendBlacklist = async (userId, days = 30) => {
-    try {
-      const res = await fetch(`${API_BASE}/admin/blacklist/${userId}/extend`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ days })
-      });
-      const data = await res.json();
-      if (res.ok) {
-        showToast(`Blacklist extended by ${days} days`);
-        fetchDbState();
-      } else {
-        showToast(data.error || 'Failed to extend', 'error');
-      }
-    } catch (e) { showToast('Server error extending blacklist', 'error'); }
-  };
-
-  const handleSubmitSupportTicket = async () => {
-    if (!supportTicketSubject || !supportTicketDescription) {
-      showToast('Subject and description are required', 'error');
-      return;
-    }
-    try {
-      const res = await fetch(`${API_BASE}/support/tickets`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId: currentUser?.id,
-          type: supportTicketType,
-          subject: supportTicketSubject,
-          description: supportTicketDescription
-        })
-      });
-      const data = await res.json();
-      if (res.ok) {
-        showToast('Support ticket submitted successfully!');
-        setSupportTicketSubject('');
-        setSupportTicketDescription('');
-        setShowSupportTicketModal(false);
-        fetchDbState();
-      } else {
-        showToast(data.error || 'Failed to submit ticket', 'error');
-      }
-    } catch (e) { showToast('Error submitting support ticket', 'error'); }
-  };
-
-  const handleResolveSupportTicket = async (ticketId, resolution, notes) => {
-    try {
-      const res = await fetch(`${API_BASE}/admin/support/tickets/${ticketId}/resolve`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ resolution, notes })
-      });
-      const data = await res.json();
-      if (res.ok) {
-        showToast('Ticket resolved');
-        fetchDbState();
-      } else {
-        showToast(data.error || 'Failed to resolve ticket', 'error');
-      }
-    } catch (e) { showToast('Error resolving ticket', 'error'); }
-  };
 
   const handlePatchStockistAction = async (stockistId, action, reason, days) => {
     try {
@@ -10764,7 +10703,6 @@ export default function App() {
                                   setKycActionUserId(u.id);
                                   setKycActionType('BLACKLIST');
                                   setKycActionReason('');
-                                  setKycActionDays(30);
                                   setShowKycActionModal(true);
                                 }}>
                                   ⊗ Blacklist
@@ -10861,7 +10799,6 @@ export default function App() {
                           <th>Phone</th>
                           <th>Name</th>
                           <th>Reason</th>
-                          <th>Blacklisted Until</th>
                           <th>Status</th>
                           <th>Actions</th>
                         </tr>
@@ -10881,17 +10818,6 @@ export default function App() {
                             return matchesSearch && matchesFilter;
                           })
                           .map(u => {
-                            const expiryVal = u.blacklist_until || u.kyc_blacklist_until;
-                            let expiryDisplay = '—';
-                            if (expiryVal) {
-                              const parsed = new Date(expiryVal);
-                              expiryDisplay = !isNaN(parsed.getTime()) ? parsed.toLocaleDateString() : '—';
-                            } else if (u.kyc_status === 'BLACKLISTED') {
-                              expiryDisplay = 'Permanent';
-                            } else {
-                              expiryDisplay = '—';
-                            }
-
                             const reasonText = u.reason || u.kyc_blacklist_reason || u.kyc_rejection_reason || 'No reason recorded';
 
                             return (
@@ -10900,7 +10826,6 @@ export default function App() {
                                 <td>{u.phone || '—'}</td>
                                 <td><strong>{u.name || 'Unnamed'}</strong></td>
                                 <td style={{ color: 'var(--danger)', fontSize: '0.8rem' }}>{reasonText}</td>
-                                <td>{expiryDisplay}</td>
                                 <td>{renderKycStatusBadge(u.kyc_status || 'BLACKLISTED', true)}</td>
                                 <td>
                                   <div style={{ display: 'flex', gap: '0.3rem' }}>
@@ -10908,7 +10833,7 @@ export default function App() {
                                       triggerConfirmModal(
                                         'Restore Account',
                                         `Restore account for ${u.name || 'this user'}? They will be able to log in and submit updated documents.`,
-                                        () => handleRestoreUser(u.user_id || u.id)
+                                        () => handleRestoreAccount(u.user_id || u.id)
                                       );
                                     }}>
                                       Restore Account
@@ -10920,7 +10845,7 @@ export default function App() {
                           })}
                         {(!blacklistedUsers || !Array.isArray(blacklistedUsers) || blacklistedUsers.length === 0) && (
                           <tr>
-                            <td colSpan="7" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
+                            <td colSpan="6" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
                               No blacklisted or rejected users currently on record.
                             </td>
                           </tr>
@@ -14075,17 +14000,7 @@ export default function App() {
                 />
               </div>
 
-              {kycActionType === 'BLACKLIST' && (
-                <div className="input-group">
-                  <label className="input-label">Blacklist Duration (Days)</label>
-                  <input 
-                    type="number" 
-                    className="text-input" 
-                    value={kycActionDays} 
-                    onChange={e => setKycActionDays(parseInt(e.target.value, 10) || 30)} 
-                  />
-                </div>
-              )}
+
 
               <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
                 <button className="btn btn-secondary" onClick={() => setShowKycActionModal(false)}>
@@ -14095,9 +14010,9 @@ export default function App() {
                   className={kycActionType === 'BLACKLIST' ? 'btn btn-danger' : 'btn btn-primary'}
                   onClick={() => {
                     if (kycActionType === 'BLACKLIST') {
-                      handleBlacklistKycUser(kycActionUserId, kycActionReason, kycActionDays);
+                      handleBlacklistKycUser(kycActionUserId, kycActionReason);
                     } else {
-                      handleRejectKycWithAppeal(kycActionUserId, kycActionReason);
+                      handleRejectKyc(kycActionUserId, kycActionReason);
                     }
                   }}
                 >
