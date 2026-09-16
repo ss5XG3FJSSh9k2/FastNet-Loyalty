@@ -483,6 +483,13 @@ export default function App() {
   const [shopSearchQuery, setShopSearchQuery] = useState('');
 
   const [partnerLeads, setPartnerLeads] = useState([]);
+  const UNRESOLVED_LEAD_STATUSES = ['NEW', 'CONTACTED', 'NEGOTIATING'];
+  const unresolvedLeads = (partnerLeads || []).filter(l => UNRESOLVED_LEAD_STATUSES.includes(l.status || 'NEW'));
+
+  const [showRejectedLeads, setShowRejectedLeads] = useState(false);
+  const [showRejectLeadModal, setShowRejectLeadModal] = useState(false);
+  const [rejectLeadId, setRejectLeadId] = useState(null);
+  const [rejectLeadReason, setRejectLeadReason] = useState('');
   const [leadStatusFilter, setLeadStatusFilter] = useState('ALL');
   const [selectedLeadDetail, setSelectedLeadDetail] = useState(null);
   const [showAddLeadNoteModal, setShowAddLeadNoteModal] = useState(false);
@@ -9521,8 +9528,8 @@ export default function App() {
               >
                 <ShieldAlert size={16} /> Blacklisted/Rejected {blacklistedUsers.length > 0 && <span className="badge badge-danger" style={{ marginLeft: '0.25rem', fontSize: '0.65rem' }}>{blacklistedUsers.length}</span>}
               </button>
-              <button className={`admin-nav-item ${adminTab === 'partners' ? 'active' : ''}`} onClick={() => { setAdminTab('partners'); fetchAdminPartners(); }}>
-                <UserPlus size={16} /> Partners ({adminPartners.length})
+              <button className={`admin-nav-item ${adminTab === 'partners' ? 'active' : ''}`} onClick={() => { setAdminTab('partners'); setPartnerSubTab(unresolvedLeads.length > 0 ? 'leads' : 'onboarded'); fetchAdminPartners(); }}>
+                <UserPlus size={16} /> {t('Partners / Onboarded Partners', 'पार्टनर / शामिल किए गए पार्टनर', 'অংশীদার / অনবোর্ড করা অংশীদার')} {unresolvedLeads.length > 0 && <span className="badge badge-warning" style={{ marginLeft: '0.25rem', fontSize: '0.65rem' }}>{unresolvedLeads.length}</span>}
               </button>
               <button className={`admin-nav-item ${adminTab === 'analytics' ? 'active' : ''}`} onClick={() => { setAdminTab('analytics'); fetchAnalytics(); localStorage.setItem('fastnet_admin_analytics_visited', 'true'); }}>
                 <TrendingUp size={16} /> Analytics
@@ -9543,12 +9550,7 @@ export default function App() {
 
                 {showAdvanced && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', marginTop: '0.35rem', paddingLeft: '0.25rem' }}>
-                    <button className={`admin-nav-item ${adminTab === 'leads' ? 'active' : ''}`} onClick={() => { handleSetAdminTab('leads'); fetchAdminPartners(); }}>
-                      <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                        <UserPlus size={16} /> Partner Leads ({partnerLeads.length})
-                        {isUnread('leads') && <span className="unread-dot" aria-label="Unread leads" />}
-                      </span>
-                    </button>
+
                     <button className={`admin-nav-item ${adminTab === 'vendors' ? 'active' : ''}`} onClick={() => handleSetAdminTab('vendors')}>
                       <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                         <ShoppingBag size={16} /> Wholesalers ({vendors.length})
@@ -12068,52 +12070,6 @@ export default function App() {
                 </div>
               )}
 
-              {adminTab === 'leads' && (
-                <div>
-                  <h2 style={{ fontSize: '1.4rem', marginBottom: '1rem' }}>Partner Leads</h2>
-                  <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
-                    Leads from cable and internet operators interested in partnering with FastNet Hyperlocal.
-                  </p>
-
-                  <table className="admin-table">
-                    <thead>
-                      <tr>
-                        <th>Operator/Company Name</th>
-                        <th>Contact Person</th>
-                        <th>Phone</th>
-                        <th>Service Type</th>
-                        <th>Region</th>
-                        <th>Date Submitted</th>
-                        <th>Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {partnerLeads.map(l => (
-                        <tr key={l.id}>
-                          <td style={{ fontWeight: 'bold' }}>{l.name}</td>
-                          <td>{l.contact_name || '—'}</td>
-                          <td>{l.phone}</td>
-                          <td>{l.service_type || 'CABLE'}</td>
-                          <td>{regions.find(r => r.id === l.region_id)?.name || l.region_id || '—'}</td>
-                          <td>{new Date(l.created_at).toLocaleString()}</td>
-                          <td>
-                            <span className="badge badge-primary" style={{ fontSize: '0.6rem' }}>
-                              {l.status}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                      {partnerLeads.length === 0 && (
-                        <tr>
-                          <td colSpan="4" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
-                            No partner leads submitted yet.
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              )}
 
             </div>
           </div>
