@@ -3498,47 +3498,8 @@ app.post('/api/admin/kyc/:userId/approve', async (req, res) => {
   return res.json({ success: true, status: 'APPROVED', stockist });
 });
 
-// Reject KYC with Appeal Option
-app.post('/api/admin/kyc/:userId/reject-with-appeal', async (req, res) => {
-  const { userId } = req.params;
-  const { reason } = req.body;
-  if (!reason) return res.status(400).json({ error: 'Reason is required' });
-
-  const users = await db.getTable('users');
-  const user = users.find(u => u.id === userId);
-  if (!user) return res.status(404).json({ error: 'User not found' });
-
-  user.kyc_status = 'REJECTED';
-  user.kyc_rejection_reason = reason;
-  user.kyc_rejection_count = (parseInt(user.kyc_rejection_count, 10) || 0) + 1;
-  user.kyc_rejected_at = new Date().toISOString();
-
-  // If rejection count >= 3, auto-blacklist for 30 days
-  if (user.kyc_rejection_count >= 3) {
-    user.kyc_status = 'BLACKLISTED';
-    user.kyc_blacklist_reason = `Exceeded maximum rejection attempts (3). Latest reason: ${reason}`;
-    user.kyc_blacklist_until = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
-
-    const blacklist = await db.getTable('user_blacklist');
-    blacklist.push({
-      id: 'bl-' + generateId(),
-      user_id: user.id,
-      phone: user.phone,
-      reason: user.kyc_blacklist_reason,
-      blacklisted_at: new Date().toISOString(),
-      blacklist_until: user.kyc_blacklist_until,
-      blacklisted_by_admin_id: req.user ? req.user.id : 'admin-system'
-    });
-    await db.saveTable('user_blacklist', blacklist);
-  }
-
-  await db.saveTable('users', users);
-  await appendAudit(req, 'REJECT_KYC_WITH_APPEAL', 'user', userId, null, { kyc_status: user.kyc_status, reason });
-  return res.json({ success: true, status: user.kyc_status, can_reapply: user.kyc_status !== 'BLACKLISTED' });
-});
-
-// Alias for Reject KYC
-app.post('/api/admin/kyc/:userId/reject', async (req, res) => {
+// Reject KYC (consolidated with legacy reject-with-appeal)
+app.post(['/api/admin/kyc/:userId/reject', '/api/admin/kyc/:userId/reject-with-appeal'], async (req, res) => {
   const { userId } = req.params;
   const { reason } = req.body || {};
   if (!reason || reason.trim().length < 5) return res.status(400).json({ error: 'Reason must be at least 5 characters' });
@@ -3621,7 +3582,8 @@ app.get('/api/admin/blacklist', async (req, res) => {
       reason: u.kyc_blacklist_reason || u.kyc_rejection_reason || record.reason || null,
       blacklisted_at: (u.kyc_status === 'BLACKLISTED') ? (record.blacklisted_at || u.kyc_rejected_at || u.created_at || null) : null,
       blacklisted_by: record.blacklisted_by_admin_id || null,
-      repeat_rejection: u.repeat_rejection || false
+      repeat_rejection: u.repeat_rejection || false,
+      blacklist_until: null
     };
   });
 
@@ -3639,7 +3601,8 @@ app.get('/api/admin/blacklist', async (req, res) => {
     kyc_status: l.status || 'REJECTED',
     reason: l.rejection_reason || l.reason || null,
     blacklisted_at: l.status === 'BLACKLISTED' ? (l.blacklisted_at || l.updated_at || l.created_at || null) : null,
-    blacklisted_by: l.blacklisted_by || null
+    blacklisted_by: l.blacklisted_by || null,
+    blacklist_until: null
   }));
 
   const result = [...userResults, ...leadResults];

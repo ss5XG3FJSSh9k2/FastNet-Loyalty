@@ -4503,11 +4503,12 @@ async function main() {
   assert(blacklistedRow, 'Blacklist endpoint returns a blacklisted row');
 
   // Test: the list endpoint returns the same field set for both row types, nulls included
-  const expectedKeys = ['id', 'user_id', 'name', 'phone', 'role', 'type', 'kyc_status', 'reason', 'blacklisted_at', 'blacklisted_by', 'repeat_rejection'];
+  const expectedKeys = ['id', 'user_id', 'name', 'phone', 'role', 'type', 'kyc_status', 'reason', 'blacklisted_at', 'blacklisted_by', 'blacklist_until', 'repeat_rejection'];
   const rejectedHasAllKeys = expectedKeys.every(k => Object.prototype.hasOwnProperty.call(rejectedRow, k));
   const blacklistedHasAllKeys = expectedKeys.every(k => Object.prototype.hasOwnProperty.call(blacklistedRow, k));
   assert(rejectedHasAllKeys, 'Rejected row returns normalized field set with nulls where applicable');
   assert(blacklistedHasAllKeys, 'Blacklisted row returns normalized field set with nulls where applicable');
+  assert(rejectedRow.blacklist_until === null, 'Rejected row has null blacklist_until expiry');
 
   // Test: App.jsx contains PanelErrorBoundary and safe rendering for rejected / blacklisted rows
   const appCodeBf1b = fs.readFileSync(path.join(__dirname, '../../frontend/src/App.jsx'), 'utf8');
