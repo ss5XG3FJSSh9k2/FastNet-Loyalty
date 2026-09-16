@@ -9519,7 +9519,7 @@ export default function App() {
                 data-path="/admin/blacklist"
                 data-tab="blacklist"
               >
-                <ShieldAlert size={16} /> Blacklist {blacklistedUsers.length > 0 && <span className="badge badge-danger" style={{ marginLeft: '0.25rem', fontSize: '0.65rem' }}>{blacklistedUsers.length}</span>}
+                <ShieldAlert size={16} /> Blacklisted/Rejected {blacklistedUsers.length > 0 && <span className="badge badge-danger" style={{ marginLeft: '0.25rem', fontSize: '0.65rem' }}>{blacklistedUsers.length}</span>}
               </button>
               <button className={`admin-nav-item ${adminTab === 'partners' ? 'active' : ''}`} onClick={() => { setAdminTab('partners'); fetchAdminPartners(); }}>
                 <UserPlus size={16} /> Partners ({adminPartners.length})
