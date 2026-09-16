@@ -13792,12 +13792,25 @@ export default function App() {
         const isActive = selectedStockistDetail.is_active ?? selectedStockistDetail.stockist?.is_active ?? (kycStatus === 'APPROVED');
         const shopName = selectedStockistDetail.name || selectedStockistDetail.stockist?.name || '—';
 
+        const userId = selectedStockistDetail.user_id
+          || selectedStockistDetail.user?.id
+          || selectedStockistDetail.stockist?.user_id;
+        const kycRaw = selectedStockistDetail.user?.kyc_details
+          || selectedStockistDetail.kyc_details
+          || {};
+        const kyc = typeof kycRaw === 'string'
+          ? (() => { try { return JSON.parse(kycRaw); } catch { return {}; } })()
+          : kycRaw;
+        const idType = kyc.id_type || '—';
+        const idNumber = kyc.id_number || '';
+        const docUrl = kyc.document_photo_url || '';
+
         return (
           <div className="modal-overlay">
             <div className="modal-content glass-card" style={{ maxWidth: '550px', maxHeight: '80vh', overflowY: 'auto' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
                 <h3 style={{ fontSize: '1.2rem', margin: 0 }}>Stockist Details: {shopName}</h3>
-                <button className="btn btn-secondary" style={{ padding: '0.2rem 0.5rem' }} onClick={() => setShowStockistDetailModal(false)}><X size={14} /></button>
+                <button className="btn btn-secondary" style={{ padding: '0.2rem 0.5rem' }} onClick={() => { setShowStockistDetailModal(false); setRevealedIds({}); }}><X size={14} /></button>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.85rem', fontSize: '0.8rem', marginBottom: '1rem' }}>
                 <div><strong>Shop Name:</strong> {shopName}</div>
@@ -13822,9 +13835,34 @@ export default function App() {
                 <div><strong>Pending Orders:</strong> {pendingOrders}</div>
                 <div><strong>KYC Date:</strong> {kycDate ? new Date(kycDate).toLocaleDateString() : 'N/A'}</div>
                 <div><strong>Status:</strong> {renderKycStatusBadge(kycStatus, isActive)}</div>
+                <div><strong>{t('ID Type', 'आईडी प्रकार', 'আইডি প্রকার')}:</strong> {idType}</div>
+                <div>
+                  <strong>{t('ID Number', 'आईडी नंबर', 'আইডি নম্বর')}:</strong>{' '}
+                  {idNumber ? (
+                    <>
+                      {revealedIds[userId] ? formatAadhaar(revealedIds[userId]) : maskAadhaar(idNumber)}
+                      <button
+                        className="btn btn-secondary btn-sm"
+                        style={{ padding: '0.15rem 0.4rem', fontSize: '0.7rem', marginLeft: '0.4rem' }}
+                        onClick={() => revealedIds[userId] ? handleHideUnmaskedId(userId) : handleShowUnmaskedId(userId)}
+                      >
+                        {revealedIds[userId] ? t('Hide', 'छिपाएँ', 'লুকান') : t('Show', 'दिखाएँ', 'দেখান')}
+                      </button>
+                    </>
+                  ) : '—'}
+                </div>
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    disabled={!docUrl}
+                    onClick={() => handleViewDocument(selectedStockistDetail.user || { id: userId, ...kyc })}
+                  >
+                    {docUrl ? t('View Document', 'दस्तावेज़ देखें', 'নথি দেখুন') : t('No document', 'कोई दस्तावेज़ नहीं', 'কোনো নথি নেই')}
+                  </button>
+                </div>
               </div>
               <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '1rem' }}>
-                <button className="btn btn-secondary" onClick={() => setShowStockistDetailModal(false)}>Close</button>
+                <button className="btn btn-secondary" onClick={() => { setShowStockistDetailModal(false); setRevealedIds({}); }}>Close</button>
               </div>
             </div>
           </div>
