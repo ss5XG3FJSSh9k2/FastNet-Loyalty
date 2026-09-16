@@ -384,30 +384,6 @@ export default function App() {
       return Number.isNaN(t) ? max : Math.max(max, t);
     }, 0);
 
-  const getTabRows = (tab) => {
-    switch (tab) {
-      case 'leads': return partnerLeads;
-      case 'vendors': return vendors;
-      case 'regions': return adminRegionsList;
-      case 'bill_photos': return adminBillPhotos;
-      case 'audit_log': return adminAuditLogs;
-      case 'feedback': return allFeedbackReports;
-      case 'anomalies': return anomalies;
-      case 'redemptions': return pendingRedemptions;
-      default: return [];
-    }
-  };
-
-  const isUnread = (tab) => {
-    if (tab === 'analytics' || tab === 'health') return false;
-    const rows = getTabRows(tab);
-    const newest = newestTs(rows, 'created_at');
-    if (!newest) return false;
-    const seen = Date.parse(tabLastSeen[tab] || '') || 0;
-    return newest > seen;
-  };
-
-  const advancedHasUnread = ADVANCED_TABS.some(t => isUnread(t));
 
   useEffect(() => {
     if (typeof window !== 'undefined' && window.location) {
@@ -12412,6 +12388,31 @@ export default function App() {
       </div>
     );
   }
+
+  const getTabRows = (tab) => {
+    switch (tab) {
+      case 'leads': return partnerLeads;
+      case 'vendors': return vendors;
+      case 'regions': return adminRegionsList;
+      case 'bill_photos': return adminBillPhotos;
+      case 'audit_log': return adminAuditLogs;
+      case 'feedback': return allFeedbackReports;
+      case 'anomalies': return anomalies;
+      case 'redemptions': return pendingRedemptions;
+      default: return [];
+    }
+  };
+
+  const isUnread = (tab) => {
+    if (tab === 'analytics' || tab === 'health') return false;
+    const rows = getTabRows(tab);
+    const newest = newestTs(rows, 'created_at');
+    if (!newest) return false;
+    const seen = Date.parse(tabLastSeen[tab] || '') || 0;
+    return newest > seen;
+  };
+
+  const advancedHasUnread = ADVANCED_TABS.some(t => isUnread(t));
 
   return (
     <div className="simulator-shell">
