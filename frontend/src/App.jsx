@@ -356,6 +356,58 @@ export default function App() {
 
   const [adminRegionFilter, setAdminRegionFilter] = useState('ALL');
   const [adminTab, setAdminTab] = useState('home');
+  const [showAdvanced, setShowAdvanced] = useState(false);
+
+  const ADVANCED_TABS = ['leads','vendors','regions','bill_photos','audit_log','feedback','anomalies','redemptions','analytics','health'];
+
+  const [tabLastSeen, setTabLastSeen] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('adminTabLastSeen') || '{}'); }
+    catch { return {}; }
+  });
+
+  const markTabSeen = (tab) => {
+    const next = { ...tabLastSeen, [tab]: new Date().toISOString() };
+    setTabLastSeen(next);
+    try { localStorage.setItem('adminTabLastSeen', JSON.stringify(next)); } catch {}
+  };
+
+  const handleSetAdminTab = (tab) => {
+    setAdminTab(tab);
+    if (ADVANCED_TABS.includes(tab)) {
+      markTabSeen(tab);
+    }
+  };
+
+  const newestTs = (rows, field = 'created_at') =>
+    (rows || []).reduce((max, r) => {
+      const t = Date.parse(r?.[field] || '');
+      return Number.isNaN(t) ? max : Math.max(max, t);
+    }, 0);
+
+  const getTabRows = (tab) => {
+    switch (tab) {
+      case 'leads': return partnerLeads;
+      case 'vendors': return vendors;
+      case 'regions': return adminRegionsList;
+      case 'bill_photos': return adminBillPhotos;
+      case 'audit_log': return adminAuditLogs;
+      case 'feedback': return allFeedbackReports;
+      case 'anomalies': return anomalies;
+      case 'redemptions': return pendingRedemptions;
+      default: return [];
+    }
+  };
+
+  const isUnread = (tab) => {
+    if (tab === 'analytics' || tab === 'health') return false;
+    const rows = getTabRows(tab);
+    const newest = newestTs(rows, 'created_at');
+    if (!newest) return false;
+    const seen = Date.parse(tabLastSeen[tab] || '') || 0;
+    return newest > seen;
+  };
+
+  const advancedHasUnread = ADVANCED_TABS.some(t => isUnread(t));
 
   useEffect(() => {
     if (typeof window !== 'undefined' && window.location) {
@@ -367,8 +419,6 @@ export default function App() {
       }
     }
   }, []);
-
-  const [showAdvanced, setShowAdvanced] = useState(false);
 
   const [gettingStartedOpen, setGettingStartedOpen] = useState(true);
 
@@ -9095,6 +9145,19 @@ export default function App() {
                     </div>
                   )}
 
+                  <button 
+                    className="admin-nav-item" 
+                    onClick={() => setShowAdvanced(!showAdvanced)}
+                    style={{ fontWeight: '600', color: 'var(--text-muted)', width: '100%', textAlign: 'left', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
+                  >
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      {showAdvanced ? '▾ Advanced' : '▸ Advanced'}
+                      {advancedHasUnread && (
+                        <span className="unread-dot" aria-label="Unread items in Advanced" />
+                      )}
+                    </span>
+                  </button>
+
                   <div className="stockist-profile-card glass-card" style={{ padding: '0.85rem', marginTop: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: '0.75rem' }}>
                     <div style={{ fontWeight: 'bold', color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <span>Shop Profile</span>
@@ -9565,29 +9628,52 @@ export default function App() {
 
                 {showAdvanced && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', marginTop: '0.35rem', paddingLeft: '0.25rem' }}>
-                    <button className={`admin-nav-item ${adminTab === 'leads' ? 'active' : ''}`} onClick={() => { setAdminTab('leads'); fetchAdminPartners(); }}>
-                      <UserPlus size={16} /> Partner Leads ({partnerLeads.length})
+                    <button className={`admin-nav-item ${adminTab === 'leads' ? 'active' : ''}`} onClick={() => { handleSetAdminTab('leads'); fetchAdminPartners(); }}>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                        <UserPlus size={16} /> Partner Leads ({partnerLeads.length})
+                        {isUnread('leads') && <span className="unread-dot" aria-label="Unread leads" />}
+                      </span>
                     </button>
-                    <button className={`admin-nav-item ${adminTab === 'vendors' ? 'active' : ''}`} onClick={() => setAdminTab('vendors')}>
-                      <ShoppingBag size={16} /> Wholesalers ({vendors.length})
+                    <button className={`admin-nav-item ${adminTab === 'vendors' ? 'active' : ''}`} onClick={() => handleSetAdminTab('vendors')}>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                        <ShoppingBag size={16} /> Wholesalers ({vendors.length})
+                        {isUnread('vendors') && <span className="unread-dot" aria-label="Unread wholesalers" />}
+                      </span>
                     </button>
-                    <button className={`admin-nav-item ${adminTab === 'regions' ? 'active' : ''}`} onClick={() => { setAdminTab('regions'); fetchAdminRegions(); }}>
-                      <Globe size={16} /> Regions ({adminRegionsList.length})
+                    <button className={`admin-nav-item ${adminTab === 'regions' ? 'active' : ''}`} onClick={() => { handleSetAdminTab('regions'); fetchAdminRegions(); }}>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                        <Globe size={16} /> Regions ({adminRegionsList.length})
+                        {isUnread('regions') && <span className="unread-dot" aria-label="Unread regions" />}
+                      </span>
                     </button>
-                    <button className={`admin-nav-item ${adminTab === 'anomalies' ? 'active' : ''}`} onClick={() => setAdminTab('anomalies')}>
-                      <ShieldAlert size={16} /> Flagged Store Orders ({anomalies.length})
+                    <button className={`admin-nav-item ${adminTab === 'anomalies' ? 'active' : ''}`} onClick={() => handleSetAdminTab('anomalies')}>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                        <ShieldAlert size={16} /> Flagged Store Orders ({anomalies.length})
+                        {isUnread('anomalies') && <span className="unread-dot" aria-label="Unread flagged orders" />}
+                      </span>
                     </button>
-                    <button className={`admin-nav-item ${adminTab === 'bill_photos' ? 'active' : ''}`} onClick={() => { setAdminTab('bill_photos'); fetchAdminBillPhotos(); }}>
-                      <FileText size={16} /> Bill Photos {adminBillPhotos.filter(b => b.flag_status === 'FLAGGED').length > 0 && <span className="badge badge-warning" style={{ marginLeft: '0.25rem', fontSize: '0.65rem' }}>{adminBillPhotos.filter(b => b.flag_status === 'FLAGGED').length}</span>}
+                    <button className={`admin-nav-item ${adminTab === 'bill_photos' ? 'active' : ''}`} onClick={() => { handleSetAdminTab('bill_photos'); fetchAdminBillPhotos(); }}>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                        <FileText size={16} /> Bill Photos {adminBillPhotos.filter(b => b.flag_status === 'FLAGGED').length > 0 && <span className="badge badge-warning" style={{ marginLeft: '0.25rem', fontSize: '0.65rem' }}>{adminBillPhotos.filter(b => b.flag_status === 'FLAGGED').length}</span>}
+                        {isUnread('bill_photos') && <span className="unread-dot" aria-label="Unread bill photos" />}
+                      </span>
                     </button>
-                    <button className={`admin-nav-item ${adminTab === 'audit_log' ? 'active' : ''}`} onClick={() => setAdminTab('audit_log')}>
-                      <FileText size={16} /> Audit Log
+                    <button className={`admin-nav-item ${adminTab === 'audit_log' ? 'active' : ''}`} onClick={() => handleSetAdminTab('audit_log')}>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                        <FileText size={16} /> Audit Log
+                        {isUnread('audit_log') && <span className="unread-dot" aria-label="Unread audit logs" />}
+                      </span>
                     </button>
-                    <button className={`admin-nav-item ${adminTab === 'feedback' ? 'active' : ''}`} onClick={() => setAdminTab('feedback')}>
-                      <ShieldAlert size={16} /> Feedback & Reports ({allFeedbackReports.length})
+                    <button className={`admin-nav-item ${adminTab === 'feedback' ? 'active' : ''}`} onClick={() => handleSetAdminTab('feedback')}>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                        <ShieldAlert size={16} /> Feedback & Reports ({allFeedbackReports.length})
+                        {isUnread('feedback') && <span className="unread-dot" aria-label="Unread feedback" />}
+                      </span>
                     </button>
-                    <button className={`admin-nav-item ${adminTab === 'health' ? 'active' : ''}`} onClick={() => { setAdminTab('health'); fetchHealthData(); }}>
-                      <TrendingUp size={16} /> System Health
+                    <button className={`admin-nav-item ${adminTab === 'health' ? 'active' : ''}`} onClick={() => { handleSetAdminTab('health'); fetchHealthData(); }}>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                        <TrendingUp size={16} /> System Health
+                      </span>
                     </button>
                   </div>
                 )}

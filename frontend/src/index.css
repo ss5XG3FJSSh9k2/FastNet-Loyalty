@@ -1158,3 +1158,5 @@ body:has(.modal-overlay) {
 
 
 
+. u n r e a d - d o t   {   d i s p l a y :   i n l i n e - b l o c k ;   w i d t h :   8 p x ;   h e i g h t :   8 p x ;   b o r d e r - r a d i u s :   5 0 % ;   b a c k g r o u n d :   v a r ( - - d a n g e r ) ;   b o x - s h a d o w :   0   0   6 p x   v a r ( - - d a n g e r ) ;   a n i m a t i o n :   p u l s e   2 s   i n f i n i t e ;   }   @ m e d i a   ( p r e f e r s - r e d u c e d - m o t i o n :   r e d u c e )   {   . u n r e a d - d o t   {   a n i m a t i o n :   n o n e ;   }   }  
+ 
