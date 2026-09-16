@@ -1827,6 +1827,52 @@ export default function App() {
     setShowPromoteLeadModal(true);
   };
 
+  const handleRejectLeadSubmit = async () => {
+    if (!rejectLeadId) return;
+    if (!rejectLeadReason || rejectLeadReason.trim().length < 5) {
+      showToast('Rejection reason must be at least 5 characters', 'error');
+      return;
+    }
+    try {
+      const res = await fetch(`${API_BASE}/admin/partner-leads/${rejectLeadId}/status`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'REJECTED', reason: rejectLeadReason })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast('Lead marked as Do Not Onboard (Rejected)', 'success');
+        setShowRejectLeadModal(false);
+        setRejectLeadReason('');
+        setRejectLeadId(null);
+        fetchAdminPartners();
+      } else {
+        showToast(data.error || 'Failed to reject lead', 'error');
+      }
+    } catch (err) {
+      showToast('Error rejecting lead', 'error');
+    }
+  };
+
+  const handleReconsiderLead = async (leadId) => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/partner-leads/${leadId}/status`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'NEW', reason: 'Reconsidered' })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast('Lead status returned to NEW', 'success');
+        fetchAdminPartners();
+      } else {
+        showToast(data.error || 'Failed to reconsider lead', 'error');
+      }
+    } catch (err) {
+      showToast('Error reconsidering lead', 'error');
+    }
+  };
+
   const handlePromoteLeadSubmit = async () => {
     if (!selectedLeadToPromote) return;
     if (!currentUser?.id) {
@@ -10448,9 +10494,15 @@ export default function App() {
 
                   {partnerSubTab === 'leads' && (
                     <div>
-                      <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1rem' }}>
-                        Partner lead inquiries submitted from local cable operators and internet service providers.
-                      </p>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                        <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', margin: 0 }}>
+                          Partner lead inquiries submitted from local cable operators and internet service providers.
+                        </p>
+                        <label style={{ fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.35rem', cursor: 'pointer' }}>
+                          <input type="checkbox" checked={showRejectedLeads} onChange={e => setShowRejectedLeads(e.target.checked)} />
+                          Show rejected
+                        </label>
+                      </div>
                       <table className="admin-table">
                         <thead>
                           <tr>
@@ -10465,8 +10517,12 @@ export default function App() {
                           </tr>
                         </thead>
                         <tbody>
-                          {partnerLeads.map(lead => (
-                            <tr key={lead.id}>
+                          {partnerLeads.filter(l => {
+                            const validStatuses = ['NEW', 'CONTACTED', 'NEGOTIATING', 'ONBOARDED'];
+                            if (showRejectedLeads) return validStatuses.includes(l.status || 'NEW') || l.status === 'REJECTED';
+                            return validStatuses.includes(l.status || 'NEW');
+                          }).map(lead => (
+                            <tr key={lead.id} style={{ opacity: lead.status === 'REJECTED' ? 0.6 : 1 }}>
                               <td style={{ fontFamily: 'monospace' }}>{lead.id}</td>
                               <td style={{ fontWeight: 'bold' }}>{lead.name}</td>
                               <td>{lead.contact_name || '—'}</td>
@@ -10474,21 +10530,35 @@ export default function App() {
                               <td>{(Array.isArray(lead.service_types) && lead.service_types.length > 0 ? lead.service_types : [lead.service_type || 'CABLE']).map(st => getServiceTypeLabel(st)).join(', ')}</td>
                               <td>{regions.find(r => r.id === lead.region_id)?.name || lead.region_id || '—'}</td>
                               <td>
-                                <span className={`badge ${lead.status === 'ONBOARDED' ? 'badge-success' : lead.status === 'CONTACTED' ? 'badge-primary' : 'badge-warning'}`}>
+                                <span className={`badge ${lead.status === 'ONBOARDED' ? 'badge-success' : lead.status === 'REJECTED' ? 'badge-danger' : lead.status === 'CONTACTED' ? 'badge-primary' : 'badge-warning'}`}>
                                   {lead.status || 'NEW'}
                                 </span>
                               </td>
                               <td>
-                                <div style={{ display: 'flex', gap: '0.35rem' }}>
-                                  {lead.status !== 'ONBOARDED' && (
-                                    <button className="btn btn-accent" style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem' }} onClick={() => openPromoteLeadModal(lead)}>
-                                      Promote to Partner
+                                {lead.status === 'REJECTED' ? (
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                                    <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Reason: {lead.reason || 'Unknown'}</span>
+                                    <button className="btn btn-secondary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem', alignSelf: 'flex-start' }} onClick={() => handleReconsiderLead(lead.id)}>
+                                      Reconsider
                                     </button>
-                                  )}
-                                  {lead.status === 'ONBOARDED' && (
-                                    <span style={{ fontSize: '0.65rem', color: 'var(--accent)' }}>Onboarded</span>
-                                  )}
-                                </div>
+                                  </div>
+                                ) : (
+                                  <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+                                    {UNRESOLVED_LEAD_STATUSES.includes(lead.status || 'NEW') && (
+                                      <>
+                                        <button className="btn btn-accent" style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem' }} onClick={() => openPromoteLeadModal(lead)}>
+                                          Promote to Partner
+                                        </button>
+                                        <button className="btn btn-danger" style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem' }} onClick={() => { setRejectLeadId(lead.id); setShowRejectLeadModal(true); }}>
+                                          Do Not Onboard
+                                        </button>
+                                      </>
+                                    )}
+                                    {lead.status === 'ONBOARDED' && (
+                                      <span style={{ fontSize: '0.65rem', color: 'var(--accent)' }}>Onboarded</span>
+                                    )}
+                                  </div>
+                                )}
                               </td>
                             </tr>
                           ))}
@@ -13265,6 +13335,36 @@ export default function App() {
               <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
                 <button className="btn btn-secondary" onClick={() => setShowPromoteLeadModal(false)}>Cancel</button>
                 <button className="btn btn-accent" onClick={handlePromoteLeadSubmit}>Promote to Partner</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showRejectLeadModal && (
+        <div className="modal-overlay">
+          <div className="modal-content glass-card" style={{ maxWidth: '400px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h3 style={{ fontSize: '1.1rem', margin: 0 }}>Reject Partner Lead</h3>
+              <button className="btn btn-secondary" style={{ padding: '0.2rem 0.5rem' }} onClick={() => setShowRejectLeadModal(false)}><X size={14} /></button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+              <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                Please provide a reason for not onboarding this lead. This will be recorded in the audit log.
+              </p>
+              <div>
+                <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.2rem', display: 'block' }}>Rejection Reason (min 5 chars)</label>
+                <textarea
+                  className="text-input"
+                  style={{ width: '100%', minHeight: '80px', fontSize: '0.85rem' }}
+                  value={rejectLeadReason}
+                  onChange={(e) => setRejectLeadReason(e.target.value)}
+                  placeholder="e.g. Area not serviceable, Unresponsive, etc."
+                />
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+                <button className="btn btn-secondary" onClick={() => setShowRejectLeadModal(false)}>Cancel</button>
+                <button className="btn btn-danger" onClick={handleRejectLeadSubmit}>Do Not Onboard</button>
               </div>
             </div>
           </div>
