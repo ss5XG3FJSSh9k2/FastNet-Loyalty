@@ -196,6 +196,20 @@ MemoizedAuditLogRow.displayName = 'MemoizedAuditLogRow';
 
 export default function App() {
   const isDevMode = new URLSearchParams(window.location.search).has('dev');
+
+  const adminFetch = (path, options = {}) => {
+    const adminId = (currentUser && currentUser.role === 'ADMIN') ? currentUser.id : (currentUser?.id || '');
+    return fetch(`${API_BASE}${path}`, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('token') || ''}`,
+        'x-admin-user-id': adminId,
+        'x-admin-id': adminId,
+        ...(options.headers || {})
+      }
+    });
+  };
   const [activeRole, setActiveRole] = useState('marketing');
   const [dbState, setDbState] = useState(null);
   const [regions, setRegions] = useState([]);
@@ -1028,7 +1042,25 @@ export default function App() {
     localStorage.setItem('fastnet_offline_queue', JSON.stringify(offlineQueue));
   }, [offlineQueue]);
 
+  const fetchAdminVendors = async (includeInactive = showInactiveVendors) => {
+    try {
+      const res = await adminFetch(`/admin/vendors${includeInactive ? '?include_inactive=true' : ''}`);
+      if (res.ok) {
+        setVendors(await res.json());
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  useEffect(() => {
+    if (activeRole === 'admin') {
+      fetchAdminVendors(showInactiveVendors);
+    }
+  }, [showInactiveVendors, activeRole]);
+
   const [vendors, setVendors] = useState([]);
+  const [showInactiveVendors, setShowInactiveVendors] = useState(false);
   const [selectedVendorId, setSelectedVendorId] = useState('');
 
   // Admin Dashboard State
@@ -1040,6 +1072,9 @@ export default function App() {
   const [anomalies, setAnomalies] = useState([]);
   const [pendingRedemptions, setPendingRedemptions] = useState([]);
   const [adminNewVendor, setAdminNewVendor] = useState('');
+  const [editingVendor, setEditingVendor] = useState(null);
+  const [editingVendorName, setEditingVendorName] = useState('');
+  const [editingVendorRegionId, setEditingVendorRegionId] = useState('');
   const [partnerName, setPartnerName] = useState('');
   const [partnerContactName, setPartnerContactName] = useState('');
   const [partnerPhone, setPartnerPhone] = useState('');
@@ -1510,7 +1545,7 @@ export default function App() {
         const ratesRes = await fetch(`${API_BASE}/admin/commission-rates`);
         const anomaliesRes = await fetch(`${API_BASE}/admin/anomalies`);
         const redRes = await fetch(`${API_BASE}/admin/redemptions`);
-        const vendorsRes = await fetch(`${API_BASE}/admin/vendors`);
+        const vendorsRes = await adminFetch('/admin/vendors');
         const prodRes = await fetch(`${API_BASE}/products`);
         
         // Fetch new configurations/feedback logs
@@ -2030,7 +2065,7 @@ export default function App() {
       const prodRes = await fetch(`${API_BASE}/products?regionId=${selectedRegionId}`);
       const prods = await prodRes.json();
 
-      const venRes = await fetch(`${API_BASE}/admin/vendors`);
+      const venRes = await adminFetch('/admin/vendors');
       const vens = await venRes.json();
 
       const scrRes = await fetch(`${API_BASE}/admin/stockist-commission-rates`);
@@ -3345,7 +3380,7 @@ export default function App() {
       }
 
       // Save all vendors list too for selection
-      const allVRes = await fetch(`${API_BASE}/admin/vendors`);
+      const allVRes = await adminFetch('/admin/vendors');
       const allVData = await allVRes.json();
       setVendors(allVData);
 
@@ -3767,28 +3802,167 @@ export default function App() {
     }
   };
 
-  const handleCreateVendor = async () => {
-    if (!adminNewVendor) return;
+  const handleCreateVendor = () => {
+    const name = adminNewVendor.trim();
+    if (name.length < 2) {
+      showToast('Wholesaler name must be at least 2 characters.', 'error');
+      return;
+    }
+    if (!selectedRegionId) {
+      showToast('Region is required.', 'error');
+      return;
+    }
+    const regionName = regions.find(r => r.id === selectedRegionId)?.name || selectedRegionId;
+
+    triggerConfirmModal(
+      'Confirm Registration',
+      <>Register wholesaler <strong>{name}</strong> in region <strong>{regionName}</strong>?</>,
+      async () => {
+        try {
+          const payload = { name, regionId: selectedRegionId };
+          const res = await adminFetch('/admin/vendors', {
+            method: 'POST',
+            body: JSON.stringify(payload)
+          });
+          const data = await res.json();
+          logApi('POST', '/admin/vendors', payload, res.status, data);
+
+          if (res.ok) {
+            showToast(`Wholesaler ${name} registered!`);
+            setAdminNewVendor('');
+            fetchAdminVendors();
+            fetchDbState();
+          } else {
+            showToast(data.message || data.error || 'Failed to create wholesaler', 'error');
+          }
+        } catch (err) {
+          showToast('Network error', 'error');
+        }
+      },
+      false,
+      'Yes, Register',
+      'No'
+    );
+  };
+
+  const handleRemoveVendor = async (vendor) => {
     try {
-      const payload = { name: adminNewVendor, regionId: selectedRegionId };
-      const res = await fetch(`${API_BASE}/admin/vendors`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+      const refRes = await adminFetch(`/admin/vendors/${vendor.id}/references`);
+      const { reference_count } = await refRes.json();
+
+      let message;
+      if (reference_count === 0) {
+        message = <>Remove <strong>{vendor.name}</strong>? It is not assigned to any stockist. This permanently deletes it.</>;
+      } else {
+        message = <><strong>{vendor.name}</strong> is assigned to <strong>{reference_count}</strong> stockist(s). It will be marked inactive — those stockists keep their supplier, but it cannot be assigned to anyone new.</>;
+      }
+
+      triggerConfirmModal(
+        'Confirm Removal',
+        message,
+        async () => {
+          try {
+            const res = await adminFetch(`/admin/vendors/${vendor.id}`, { method: 'DELETE' });
+            const data = await res.json();
+            if (res.ok) {
+              showToast(`Wholesaler ${vendor.name} removed successfully.`);
+              fetchAdminVendors();
+              fetchDbState();
+            } else {
+              showToast(data.message || data.error || 'Failed to remove wholesaler', 'error');
+            }
+          } catch (err) {
+            showToast('Network error', 'error');
+          }
+        },
+        true,
+        'Yes, Remove',
+        'No'
+      );
+    } catch (err) {
+      showToast('Error checking references', 'error');
+    }
+  };
+
+  const handleReactivateVendor = async (vendor) => {
+    try {
+      const res = await adminFetch(`/admin/vendors/${vendor.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ is_active: true })
       });
       const data = await res.json();
-      logApi('POST', '/admin/vendors', payload, res.status, data);
-
       if (res.ok) {
-        showToast(`Vendor ${adminNewVendor} created!`);
-        setAdminNewVendor('');
+        showToast(`Wholesaler ${vendor.name} reactivated.`);
+        fetchAdminVendors();
         fetchDbState();
       } else {
-        showToast(data.error || 'Failed to create vendor', 'error');
+        showToast(data.message || data.error || 'Failed to reactivate wholesaler', 'error');
       }
     } catch (err) {
       showToast('Network error', 'error');
     }
+  };
+
+  const handleEditVendorSave = async () => {
+    if (editingVendorName.trim().length < 2) {
+      showToast('Wholesaler name must be at least 2 characters.', 'error');
+      return;
+    }
+    const executeSave = async () => {
+      try {
+        const payload = {};
+        if (editingVendorName.trim() !== editingVendor.name) {
+          payload.name = editingVendorName.trim();
+        }
+        if (editingVendorRegionId !== editingVendor.region_id) {
+          payload.region_id = editingVendorRegionId;
+        }
+
+        if (Object.keys(payload).length === 0) {
+          setEditingVendor(null);
+          return;
+        }
+
+        const res = await adminFetch(`/admin/vendors/${editingVendor.id}`, {
+          method: 'PATCH',
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (res.ok) {
+          showToast('Wholesaler updated successfully.');
+          setEditingVendor(null);
+          fetchAdminVendors();
+          fetchDbState();
+        } else {
+          showToast(data.message || data.error || 'Failed to update wholesaler', 'error');
+        }
+      } catch (err) {
+        showToast('Network error', 'error');
+      }
+    };
+
+    if (editingVendorRegionId !== editingVendor.region_id) {
+      try {
+        const refRes = await adminFetch(`/admin/vendors/${editingVendor.id}/references`);
+        const { reference_count } = await refRes.json();
+        if (reference_count > 0) {
+          triggerConfirmModal(
+            'Confirm Region Change',
+            <><strong>{editingVendor.name}</strong> is assigned to <strong>{reference_count}</strong> stockist(s). Are you sure you want to change its region?</>,
+            executeSave,
+            false,
+            'Yes, Change Region',
+            'Cancel'
+          );
+          return;
+        }
+      } catch (err) {
+        showToast('Error checking references', 'error');
+        return;
+      }
+    }
+    
+    await executeSave();
   };
 
   const handleSaveStockistCommission = async (stockistId, ratePercent) => {
@@ -11782,7 +11956,7 @@ export default function App() {
                           <label className="input-label">Select Wholesaler</label>
                           <select className="text-input" value={vendorAdminVendorId} onChange={e => setVendorAdminVendorId(e.target.value)}>
                             <option value="">-- Select Wholesaler --</option>
-                            {vendors.map(v => (
+                            {vendors.filter(v => v.is_active !== false).map(v => (
                               <option key={v.id} value={v.id}>{v.name}</option>
                             ))}
                           </select>
@@ -11794,24 +11968,81 @@ export default function App() {
                     </div>
 
                     <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                        <h3 style={{ margin: 0 }}>Wholesalers List</h3>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.9rem' }}>
+                          <input type="checkbox" checked={showInactiveVendors} onChange={e => setShowInactiveVendors(e.target.checked)} />
+                          Show inactive
+                        </label>
+                      </div>
                       <table className="admin-table">
                         <thead>
                           <tr>
                             <th>Wholesaler ID</th>
                             <th>Name</th>
                             <th>Region Area</th>
+                            <th>Status</th>
+                            <th>Actions</th>
                           </tr>
                         </thead>
                         <tbody>
                           {vendors.map(v => (
                             <tr key={v.id}>
                               <td style={{ fontFamily: 'monospace' }}>{v.id}</td>
-                              <td>{v.name}</td>
-                              <td>{(regions.find(r => r.id === v.region_id) || adminRegionsList.find(r => r.id === v.region_id) || {}).name || v.region_id || '—'}</td>
+                              <td style={{ color: v.is_active === false ? 'var(--text-muted)' : 'inherit' }}>{v.name}</td>
+                              <td style={{ color: v.is_active === false ? 'var(--text-muted)' : 'inherit' }}>{(regions.find(r => r.id === v.region_id) || adminRegionsList.find(r => r.id === v.region_id) || {}).name || v.region_id || '—'}</td>
+                              <td>
+                                {v.is_active === false ? (
+                                  <span className="badge" style={{ background: '#6b7280', color: 'white' }}>INACTIVE</span>
+                                ) : (
+                                  <span className="badge badge-success">ACTIVE</span>
+                                )}
+                              </td>
+                              <td>
+                                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                  <button className="btn btn-outline" style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem' }} onClick={() => {
+                                    setEditingVendor(v);
+                                    setEditingVendorName(v.name);
+                                    setEditingVendorRegionId(v.region_id);
+                                  }}>Edit</button>
+                                  {v.is_active === false ? (
+                                    <button className="btn btn-outline" style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem', borderColor: 'var(--success)', color: 'var(--success)' }} onClick={() => handleReactivateVendor(v)}>Reactivate</button>
+                                  ) : (
+                                    <button className="btn btn-outline" style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem', borderColor: 'var(--danger)', color: 'var(--danger)' }} onClick={() => handleRemoveVendor(v)}>Remove</button>
+                                  )}
+                                </div>
+                              </td>
                             </tr>
                           ))}
                         </tbody>
                       </table>
+                      
+                      {editingVendor && (
+                        <div className="modal-overlay">
+                          <div className="modal-content" style={{ maxWidth: '400px' }}>
+                            <h3 style={{ marginTop: 0 }}>Edit Wholesaler</h3>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '1.5rem' }}>
+                              <div className="input-group">
+                                <label className="input-label">Name</label>
+                                <input type="text" className="text-input" value={editingVendorName} onChange={e => setEditingVendorName(e.target.value)} />
+                              </div>
+                              <div className="input-group">
+                                <label className="input-label">Region</label>
+                                <select className="text-input" value={editingVendorRegionId} onChange={e => setEditingVendorRegionId(e.target.value)}>
+                                  <option value="">-- Select Region --</option>
+                                  {regions.map(r => (
+                                    <option key={r.id} value={r.id}>{r.name}</option>
+                                  ))}
+                                </select>
+                              </div>
+                            </div>
+                            <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end' }}>
+                              <button className="btn btn-outline" onClick={() => setEditingVendor(null)}>Cancel</button>
+                              <button className="btn btn-primary" onClick={handleEditVendorSave}>Save Changes</button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -12703,7 +12934,7 @@ export default function App() {
                 <div className="input-group">
                   <label className="input-label">Assigned Wholesaler</label>
                   <select className="text-input" value={createStkVendor} onChange={e => setCreateStkVendor(e.target.value)}>
-                    {vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+                    {vendors.filter(v => v.is_active !== false).map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
                   </select>
                 </div>
               </div>

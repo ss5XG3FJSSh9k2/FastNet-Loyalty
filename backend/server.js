@@ -4133,7 +4133,12 @@ app.post('/api/admin/complete-redemption', async (req, res) => {
   return res.json({ success: true, entry: ledger[idx] });
 });
 
-app.get('/api/admin/vendors', async (req, res) => res.json(await db.getTable('vendors')));
+app.get('/api/admin/vendors', async (req, res) => {
+  const vendors = await db.getTable('vendors');
+  const includeInactive = req.query.include_inactive === 'true';
+  const visible = vendors.filter(v => includeInactive || v.is_active !== false);
+  res.json(visible);
+});
 
 app.post('/api/admin/vendors', async (req, res) => {
   const { name, regionId } = req.body;
@@ -4143,6 +4148,86 @@ app.post('/api/admin/vendors', async (req, res) => {
   vendors.push(newVendor);
   await db.saveTable('vendors', vendors);
   return res.json({ success: true, vendor: newVendor });
+});
+
+app.patch('/api/admin/vendors/:id', async (req, res) => {
+  const adminIdHeader = req.headers['x-admin-user-id'] || req.headers['x-admin-id'];
+  const isAdmin = adminIdHeader || (req.user && (req.user.role === 'ADMIN' || req.user.role === 'PARTNER_ADMIN'));
+  if (!isAdmin) return res.status(403).json({ error: 'Admin authorization required' });
+
+  const vendors = await db.getTable('vendors');
+  const vendor = vendors.find(v => v.id === req.params.id);
+  if (!vendor) return res.status(404).json({ error: 'Vendor not found' });
+
+  const { name, region_id, is_active } = req.body;
+  if (name === undefined && region_id === undefined && is_active === undefined) {
+    return res.status(400).json({ error: 'no_fields', message: 'No fields to update.' });
+  }
+
+  const before = { ...vendor };
+
+  if (name !== undefined) {
+    const clean = String(name).trim();
+    if (clean.length < 2) {
+      return res.status(400).json({ error: 'invalid_name', message: 'Wholesaler name must be at least 2 characters.' });
+    }
+    vendor.name = clean;
+  }
+
+  if (region_id !== undefined) {
+    const regions = await db.getTable('regions');
+    if (!regions.find(r => r.id === region_id)) {
+      return res.status(400).json({ error: 'invalid_region', message: 'Region does not exist.' });
+    }
+    vendor.region_id = region_id;
+  }
+
+  if (is_active !== undefined) {
+    vendor.is_active = Boolean(is_active);
+    vendor.deactivated_at = vendor.is_active ? null : new Date().toISOString();
+  }
+
+  await db.saveTable('vendors', vendors);
+  await appendAudit(req, 'UPDATE_VENDOR', 'vendor', vendor.id, before, { ...vendor });
+  return res.json({ success: true, vendor });
+});
+
+app.delete('/api/admin/vendors/:id', async (req, res) => {
+  const adminIdHeader = req.headers['x-admin-user-id'] || req.headers['x-admin-id'];
+  const isAdmin = adminIdHeader || (req.user && (req.user.role === 'ADMIN' || req.user.role === 'PARTNER_ADMIN'));
+  if (!isAdmin) return res.status(403).json({ error: 'Admin authorization required' });
+
+  const vendors = await db.getTable('vendors');
+  const vendor = vendors.find(v => v.id === req.params.id);
+  if (!vendor) return res.status(404).json({ error: 'Vendor not found' });
+
+  const stockists = await db.getTable('stockists');
+  const links = await db.getTable('stockist_vendors');
+  const refCount = stockists.filter(s => s.vendor_id === vendor.id).length
+                 + links.filter(l => l.vendor_id === vendor.id).length;
+
+  const before = { ...vendor };
+
+  if (refCount === 0) {
+    const next = vendors.filter(v => v.id !== vendor.id);
+    await db.saveTable('vendors', next);
+    await appendAudit(req, 'DELETE_VENDOR', 'vendor', vendor.id, before, { reference_count: 0 });
+    return res.json({ success: true, action: 'DELETED', reference_count: 0 });
+  }
+
+  vendor.is_active = false;
+  vendor.deactivated_at = new Date().toISOString();
+  await db.saveTable('vendors', vendors);
+  await appendAudit(req, 'DEACTIVATE_VENDOR', 'vendor', vendor.id, before, { reference_count: refCount });
+  return res.json({ success: true, action: 'DEACTIVATED', reference_count: refCount });
+});
+
+app.get('/api/admin/vendors/:id/references', async (req, res) => {
+  const stockists = await db.getTable('stockists');
+  const links = await db.getTable('stockist_vendors');
+  const refCount = stockists.filter(s => s.vendor_id === req.params.id).length
+                 + links.filter(l => l.vendor_id === req.params.id).length;
+  return res.json({ reference_count: refCount });
 });
 
 // Partner Leads Routes
