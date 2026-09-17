@@ -11116,6 +11116,9 @@ export default function App() {
                                     }}>
                                       Restore Account
                                     </button>
+                                    <button className="btn btn-danger" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }} onClick={() => handleRemoveAccountRequest(u)}>
+                                      Remove Account
+                                    </button>
                                   </div>
                                 </td>
                               </tr>
