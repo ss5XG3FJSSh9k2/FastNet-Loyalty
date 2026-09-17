@@ -4747,7 +4747,7 @@ export default function App() {
                 ))}
               </select>
               {regions.length === 0 && (
-                <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
+                <p style={{ fontSize: '0.75rem', marginTop: '0.25rem' }}>
                   {t('No service areas are available yet. Please check back soon.', 'कोई सेवा क्षेत्र अभी उपलब्ध नहीं है। कृपया जल्द ही पुनः प्रयास करें।', 'এখনও কোনো পরিষেবা ক্ষেত্র উপলব্ধ নেই। দয়া করে শীঘ্রই আবার পরীক্ষা করুন।')}
                 </p>
               )}
@@ -4758,8 +4758,7 @@ export default function App() {
               <label className="input-label" style={{ fontWeight: 'bold', color: 'var(--primary)' }}>
                 {t('CHOOSE YOUR LOCAL CABLE OPERATOR', 'अपने स्थानीय केबल ऑपरेटर को चुनें', 'আপনার স্থানীয় কেবল অপারেটর বাছুন')}
               </label>
-              <select
-                className="text-input"
+              <select className="text-input"
                 value={noCableProvider ? 'NOT_LISTED' : signupCablePartnerId}
                 onChange={e => {
                   const val = e.target.value;
@@ -4835,8 +4834,7 @@ export default function App() {
 
               {hasBroadbandAnswered && hasBroadband && (
                 <div style={{ marginTop: '0.5rem' }}>
-                  <select
-                    className="text-input"
+                  <select className="text-input"
                     value={noBroadbandProvider ? 'NOT_LISTED' : signupBroadbandPartnerId}
                     onChange={e => {
                       const val = e.target.value;
@@ -4899,7 +4897,7 @@ export default function App() {
                 ))}
               </select>
               {regions.length === 0 && (
-                <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
+                <p style={{ fontSize: '0.75rem', marginTop: '0.25rem' }}>
                   {t('No service areas are available yet. Please check back soon.', 'कोई सेवा क्षेत्र अभी उपलब्ध नहीं है। कृपया जल्द ही पुनः प्रयास करें।', 'এখনও কোনো পরিষেবা ক্ষেত্র উপলব্ধ নেই। দয়া করে শীঘ্রই আবার পরীক্ষা করুন।')}
                 </p>
               )}
@@ -4923,7 +4921,7 @@ export default function App() {
                   onChange={onAadhaarChange} 
                   maxLength={14}
                 />
-                {aadhaarError && <p style={{ color: 'var(--danger)', fontSize: '0.75rem', marginTop: '0.25rem' }}>{aadhaarError}</p>}
+                {aadhaarError && <p style={{ fontSize: '0.75rem', marginTop: '0.25rem' }}>{aadhaarError}</p>}
               </div>
             ) : (
               <div className="input-group">
@@ -6694,7 +6692,7 @@ export default function App() {
                 <div className="input-group">
                   <label className="input-label">Description (min 20 chars) *</label>
                   <textarea className="text-input" value={fbDescription} onChange={e => setFbDescription(e.target.value)} placeholder="Describe your feedback or issue..." />
-                  <div style={{ fontSize: '0.65rem', color: fbDescription.length < 20 ? 'var(--warning)' : 'var(--success)', textAlign: 'right' }}>
+                  <div style={{ fontSize: '0.65rem', textAlign: 'right' }}>
                     {fbDescription.length} / 20 chars min
                   </div>
                 </div>
@@ -6900,8 +6898,7 @@ export default function App() {
                 ))}
               </div>
             </div>
-            <select
-              className="text-input"
+            <select className="text-input"
               value={partnerRegionId}
               onChange={(e) => setPartnerRegionId(e.target.value)}
             >
@@ -7695,9 +7692,8 @@ export default function App() {
                                           return (
                                             <div key={sid} style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
                                               <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)' }}>{sName}:</div>
-                                              <select
-                                                className="text-input"
-                                                style={{ fontSize: '0.7rem', padding: '0.3rem 0.5rem', border: slotError && !cartPickupSlots[sid] ? '1px solid var(--danger)' : '1px solid var(--border-color)' }}
+                                              <select className="text-input"
+                                                style={{ fontSize: '0.7rem', }}
                                                 value={cartPickupSlots[sid] || ''}
                                                 onChange={e => { setCartPickupSlots(prev => ({ ...prev, [sid]: e.target.value })); setSlotError(false); }}
                                               >
@@ -8185,9 +8181,8 @@ export default function App() {
                                     const SLOTS = getAvailableSlots(stockist);
                                     return (
                                       <div style={{ marginTop: '0.2rem' }}>
-                                        <select 
-                                          className="text-input" 
-                                          style={{ fontSize: '0.65rem', padding: '0.2rem', minHeight: '28px', height: '28px' }}
+                                        <select className="text-input" 
+                                          style={{ fontSize: '0.65rem', }}
                                           value={o.pickup_slot || ''}
                                           onChange={e => {
                                             handleSavePickupSlot(o.id, e.target.value);
@@ -8447,8 +8442,7 @@ export default function App() {
 
                         <div className="input-group">
                           <label className="input-label">{t('Region', 'क्षेत्र', 'অঞ্চল')}</label>
-                          <select
-                            className="text-input"
+                          <select className="text-input"
                             value={profileRegion || currentUser?.region_id || 'r1'}
                             onChange={async (e) => {
                               const newReg = e.target.value;
@@ -8479,7 +8473,7 @@ export default function App() {
                               <option key={r.id} value={r.id}>{r.name}</option>
                             ))}
                           </select>
-                          <p style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: '0.35rem', lineHeight: 1.35 }}>
+                          <p style={{ fontSize: '0.65rem', marginTop: '0.35rem', lineHeight: 1.35 }}>
                             {t(
                               "Changing your region means you'll see shops and offers from the new area. Your points stay with you. Any partner you've selected may not serve the new region — you may need to choose again.",
                               "अपना क्षेत्र बदलने का अर्थ है कि आप नए क्षेत्र की दुकानें और ऑफ़र देखेंगे। आपके पॉइंट्स आपके पास ही रहेंगे। आपका चुना गया पार्टनर नए क्षेत्र में सेवा न दे सके — आपको पुनः चयन करना पड़ सकता है।",
@@ -8503,8 +8497,7 @@ export default function App() {
                           <label className="input-label" style={{ fontWeight: 'bold', color: 'var(--primary)' }}>
                             {t('CHOOSE YOUR LOCAL CABLE OPERATOR', 'अपने स्थानीय केबल ऑपरेटर को चुनें', 'আপনার স্থানীয় কেবল অপারেটর বাছুন')}
                           </label>
-                          <select
-                            className="text-input"
+                          <select className="text-input"
                             value={profileNoCable ? 'NOT_LISTED' : profileCablePartnerId}
                             onChange={e => {
                               const val = e.target.value;
@@ -8569,8 +8562,7 @@ export default function App() {
 
                           {profileHasBroadband && (
                             <div style={{ marginTop: '0.5rem' }}>
-                              <select
-                                className="text-input"
+                              <select className="text-input"
                                 value={profileNoBroadband ? 'NOT_LISTED' : profileBroadbandPartnerId}
                                 onChange={e => {
                                   const val = e.target.value;
@@ -8761,9 +8753,8 @@ export default function App() {
                       {/* §J: Stockist language selector */}
                       <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '0.35rem', fontSize: '0.65rem', marginBottom: '-0.35rem' }}>
                         <Languages size={12} style={{ color: 'var(--text-muted)' }} />
-                        <select
-                          className="text-input"
-                          style={{ fontSize: '0.65rem', padding: '0.2rem 0.4rem', width: 'auto', background: 'var(--bg-surface)', border: '1px solid var(--border-color)' }}
+                        <select className="text-input"
+                          style={{ fontSize: '0.65rem', width: 'auto', }}
                           value={lang}
                           onChange={e => setLang(e.target.value)}
                         >
@@ -9037,11 +9028,10 @@ export default function App() {
                       
                       <div className="input-group" style={{ margin: 0 }}>
                         <label className="input-label" style={{ fontSize: '0.65rem' }}>Select Wholesaler (পাইকারি বিক্রেতা)</label>
-                        <select 
-                          className="text-input" 
+                        <select className="text-input" 
                           value={selectedRestockVendorId} 
                           onChange={e => setSelectedRestockVendorId(e.target.value)}
-                          style={{ background: 'var(--bg-surface)', fontSize: '0.7rem', padding: '0.25rem', minHeight: '32px' }}
+                          style={{ fontSize: '0.7rem', }}
                         >
                           {stockistApprovedVendors.map(v => (
                             <option key={v.id} value={v.id}>{v.name}</option>
@@ -9373,7 +9363,7 @@ export default function App() {
 
                         <div className="input-group">
                           <label className="input-label">Product Image</label>
-                          <p style={{ fontSize: '0.65rem', color: 'var(--text-muted)', margin: '0 0 0.35rem 0' }}>
+                          <p style={{ fontSize: '0.65rem', margin: '0 0 0.35rem 0' }}>
                             Square image works best. At least 400×400 pixels. JPG, PNG or WebP. Maximum 5 MB.
                           </p>
                           <input 
@@ -9591,7 +9581,9 @@ export default function App() {
     }
 
     const refundDueCount = dbState?.orders?.filter(o => o.payment_status === 'REFUND_DUE').length || 0;
-    const UNPAID = (adminPayouts || []).filter(p => !p.is_paid);
+    const payoutsDue = (adminPayouts || []).filter(p => !p.is_paid && p.status !== 'PENDING_COD' && p.source === 'split_payouts');
+    const commissionOwed = (adminPayouts || []).filter(p => !p.is_paid && p.source === 'cod_commission_ledger');
+    const UNPAID = payoutsDue.length + commissionOwed.length;
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.75rem', width: '100%' }}>
         <div className="perspective-banner">
@@ -9615,9 +9607,8 @@ export default function App() {
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'var(--bg-surface)', padding: '0.5rem 1rem', borderRadius: '8px', border: '1px solid var(--border-color)', marginBottom: '1rem' }}>
             <MapPin size={14} style={{ color: 'var(--primary)' }} />
             <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Region Filter:</span>
-            <select 
-              className="text-input" 
-              style={{ fontSize: '0.8rem', padding: '0.25rem 0.5rem', width: 'auto' }}
+            <select className="text-input" 
+              style={{ fontSize: '0.8rem', width: 'auto' }}
               value={adminRegionFilter}
               onChange={e => setAdminRegionFilter(e.target.value)}
             >
@@ -9649,7 +9640,7 @@ export default function App() {
               <button className={`admin-nav-item ${adminTab === 'transactions' ? 'active' : ''}`} onClick={() => setAdminTab('transactions')}>
                 <ArrowRightLeft size={16} /> Transactions 
                 {refundDueCount > 0 && <span className="badge badge-danger" style={{ marginLeft: '0.25rem', fontSize: '0.65rem' }} title="Refunds Due">{refundDueCount}</span>}
-                {UNPAID.length > 0 && <span className="badge badge-warning" style={{ marginLeft: '0.25rem', fontSize: '0.65rem', background: 'var(--warning)', color: 'black' }} title="Unpaid Payouts">{UNPAID.length}</span>}
+                {UNPAID > 0 && <span className="badge badge-warning" style={{ marginLeft: '0.25rem', fontSize: '0.65rem', background: 'var(--warning)', color: 'black' }} title="Unpaid Payouts">{UNPAID}</span>}
               </button>
               <button 
                 className={`admin-nav-item ${adminTab === 'redemptions' || adminTab === 'bills' ? 'active' : ''}`} 
@@ -9805,30 +9796,36 @@ export default function App() {
                 <div 
                   onClick={() => setAdminTab('transactions')}
                   style={{ 
-                    background: UNPAID.some(p => (Date.now() - new Date(p.created_at).getTime()) > 48 * 3600000) 
-                      ? 'rgba(239,68,68,0.08)' 
-                      : (UNPAID.length > 0 ? 'rgba(245,158,11,0.08)' : 'rgba(34,197,94,0.08)'), 
-                    border: UNPAID.some(p => (Date.now() - new Date(p.created_at).getTime()) > 48 * 3600000) 
-                      ? '1px solid rgba(239,68,68,0.2)' 
-                      : (UNPAID.length > 0 ? '1px solid rgba(245,158,11,0.2)' : '1px solid rgba(34,197,94,0.2)'), 
-                    padding: '0.85rem', borderRadius: '10px', cursor: 'pointer', transition: 'all 0.2s' 
+                    background: UNPAID > 0 ? 'rgba(245,158,11,0.08)' : 'rgba(34,197,94,0.08)', 
+                    border: UNPAID > 0 ? '1px solid rgba(245,158,11,0.2)' : '1px solid rgba(34,197,94,0.2)', 
+                    padding: '0.85rem', borderRadius: '10px', cursor: 'pointer', transition: 'all 0.2s',
+                    display: 'flex', flexDirection: 'column', gap: '0.5rem'
                   }}
                 >
-                  <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: '600', textTransform: 'uppercase' }}>
-                    {t('Outstanding Payouts', 'बकाया भुगतान', 'বকেয়া পেমেন্ট')}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: '600', textTransform: 'uppercase' }}>
+                      {t('Payouts Due', 'बकाया भुगतान', 'বকেয়া পেমেন্ট')}
+                    </div>
+                    <span className={`badge ${payoutsDue.length > 0 ? 'badge-warning' : 'badge-success'}`} style={{ fontSize: '0.65rem' }}>
+                      {payoutsDue.length} pending
+                    </span>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.35rem' }}>
-                    <span style={{ 
-                      fontSize: '1.4rem', fontWeight: 'bold', 
-                      color: UNPAID.some(p => (Date.now() - new Date(p.created_at).getTime()) > 48 * 3600000) 
-                        ? 'var(--danger)' 
-                        : (UNPAID.length > 0 ? 'var(--warning)' : '#4ade80') 
-                    }}>
-                      ₹{UNPAID.reduce((sum, p) => sum + (p.amount || 0), 0).toFixed(2)}
+                  <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: payoutsDue.length > 0 ? 'var(--warning)' : '#4ade80' }}>
+                    ₹{payoutsDue.reduce((sum, p) => sum + (p.amount || 0), 0).toFixed(2)}
+                  </div>
+                  
+                  <div style={{ height: '1px', background: 'rgba(255,255,255,0.1)', margin: '0.25rem 0' }}></div>
+                  
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: '600', textTransform: 'uppercase' }}>
+                      {t('Commission Owed', 'कमीशन बकाया', 'কমিশন বকেয়া')}
+                    </div>
+                    <span className={`badge ${commissionOwed.length > 0 ? 'badge-primary' : 'badge-success'}`} style={{ fontSize: '0.65rem' }}>
+                      {commissionOwed.length} pending
                     </span>
-                    <span className={`badge ${UNPAID.some(p => (Date.now() - new Date(p.created_at).getTime()) > 48 * 3600000) ? 'badge-danger' : (UNPAID.length > 0 ? 'badge-warning' : 'badge-success')}`} style={{ fontSize: '0.65rem' }}>
-                      {UNPAID.length} pending
-                    </span>
+                  </div>
+                  <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: commissionOwed.length > 0 ? 'var(--primary)' : '#4ade80' }}>
+                    ₹{commissionOwed.reduce((sum, p) => sum + (p.amount || 0), 0).toFixed(2)}
                   </div>
                 </div>
               </div>
@@ -10240,9 +10237,8 @@ export default function App() {
                 <div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '1rem' }}>
                     <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                      <select 
-                        className="text-input" 
-                        style={{ fontSize: '0.8rem', padding: '0.35rem 0.5rem', width: 'auto' }}
+                      <select className="text-input" 
+                        style={{ fontSize: '0.8rem', width: 'auto' }}
                         value={adminStockistSearchField}
                         onChange={e => {
                           setAdminStockistSearchField(e.target.value);
@@ -10725,14 +10721,14 @@ export default function App() {
                       <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem', alignItems: 'center' }}>
                         <div>
                           <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginRight: '0.35rem' }}>Region:</label>
-                          <select className="text-input" style={{ width: 'auto', fontSize: '0.75rem', padding: '0.25rem' }} value={partnerRegionFilter} onChange={e => setPartnerRegionFilter(e.target.value)}>
+                          <select className="text-input" style={{ width: 'auto', fontSize: '0.75rem', }} value={partnerRegionFilter} onChange={e => setPartnerRegionFilter(e.target.value)}>
                             <option value="ALL">All Regions</option>
                             {regions.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
                           </select>
                         </div>
                         <div>
                           <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginRight: '0.35rem' }}>Service:</label>
-                          <select className="text-input" style={{ width: 'auto', fontSize: '0.75rem', padding: '0.25rem' }} value={partnerServiceFilter} onChange={e => setPartnerServiceFilter(e.target.value)}>
+                          <select className="text-input" style={{ width: 'auto', fontSize: '0.75rem', }} value={partnerServiceFilter} onChange={e => setPartnerServiceFilter(e.target.value)}>
                             <option value="ALL">All Services</option>
                             {SERVICE_TYPES.map(st => (
                               <option key={st.value} value={st.value}>{st.label}</option>
@@ -10741,7 +10737,7 @@ export default function App() {
                         </div>
                         <div>
                           <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginRight: '0.35rem' }}>Active Status:</label>
-                          <select className="text-input" style={{ width: 'auto', fontSize: '0.75rem', padding: '0.25rem' }} value={partnerActiveFilter} onChange={e => setPartnerActiveFilter(e.target.value)}>
+                          <select className="text-input" style={{ width: 'auto', fontSize: '0.75rem', }} value={partnerActiveFilter} onChange={e => setPartnerActiveFilter(e.target.value)}>
                             <option value="ALL">All Statuses</option>
                             <option value="ACTIVE">Active Only</option>
                             <option value="INACTIVE">Inactive Only</option>
@@ -10995,8 +10991,7 @@ export default function App() {
                         value={blacklistSearch} 
                         onChange={e => setBlacklistSearch(e.target.value)} 
                       />
-                      <select 
-                        className="text-input"
+                      <select className="text-input"
                         style={{ width: '180px' }}
                         value={blacklistFilter} 
                         onChange={e => setBlacklistFilter(e.target.value)}
@@ -11346,9 +11341,8 @@ export default function App() {
                   <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1rem', flexWrap: 'wrap', alignItems: 'center', background: 'var(--bg-surface)', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
                     <div>
                       <label style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block' }}>Flag Status:</label>
-                      <select 
-                        className="text-input" 
-                        style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem', width: '130px' }}
+                      <select className="text-input" 
+                        style={{ fontSize: '0.75rem', width: '130px' }}
                         value={billPhotoFlagFilter}
                         onChange={e => setBillPhotoFlagFilter(e.target.value)}
                       >
@@ -11361,9 +11355,8 @@ export default function App() {
 
                     <div>
                       <label style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block' }}>Stockist:</label>
-                      <select 
-                        className="text-input" 
-                        style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem', width: '160px' }}
+                      <select className="text-input" 
+                        style={{ fontSize: '0.75rem', width: '160px' }}
                         value={billPhotoStockistFilter}
                         onChange={e => setBillPhotoStockistFilter(e.target.value)}
                       >
@@ -12084,7 +12077,7 @@ export default function App() {
                             ))}
                           </select>
                           {regions.length === 0 && (
-                            <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
+                            <p style={{ fontSize: '0.75rem', marginTop: '0.25rem' }}>
                               No regions exist. Create one under Advanced → Regions first.
                             </p>
                           )}
@@ -12201,40 +12194,17 @@ export default function App() {
 
               {adminTab === 'transactions' && (
                 <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                    <div>
-                      <h2 style={{ fontSize: '1.4rem', marginBottom: '0.25rem' }}>Outstanding Payouts Queue</h2>
-                      <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', margin: 0 }}>
-                        Manage and settle commissions and payouts owed to stockists.
-                      </p>
-                    </div>
-                    <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-                      <select 
-                        value={payoutFilter} 
-                        onChange={e => setPayoutFilter(e.target.value)}
-                        style={{ padding: '0.5rem', borderRadius: '4px', background: 'var(--surface)', color: 'white', border: '1px solid var(--border-color)' }}
-                      >
-                        <option value="UNPAID">Unpaid Only</option>
-                        <option value="PAID">Paid Only</option>
-                        <option value="ALL">All Payouts</option>
-                      </select>
-                      <button 
-                        className="btn btn-primary"
-                        disabled={selectedPayoutIds.length === 0}
-                        onClick={() => setPaymentRefModalOpen(true)}
-                        style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
-                      >
-                        <Banknote size={16} /> Mark {selectedPayoutIds.length} Paid
-                      </button>
-                    </div>
-                  </div>
+                  <h2 style={{ fontSize: '1.4rem', marginBottom: '1rem' }}>All Marketplace Transactions</h2>
+                  <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
+                    Full visibility into orders, split commissions, and points generated across Garia & Bishnupur regions.
+                  </p>
 
                   {paymentRefModalOpen && (
                     <div className="modal-overlay">
                       <div className="modal-content glass-card" style={{ maxWidth: '400px' }}>
-                        <h3 style={{ marginTop: 0 }}>Mark Payouts as Paid</h3>
+                        <h3 style={{ marginTop: 0 }}>Mark as Paid / Received</h3>
                         <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '1rem' }}>
-                          You are marking {selectedPayoutIds.length} payout(s) as paid. Please provide the transaction ID, UPI reference, or check number used for this payment.
+                          Please provide the transaction ID, UPI reference, or check number used for this payment.
                         </p>
                         <div className="form-group">
                           <label>Payment Reference (min 4 chars)</label>
@@ -12247,7 +12217,7 @@ export default function App() {
                           />
                         </div>
                         <div style={{ display: 'flex', gap: '1rem', marginTop: '1.5rem' }}>
-                          <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setPaymentRefModalOpen(false)}>Cancel</button>
+                          <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => { setPaymentRefModalOpen(false); setSelectedPayoutIds([]); }}>Cancel</button>
                           <button className="btn btn-primary" style={{ flex: 1 }} onClick={handleMarkPayoutsPaid}>Confirm Payment</button>
                         </div>
                       </div>
@@ -12257,78 +12227,109 @@ export default function App() {
                   <table className="admin-table">
                     <thead>
                       <tr>
-                        <th>
-                          <input 
-                            type="checkbox" 
-                            checked={adminPayouts.filter(p => !p.is_paid).length > 0 && selectedPayoutIds.length === adminPayouts.filter(p => !p.is_paid).length}
-                            onChange={e => {
-                              if (e.target.checked) setSelectedPayoutIds(adminPayouts.filter(p => !p.is_paid).map(p => p.id));
-                              else setSelectedPayoutIds([]);
-                            }}
-                          />
-                        </th>
-                        <th>Type</th>
-                        <th>Stockist</th>
-                        <th>Amount</th>
-                        <th>Created</th>
-                        <th>Age</th>
+                        <th>Order ID</th>
+                        <th>Store</th>
+                        <th>Order Status</th>
+                        <th>Fulfillment - Payment</th>
+                        <th>Total Amount</th>
+                        <th>Subtotal</th>
+                        <th>Delivery Fee</th>
+                        <th>Shop Share</th>
+                        <th>Company Share</th>
+                        <th>Points</th>
+                        <th>Payment / Release</th>
                         <th>Status</th>
-                        <th>Reference</th>
+                        <th>Action</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {adminPayouts
-                        .filter(p => payoutFilter === 'ALL' || (payoutFilter === 'UNPAID' && !p.is_paid) || (payoutFilter === 'PAID' && p.is_paid))
-                        .sort((a, b) => {
-                          if (a.is_paid === b.is_paid) return new Date(a.created_at) - new Date(b.created_at);
-                          return a.is_paid ? 1 : -1;
-                        })
-                        .map(p => {
-                          const ageHours = (Date.now() - new Date(p.created_at).getTime()) / 3600000;
-                          return (
-                            <tr key={`${p.source}-${p.id}`}>
-                              <td>
-                                <input 
-                                  type="checkbox" 
-                                  disabled={p.is_paid}
-                                  checked={selectedPayoutIds.includes(p.id)}
-                                  onChange={e => {
-                                    if (e.target.checked) setSelectedPayoutIds([...selectedPayoutIds, p.id]);
-                                    else setSelectedPayoutIds(selectedPayoutIds.filter(id => id !== p.id));
-                                  }}
-                                />
-                              </td>
-                              <td><span className="badge badge-secondary" style={{ fontSize: '0.65rem' }}>{p.type.replace(/_/g, ' ')}</span></td>
-                              <td>{p.stockist_name}</td>
-                              <td style={{ fontWeight: 'bold', color: 'var(--accent)' }}>₹{p.amount.toFixed(2)}</td>
-                              <td style={{ fontSize: '0.8rem' }}>{new Date(p.created_at).toLocaleDateString()}</td>
-                              <td>
-                                {!p.is_paid && (
-                                  <span style={{ 
-                                    fontSize: '0.75rem', fontWeight: 'bold', 
-                                    color: ageHours > 168 ? 'var(--danger)' : ageHours > 48 ? 'var(--warning)' : 'var(--text-muted)' 
-                                  }}>
-                                    {Math.floor(ageHours / 24)}d {Math.floor(ageHours % 24)}h
-                                  </span>
+                      {dbState?.orders?.map(o => {
+                        const isRefundDue = o.payment_status === 'REFUND_DUE';
+                        const platformCommission = o.platform_amount || 0;
+                        const netRefundAmount = o.total_price - platformCommission;
+                        
+                        const isCod = o.payment_method === 'COD';
+                        const correspondingPayout = isCod 
+                          ? (adminPayouts || []).find(p => p.order_id === o.id && p.source === 'cod_commission_ledger')
+                          : (adminPayouts || []).find(p => p.order_id === o.id && p.source === 'split_payouts' && p.status !== 'PENDING_COD');
+
+                        const isPaid = correspondingPayout?.is_paid;
+                        
+                        return (
+                          <tr key={o.id} style={isRefundDue ? { background: 'rgba(239, 68, 68, 0.08)', borderLeft: '3px solid var(--danger)' } : {}}>
+                            <td style={{ fontFamily: 'monospace' }}>#{o.id.substring(2).toUpperCase()}</td>
+                            <td>{o.stockist_name}</td>
+                            <td><span className="badge badge-primary" style={{ fontSize: '0.65rem' }}>{formatOrderStatusDisplay(o.status, o.fulfillment_type)}</span></td>
+                            <td style={{ fontSize: '0.75rem' }}>{o.fulfillment_type || 'N/A'} - {o.payment_method || 'N/A'}</td>
+                            <td style={{ fontWeight: 'bold' }}>₹{o.total_price.toFixed(2)}</td>
+                            <td>₹{o.subtotal.toFixed(2)}</td>
+                            <td>₹{o.delivery_fee.toFixed(2)}</td>
+                            <td style={{ color: 'var(--accent)' }}>₹{(o.stockist_amount || 0).toFixed(2)}</td>
+                            <td style={{ color: 'var(--primary)' }}>₹{(o.platform_amount || 0).toFixed(2)}</td>
+                            <td>{formatPoints(o.points_credited || 0)}</td>
+                            <td>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', alignItems: 'flex-start' }}>
+                                <span className={`badge ${o.payment_status === 'RELEASED' ? 'badge-success' : o.payment_status === 'COD' ? 'badge-warning' : o.payment_status === 'REFUNDED' ? 'badge-secondary' : o.payment_status === 'REFUND_DUE' ? 'badge-danger' : 'badge-primary'}`} style={{ fontSize: '0.55rem', display: 'inline-flex', alignItems: 'center', gap: '0.15rem' }}>
+                                  {o.payment_status === 'HELD' ? <><Lock size={9} /> HELD</> : 
+                                   o.payment_status === 'RELEASED' ? <><Check size={9} /> RELEASED</> : 
+                                   o.payment_status === 'COD' ? <><Banknote size={9} /> COD</> : 
+                                   o.payment_status === 'REFUND_DUE' ? 'REFUND DUE' :
+                                   o.payment_status || 'N/A'}
+                                </span>
+                                {isRefundDue && (
+                                  <button 
+                                    className="btn btn-danger" 
+                                    style={{ padding: '0.15rem 0.35rem', fontSize: '0.6rem', display: 'flex', alignItems: 'center', gap: '0.15rem', marginTop: '0.25rem' }} 
+                                    onClick={() => handleAdminRefund(o.id)}
+                                  >
+                                    Refund Customer (₹{netRefundAmount.toFixed(2)})
+                                  </button>
                                 )}
-                              </td>
-                              <td>
-                                {p.is_paid ? (
-                                  <span className="badge badge-success" style={{ fontSize: '0.65rem' }}><Check size={10} style={{ display: 'inline', marginRight: '2px' }}/> PAID</span>
+                                {o.payment_status === 'HELD' && o.status === 'DELIVERED' && !o.split_released && (
+                                  <button className="btn btn-accent" style={{ padding: '0.15rem 0.35rem', fontSize: '0.6rem', display: 'flex', alignItems: 'center', gap: '0.15rem' }} onClick={() => handleReleaseSplit(o.id)}>
+                                    <Banknote size={10} /> Release Split
+                                  </button>
+                                )}
+                                {o.payment_status === 'COD' && o.status === 'DELIVERED' && (
+                                  <span style={{ fontSize: '0.6rem', color: 'var(--text-muted)' }}>COD — commission via ledger</span>
+                                )}
+                                {o.split_released && (
+                                  <span style={{ fontSize: '0.6rem', color: 'var(--accent)' }}><Check size={9} style={{ display: 'inline' }} /> Released</span>
+                                )}
+                              </div>
+                            </td>
+                            <td>
+                                {correspondingPayout ? (
+                                    isPaid ? (
+                                        <span className="badge badge-success" style={{ fontSize: '0.65rem' }}><Check size={10} style={{ display: 'inline', marginRight: '2px' }}/> PAID</span>
+                                    ) : (
+                                        <span className="badge badge-warning" style={{ fontSize: '0.65rem' }}>UNPAID</span>
+                                    )
                                 ) : (
-                                  <span className="badge badge-warning" style={{ fontSize: '0.65rem' }}>UNPAID</span>
+                                    <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>N/A</span>
                                 )}
-                              </td>
-                              <td style={{ fontSize: '0.75rem', fontFamily: 'monospace' }}>
-                                {p.payment_reference || '-'}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      {adminPayouts.length === 0 && (
+                            </td>
+                            <td>
+                                {correspondingPayout && !isPaid && (
+                                    <button 
+                                        className="btn btn-primary" 
+                                        style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem' }}
+                                        onClick={() => {
+                                            setSelectedPayoutIds([correspondingPayout.id]);
+                                            setPaymentRefModalOpen(true);
+                                        }}
+                                    >
+                                        {isCod ? 'Mark Received' : 'Mark Paid'}
+                                    </button>
+                                )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      {(!dbState?.orders || dbState.orders.length === 0) && (
                         <tr>
-                          <td colSpan="8" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
-                            No payouts recorded.
+                          <td colSpan="13" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
+                            No transactions recorded.
                           </td>
                         </tr>
                       )}
@@ -12860,7 +12861,7 @@ export default function App() {
                   value={fraudDescription} 
                   onChange={e => setFraudDescription(e.target.value)} 
                 />
-                <small style={{ color: fraudDescription.trim().length >= 20 ? 'var(--accent)' : 'var(--text-muted)', fontSize: '0.65rem' }}>
+                <small style={{ fontSize: '0.65rem' }}>
                   {fraudDescription.trim().length}/20 chars min
                 </small>
               </div>
@@ -13103,7 +13104,7 @@ export default function App() {
                     ))}
                   </select>
                   {regions.length === 0 && (
-                    <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
+                    <p style={{ fontSize: '0.75rem', marginTop: '0.25rem' }}>
                       No regions exist. Create one under Advanced → Regions first.
                     </p>
                   )}

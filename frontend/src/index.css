@@ -376,17 +376,17 @@ h1, h2, h3, h4, h5, h6 {
   box-shadow: 0 0 0 2px var(--primary-glow);
 }
 
-select.text-input option {
+select option {
   background: var(--bg-surface-elevated);
   color: var(--text-main);
 }
 
-select.text-input option:checked {
+select option:checked {
   background: var(--accent);
   color: #fff;
 }
 
-select.text-input option:disabled {
+select option:disabled {
   color: var(--text-muted);
 }
 
