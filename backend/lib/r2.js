@@ -105,6 +105,7 @@ async function getSignedReadUrl(key, expirySeconds = 3600) {
 
 module.exports = {
   isR2Configured,
+  isMockMode,
   uploadBillPhoto,
   getSignedReadUrl,
   mockStore

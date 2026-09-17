@@ -123,6 +123,7 @@ CREATE TABLE split_payouts (
     stockist_id UUID NOT NULL REFERENCES stockists(id) ON DELETE CASCADE,
     stockist_amount DECIMAL(10,2) NOT NULL,
     platform_amount DECIMAL(10,2) NOT NULL,
+    is_cod BOOLEAN DEFAULT FALSE,
     status VARCHAR(50) DEFAULT 'PENDING',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );

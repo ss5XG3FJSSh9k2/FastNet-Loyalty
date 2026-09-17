@@ -949,7 +949,9 @@ app.post('/api/auth/register-stockist', uploadBillMiddleware, async (req, res) =
       if (r2.isR2Configured()) {
         const uploadRes = await r2.uploadBillPhoto(docFile.buffer, docFile.mimetype || 'image/jpeg', `kyc-docs/${userId}`);
         if (uploadRes && uploadRes.publicUrl) {
-          documentPhotoUrl = uploadRes.publicUrl;
+          if (r2.isR2Configured() && !r2.isMockMode()) {
+            documentPhotoUrl = uploadRes.publicUrl;
+          }
         }
       }
     } catch (e) {
@@ -1136,7 +1138,7 @@ const handleCreateProductRoute = async (req, res) => {
     product_id: productId,
     stockist_id: stockistId,
     r2_key: uploadRes.key,
-    public_url: uploadRes.publicUrl,
+    public_url: (r2.isR2Configured() && !r2.isMockMode()) ? uploadRes.publicUrl : `/api/bills/${uploadRes.key}`,
     selling_price_at_upload: parsedPrice,
     cost_price_at_upload: parsedCostPrice,
     file_size_bytes: req.file ? req.file.size : 0,
@@ -1280,7 +1282,7 @@ app.patch('/api/products/:id', uploadBillMiddleware, async (req, res) => {
       product_id: id,
       stockist_id: stockistId,
       r2_key: uploadRes.key,
-      public_url: uploadRes.publicUrl,
+      public_url: (r2.isR2Configured() && !r2.isMockMode()) ? uploadRes.publicUrl : `/api/bills/${uploadRes.key}`,
       selling_price_at_upload: newPrice,
       cost_price_at_upload: newCostPrice,
       file_size_bytes: req.file.size,
@@ -2220,6 +2222,7 @@ const handleCreateOrderRoute = async (req, res) => {
       platform_amount: platformPayout,
       commission_rate_used: settlement.commissionRateUsed,
       earn_rate_used: settlement.earnRateUsed,
+      is_cod: effectivePaymentMethod === 'COD',
       status: paymentStatus === 'HELD' ? 'HELD' : 'PENDING_COD',
       created_at: now.toISOString()
     });
@@ -2857,7 +2860,7 @@ app.get('/api/admin/payouts', async (req, res) => {
   const payouts = [];
   
   for (const sp of splitPayouts) {
-    if (sp.status === 'PENDING_COD') continue;
+    if (sp.is_cod) continue;
     payouts.push({
       id: sp.id,
       source: 'split_payouts',
