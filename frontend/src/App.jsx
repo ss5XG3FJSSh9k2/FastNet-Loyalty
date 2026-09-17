@@ -815,15 +815,12 @@ export default function App() {
 
   // Admin Bill Photos Tab State
   const [adminBillPhotos, setAdminBillPhotos] = useState([]);
-  const [billPhotoFlagFilter, setBillPhotoFlagFilter] = useState('ALL');
   const [billPhotoStockistFilter, setBillPhotoStockistFilter] = useState('ALL');
   const [billPhotoDateFrom, setBillPhotoDateFrom] = useState('');
   const [billPhotoDateTo, setBillPhotoDateTo] = useState('');
-  const [showFlagBillModal, setShowFlagBillModal] = useState(false);
-  const [flaggingBill, setFlaggingBill] = useState(null);
-  const [flagReasonText, setFlagReasonText] = useState('');
-  const [showUnflagBillModal, setShowUnflagBillModal] = useState(false);
-  const [unflaggingBill, setUnflaggingBill] = useState(null);
+  const [rejectingBill, setRejectingBill] = useState(null);
+  const [rejectReasonText, setRejectReasonText] = useState('');
+  const [showRejectBillModal, setShowRejectBillModal] = useState(false);
   const [viewingBillModal, setViewingBillModal] = useState(null);
   const [customerProvenanceProduct, setCustomerProvenanceProduct] = useState(null);
   const [customerProvenanceHistory, setCustomerProvenanceHistory] = useState([]);
@@ -4533,62 +4530,71 @@ export default function App() {
     }
   };
 
-  const handleFlagBillPhoto = async () => {
-    if (!flaggingBill) return;
+  const handleVerifyBill = async (bill) => {
     if (!currentUser?.id) {
       showToast('Admin session invalid', 'error');
       return;
     }
-    if (!flagReasonText || flagReasonText.trim().length < 10) {
-      showToast('Reason must be at least 10 characters', 'error');
-      return;
-    }
+    
+    let res, data;
     try {
-      const res = await fetch(`${API_BASE}/admin/bill-photos/${flaggingBill.id}/flag`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ admin_id: currentUser.id, reason: flagReasonText.trim() })
-      });
-      const data = await res.json();
-      if (res.ok) {
-        showToast('Bill photo flagged successfully', 'success');
-        setShowFlagBillModal(false);
-        setFlaggingBill(null);
-        setFlagReasonText('');
-        fetchDbState();
-      } else {
-        showToast(data.error || 'Failed to flag bill photo', 'error');
-      }
-    } catch (err) {
-      showToast('Error flagging bill photo', 'error');
-    }
-  };
-
-  const handleUnflagBillPhoto = async () => {
-    if (!unflaggingBill) return;
-    if (!currentUser?.id) {
-      showToast('Admin session invalid', 'error');
-      return;
-    }
-    try {
-      const res = await fetch(`${API_BASE}/admin/bill-photos/${unflaggingBill.id}/unflag`, {
+      res = await fetch(`${API_BASE}/admin/bill-photos/${bill.id}/verify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ admin_id: currentUser.id })
       });
-      const data = await res.json();
-      if (res.ok) {
-        showToast('Bill photo unflagged/resolved successfully', 'success');
-        setShowUnflagBillModal(false);
-        setUnflaggingBill(null);
-        fetchDbState();
-      } else {
-        showToast(data.error || 'Failed to unflag bill photo', 'error');
-      }
-    } catch (err) {
-      showToast('Error unflagging bill photo', 'error');
+      data = await res.json();
+    } catch (e) {
+      console.error(e);
+      showToast('Network error verifying bill', 'error');
+      return;
+    }
+
+    if (res.ok) {
+      showToast('Bill verified successfully', 'success');
+      fetchDbState();
+    } else {
+      showToast(data.error || 'Failed to verify bill', 'error');
     }
   };
+
+  const handleRejectBill = async () => {
+    if (!rejectingBill) return;
+    if (!currentUser?.id) {
+      showToast('Admin session invalid', 'error');
+      return;
+    }
+    if (!rejectReasonText || rejectReasonText.trim().length < 5) {
+      showToast('Reason must be at least 5 characters', 'error');
+      return;
+    }
+
+    let res, data;
+    try {
+      res = await fetch(`${API_BASE}/admin/bill-photos/${rejectingBill.id}/reject`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ admin_id: currentUser.id, reason: rejectReasonText.trim() })
+      });
+      data = await res.json();
+    } catch (e) {
+      console.error(e);
+      showToast('Network error rejecting bill', 'error');
+      return;
+    }
+
+    if (res.ok) {
+      showToast('Bill rejected successfully', 'success');
+      setShowRejectBillModal(false);
+      setRejectingBill(null);
+      setRejectReasonText('');
+      fetchDbState();
+    } else {
+      showToast(data.error || 'Failed to reject bill', 'error');
+    }
+  };
+
+
 
   const handleViewSignedUrl = async (billTarget) => {
     const photoObj = typeof billTarget === 'object' ? billTarget : null;
@@ -9788,7 +9794,7 @@ export default function App() {
                     </button>
                     <button className={`admin-nav-item ${adminTab === 'bill_photos' ? 'active' : ''}`} onClick={() => { handleSetAdminTab('bill_photos'); fetchAdminBillPhotos(); }}>
                       <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                        <FileText size={16} /> Bill Photos ({adminBillPhotos.length}) {adminBillPhotos.filter(b => b.flag_status === 'FLAGGED').length > 0 && <span className="badge badge-warning" style={{ marginLeft: '0.25rem', fontSize: '0.65rem' }}>{adminBillPhotos.filter(b => b.flag_status === 'FLAGGED').length}</span>}
+                        <FileText size={16} /> Bill Photos ({adminBillPhotos.length}) {adminBillPhotos.filter(b => b.bill_status === 'PENDING').length > 0 && <span className="badge badge-warning" style={{ marginLeft: '0.25rem', fontSize: '0.65rem' }}>{adminBillPhotos.filter(b => b.bill_status === 'PENDING').length}</span>}
                         {isUnread('bill_photos') && <span className="unread-dot" aria-label="Unread bill photos" />}
                       </span>
                     </button>
@@ -11405,20 +11411,6 @@ export default function App() {
                   {/* Filter Controls */}
                   <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1rem', flexWrap: 'wrap', alignItems: 'center', background: 'var(--bg-surface)', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
                     <div>
-                      <label style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block' }}>Flag Status:</label>
-                      <select className="text-input" 
-                        style={{ fontSize: '0.75rem', width: '130px' }}
-                        value={billPhotoFlagFilter}
-                        onChange={e => setBillPhotoFlagFilter(e.target.value)}
-                      >
-                        <option value="ALL">All Statuses</option>
-                        <option value="CLEAN">CLEAN</option>
-                        <option value="FLAGGED">FLAGGED</option>
-                        <option value="RESOLVED">RESOLVED</option>
-                      </select>
-                    </div>
-
-                    <div>
                       <label style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block' }}>Stockist:</label>
                       <select className="text-input" 
                         style={{ fontSize: '0.75rem', width: '160px' }}
@@ -11477,7 +11469,6 @@ export default function App() {
                     </thead>
                     <tbody>
                       {adminBillPhotos
-                        .filter(b => billPhotoFlagFilter === 'ALL' || b.flag_status === billPhotoFlagFilter)
                         .filter(b => billPhotoStockistFilter === 'ALL' || b.stockist_id === billPhotoStockistFilter)
                         .map(b => (
                           <tr key={b.id}>
@@ -11495,10 +11486,9 @@ export default function App() {
                               {b.affected_orders > 0 && <div style={{ fontSize: '0.65rem' }}>{b.affected_orders} order(s)</div>}
                             </td>
                             <td>
-                              <span className={`badge ${b.bill_status === 'REJECTED' || b.flag_status === 'FLAGGED' ? 'badge-danger' : b.bill_status === 'VERIFIED' ? 'badge-success' : 'badge-warning'}`}>
+                              <span className={`badge ${b.bill_status === 'REJECTED' ? 'badge-danger' : b.bill_status === 'VERIFIED' ? 'badge-success' : 'badge-warning'}`}>
                                 {b.bill_status || 'PENDING'}
                               </span>
-                              {b.flag_status === 'FLAGGED' && <span className="badge badge-danger" style={{ display: 'block', marginTop: '0.2rem', fontSize: '0.55rem' }}>FLAGGED</span>}
                             </td>
                             <td>
                               {billImgErrors[b.id] ? (
@@ -11524,16 +11514,6 @@ export default function App() {
                                       Reject
                                     </button>
                                   </>
-                                )}
-                                {b.flag_status !== 'FLAGGED' && (
-                                  <button className="btn btn-warning" style={{ fontSize: '0.65rem', padding: '0.2rem 0.4rem' }} onClick={() => { setFlaggingBill(b); setFlagReasonText(''); setShowFlagBillModal(true); }}>
-                                    Flag Bill
-                                  </button>
-                                )}
-                                {b.flag_status === 'FLAGGED' && (
-                                  <button className="btn btn-primary" style={{ fontSize: '0.65rem', padding: '0.2rem 0.4rem' }} onClick={() => { setUnflaggingBill(b); setShowUnflagBillModal(true); }}>
-                                    Unflag
-                                  </button>
                                 )}
                                 <button className="btn btn-secondary" style={{ fontSize: '0.65rem', padding: '0.2rem 0.4rem' }} onClick={() => handleViewSignedUrl(b)}>
                                   Private Link
@@ -13844,8 +13824,8 @@ export default function App() {
                     <td>{formatBillPrice(b.selling_price_at_upload ?? b.declared_price)}</td>
                     <td>{formatBillPrice(b.cost_price_at_upload ?? b.declared_cost_price)}</td>
                     <td>
-                      <span className={`badge ${b.flag_status === 'FLAGGED' ? 'badge-danger' : b.flag_status === 'RESOLVED' ? 'badge-primary' : 'badge-success'}`}>
-                        {b.flag_status}
+                      <span className={`badge ${b.bill_status === 'REJECTED' ? 'badge-danger' : b.bill_status === 'VERIFIED' ? 'badge-success' : 'badge-warning'}`}>
+                        {b.bill_status || 'PENDING'}
                       </span>
                     </td>
                     <td>
@@ -13868,46 +13848,6 @@ export default function App() {
           </div>
         </div>
       )}
-
-      {/* Flag Bill Modal */}
-      {showFlagBillModal && flaggingBill && (
-        <div className="modal-overlay">
-          <div className="modal-content glass-card" style={{ maxWidth: '400px' }}>
-            <h3>Flag Bill Photo</h3>
-            <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Product: {flaggingBill.product_name || flaggingBill.product_id}</p>
-            <div className="input-group" style={{ margin: '1rem 0' }}>
-              <label className="input-label">Reason for Flagging (min 10 characters) <span style={{ color: 'var(--danger)' }}>*</span></label>
-              <textarea 
-                className="text-input" 
-                style={{ height: '80px', fontSize: '0.8rem' }}
-                placeholder="e.g., Unclear receipt, price mismatch, non-wholesale invoice format..."
-                value={flagReasonText} 
-                onChange={e => setFlagReasonText(e.target.value)} 
-              />
-              <small style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>{flagReasonText.length}/10 chars min</small>
-            </div>
-            <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
-              <button className="btn btn-secondary" onClick={() => setShowFlagBillModal(false)}>Cancel</button>
-              <button className="btn btn-warning" onClick={handleFlagBillPhoto}>Flag Bill Photo</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Unflag / Resolve Bill Modal */}
-      {showUnflagBillModal && unflaggingBill && (
-        <div className="modal-overlay">
-          <div className="modal-content glass-card" style={{ maxWidth: '400px' }}>
-            <h3>Mark Bill Photo Resolved</h3>
-            <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Confirm that this bill photo issue has been investigated and resolved.</p>
-            <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '1rem' }}>
-              <button className="btn btn-secondary" onClick={() => setShowUnflagBillModal(false)}>Cancel</button>
-              <button className="btn btn-success" onClick={handleUnflagBillPhoto}>Confirm Resolved</button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Viewing Bill Image Modal */}
       {viewingBillModal && (
         <div className="modal-overlay" onClick={() => setViewingBillModal(null)}>
@@ -13924,7 +13864,6 @@ export default function App() {
             <div style={{ marginTop: '1rem', fontSize: '0.75rem', color: 'var(--text-muted)', textAlign: 'left' }}>
               <p>Uploaded: {formatBillDate(viewingBillModal.uploaded_at || viewingBillModal.created_at)}</p>
               <p>Selling Price: {formatBillPrice(viewingBillModal.selling_price_at_upload ?? viewingBillModal.declared_price)} | Cost: {formatBillPrice(viewingBillModal.cost_price_at_upload ?? viewingBillModal.declared_cost_price)}</p>
-              {viewingBillModal.flag_reason && <p style={{ color: 'var(--danger)' }}>Flag Reason: {viewingBillModal.flag_reason}</p>}
             </div>
           </div>
         </div>
@@ -13950,11 +13889,7 @@ export default function App() {
               </div>
             </div>
 
-            {customerProvenanceProduct.has_flagged_bill && (
-              <div style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid var(--danger)', padding: '0.5rem', borderRadius: '6px', fontSize: '0.75rem', color: '#fca5a5', marginBottom: '0.75rem' }}>
-                ⚠️ Notice: One or more bill photos for this SKU are currently flagged for operator review.
-              </div>
-            )}
+
 
             <h4 style={{ fontSize: '0.85rem', marginBottom: '0.5rem' }}>Wholesale Bill Upload History</h4>
             <div style={{ maxHeight: '150px', overflowY: 'auto' }}>
@@ -13962,7 +13897,7 @@ export default function App() {
                 <div key={b.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.75rem', padding: '0.3rem 0', borderBottom: '1px dashed rgba(255,255,255,0.05)' }}>
                   <span>{formatBillDate(b.uploaded_at || b.created_at)}</span>
                   <span>Cost: {formatBillPrice(b.cost_price_at_upload ?? b.declared_cost_price)} → Price: {formatBillPrice(b.selling_price_at_upload ?? b.declared_price)}</span>
-                  <span className={`badge ${b.flag_status === 'FLAGGED' ? 'badge-danger' : 'badge-success'}`}>{b.flag_status}</span>
+                  <span className={`badge ${b.bill_status === 'REJECTED' ? 'badge-danger' : b.bill_status === 'VERIFIED' ? 'badge-success' : 'badge-warning'}`}>{b.bill_status || 'PENDING'}</span>
                 </div>
               ))}
               {customerProvenanceHistory.length === 0 && <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>No bill history records found.</p>}
@@ -13970,6 +13905,32 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* Reject Bill Modal */}
+      {showRejectBillModal && rejectingBill && (
+        <div className="modal-overlay">
+          <div className="modal-content glass-card" style={{ maxWidth: '400px' }}>
+            <h3>Reject Bill Photo</h3>
+            <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Product: {rejectingBill.product_name || rejectingBill.product_id}</p>
+            <div className="input-group" style={{ margin: '1rem 0' }}>
+              <label className="input-label">Reason for Rejection (min 5 chars) <span style={{ color: 'var(--danger)' }}>*</span></label>
+              <textarea 
+                className="text-input" 
+                style={{ height: '80px', fontSize: '0.8rem' }}
+                placeholder="e.g., Unclear receipt, wrong product, fake bill..."
+                value={rejectReasonText} 
+                onChange={e => setRejectReasonText(e.target.value)} 
+              />
+              <small style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>{rejectReasonText.length}/5 chars min</small>
+            </div>
+            <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+              <button className="btn btn-secondary" onClick={() => setShowRejectBillModal(false)}>Cancel</button>
+              <button className="btn btn-danger" onClick={handleRejectBill}>Reject Bill Photo</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Stockist Detail Modal Overlay */}
       {showStockistDetailModal && selectedStockistDetail && (() => {
         const phone = selectedStockistDetail.user_phone

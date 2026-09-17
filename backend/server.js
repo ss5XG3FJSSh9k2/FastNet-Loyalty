@@ -1133,12 +1133,10 @@ const handleCreateProductRoute = async (req, res) => {
   const catConfig = commissionRates.find(c => c.category === category);
   const marginThreshold = catConfig && catConfig.margin_threshold_percent !== undefined ? parseFloat(catConfig.margin_threshold_percent) : 50.00;
   const marginPct = parsedPrice > 0 ? ((parsedPrice - parsedCostPrice) / parsedPrice) * 100 : 0;
-  let flagStatus = marginPct > marginThreshold ? 'IMPLAUSIBLE_MARGIN' : 'CLEAN';
-
   const stockists = await db.getTable('stockists');
   const stockist = stockists.find(s => s.id === stockistId);
   const streak = stockist ? (stockist.verified_bill_streak || 0) : 0;
-  let billStatus = (streak >= 5 && flagStatus !== 'IMPLAUSIBLE_MARGIN') ? 'VERIFIED' : 'PENDING';
+  let billStatus = (streak >= 5 && marginPct <= marginThreshold) ? 'VERIFIED' : 'PENDING';
 
   const billPhotos = await db.getTable('product_bill_photos');
   const billPhotoId = 'pbp-' + generateId();
@@ -1154,11 +1152,7 @@ const handleCreateProductRoute = async (req, res) => {
     cost_price_at_upload: parsedCostPrice,
     file_size_bytes: req.file ? req.file.size : 0,
     content_type: req.file ? req.file.mimetype : 'image/jpeg',
-    flag_status: flagStatus,
     bill_status: billStatus,
-    flag_reason: null,
-    flagged_by_admin_id: null,
-    flagged_at: null,
     uploaded_at: new Date().toISOString(),
     uploaded_by_stockist_admin_id: req.body.uploaded_by || stockistId
   };
@@ -1193,7 +1187,6 @@ const handleCreateProductRoute = async (req, res) => {
     description: description || (name + ' added by local stockist'),
     image_url: finalImageUrl || 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=200&auto=format&fit=crop&q=60',
     latest_bill_photo_id: billPhotoId,
-    has_flagged_bill: flagStatus === 'IMPLAUSIBLE_MARGIN',
     created_at: new Date().toISOString()
   };
 
@@ -1293,12 +1286,11 @@ app.patch('/api/products/:id', uploadBillMiddleware, async (req, res) => {
     const catConfig = commissionRates.find(c => c.category === prodCategory);
     const marginThreshold = catConfig && catConfig.margin_threshold_percent !== undefined ? parseFloat(catConfig.margin_threshold_percent) : 50.00;
     const marginPct = newPrice > 0 ? ((newPrice - newCostPrice) / newPrice) * 100 : 0;
-    let flagStatus = marginPct > marginThreshold ? 'IMPLAUSIBLE_MARGIN' : 'CLEAN';
 
     const stockists = await db.getTable('stockists');
     const stockist = stockists.find(s => s.id === stockistId);
     const streak = stockist ? (stockist.verified_bill_streak || 0) : 0;
-    let billStatus = (streak >= 5 && flagStatus !== 'IMPLAUSIBLE_MARGIN') ? 'VERIFIED' : 'PENDING';
+    let billStatus = (streak >= 5 && marginPct <= marginThreshold) ? 'VERIFIED' : 'PENDING';
 
     const billPhotos = await db.getTable('product_bill_photos');
     billPhotoRow = {
@@ -1311,11 +1303,7 @@ app.patch('/api/products/:id', uploadBillMiddleware, async (req, res) => {
       cost_price_at_upload: newCostPrice,
       file_size_bytes: req.file.size,
       content_type: req.file.mimetype,
-      flag_status: flagStatus,
       bill_status: billStatus,
-      flag_reason: null,
-      flagged_by_admin_id: null,
-      flagged_at: null,
       uploaded_at: new Date().toISOString(),
       uploaded_by_stockist_admin_id: req.body.uploaded_by || stockistId
     };
@@ -1324,7 +1312,6 @@ app.patch('/api/products/:id', uploadBillMiddleware, async (req, res) => {
     await db.saveTable('product_bill_photos', billPhotos);
 
     product.latest_bill_photo_id = billPhotoRow.id;
-    product.has_flagged_bill = flagStatus === 'IMPLAUSIBLE_MARGIN';
   }
 
   if (req.body.name !== undefined) product.name = req.body.name;
@@ -1352,14 +1339,11 @@ app.get('/api/products/:id/bill-history', async (req, res) => {
 
 // GET /api/admin/bill-photos
 app.get('/api/admin/bill-photos', async (req, res) => {
-  const { flag_status, stockist_id, date_from, date_to, page = 1 } = req.query;
+  const { stockist_id, date_from, date_to, page = 1 } = req.query;
   let billPhotos = await db.getTable('product_bill_photos');
   const products = await db.getTable('products');
   const stockists = await db.getTable('stockists');
 
-  if (flag_status) {
-    billPhotos = billPhotos.filter(b => b.flag_status === flag_status);
-  }
   if (stockist_id) {
     billPhotos = billPhotos.filter(b => b.stockist_id === stockist_id);
   }
@@ -1434,62 +1418,7 @@ app.get('/api/admin/bill-photos', async (req, res) => {
   });
 });
 
-// POST /api/admin/bill-photos/:id/flag
-app.post('/api/admin/bill-photos/:id/flag', async (req, res) => {
-  const { id } = req.params;
-  const { admin_id, reason } = req.body;
 
-  if (!reason || reason.trim().length < 10) {
-    return res.status(400).json({ error: 'reason_too_short', message: 'reason must be at least 10 characters' });
-  }
-
-  const billPhotos = await db.getTable('product_bill_photos');
-  const bill = billPhotos.find(b => b.id === id);
-  if (!bill) return res.status(404).json({ error: 'Bill photo not found' });
-
-  const beforeState = bill.flag_status;
-  bill.flag_status = 'FLAGGED';
-  bill.flag_reason = reason.trim();
-  bill.flagged_by_admin_id = admin_id || 'u-admin';
-  bill.flagged_at = new Date().toISOString();
-  await db.saveTable('product_bill_photos', billPhotos);
-
-  const products = await db.getTable('products');
-  const product = products.find(p => p.id === bill.product_id);
-  if (product) {
-    product.has_flagged_bill = true;
-    await db.saveTable('products', products);
-  }
-
-  await appendAudit(req, 'BILL_PHOTO_FLAG', 'product_bill_photos', id, beforeState, 'FLAGGED', reason.trim());
-
-  return res.json({ success: true, bill, product });
-});
-
-// POST /api/admin/bill-photos/:id/unflag
-app.post('/api/admin/bill-photos/:id/unflag', async (req, res) => {
-  const { id } = req.params;
-
-  const billPhotos = await db.getTable('product_bill_photos');
-  const bill = billPhotos.find(b => b.id === id);
-  if (!bill) return res.status(404).json({ error: 'Bill photo not found' });
-
-  const beforeState = bill.flag_status;
-  bill.flag_status = 'RESOLVED';
-  await db.saveTable('product_bill_photos', billPhotos);
-
-  const products = await db.getTable('products');
-  const product = products.find(p => p.id === bill.product_id);
-  if (product) {
-    const hasOtherFlagged = billPhotos.some(b => b.product_id === bill.product_id && b.flag_status === 'FLAGGED');
-    product.has_flagged_bill = hasOtherFlagged;
-    await db.saveTable('products', products);
-  }
-
-  await appendAudit(req, 'BILL_PHOTO_UNFLAG', 'product_bill_photos', id, beforeState, 'RESOLVED', 'Admin resolved flag');
-
-  return res.json({ success: true, bill, product });
-});
 
 // POST /api/admin/bill-photos/:id/verify
 app.post('/api/admin/bill-photos/:id/verify', async (req, res) => {
