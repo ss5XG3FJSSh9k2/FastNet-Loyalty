@@ -426,7 +426,7 @@ export default function App() {
   const [adminTab, setAdminTab] = useState('home');
   const [showAdvanced, setShowAdvanced] = useState(false);
 
-  const ADVANCED_TABS = ['leads','vendors','regions','bill_photos','audit_log','feedback','anomalies','redemptions','analytics','health'];
+  const ADVANCED_TABS = ['vendors','regions','bill_photos','audit_log','feedback','anomalies'];
 
   const [tabLastSeen, setTabLastSeen] = useState(() => {
     try { return JSON.parse(localStorage.getItem('adminTabLastSeen') || '{}'); }
@@ -9282,19 +9282,6 @@ export default function App() {
                     </div>
                   )}
 
-                  <button 
-                    className="admin-nav-item" 
-                    onClick={() => setShowAdvanced(!showAdvanced)}
-                    style={{ fontWeight: '600', color: 'var(--text-muted)', width: '100%', textAlign: 'left', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
-                  >
-                    <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                      {showAdvanced ? '▾ Advanced' : '▸ Advanced'}
-                      {advancedHasUnread && (
-                        <span className="unread-dot" aria-label="Unread items in Advanced" />
-                      )}
-                    </span>
-                  </button>
-
                   <div className="stockist-profile-card glass-card" style={{ padding: '0.85rem', marginTop: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: '0.75rem' }}>
                     <div style={{ fontWeight: 'bold', color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <span>Shop Profile</span>
@@ -9764,7 +9751,12 @@ export default function App() {
                   onClick={() => setShowAdvanced(!showAdvanced)}
                   style={{ fontWeight: '600', color: 'var(--text-muted)', width: '100%', textAlign: 'left', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
                 >
-                  <span>{showAdvanced ? '▾ Advanced' : '▸ Advanced'}</span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    {showAdvanced ? '▾ Advanced' : '▸ Advanced'}
+                    {advancedHasUnread && (
+                      <span className="unread-dot" aria-label="Unread items in Advanced" />
+                    )}
+                  </span>
                 </button>
 
                 {showAdvanced && (
