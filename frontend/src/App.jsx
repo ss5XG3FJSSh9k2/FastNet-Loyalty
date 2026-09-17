@@ -9883,7 +9883,7 @@ export default function App() {
                   
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: '600', textTransform: 'uppercase' }}>
-                      {t('Commission Owed', 'कमीशन बकाया', 'কমিশন বকেয়া')}
+                      {t('Commission Owed (Un-offset)', 'कमीशन बकाया (Un-offset)', 'কমিশন বকেয়া (Un-offset)')}
                     </div>
                     <span className={`badge ${commissionOwed.length > 0 ? 'badge-primary' : 'badge-success'}`} style={{ fontSize: '0.65rem' }}>
                       {commissionOwed.length} pending
