@@ -4363,7 +4363,7 @@ export default function App() {
       }
       setSelectedStockist(targetStockist);
       
-      const res = await fetch(`${API_BASE}/products?regionId=${currentUser.region_id}&stockistId=${targetStockist.id}`);
+      const res = await fetch(`${API_BASE}/products?regionId=${currentUser.region_id}&stockistId=${targetStockist.id}&customer=true`);
       if (!res.ok) {
         showToast('Failed to load store products', 'error');
         return;
@@ -7000,7 +7000,7 @@ export default function App() {
       if (!targetStockist) return;
       setSelectedStockist(targetStockist);
       
-      const res = await fetch(`${API_BASE}/products?regionId=${currentUser.region_id}&stockistId=${targetStockist.id}`);
+      const res = await fetch(`${API_BASE}/products?regionId=${currentUser.region_id}&stockistId=${targetStockist.id}&customer=true`);
       if (!res.ok) return;
       const currentProds = await res.json();
       
@@ -7192,18 +7192,22 @@ export default function App() {
                                   <div style={{ fontWeight: 'bold', color: 'var(--accent)' }}>
                                     {t('Point Breakdown', 'पॉइंट्स विवरण', 'পয়েন্ট হিসাব')}
                                   </div>
-                                  <div style={{ marginTop: '0.2rem', color: 'var(--text-muted)' }}>
-                                    {o.margin && o.earnRatePercent ? (
-                                      t(
-                                        `You earned ${o.pointsCredited || o.points_credited || 0} pts from ${o.stockist_name || 'Store'} — this order's margin was ₹${o.margin} at your ${o.earnRatePercent}% rate.`,
-                                        `आपने ${o.stockist_name || 'Store'} से ${o.pointsCredited || o.points_credited || 0} pts कमाए हैं — इस ऑर्डर का मुनाफा ₹${o.margin} व आपकी दर ${o.earnRatePercent}% थी।`,
-                                        `আপনি ${o.stockist_name || 'Store'} থেকে ${o.pointsCredited || o.points_credited || 0} pts পেয়েছেন — এই অর্ডারে লাভ ছিল ₹${o.margin} ও আপনার হার ${o.earnRatePercent}% ছিল।`
-                                      )
+                                  <div style={{ marginTop: '0.2rem', color: o.points_status === 'HELD' ? 'var(--warning)' : 'var(--text-muted)' }}>
+                                    {o.points_status === 'HELD' ? (
+                                      t('Points pending verification', 'पॉइंट्स सत्यापन हेतु लंबित हैं', 'পয়েন্ট যাচাইয়ের অপেক্ষায়')
                                     ) : (
-                                      t(
-                                        `You earned ${o.pointsCredited || o.points_credited || 0} pts from ${o.stockist_name || 'Store'}.`,
-                                        `आपने ${o.stockist_name || 'Store'} से ${o.pointsCredited || o.points_credited || 0} pts कमाए हैं।`,
-                                        `আপনি ${o.stockist_name || 'Store'} থেকে ${o.pointsCredited || o.points_credited || 0} pts পেয়েছেন।`
+                                      o.margin && o.earnRatePercent ? (
+                                        t(
+                                          `You earned ${o.pointsCredited || o.points_credited || 0} pts from ${o.stockist_name || 'Store'} — this order's margin was ₹${o.margin} at your ${o.earnRatePercent}% rate.`,
+                                          `आपने ${o.stockist_name || 'Store'} से ${o.pointsCredited || o.points_credited || 0} pts कमाए हैं — इस ऑर्डर का मुनाफा ₹${o.margin} व आपकी दर ${o.earnRatePercent}% थी।`,
+                                          `আপনি ${o.stockist_name || 'Store'} থেকে ${o.pointsCredited || o.points_credited || 0} pts পেয়েছেন — এই অর্ডারে লাভ ছিল ₹${o.margin} ও আপনার হার ${o.earnRatePercent}% ছিল।`
+                                        )
+                                      ) : (
+                                        t(
+                                          `You earned ${o.pointsCredited || o.points_credited || 0} pts from ${o.stockist_name || 'Store'}.`,
+                                          `आपने ${o.stockist_name || 'Store'} से ${o.pointsCredited || o.points_credited || 0} pts कमाए हैं।`,
+                                          `আপনি ${o.stockist_name || 'Store'} থেকে ${o.pointsCredited || o.points_credited || 0} pts পেয়েছেন।`
+                                        )
                                       )
                                     )}</div>
                                 </div>
@@ -7485,7 +7489,7 @@ export default function App() {
                                           return;
                                         }
                                         try {
-                                          const pRes = await fetch(`${API_BASE}/products?regionId=${currentUser.region_id}&stockistId=${s.id}`);
+                                          const pRes = await fetch(`${API_BASE}/products?regionId=${currentUser.region_id}&stockistId=${s.id}&customer=true`);
                                           const prods = await pRes.json();
                                           if (Array.isArray(prods) && prods.length === 0) {
                                             triggerConfirmModal(
@@ -9129,8 +9133,17 @@ export default function App() {
                                 <div style={{ flex: 1 }}>
                                   <div style={{ fontWeight: '600', color: 'white', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
                                     {p.name}
-                                    {p.has_flagged_bill && (
-                                      <AlertTriangle size={12} style={{ color: 'var(--danger)' }} title="This product has a flagged bill photo under review by admin." />
+                                    {p.is_sellable === false && (
+                                      <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid var(--danger)', padding: '0.2rem 0.5rem', borderRadius: '4px', marginTop: '0.25rem', color: 'var(--danger)', fontSize: '0.65rem', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                                          <AlertTriangle size={12} />
+                                          <strong>{t("Not selling — bill rejected", "बिक्री बंद — बिल अस्वीकृत", "বিক্রি বন্ধ — বিল প্রত্যাখ্যাত")}</strong>
+                                        </div>
+                                        {p.rejection_reason && <div>{t("Reason:", "कारण:", "কারণ:")} {p.rejection_reason}</div>}
+                                        <button className="btn btn-secondary" style={{ fontSize: '0.6rem', padding: '0.15rem 0.4rem', alignSelf: 'flex-start', marginTop: '0.15rem', color: 'white', borderColor: 'var(--danger)' }} onClick={() => handleStartEditProduct(p)}>
+                                          {t("Re-upload Bill", "बिल फिर से अपलोड करें", "বিল পুনরায় আপলোড করুন")}
+                                        </button>
+                                      </div>
                                     )}
                                     <Edit 
                                       size={12} 
@@ -9138,7 +9151,7 @@ export default function App() {
                                       onClick={() => handleStartEditProduct(p)}
                                     />
                                   </div>
-                                  <div style={{ color: 'var(--text-muted)', fontSize: '0.65rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                                  <div style={{ color: 'var(--text-muted)', fontSize: '0.65rem', display: 'flex', alignItems: 'center', gap: '0.25rem', marginTop: '0.25rem' }}>
                                     <span>{t("Stock qty:", "स्टॉक मात्रा:", "স্টক পরিমাণ:")}</span>
                                     <strong style={{ color: p.stock_qty > 0 ? 'var(--accent)' : 'var(--danger)' }}>{p.stock_qty}</strong>
                                     {isLowStock && (
@@ -11494,13 +11507,18 @@ export default function App() {
                               {billImgErrors[b.id] ? (
                                 <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Image unavailable</span>
                               ) : (
-                                <img 
-                                  src={b.r2_key ? `${API_BASE}/bills/${b.r2_key}` : b.public_url} 
-                                  alt="Bill thumbnail" 
-                                  style={{ width: '40px', height: '40px', objectFit: 'cover', borderRadius: '4px', cursor: 'pointer', border: '1px solid var(--border-color)' }}
-                                  onClick={() => setViewingBillModal(b)}
-                                  onError={() => setBillImgErrors(prev => ({ ...prev, [b.id]: true }))}
-                                />
+                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.25rem' }}>
+                                  <img 
+                                    src={b.r2_key ? `${API_BASE}/bills/${b.r2_key}` : b.public_url} 
+                                    alt="Bill thumbnail" 
+                                    style={{ width: '40px', height: '40px', objectFit: 'cover', borderRadius: '4px', cursor: 'pointer', border: '1px solid var(--border-color)' }}
+                                    onClick={() => setViewingBillModal(b)}
+                                    onError={() => setBillImgErrors(prev => ({ ...prev, [b.id]: true }))}
+                                  />
+                                  {b.margin_pct > (b.margin_threshold || 50) && (
+                                    <span className="badge badge-danger" style={{ fontSize: '0.55rem', padding: '0.15rem 0.3rem' }}>IMPLAUSIBLE_MARGIN</span>
+                                  )}
+                                </div>
                               )}
                             </td>
                             <td>

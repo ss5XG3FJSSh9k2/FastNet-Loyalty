@@ -1039,17 +1039,28 @@ app.get('/api/products', async (req, res) => {
   const inventory = await db.getTable('stockist_inventory');
 
   let filtered = products;
+  if (req.query.customer === 'true') {
+    filtered = filtered.filter(p => p.is_sellable !== false);
+  }
+  
   if (regionId) {
     filtered = filtered.filter(p => p.region_id === regionId);
   }
 
   if (stockistId) {
+    const billPhotos = await db.getTable('product_bill_photos');
     filtered = filtered.map(p => {
       const inv = inventory.find(i => i.stockist_id === stockistId && i.product_id === p.id);
+      let rejectionReason = null;
+      if (p.is_sellable === false) {
+        const rejectedBill = billPhotos.find(b => b.product_id === p.id && b.bill_status === 'REJECTED');
+        if (rejectedBill) rejectionReason = rejectedBill.rejection_reason;
+      }
       return {
         ...p,
         stock_qty: inv ? inv.stock_qty : 0,
-        is_available: inv ? inv.is_available : false
+        is_available: inv ? inv.is_available : false,
+        rejection_reason: rejectionReason
       };
     });
   }
@@ -1312,6 +1323,7 @@ app.patch('/api/products/:id', uploadBillMiddleware, async (req, res) => {
     await db.saveTable('product_bill_photos', billPhotos);
 
     product.latest_bill_photo_id = billPhotoRow.id;
+    product.is_sellable = true; // Restores sellability when new bill is uploaded
   }
 
   if (req.body.name !== undefined) product.name = req.body.name;
@@ -1498,7 +1510,15 @@ app.post('/api/admin/bill-photos/:id/reject', async (req, res) => {
   if (!bill) return res.status(404).json({ error: 'Bill photo not found' });
 
   bill.bill_status = 'REJECTED';
+  bill.rejection_reason = reason;
   await db.saveTable('product_bill_photos', billPhotos);
+
+  const products = await db.getTable('products');
+  const product = products.find(p => p.id === bill.product_id);
+  if (product) {
+    product.is_sellable = false;
+    await db.saveTable('products', products);
+  }
 
   const stockists = await db.getTable('stockists');
   const stockist = stockists.find(s => s.id === bill.stockist_id);
@@ -2027,7 +2047,8 @@ async function enrichOrder(o) {
     customer_name: customer ? customer.name : 'Unknown Subscriber',
     customer_phone: customer ? customer.phone : '',
     stockist_amount: stockistPayout,
-    platform_amount: platformPayout
+    platform_amount: platformPayout,
+    points_status: (await db.getTable('points_ledger')).some(l => l.order_id === o.id && l.type === 'EARN_HELD' && l.billing_sync_status === 'HELD') ? 'HELD' : 'CREDITED'
   };
 }
 
@@ -2202,6 +2223,9 @@ const handleCreateOrderRoute = async (req, res) => {
     for (const item of items) {
       const product = products.find(p => p.id === item.productId);
       if (!product) return res.status(400).json({ error: `Product ${item.productId} not found` });
+      if (product.is_sellable === false) {
+        return res.status(400).json({ error: 'product_unavailable', message: 'One or more items are no longer available.' });
+      }
       const inv = inventory.find(i => i.stockist_id === stockistId && i.product_id === product.id);
       if (!inv || inv.stock_qty < item.quantity) {
         return res.status(400).json({ error: `Insufficient stock for ${product.name}` });
@@ -3282,7 +3306,7 @@ app.post('/api/ledger/redeem', async (req, res) => {
 
   const ledger = await db.getTable('points_ledger');
   const customerLedger = ledger.filter(l => l.customer_id === customerId);
-  const currentBalance = customerLedger.reduce((sum, item) => sum + parseFloat(item.amount), 0);
+  const currentBalance = customerLedger.filter(l => l.type !== 'EARN_HELD').reduce((sum, item) => sum + parseFloat(item.amount), 0);
 
   const reqAmount = pkg ? parseFloat(pkg.point_cost) : parseFloat(amount);
 
@@ -4847,7 +4871,7 @@ app.get('/api/admin/customers', async (req, res) => {
   const filteredUsers = includeInactive ? users : users.filter(u => u.is_active !== false);
   const result = filteredUsers.map(u => {
     const custLedger = pointsLedger.filter(l => l.customer_id === u.id);
-    const balance = custLedger.reduce((sum, l) => sum + (parseFloat(l.amount) || 0), 0);
+    const balance = custLedger.filter(l => l.type !== 'EARN_HELD').reduce((sum, l) => sum + (parseFloat(l.amount) || 0), 0);
     const custOrders = orders.filter(o => o.customer_id === u.id);
     return {
       id: u.id,
@@ -4873,7 +4897,7 @@ app.get('/api/admin/customers/:id', async (req, res) => {
   if (!user) return res.status(404).json({ error: 'Customer not found' });
   
   const pointsLedger = (await db.getTable('points_ledger')).filter(l => l.customer_id === id);
-  const balance = pointsLedger.reduce((sum, l) => sum + (parseFloat(l.amount) || 0), 0);
+  const balance = pointsLedger.filter(l => l.type !== 'EARN_HELD').reduce((sum, l) => sum + (parseFloat(l.amount) || 0), 0);
   const rawOrders1 = (await db.getTable('orders')).filter(o => o.customer_id === id);
   const orders = await Promise.all(rawOrders1.map(o => enrichOrder(o)));
   const fraudReports = (await db.getTable('fraud_reports')).filter(f => f.reporter_customer_id === id);
@@ -4968,7 +4992,7 @@ app.post('/api/admin/customers/:id/points-credit', async (req, res) => {
   await appendAudit(req, 'MANUAL_POINTS_CREDIT', 'customer', id, null, { amount: numAmount, reason: reason.trim() }, reason.trim());
   
   const updatedLedger = ledger.filter(l => l.customer_id === id);
-  const newBalance = updatedLedger.reduce((sum, l) => sum + (parseFloat(l.amount) || 0), 0);
+  const newBalance = updatedLedger.filter(l => l.type !== 'EARN_HELD').reduce((sum, l) => sum + (parseFloat(l.amount) || 0), 0);
   return res.json({ success: true, new_balance: newBalance, entry });
 });
 
