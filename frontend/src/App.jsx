@@ -7566,9 +7566,6 @@ export default function App() {
                                     <div style={{ flex: 1 }}>
                                       <h4 style={{ fontSize: '0.75rem', color: 'white', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
                                           {p.name}
-                                          {p.has_flagged_bill && (
-                                            <AlertTriangle size={12} style={{ color: 'var(--danger)' }} title="This product has a flagged bill photo under review by admin." />
-                                          )}
                                         </h4>
                                         <button 
                                           style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: '0.6rem', padding: 0, cursor: 'pointer', textAlign: 'left', display: 'block', marginTop: '0.1rem' }}
@@ -8748,6 +8745,8 @@ export default function App() {
       .filter(o => o.status === 'DELIVERED')
       .reduce((sum, o) => sum + (parseFloat(o.stockist_amount) || 0), 0);
 
+    const rejectedBillCount = (stockistProducts || []).filter(p => p.is_sellable === false).length;
+
     const renderOrderProgressBar = (status, fulfillmentType = 'DELIVERY') => {
       const isPickup = fulfillmentType === 'PICKUP';
       const steps = [
@@ -8844,6 +8843,30 @@ export default function App() {
                           <option value="bn">বাংলা</option>
                         </select>
                       </div>
+
+                      {rejectedBillCount > 0 && (
+                        <div 
+                          style={{ 
+                            background: 'rgba(239, 68, 68, 0.1)', 
+                            border: '1px solid var(--danger)', 
+                            borderRadius: '8px', 
+                            padding: '0.75rem', 
+                            color: '#F87171', 
+                            fontSize: '0.8rem',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.5rem',
+                            cursor: 'pointer'
+                          }}
+                          onClick={() => setStockistActiveTab('inventory')}
+                        >
+                          <AlertTriangle size={16} />
+                          <span style={{ fontWeight: 600 }}>
+                            {rejectedBillCount} product(s) not selling — bill rejected. 
+                            <span style={{ textDecoration: 'underline', marginLeft: '0.25rem', fontWeight: 'normal' }}>Tap to fix.</span>
+                          </span>
+                        </div>
+                      )}
 
                       {/* Grid layout for Today's Earnings & COD Commission */}
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.65rem' }}>
@@ -9622,9 +9645,14 @@ export default function App() {
                     <ArrowRightLeft size={18} />
                     {t("Orders", "ऑर्डर", "অর্ডার")}
                   </button>
-                  <button className={`phone-nav-btn ${stockistActiveTab === 'inventory' ? 'active' : ''}`} onClick={() => setStockistActiveTab('inventory')}>
+                  <button className={`phone-nav-btn ${stockistActiveTab === 'inventory' ? 'active' : ''}`} onClick={() => setStockistActiveTab('inventory')} style={{ position: 'relative' }}>
                     <Package size={18} />
                     {t("Inventory", "इन्वेंट्री", "ইনভেন্টরি")}
+                    {rejectedBillCount > 0 && (
+                      <span className="badge badge-danger" style={{ position: 'absolute', top: '2px', right: '10px', padding: '0.1rem 0.3rem', fontSize: '0.5rem', borderRadius: '10px' }}>
+                        {rejectedBillCount}
+                      </span>
+                    )}
                   </button>
                   <button className={`phone-nav-btn ${stockistActiveTab === 'analytics' ? 'active' : ''}`} onClick={() => { setStockistActiveTab('analytics'); loadStockistData(); }}>
                     <BarChart2 size={18} />

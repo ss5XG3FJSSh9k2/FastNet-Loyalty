@@ -1532,6 +1532,20 @@ app.post('/api/admin/bill-photos/:id/reject', async (req, res) => {
   const orderItems = await db.getTable('order_items');
   const users = await db.getTable('users');
 
+  if (stockist) {
+    const user = users.find(u => u.id === stockist.user_id);
+    if (user && user.phone) {
+      if (smsHelper.isSmsConfigured()) {
+        try {
+          const prodName = product ? product.name : 'a product';
+          await smsHelper.sendSms(user.phone, `FastNet: your bill for ${prodName} was rejected. Reason: ${reason}. Upload a new bill in the app to resume selling.`);
+        } catch (e) {
+          console.error('[SMS] Failed to send rejection SMS:', e.message);
+        }
+      }
+    }
+  }
+
   for (const heldRow of heldRows) {
     const items = orderItems.filter(oi => oi.order_id === heldRow.order_id);
     const hasThisProduct = items.some(oi => oi.product_id === bill.product_id);
