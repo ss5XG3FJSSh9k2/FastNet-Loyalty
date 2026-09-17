@@ -14208,7 +14208,7 @@ export default function App() {
 
       {/* Privacy Policy Modal (Part 2 Item 6) */}
       {showPrivacyPolicyModal && (
-        <div className="modal-backdrop" role="dialog" aria-labelledby="privacy-modal-title">
+        <div className="modal-overlay" role="dialog" aria-labelledby="privacy-modal-title">
           <div className="modal-content" style={{ maxWidth: '650px', maxHeight: '80vh', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
               <h3 id="privacy-modal-title">{t('Privacy Policy', 'Privacy Policy', 'Privacy Policy')}</h3>
@@ -14229,7 +14229,7 @@ export default function App() {
 
       {/* Terms & Conditions Modal (Part 2 Item 7) */}
       {showTermsModal && (
-        <div className="modal-backdrop" role="dialog" aria-labelledby="terms-modal-title">
+        <div className="modal-overlay" role="dialog" aria-labelledby="terms-modal-title">
           <div className="modal-content" style={{ maxWidth: '650px', maxHeight: '80vh', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
               <h3 id="terms-modal-title">{t('Terms & Conditions', 'Terms & Conditions', 'Terms & Conditions')}</h3>
@@ -14249,7 +14249,7 @@ export default function App() {
 
       {/* Refund Policy Modal (Part 2 Item 8) */}
       {showRefundPolicyModal && (
-        <div className="modal-backdrop" role="dialog" aria-labelledby="refund-modal-title">
+        <div className="modal-overlay" role="dialog" aria-labelledby="refund-modal-title">
           <div className="modal-content" style={{ maxWidth: '650px', maxHeight: '80vh', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
               <h3 id="refund-modal-title">{t('Refund Policy', 'Refund Policy', 'Refund Policy')}</h3>
@@ -14269,7 +14269,7 @@ export default function App() {
 
       {/* Cookies Policy Modal (Part 2 Item 9) */}
       {showCookiesPolicyModal && (
-        <div className="modal-backdrop" role="dialog" aria-labelledby="cookies-modal-title">
+        <div className="modal-overlay" role="dialog" aria-labelledby="cookies-modal-title">
           <div className="modal-content" style={{ maxWidth: '650px', maxHeight: '80vh', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
               <h3 id="cookies-modal-title">{t('Cookies Policy', 'Cookies Policy', 'Cookies Policy')}</h3>
@@ -14337,7 +14337,7 @@ export default function App() {
 
       {/* KYC Document Viewing Modal */}
       {showKycDocumentModal && selectedKycDocument && (
-        <div className="modal-backdrop" onClick={() => setShowKycDocumentModal(false)}>
+        <div className="modal-overlay" onClick={() => setShowKycDocumentModal(false)}>
           <div className="modal-content" style={{ maxWidth: '600px', width: '90%' }} onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
               <h3 style={{ margin: 0, fontSize: '1.2rem' }}>
