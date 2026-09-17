@@ -69,12 +69,25 @@ async function evaluateRegistrationFlags(user, clientIp, isBackfill = false) {
         throw new Error('BLACKLIST_BLOCK');
       }
 
+      let detailStr = `ID number matches ${matches.length} other record(s)`;
+      const releasedMatch = matches.find(m => m.kyc_status === 'RELEASED');
+      if (releasedMatch) {
+        const dateStr = releasedMatch.kyc_rejected_at || releasedMatch.kyc_rejection_at;
+        const dateObj = dateStr ? new Date(dateStr) : null;
+        let dateFmt = 'an unknown date';
+        if (dateObj && !isNaN(dateObj.getTime())) {
+          dateFmt = dateObj.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+        }
+        const reason = releasedMatch.kyc_rejection_reason || 'unknown reason';
+        detailStr = `Matches a RELEASED record rejected on ${dateFmt} for: ${reason}`;
+      }
+
       flags.push({
         id: 'f-' + generateId(),
         user_id: user.id,
         flag_type: 'DUPLICATE_ID',
         severity: 'HIGH',
-        detail: `ID number matches ${matches.length} other record(s)`,
+        detail: detailStr,
         related_user_ids: matches.map(m => m.id)
       });
     }

@@ -2833,10 +2833,16 @@ app.get('/api/admin/payment-ledger', async (req, res) => {
 app.get('/api/admin/payouts', async (req, res) => {
   const authHeader = req.headers.authorization || '';
   const token = authHeader.replace('Bearer ', '');
-  const decoded = verifySession(token);
-  if (!decoded || !decoded.user_id) return res.status(401).json({ error: 'Unauthorized' });
+  let decoded;
+  try {
+    decoded = sessionHelper.verifySession(token);
+  } catch (e) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  if (!decoded || (!decoded.userId && !decoded.user_id)) return res.status(401).json({ error: 'Unauthorized' });
   const users = await db.getTable('users');
-  const user = users.find(u => u.id === decoded.user_id);
+  const userId = decoded.userId || decoded.user_id;
+  const user = users.find(u => u.id === userId);
   if (!user || user.role !== 'ADMIN') return res.status(403).json({ error: 'Forbidden' });
 
   const splitPayouts = await db.getTable('split_payouts');
@@ -2855,6 +2861,7 @@ app.get('/api/admin/payouts', async (req, res) => {
       stockist_name: stockists.find(s => s.id === sp.stockist_id)?.name || 'Unknown',
       amount: parseFloat(sp.stockist_amount),
       type: 'ORDER_SPLIT',
+      status: sp.status,
       is_paid: !!sp.is_paid,
       created_at: sp.created_at,
       paid_at: sp.paid_at,
@@ -2901,10 +2908,16 @@ app.get('/api/admin/payouts', async (req, res) => {
 app.post('/api/admin/payouts/mark-paid', async (req, res) => {
   const authHeader = req.headers.authorization || '';
   const token = authHeader.replace('Bearer ', '');
-  const decoded = verifySession(token);
-  if (!decoded || !decoded.user_id) return res.status(401).json({ error: 'Unauthorized' });
+  let decoded;
+  try {
+    decoded = sessionHelper.verifySession(token);
+  } catch (e) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  if (!decoded || (!decoded.userId && !decoded.user_id)) return res.status(401).json({ error: 'Unauthorized' });
   const users = await db.getTable('users');
-  const user = users.find(u => u.id === decoded.user_id);
+  const userId = decoded.userId || decoded.user_id;
+  const user = users.find(u => u.id === userId);
   if (!user || user.role !== 'ADMIN') return res.status(403).json({ error: 'Forbidden' });
 
   const { payouts, payment_reference } = req.body;
@@ -2942,7 +2955,7 @@ app.post('/api/admin/payouts/mark-paid', async (req, res) => {
           entity_type: 'PAYOUT',
           entity_id: sp.id,
           action: 'MARK_PAYOUT_PAID',
-          metadata: { amount: sp.stockist_amount, payment_reference },
+          details: { amount: sp.stockist_amount, payment_reference },
           created_at: now
         });
       }
@@ -2961,7 +2974,7 @@ app.post('/api/admin/payouts/mark-paid', async (req, res) => {
           entity_type: 'PAYOUT',
           entity_id: cc.id,
           action: 'MARK_PAYOUT_PAID',
-          metadata: { amount: cc.amount_owed, payment_reference },
+          details: { amount: cc.amount_owed, payment_reference },
           created_at: now
         });
       }
@@ -2980,7 +2993,7 @@ app.post('/api/admin/payouts/mark-paid', async (req, res) => {
           entity_type: 'PAYOUT',
           entity_id: scc.id,
           action: 'MARK_PAYOUT_PAID',
-          metadata: { amount: scc.commission_amount, payment_reference },
+          details: { amount: scc.commission_amount, payment_reference },
           created_at: now
         });
       }
@@ -3792,6 +3805,134 @@ app.post('/api/admin/kyc/:userId/blacklist', async (req, res) => {
 });
 
 // Admin Get Blacklist
+
+// TESTER-39: Account Removal Endpoints
+app.get('/api/admin/users/:userId/references', async (req, res) => {
+  const adminIdHeader = req.headers['x-admin-user-id'] || req.headers['x-admin-id'];
+  const isAdmin = adminIdHeader || (req.user && (req.user.role === 'ADMIN' || req.user.role === 'PARTNER_ADMIN'));
+  if (!isAdmin) return res.status(403).json({ error: 'Admin authorization required' });
+
+  const userId = req.params.userId;
+  const users = await db.getTable('users');
+  const user = users.find(u => u.id === userId);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  if (user.kyc_status !== 'REJECTED' && user.kyc_status !== 'BLACKLISTED') {
+    return res.status(400).json({ error: 'Only rejected or blacklisted users can be checked for removal' });
+  }
+
+  const stockists = await db.getTable('stockists');
+  const stockist = stockists.find(s => s.user_id === userId);
+  const stockistId = stockist ? stockist.id : null;
+
+  let totalRefs = 0;
+  const references_by_table = {};
+
+  const tables = [
+    'orders', 'points_ledger', 'split_payouts', 'cod_commission_ledger', 'products', 
+    'inventory', 'stockist_inventory', 'stockist_vendors', 'stockists', 'redemption_approvals',
+    'customer_partner_bindings', 'fraud_reports', 'feedback_reports', 'anomaly_logs',
+    'admin_audit_log', 'partner_users', 'partner_notifications', 'partner_feedback',
+    'product_bill_photos', 'stockist_commission_rates', 'points_earn_config', 'commission_config'
+  ];
+
+  for (const t of tables) {
+    const records = await db.getTable(t);
+    let count = 0;
+    for (const row of records) {
+      if (!row) continue;
+      let matched = false;
+      for (const val of Object.values(row)) {
+        if (val === userId || (stockistId && val === stockistId)) {
+          matched = true;
+          break;
+        }
+      }
+      if (matched) count++;
+    }
+    if (count > 0) {
+      references_by_table[t] = count;
+      totalRefs += count;
+    }
+  }
+
+  return res.json({ success: true, reference_count: totalRefs, references_by_table });
+});
+
+app.delete('/api/admin/users/:userId/account', async (req, res) => {
+  const adminIdHeader = req.headers['x-admin-user-id'] || req.headers['x-admin-id'];
+  const isAdmin = adminIdHeader || (req.user && (req.user.role === 'ADMIN' || req.user.role === 'PARTNER_ADMIN'));
+  if (!isAdmin) return res.status(403).json({ error: 'Admin authorization required' });
+
+  const userId = req.params.userId;
+  let users = await db.getTable('users');
+  const userIndex = users.findIndex(u => u.id === userId);
+  if (userIndex === -1) return res.status(404).json({ error: 'User not found' });
+  const user = users[userIndex];
+
+  if (user.kyc_status !== 'REJECTED' && user.kyc_status !== 'BLACKLISTED') {
+    return res.status(400).json({ error: 'Only rejected or blacklisted users can be removed' });
+  }
+
+  const stockists = await db.getTable('stockists');
+  const stockistIndex = stockists.findIndex(s => s.user_id === userId);
+  const stockistId = stockistIndex !== -1 ? stockists[stockistIndex].id : null;
+
+  let totalRefs = 0;
+  const references_by_table = {};
+  const tables = [
+    'orders', 'points_ledger', 'split_payouts', 'cod_commission_ledger', 'products', 
+    'inventory', 'stockist_inventory', 'stockist_vendors', 'stockists', 'redemption_approvals',
+    'customer_partner_bindings', 'fraud_reports', 'feedback_reports', 'anomaly_logs',
+    'admin_audit_log', 'partner_users', 'partner_notifications', 'partner_feedback',
+    'product_bill_photos', 'stockist_commission_rates', 'points_earn_config', 'commission_config'
+  ];
+
+  for (const t of tables) {
+    const records = await db.getTable(t);
+    let count = 0;
+    for (const row of records) {
+      if (!row) continue;
+      let matched = false;
+      for (const val of Object.values(row)) {
+        if (val === userId || (stockistId && val === stockistId)) {
+          matched = true;
+          break;
+        }
+      }
+      if (matched) count++;
+    }
+    // we only care about references in OTHER tables besides stockists (since we will delete the stockists row anyway if ref=0)
+    if (count > 0 && t !== 'stockists') {
+      references_by_table[t] = count;
+      totalRefs += count;
+    }
+  }
+
+  if (totalRefs === 0) {
+    // Outcome A: Hard Delete
+    const deletedUser = users.splice(userIndex, 1)[0];
+    await db.saveTable('users', users);
+    if (stockistIndex !== -1) {
+      stockists.splice(stockistIndex, 1);
+      await db.saveTable('stockists', stockists);
+    }
+    await appendAudit(req, 'DELETE_ACCOUNT', 'user', userId, deletedUser, { references: 0, by: adminIdHeader || 'admin' });
+    return res.json({ success: true, action: 'DELETED', reference_count: 0, references_by_table });
+  } else {
+    // Outcome B: Release
+    user.kyc_status = 'RELEASED';
+    user.released_at = new Date().toISOString();
+    await db.saveTable('users', users);
+    
+    // totalRefs here does not count the 'stockists' row, so let's add it back if we need to report it accurately
+    const totalWithStockists = totalRefs + (stockistIndex !== -1 ? 1 : 0);
+    if (stockistIndex !== -1) references_by_table['stockists'] = 1;
+
+    await appendAudit(req, 'RELEASE_ACCOUNT', 'user', userId, { previous_status: user.kyc_status }, { new_status: 'RELEASED', references_by_table, total_references: totalWithStockists, by: adminIdHeader || 'admin' });
+    return res.json({ success: true, action: 'RELEASED', reference_count: totalWithStockists, references_by_table });
+  }
+});
+
 app.get('/api/admin/blacklist', async (req, res) => {
   const users = await db.getTable('users');
   const blacklistRecords = (await db.getTable('user_blacklist')) || [];

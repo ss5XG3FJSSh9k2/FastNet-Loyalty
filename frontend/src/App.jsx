@@ -3736,6 +3736,71 @@ export default function App() {
   };
 
 
+  const handleRemoveAccountRequest = async (user) => {
+    try {
+      const adminId = currentUser?.role === 'ADMIN' ? currentUser.id : 'u-admin1';
+      const userId = user.user_id || user.id;
+      const res = await fetch(`${API_BASE}/admin/users/${userId}/references`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token') || ''}`,
+          'x-admin-user-id': adminId,
+          'x-admin-id': adminId
+        }
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        const refs = data.reference_count || 0;
+        let msg = null;
+        if (refs === 0) {
+          msg = (
+            <span>
+              Permanently delete <strong>{user.name || 'this user'}</strong>? They have no orders, points or products. This cannot be undone.
+            </span>
+          );
+        } else {
+          const orderCount = data.references_by_table?.orders || 0;
+          const pointsCount = data.references_by_table?.points_ledger || 0;
+          msg = (
+            <span>
+              <strong>{user.name || 'this user'}</strong> has {orderCount} order(s), {pointsCount} points entries and other records. Their account will be released rather than deleted — their history is kept, and they can register again from scratch with the same phone number.
+            </span>
+          );
+        }
+        
+        triggerConfirmModal(
+          'Remove Account',
+          msg,
+          async () => {
+            try {
+              const delRes = await fetch(`${API_BASE}/admin/users/${userId}/account`, {
+                method: 'DELETE',
+                headers: {
+                  'Authorization': `Bearer ${localStorage.getItem('token') || ''}`,
+                  'x-admin-user-id': adminId,
+                  'x-admin-id': adminId
+                }
+              });
+              const delData = await delRes.json().catch(() => ({}));
+              if (delRes.ok) {
+                showToast(`Account successfully ${delData.action?.toLowerCase() || 'removed'}.`);
+                fetchDbState();
+                setAdminRejectedList(prev => prev.filter(u => (u.user_id || u.id) !== userId));
+              } else {
+                showToast(delData.error || 'Failed to remove account', 'error');
+              }
+            } catch (e) {
+              showToast('Server error removing account', 'error');
+            }
+          }
+        );
+      } else {
+        showToast(data.error || 'Failed to check account references', 'error');
+      }
+    } catch (e) {
+      showToast('Server error checking account references', 'error');
+    }
+  };
+
   const handlePatchStockistAction = async (stockistId, action, reason, days) => {
     try {
       const res = await fetch(`${API_BASE}/admin/stockists/${stockistId}`, {
