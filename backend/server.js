@@ -873,16 +873,19 @@ app.post('/api/customer/register-with-referral', async (req, res) => {
 
 // Serve KYC document photo
 app.get('/api/kyc/documents/:filename', (req, res) => {
-  const filepath = path.join(__dirname, 'uploads', 'kyc', req.params.filename);
+  const filename = req.params.filename;
+  const ext = path.extname(filename).toLowerCase();
+  const mimeType = ext === '.png' ? 'image/png' : ext === '.gif' ? 'image/gif' : ext === '.webp' ? 'image/webp' : ext === '.pdf' ? 'application/pdf' : 'image/jpeg';
+  const filepath = path.join(__dirname, 'uploads', 'kyc', filename);
   if (fs.existsSync(filepath)) {
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Content-Type', 'image/jpeg');
+    res.setHeader('Content-Type', mimeType);
     return res.sendFile(filepath);
   }
-  const tmpPath = path.join('/tmp/kyc-uploads', req.params.filename);
+  const tmpPath = path.join('/tmp/kyc-uploads', filename);
   if (fs.existsSync(tmpPath)) {
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Content-Type', 'image/jpeg');
+    res.setHeader('Content-Type', mimeType);
     return res.sendFile(tmpPath);
   }
   return res.status(404).json({ error: 'KYC document photo not found' });
@@ -2854,9 +2857,11 @@ app.get('/api/admin/payouts', async (req, res) => {
   const payouts = [];
   
   for (const sp of splitPayouts) {
+    if (sp.status === 'PENDING_COD') continue;
     payouts.push({
       id: sp.id,
       source: 'split_payouts',
+      direction: 'OUTGOING',
       order_id: sp.order_id,
       stockist_id: sp.stockist_id,
       stockist_name: stockists.find(s => s.id === sp.stockist_id)?.name || 'Unknown',
@@ -2874,6 +2879,7 @@ app.get('/api/admin/payouts', async (req, res) => {
     payouts.push({
       id: cc.id,
       source: 'cod_commission_ledger',
+      direction: 'INCOMING',
       order_id: cc.order_id,
       stockist_id: cc.stockist_id,
       stockist_name: stockists.find(s => s.id === cc.stockist_id)?.name || 'Unknown',
@@ -2890,6 +2896,7 @@ app.get('/api/admin/payouts', async (req, res) => {
     payouts.push({
       id: scc.id,
       source: 'stockist_cod_commissions',
+      direction: 'INCOMING',
       order_id: null,
       stockist_id: scc.stockist_id,
       stockist_name: stockists.find(s => s.id === scc.stockist_id)?.name || 'Unknown',

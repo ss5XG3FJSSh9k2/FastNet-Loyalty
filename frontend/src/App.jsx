@@ -3938,8 +3938,10 @@ export default function App() {
           showToast('No document uploaded for this stockist', 'error');
           return;
         }
+        const apiOrigin = API_BASE.replace(/\/api\/?$/, '');
+        const resolvedUrl = /^https?:\/\//i.test(docUrl) ? docUrl : `${apiOrigin}${docUrl}`;
         setSelectedKycDocument({
-          url: docUrl,
+          url: resolvedUrl,
           userName: u.name,
           idType: data.id_type || u.kyc_id_type || 'ID',
           idNumber: data.id_number || u.kyc_id_number || ''
@@ -9637,7 +9639,7 @@ export default function App() {
     }
 
     const refundDueCount = dbState?.orders?.filter(o => o.payment_status === 'REFUND_DUE').length || 0;
-    const payoutsDue = (adminPayouts || []).filter(p => !p.is_paid && p.status !== 'PENDING_COD' && p.source === 'split_payouts');
+    const payoutsDue = (adminPayouts || []).filter(p => !p.is_paid && p.direction === 'OUTGOING');
     const commissionOwed = (adminPayouts || []).filter(p => !p.is_paid && p.source === 'cod_commission_ledger');
     const UNPAID = payoutsDue.length + commissionOwed.length;
     return (
@@ -14353,6 +14355,14 @@ export default function App() {
                 src={selectedKycDocument.url} 
                 alt="KYC Document" 
                 style={{ maxWidth: '100%', maxHeight: '50vh', objectFit: 'contain', display: 'block', margin: '0 auto' }} 
+                onError={(e) => {
+                  e.target.style.display = 'none';
+                  const msg = document.createElement('div');
+                  msg.style.color = '#ef4444';
+                  msg.style.padding = '2rem';
+                  msg.innerHTML = `Document could not be loaded<br/><small style="word-break:break-all">${selectedKycDocument.url}</small>`;
+                  e.target.parentNode.appendChild(msg);
+                }}
               />
             </div>
             <div style={{ marginTop: '1rem', textAlign: 'right' }}>
