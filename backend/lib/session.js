@@ -15,14 +15,14 @@ function signSession(userId, role) {
   const secret = getSecret();
   // sign with 24h expiration. jsonwebtoken automatically sets iat and exp.
   // Payload: { sub: userId, role }
-  return jwt.sign({ sub: userId, role }, secret, { expiresIn: '24h' });
+  return jwt.sign({ sub: userId, role }, secret, { expiresIn: '7d' });
 }
 
 function verifySession(token) {
   const secret = getSecret();
   const decoded = jwt.verify(token, secret);
   return {
-    userId: decoded.sub,
+    userId: decoded.sub || decoded.user_id,
     role: decoded.role
   };
 }

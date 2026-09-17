@@ -75,6 +75,35 @@ import {
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api';
 
+const originalFetch = window.fetch;
+window.fetch = async (...args) => {
+  const [resource, config] = args;
+  
+  if (typeof resource === 'string' && resource.includes(API_BASE)) {
+    const token = (() => { try { return localStorage.getItem('token'); } catch { return null; } })();
+    if (token) {
+      args[1] = config || {};
+      args[1].headers = {
+        ...args[1].headers,
+        'Authorization': `Bearer ${token}`
+      };
+    }
+  }
+
+  const res = await originalFetch(...args);
+  if (res.status === 401 && typeof resource === 'string' && resource.includes(API_BASE) && !resource.includes('/auth/login') && !resource.includes('/auth/verify') && !resource.includes('/auth/setup-complete')) {
+    window.dispatchEvent(new CustomEvent('session-expired'));
+  }
+  return res;
+};
+const normalizeFrontendPhone = (val) => {
+  let clean = String(val).replace(/\D/g, '');
+  if (clean.length > 10 && clean.startsWith('91')) {
+    clean = clean.slice(2);
+  }
+  return clean.slice(0, 10);
+};
+
 const SERVICE_TYPES = [
   { value: 'CABLE',      label: 'Cable TV' },
   { value: 'BROADBAND',  label: 'Broadband Internet' },
@@ -215,6 +244,45 @@ export default function App() {
   const [regions, setRegions] = useState([]);
   const [selectedRegionId, setSelectedRegionId] = useState('');
   const [currentUser, setCurrentUser] = useState(null);
+
+  const persistSession = (user, token) => {
+    setCurrentUser(user);
+    try {
+      localStorage.setItem('currentUser', JSON.stringify(user));
+      if (token) localStorage.setItem('token', token);
+    } catch {}
+  };
+
+  const clearSession = () => {
+    try {
+      localStorage.removeItem('currentUser');
+      localStorage.removeItem('token');
+      localStorage.removeItem('adminTabLastSeen');
+    } catch {}
+    setCurrentUser(null);
+  };
+
+  useEffect(() => {
+    const onSessionExpired = () => {
+      clearSession();
+      showToast('Your session expired — please log in again.', 'error');
+    };
+    window.addEventListener('session-expired', onSessionExpired);
+    return () => window.removeEventListener('session-expired', onSessionExpired);
+  }, []);
+
+  useEffect(() => {
+    const raw = (() => { try { return localStorage.getItem('currentUser'); } catch { return null; } })();
+    const token = (() => { try { return localStorage.getItem('token'); } catch { return null; } })();
+    if (!raw || !token) return;
+
+    try { setCurrentUser(JSON.parse(raw)); } catch { clearSession(); return; }
+
+    fetch(`${API_BASE}/auth/me`)
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then(d => persistSession(d.user, d.token))
+      .catch(() => clearSession());
+  }, []);
   const [nowTick, setNowTick] = useState(Date.now());
   const [confirmCancelOrderId, setConfirmCancelOrderId] = useState(null);
   const [confirmDeliverySwitchOrderId, setConfirmDeliverySwitchOrderId] = useState(null);
@@ -568,6 +636,11 @@ export default function App() {
 
   // Admin: payment ledger / transactions
   const [adminPaymentLedger, setAdminPaymentLedger] = useState([]);
+  const [adminPayouts, setAdminPayouts] = useState([]);
+  const [payoutFilter, setPayoutFilter] = useState("UNPAID");
+  const [selectedPayoutIds, setSelectedPayoutIds] = useState([]);
+  const [paymentRefModalOpen, setPaymentRefModalOpen] = useState(false);
+  const [paymentRefValue, setPaymentRefValue] = useState("");
   const [adminCodCommission, setAdminCodCommission] = useState([]);
 
   // Customer signup flow (separate from stockist signup)
@@ -1073,6 +1146,47 @@ export default function App() {
   const [showInactiveVendors, setShowInactiveVendors] = useState(false);
   const [selectedVendorId, setSelectedVendorId] = useState('');
 
+  const fetchAdminPayouts = async () => {
+    try {
+      const res = await adminFetch('/admin/payouts');
+      if (res.ok) {
+        setAdminPayouts(await res.json());
+      }
+    } catch (e) {
+      console.error('Error fetching payouts', e);
+    }
+  };
+
+  const handleMarkPayoutsPaid = async () => {
+    if (paymentRefValue.length < 4) {
+      showToast('Payment reference must be at least 4 characters', 'error');
+      return;
+    }
+    const payloads = adminPayouts.filter(p => selectedPayoutIds.includes(p.id)).map(p => ({ id: p.id, type: p.type, source: p.source }));
+    if (payloads.length === 0) return;
+
+    try {
+      const res = await adminFetch('/admin/payouts/mark-paid', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ payouts: payloads, payment_reference: paymentRefValue })
+      });
+      if (res.ok) {
+        showToast(`Successfully marked ${payloads.length} payouts as paid!`);
+        setPaymentRefModalOpen(false);
+        setPaymentRefValue('');
+        setSelectedPayoutIds([]);
+        fetchAdminPayouts();
+      } else {
+        const data = await res.json();
+        showToast(data.error || 'Failed to mark paid', 'error');
+      }
+    } catch (e) {
+      console.error(e);
+      showToast('Network error', 'error');
+    }
+  };
+
   const fetchAdminVendors = async (includeInactive = showInactiveVendors) => {
     try {
       const res = await adminFetch(`/admin/vendors${includeInactive ? '?include_inactive=true' : ''}`);
@@ -1261,7 +1375,7 @@ export default function App() {
         });
         const data = await res.json();
         if (res.ok) {
-          setCurrentUser(data.user);
+          persistSession(data.user, data.token);
           setSelectedRegionId(data.user.region_id);
           setCustomerAppTab('store');
           setActiveRole('customer');
@@ -1297,7 +1411,7 @@ export default function App() {
         });
         const data = await res.json();
         if (res.ok) {
-          setCurrentUser(data.user);
+          persistSession(data.user, data.token);
           setSelectedRegionId(data.user.region_id);
           setActiveRole('stockist');
           
@@ -1335,7 +1449,7 @@ export default function App() {
         });
         const data = await res.json();
         if (res.ok) {
-          setCurrentUser(data.user);
+          persistSession(data.user, data.token);
           setSelectedRegionId(data.user.region_id);
           setCustomerAppTab('ledger');
           setActiveRole('customer');
@@ -1357,7 +1471,7 @@ export default function App() {
         });
         const data = await res.json();
         if (res.ok) {
-          setCurrentUser(data.user);
+          persistSession(data.user, data.token);
           setSelectedRegionId(data.user.region_id);
           setActiveRole('admin');
           setAdminTab('redemptions');
@@ -1391,7 +1505,7 @@ export default function App() {
     try {
       const res = await fetch(`${API_BASE}/admin/reset-db`, { method: 'POST' });
       if (res.ok) {
-        setCurrentUser(null);
+        clearSession();
         setCustomerCart([]);
         setRedeemAmount('');
         setDiscountApplied(0);
@@ -1423,7 +1537,7 @@ export default function App() {
         (targetRole === 'admin' && currentUser.role !== 'ADMIN') ||
         (targetRole === 'partner' && currentUser.role !== 'PARTNER_ADMIN')
       )) {
-        setCurrentUser(null);
+        clearSession();
       }
       return;
     }
@@ -1436,7 +1550,7 @@ export default function App() {
         });
         const data = await res.json();
         if (res.ok) {
-          setCurrentUser(data.user);
+          persistSession(data.user, data.token);
           setSelectedRegionId(data.user.region_id);
         }
       } else if (targetRole === 'stockist' && (!currentUser || currentUser.role !== 'STOCKIST')) {
@@ -1447,7 +1561,7 @@ export default function App() {
         });
         const data = await res.json();
         if (res.ok) {
-          setCurrentUser(data.user);
+          persistSession(data.user, data.token);
           setSelectedRegionId(data.user.region_id);
         }
       } else if (targetRole === 'admin' && (!currentUser || currentUser.role !== 'ADMIN')) {
@@ -1458,7 +1572,7 @@ export default function App() {
         });
         const data = await res.json();
         if (res.ok) {
-          setCurrentUser(data.user);
+          persistSession(data.user, data.token);
           setSelectedRegionId(data.user.region_id);
         }
       } else if (targetRole === 'partner' && (!currentUser || currentUser.role !== 'PARTNER_ADMIN')) {
@@ -1469,7 +1583,7 @@ export default function App() {
         });
         const data = await res.json();
         if (res.ok) {
-          setCurrentUser({ id: data.partner.id, name: data.partner.name, role: 'PARTNER_ADMIN' });
+          persistSession({ id: data.partner.id, name: data.partner.name, role: 'PARTNER_ADMIN' }, data.token);
           setPartnerSessionToken(data.token);
           setPartnerData(data.partner);
         }
@@ -2194,7 +2308,7 @@ export default function App() {
       })
       .then(data => {
         if (data.user && data.partner) {
-          setCurrentUser(data.user);
+          persistSession(data.user, data.token);
           setPartnerData(data.partner);
           setActiveRole('partner');
           setPartnerSessionToken(savedPartnerToken);
@@ -2225,6 +2339,7 @@ export default function App() {
     if (activeRole === 'admin') {
       fetchAnalytics();
       fetchAdminRegions();
+      fetchAdminPayouts();
     }
     syncInspectorTable();
   }, [currentUser, activeRole, showDevSettings]);
@@ -2319,7 +2434,7 @@ export default function App() {
         if (data.requires_registration) {
           showToast('Verification successful. Please register.');
         } else {
-          setCurrentUser(data.user);
+          persistSession(data.user, data.token);
           setSelectedRegionId(data.user.region_id);
           showToast(`Welcome back, ${data.user.name}!`);
           setOtpSent(false);
@@ -2386,7 +2501,7 @@ export default function App() {
           setRegKycNumber('');
           setRegAddress('');
         } else {
-          setCurrentUser(data.user);
+          persistSession(data.user, data.token);
           setSelectedRegionId(data.user.region_id);
           showToast(`Account created for ${data.user.name}!`);
           setOtpSent(false);
@@ -2401,7 +2516,7 @@ export default function App() {
   };
 
   const handleLogout = () => {
-    setCurrentUser(null);
+    clearSession();
     setCustomerStockists([]);
     setSelectedStockist(null);
     setPreviousStockistId(null);
@@ -2860,7 +2975,7 @@ export default function App() {
       const data = await res.json();
       logApi('POST', endpoint.replace(API_BASE, ''), payload, res.status, data);
       if (res.ok) {
-        setCurrentUser(data.user);
+        persistSession(data.user, data.token);
         setSelectedRegionId(data.user.region_id);
         showToast(t(`Welcome, ${data.user.name}!`, `स्वागत, ${data.user.name}!`, `স্বাগতম, ${data.user.name}!`));
         setShowCustomerSignup(false);
@@ -5100,7 +5215,7 @@ export default function App() {
       if (res.ok) {
         localStorage.setItem('fastnet_partner_session', data.session_token);
         setPartnerSessionToken(data.session_token);
-        setCurrentUser(data.user);
+        persistSession(data.user, data.token);
         setPartnerData(data.partner);
         setActiveRole('partner');
         setPartnerAppTab('dashboard');
@@ -5182,7 +5297,7 @@ export default function App() {
           localStorage.setItem('fastnet_partner_setup_completed', 'true');
           setPartnerSetupCompleted(true);
           setPartnerSessionToken(sToken);
-          if (data.user) setCurrentUser(data.user);
+          if (data.user) persistSession(data.user, data.token);
           if (data.partner) setPartnerData(data.partner);
           setActiveRole('partner');
           setPartnerAppTab('dashboard');
@@ -5232,7 +5347,7 @@ export default function App() {
           localStorage.setItem('fastnet_partner_setup_completed', 'true');
           setPartnerSetupCompleted(true);
           setPartnerSessionToken(sToken);
-          if (data.user) setCurrentUser(data.user);
+          if (data.user) persistSession(data.user, data.token);
           if (data.partner) setPartnerData(data.partner);
           setShowFirstTimeSetupFlow(false);
           setActiveRole('partner');
@@ -5280,7 +5395,7 @@ export default function App() {
   const handlePartnerLogout = () => {
     localStorage.removeItem('fastnet_partner_session');
     setPartnerSessionToken('');
-    setCurrentUser(null);
+    clearSession();
     setPartnerData(null);
     setActiveRole('marketing');
     showToast('Logged out of partner account.', 'info');
@@ -5717,7 +5832,7 @@ export default function App() {
               <>
                 <div className="input-group">
                   <label className="input-label">Registered Phone Number</label>
-                  <input type="tel" inputMode="numeric" maxLength={10} placeholder="10-digit mobile number" className="text-input" value={partnerLoginPhone} onChange={e => setPartnerLoginPhone(e.target.value.replace(/\D/g,'').slice(0, 10))} />
+                  <input type="tel" inputMode="numeric" maxLength={15} placeholder="10-digit mobile number" className="text-input" value={partnerLoginPhone} onChange={e => setPartnerLoginPhone(normalizeFrontendPhone(e.target.value))} />
                 </div>
                 <button className="btn btn-primary" style={{ width: '100%', marginTop: '1rem' }} onClick={handlePartnerSendOtp}>
                   Send One-Time Password
@@ -5950,7 +6065,7 @@ export default function App() {
                     <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 'bold' }}>
                       {t('This Month', 'इस महीने', 'এই মাসে')}
                     </span>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.5rem', marginTop: '0.35rem' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.5rem', marginTop: '0.35rem' }}>
                       <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.6rem', borderRadius: '6px', border: '1px solid var(--border-color)', textAlign: 'center' }}>
                         <div style={{ fontSize: '1.1rem', fontWeight: 'bold', color: 'var(--success)' }}>{partnerDashData?.month?.fulfilled_count || 0}</div>
                         <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>{t('Fulfilled this month', 'इस महीने पूरे किए गए', 'এই মাসে সম্পন্ন')}</div>
@@ -6258,7 +6373,7 @@ export default function App() {
                     </div>
                     <div className="input-group">
                       <label className="input-label">{t('Contact Phone', 'संपर्क फोन', 'যোগাযোগ ফোন')}</label>
-                      <input type="tel" inputMode="numeric" maxLength={10} className="text-input" value={pProfContactPhone} onChange={e => setPProfContactPhone(e.target.value.replace(/\D/g, '').slice(0, 10))} />
+                      <input type="tel" inputMode="numeric" maxLength={15} className="text-input" value={pProfContactPhone} onChange={e => setPProfContactPhone(normalizeFrontendPhone(e.target.value))} />
                       {pProfContactPhone !== initialContactPhone && (
                         <div style={{ marginTop: '0.35rem', fontSize: '0.7rem' }}>
                           <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
@@ -6282,7 +6397,7 @@ export default function App() {
                   </div>
 
                   {/* Counts Panel */}
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.5rem', background: 'rgba(255,255,255,0.02)', padding: '0.75rem', borderRadius: '6px', border: '1px dashed var(--border-color)', textAlign: 'center' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.5rem', background: 'rgba(255,255,255,0.02)', padding: '0.75rem', borderRadius: '6px', border: '1px dashed var(--border-color)', textAlign: 'center' }}>
                     <div>
                       <div style={{ fontSize: '1rem', fontWeight: 'bold' }}>{pProfCounts?.bound_customers || 0}</div>
                       <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Bound Customers</div>
@@ -6754,7 +6869,7 @@ export default function App() {
               onChange={(e) => setPartnerContactName(e.target.value)}
             />
             <input 
-              type="tel" inputMode="numeric" maxLength={10} placeholder="Phone Number" className="text-input" value={partnerPhone} onChange={(e) => setPartnerPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
+              type="tel" inputMode="numeric" maxLength={15} placeholder="Phone Number" className="text-input" value={partnerPhone} onChange={(e) => setPartnerPhone(normalizeFrontendPhone(e.target.value))}
             />
             <input 
               type="email" 
@@ -9476,6 +9591,7 @@ export default function App() {
     }
 
     const refundDueCount = dbState?.orders?.filter(o => o.payment_status === 'REFUND_DUE').length || 0;
+    const UNPAID = (adminPayouts || []).filter(p => !p.is_paid);
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.75rem', width: '100%' }}>
         <div className="perspective-banner">
@@ -9531,7 +9647,9 @@ export default function App() {
                 <Gift size={16} /> Orders {adminRedemptionApprovals.filter(r => r.status === 'PENDING_ADMIN_APPROVAL').length > 0 && <span className="badge badge-danger" style={{ marginLeft: '0.25rem', fontSize: '0.65rem' }}>{adminRedemptionApprovals.filter(r => r.status === 'PENDING_ADMIN_APPROVAL').length}</span>}
               </button>
               <button className={`admin-nav-item ${adminTab === 'transactions' ? 'active' : ''}`} onClick={() => setAdminTab('transactions')}>
-                <ArrowRightLeft size={16} /> Transactions {refundDueCount > 0 && <span className="badge badge-danger" style={{ marginLeft: '0.25rem', fontSize: '0.65rem' }}>{refundDueCount}</span>}
+                <ArrowRightLeft size={16} /> Transactions 
+                {refundDueCount > 0 && <span className="badge badge-danger" style={{ marginLeft: '0.25rem', fontSize: '0.65rem' }} title="Refunds Due">{refundDueCount}</span>}
+                {UNPAID.length > 0 && <span className="badge badge-warning" style={{ marginLeft: '0.25rem', fontSize: '0.65rem', background: 'var(--warning)', color: 'black' }} title="Unpaid Payouts">{UNPAID.length}</span>}
               </button>
               <button 
                 className={`admin-nav-item ${adminTab === 'redemptions' || adminTab === 'bills' ? 'active' : ''}`} 
@@ -9645,7 +9763,7 @@ export default function App() {
 
             <div className="admin-content">
               {/* Top 3 Admin Summary Cards */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem', marginBottom: '1.25rem' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.75rem', marginBottom: '1.25rem' }}>
                 <div 
                   onClick={() => { setAdminTab('redemptions'); fetchRedemptionApprovals(); }}
                   style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)', padding: '0.85rem', borderRadius: '10px', cursor: 'pointer', transition: 'all 0.2s' }}
@@ -9682,6 +9800,35 @@ export default function App() {
                   </div>
                   <div style={{ fontSize: '1.4rem', fontWeight: 'bold', color: '#4ade80', marginTop: '0.35rem' }}>
                     {analyticsData ? `₹${analyticsData?.orders?.revenue_this_week_rupees ?? 0}` : '—'}
+                  </div>
+                </div>
+                <div 
+                  onClick={() => setAdminTab('transactions')}
+                  style={{ 
+                    background: UNPAID.some(p => (Date.now() - new Date(p.created_at).getTime()) > 48 * 3600000) 
+                      ? 'rgba(239,68,68,0.08)' 
+                      : (UNPAID.length > 0 ? 'rgba(245,158,11,0.08)' : 'rgba(34,197,94,0.08)'), 
+                    border: UNPAID.some(p => (Date.now() - new Date(p.created_at).getTime()) > 48 * 3600000) 
+                      ? '1px solid rgba(239,68,68,0.2)' 
+                      : (UNPAID.length > 0 ? '1px solid rgba(245,158,11,0.2)' : '1px solid rgba(34,197,94,0.2)'), 
+                    padding: '0.85rem', borderRadius: '10px', cursor: 'pointer', transition: 'all 0.2s' 
+                  }}
+                >
+                  <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: '600', textTransform: 'uppercase' }}>
+                    {t('Outstanding Payouts', 'बकाया भुगतान', 'বকেয়া পেমেন্ট')}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.35rem' }}>
+                    <span style={{ 
+                      fontSize: '1.4rem', fontWeight: 'bold', 
+                      color: UNPAID.some(p => (Date.now() - new Date(p.created_at).getTime()) > 48 * 3600000) 
+                        ? 'var(--danger)' 
+                        : (UNPAID.length > 0 ? 'var(--warning)' : '#4ade80') 
+                    }}>
+                      ₹{UNPAID.reduce((sum, p) => sum + (p.amount || 0), 0).toFixed(2)}
+                    </span>
+                    <span className={`badge ${UNPAID.some(p => (Date.now() - new Date(p.created_at).getTime()) > 48 * 3600000) ? 'badge-danger' : (UNPAID.length > 0 ? 'badge-warning' : 'badge-success')}`} style={{ fontSize: '0.65rem' }}>
+                      {UNPAID.length} pending
+                    </span>
                   </div>
                 </div>
               </div>
@@ -10359,7 +10506,7 @@ export default function App() {
                     </div>
                   )}
 
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1.5rem', marginBottom: '1.5rem' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1.5rem', marginBottom: '1.5rem' }}>
                     <div className="glass-card" style={{ padding: '1rem' }}>
                       <h4 style={{ fontSize: '0.9rem', color: 'var(--primary)', marginBottom: '0.75rem' }}>4.1 Redemption Pipeline</h4>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
@@ -12054,83 +12201,134 @@ export default function App() {
 
               {adminTab === 'transactions' && (
                 <div>
-                  <h2 style={{ fontSize: '1.4rem', marginBottom: '1rem' }}>All Marketplace Transactions</h2>
-                  <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
-                    Full visibility into orders, split commissions, and points generated across Garia & Bishnupur regions.
-                  </p>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                    <div>
+                      <h2 style={{ fontSize: '1.4rem', marginBottom: '0.25rem' }}>Outstanding Payouts Queue</h2>
+                      <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', margin: 0 }}>
+                        Manage and settle commissions and payouts owed to stockists.
+                      </p>
+                    </div>
+                    <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+                      <select 
+                        value={payoutFilter} 
+                        onChange={e => setPayoutFilter(e.target.value)}
+                        style={{ padding: '0.5rem', borderRadius: '4px', background: 'var(--surface)', color: 'white', border: '1px solid var(--border-color)' }}
+                      >
+                        <option value="UNPAID">Unpaid Only</option>
+                        <option value="PAID">Paid Only</option>
+                        <option value="ALL">All Payouts</option>
+                      </select>
+                      <button 
+                        className="btn btn-primary"
+                        disabled={selectedPayoutIds.length === 0}
+                        onClick={() => setPaymentRefModalOpen(true)}
+                        style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+                      >
+                        <Banknote size={16} /> Mark {selectedPayoutIds.length} Paid
+                      </button>
+                    </div>
+                  </div>
+
+                  {paymentRefModalOpen && (
+                    <div className="modal-overlay">
+                      <div className="modal-content glass-card" style={{ maxWidth: '400px' }}>
+                        <h3 style={{ marginTop: 0 }}>Mark Payouts as Paid</h3>
+                        <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '1rem' }}>
+                          You are marking {selectedPayoutIds.length} payout(s) as paid. Please provide the transaction ID, UPI reference, or check number used for this payment.
+                        </p>
+                        <div className="form-group">
+                          <label>Payment Reference (min 4 chars)</label>
+                          <input 
+                            type="text" 
+                            className="input-field" 
+                            placeholder="e.g., UPI-123456789" 
+                            value={paymentRefValue}
+                            onChange={e => setPaymentRefValue(e.target.value)}
+                          />
+                        </div>
+                        <div style={{ display: 'flex', gap: '1rem', marginTop: '1.5rem' }}>
+                          <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setPaymentRefModalOpen(false)}>Cancel</button>
+                          <button className="btn btn-primary" style={{ flex: 1 }} onClick={handleMarkPayoutsPaid}>Confirm Payment</button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   <table className="admin-table">
                     <thead>
                       <tr>
-                        <th>Order ID</th>
-                        <th>Store</th>
-                        <th>Order Status</th>
-                        <th>Fulfillment - Payment</th>
-                        <th>Total Amount</th>
-                        <th>Subtotal</th>
-                        <th>Delivery Fee</th>
-                        <th>Shop Share</th>
-                        <th>Company Share</th>
-                        <th>Points</th>
-                        <th>Payment / Release</th>
+                        <th>
+                          <input 
+                            type="checkbox" 
+                            checked={adminPayouts.filter(p => !p.is_paid).length > 0 && selectedPayoutIds.length === adminPayouts.filter(p => !p.is_paid).length}
+                            onChange={e => {
+                              if (e.target.checked) setSelectedPayoutIds(adminPayouts.filter(p => !p.is_paid).map(p => p.id));
+                              else setSelectedPayoutIds([]);
+                            }}
+                          />
+                        </th>
+                        <th>Type</th>
+                        <th>Stockist</th>
+                        <th>Amount</th>
+                        <th>Created</th>
+                        <th>Age</th>
+                        <th>Status</th>
+                        <th>Reference</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {dbState?.orders?.map(o => {
-                        const isRefundDue = o.payment_status === 'REFUND_DUE';
-                        const platformCommission = o.platform_amount || 0;
-                        const netRefundAmount = o.total_price - platformCommission;
-
-                        return (
-                          <tr key={o.id} style={isRefundDue ? { background: 'rgba(239, 68, 68, 0.08)', borderLeft: '3px solid var(--danger)' } : {}}>
-                            <td style={{ fontFamily: 'monospace' }}>#{o.id.substring(2).toUpperCase()}</td>
-                            <td>{o.stockist_name}</td>
-                            <td><span className="badge badge-primary" style={{ fontSize: '0.65rem' }}>{formatOrderStatusDisplay(o.status, o.fulfillment_type)}</span></td>
-                            <td style={{ fontSize: '0.75rem' }}>{o.fulfillment_type || 'N/A'} - {o.payment_method || 'N/A'}</td>
-                            <td style={{ fontWeight: 'bold' }}>₹{o.total_price.toFixed(2)}</td>
-                            <td>₹{o.subtotal.toFixed(2)}</td>
-                            <td>₹{o.delivery_fee.toFixed(2)}</td>
-                            <td style={{ color: 'var(--accent)' }}>₹{(o.stockist_amount || 0).toFixed(2)}</td>
-                            <td style={{ color: 'var(--primary)' }}>₹{(o.platform_amount || 0).toFixed(2)}</td>
-                            <td>{formatPoints(o.points_credited || 0)}</td>
-                            <td>
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', alignItems: 'flex-start' }}>
-                                <span className={`badge ${o.payment_status === 'RELEASED' ? 'badge-success' : o.payment_status === 'COD' ? 'badge-warning' : o.payment_status === 'REFUNDED' ? 'badge-secondary' : o.payment_status === 'REFUND_DUE' ? 'badge-danger' : 'badge-primary'}`} style={{ fontSize: '0.55rem', display: 'inline-flex', alignItems: 'center', gap: '0.15rem' }}>
-                                  {o.payment_status === 'HELD' ? <><Lock size={9} /> HELD</> : 
-                                   o.payment_status === 'RELEASED' ? <><Check size={9} /> RELEASED</> : 
-                                   o.payment_status === 'COD' ? <><Banknote size={9} /> COD</> : 
-                                   o.payment_status === 'REFUND_DUE' ? 'REFUND DUE' :
-                                   o.payment_status || 'N/A'}
-                                </span>
-                                {isRefundDue && (
-                                  <button 
-                                    className="btn btn-danger" 
-                                    style={{ padding: '0.15rem 0.35rem', fontSize: '0.6rem', display: 'flex', alignItems: 'center', gap: '0.15rem', marginTop: '0.25rem' }} 
-                                    onClick={() => handleAdminRefund(o.id)}
-                                  >
-                                    Refund Customer (₹{netRefundAmount.toFixed(2)})
-                                  </button>
+                      {adminPayouts
+                        .filter(p => payoutFilter === 'ALL' || (payoutFilter === 'UNPAID' && !p.is_paid) || (payoutFilter === 'PAID' && p.is_paid))
+                        .sort((a, b) => {
+                          if (a.is_paid === b.is_paid) return new Date(a.created_at) - new Date(b.created_at);
+                          return a.is_paid ? 1 : -1;
+                        })
+                        .map(p => {
+                          const ageHours = (Date.now() - new Date(p.created_at).getTime()) / 3600000;
+                          return (
+                            <tr key={`${p.source}-${p.id}`}>
+                              <td>
+                                <input 
+                                  type="checkbox" 
+                                  disabled={p.is_paid}
+                                  checked={selectedPayoutIds.includes(p.id)}
+                                  onChange={e => {
+                                    if (e.target.checked) setSelectedPayoutIds([...selectedPayoutIds, p.id]);
+                                    else setSelectedPayoutIds(selectedPayoutIds.filter(id => id !== p.id));
+                                  }}
+                                />
+                              </td>
+                              <td><span className="badge badge-secondary" style={{ fontSize: '0.65rem' }}>{p.type.replace(/_/g, ' ')}</span></td>
+                              <td>{p.stockist_name}</td>
+                              <td style={{ fontWeight: 'bold', color: 'var(--accent)' }}>₹{p.amount.toFixed(2)}</td>
+                              <td style={{ fontSize: '0.8rem' }}>{new Date(p.created_at).toLocaleDateString()}</td>
+                              <td>
+                                {!p.is_paid && (
+                                  <span style={{ 
+                                    fontSize: '0.75rem', fontWeight: 'bold', 
+                                    color: ageHours > 168 ? 'var(--danger)' : ageHours > 48 ? 'var(--warning)' : 'var(--text-muted)' 
+                                  }}>
+                                    {Math.floor(ageHours / 24)}d {Math.floor(ageHours % 24)}h
+                                  </span>
                                 )}
-                                {o.payment_status === 'HELD' && o.status === 'DELIVERED' && !o.split_released && (
-                                  <button className="btn btn-accent" style={{ padding: '0.15rem 0.35rem', fontSize: '0.6rem', display: 'flex', alignItems: 'center', gap: '0.15rem' }} onClick={() => handleReleaseSplit(o.id)}>
-                                    <Banknote size={10} /> Release Split
-                                  </button>
+                              </td>
+                              <td>
+                                {p.is_paid ? (
+                                  <span className="badge badge-success" style={{ fontSize: '0.65rem' }}><Check size={10} style={{ display: 'inline', marginRight: '2px' }}/> PAID</span>
+                                ) : (
+                                  <span className="badge badge-warning" style={{ fontSize: '0.65rem' }}>UNPAID</span>
                                 )}
-                                {o.payment_status === 'COD' && o.status === 'DELIVERED' && (
-                                  <span style={{ fontSize: '0.6rem', color: 'var(--text-muted)' }}>COD — commission via ledger</span>
-                                )}
-                                {o.split_released && (
-                                  <span style={{ fontSize: '0.6rem', color: 'var(--accent)' }}><Check size={9} style={{ display: 'inline' }} /> Released</span>
-                                )}
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                      {(!dbState?.orders || dbState.orders.length === 0) && (
+                              </td>
+                              <td style={{ fontSize: '0.75rem', fontFamily: 'monospace' }}>
+                                {p.payment_reference || '-'}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      {adminPayouts.length === 0 && (
                         <tr>
-                          <td colSpan="9" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
-                            No transactions recorded.
+                          <td colSpan="8" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
+                            No payouts recorded.
                           </td>
                         </tr>
                       )}
@@ -12256,8 +12454,8 @@ export default function App() {
                   {t('Phone Number (10 digits)', 'फ़ोन नंबर (10 अंक)', 'ফোন নম্বর (১০ সংখ্যা)')}
                 </label>
                 <input
-                  type="tel" inputMode="numeric" className="text-input" placeholder="9876543210" value={setupPhone} onChange={e => setSetupPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
-                  maxLength={10}
+                  type="tel" inputMode="numeric" className="text-input" placeholder="9876543210" value={setupPhone} onChange={e => setSetupPhone(normalizeFrontendPhone(e.target.value))}
+                  maxLength={15}
                   style={{ width: '100%', padding: '0.65rem 0.85rem', fontSize: '0.85rem' }}
                 />
               </div>
@@ -12733,7 +12931,7 @@ export default function App() {
               </div>
               <div className="input-group">
                 <label className="input-label">New Phone Number</label>
-                <input type="tel" inputMode="numeric" maxLength={10} className="text-input" placeholder="9830099999" value={changePhoneNewNumber} onChange={e => setChangePhoneNewNumber(e.target.value.replace(/\D/g, '').slice(0, 10))} />
+                <input type="tel" inputMode="numeric" maxLength={15} className="text-input" placeholder="9830099999" value={changePhoneNewNumber} onChange={e => setChangePhoneNewNumber(normalizeFrontendPhone(e.target.value))} />
               </div>
               <div className="input-group">
                 <label className="input-label">New Phone OTP (Demo: 123456)</label>
@@ -12893,7 +13091,7 @@ export default function App() {
               </div>
               <div className="input-group">
                 <label className="input-label">Phone Number (Login user)</label>
-                <input type="tel" inputMode="numeric" maxLength={10} className="text-input" placeholder="9830011223" value={createStkPhone} onChange={e => setCreateStkPhone(e.target.value.replace(/\D/g, '').slice(0, 10))} />
+                <input type="tel" inputMode="numeric" maxLength={15} className="text-input" placeholder="9830011223" value={createStkPhone} onChange={e => setCreateStkPhone(normalizeFrontendPhone(e.target.value))} />
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
                 <div className="input-group">
@@ -12927,7 +13125,7 @@ export default function App() {
                   <input type="number" step="0.5" className="text-input" value={createStkRadius} onChange={e => setCreateStkRadius(e.target.value)} />
                 </div>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.5rem' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.5rem' }}>
                 <div className="input-group">
                   <label className="input-label">Open Time</label>
                   <input type="text" className="text-input" value={createStkOpen} onChange={e => setCreateStkOpen(e.target.value)} />
@@ -12985,7 +13183,7 @@ export default function App() {
                   required
                 />
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.5rem' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.5rem' }}>
                 <div className="input-group">
                   <label htmlFor="edit-stk-open" className="input-label">
                     {t('Opening Time', 'खुलने का समय', 'খোলার সময়')} <span style={{ color: 'var(--danger)' }}>*</span>
@@ -13809,7 +14007,7 @@ export default function App() {
                 <div className="input-group">
                   <label className="input-label">New 10-Digit Phone Number</label>
                   <input
-                    type="tel" inputMode="numeric" maxLength={10} className="text-input" placeholder="Enter new phone number" value={selfServiceNewPhone} onChange={e => setSelfServiceNewPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                    type="tel" inputMode="numeric" maxLength={15} className="text-input" placeholder="Enter new phone number" value={selfServiceNewPhone} onChange={e => setSelfServiceNewPhone(normalizeFrontendPhone(e.target.value))}
                   />
                 </div>
                 <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '0.5rem' }}>

@@ -742,12 +742,49 @@ const handleVerifyOtpRoute = async (req, res) => {
 
   otpStore.delete(phone);
   clearOtpRateLimit(phone);
-  const token = jwt.sign({ user_id: user.id, id: user.id, role: user.role }, process.env.JWT_SECRET || 'jwt_secret_key');
+  const token = sessionHelper.signSession(user.id, user.role);
   return res.json({ success: true, token, user: sanitizeUser(user) });
 };
 
 app.post('/api/auth/verify-otp', handleVerifyOtpRoute);
 app.post('/api/stockist/auth/verify-otp', handleVerifyOtpRoute);
+
+app.get('/api/auth/me', async (req, res) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'No token provided' });
+  }
+  const token = authHeader.split(' ')[1];
+  if (!token) return res.status(401).json({ error: 'Empty token' });
+
+  let decoded;
+  try {
+    decoded = sessionHelper.verifySession(token);
+  } catch (err) {
+    return res.status(401).json({ error: 'Invalid or expired token' });
+  }
+
+  const users = await db.getTable('users');
+  const user = users.find(u => u.id === decoded.userId);
+
+  if (!user) {
+    return res.status(401).json({ error: 'User not found' });
+  }
+
+  if (user.is_active === false) {
+    return res.status(401).json({ error: 'Account is deactivated' });
+  }
+
+  if (user.role === 'STOCKIST') {
+    const gate = stockistKycGate(user);
+    if (gate.blocked) {
+      return res.status(401).json({ error: gate.body.error || 'Stockist not approved' });
+    }
+  }
+
+  const newToken = sessionHelper.signSession(user.id, user.role);
+  return res.json({ success: true, token: newToken, user: sanitizeUser(user) });
+});
 
 
 
@@ -2790,6 +2827,172 @@ app.get('/api/admin/payment-ledger', async (req, res) => {
   const ledger = await db.getTable('payment_ledger');
   const filtered = orderId ? ledger.filter(e => e.order_id === orderId) : ledger;
   return res.json(filtered.reverse());
+});
+
+// GET /api/admin/payouts - Unified payout queue
+app.get('/api/admin/payouts', async (req, res) => {
+  const authHeader = req.headers.authorization || '';
+  const token = authHeader.replace('Bearer ', '');
+  const decoded = verifySession(token);
+  if (!decoded || !decoded.user_id) return res.status(401).json({ error: 'Unauthorized' });
+  const users = await db.getTable('users');
+  const user = users.find(u => u.id === decoded.user_id);
+  if (!user || user.role !== 'ADMIN') return res.status(403).json({ error: 'Forbidden' });
+
+  const splitPayouts = await db.getTable('split_payouts');
+  const codCommLedger = await db.getTable('cod_commission_ledger');
+  const stockistCodComm = await db.getTable('stockist_cod_commissions');
+  const stockists = await db.getTable('stockists');
+  
+  const payouts = [];
+  
+  for (const sp of splitPayouts) {
+    payouts.push({
+      id: sp.id,
+      source: 'split_payouts',
+      order_id: sp.order_id,
+      stockist_id: sp.stockist_id,
+      stockist_name: stockists.find(s => s.id === sp.stockist_id)?.name || 'Unknown',
+      amount: parseFloat(sp.stockist_amount),
+      type: 'ORDER_SPLIT',
+      is_paid: !!sp.is_paid,
+      created_at: sp.created_at,
+      paid_at: sp.paid_at,
+      payment_reference: sp.payment_reference
+    });
+  }
+  
+  for (const cc of codCommLedger) {
+    payouts.push({
+      id: cc.id,
+      source: 'cod_commission_ledger',
+      order_id: cc.order_id,
+      stockist_id: cc.stockist_id,
+      stockist_name: stockists.find(s => s.id === cc.stockist_id)?.name || 'Unknown',
+      amount: parseFloat(cc.amount_owed),
+      type: 'COD_COMMISSION',
+      is_paid: !!cc.settled,
+      created_at: cc.created_at,
+      paid_at: cc.settled_at,
+      payment_reference: cc.payment_reference
+    });
+  }
+  
+  for (const scc of stockistCodComm) {
+    payouts.push({
+      id: scc.id,
+      source: 'stockist_cod_commissions',
+      order_id: null,
+      stockist_id: scc.stockist_id,
+      stockist_name: stockists.find(s => s.id === scc.stockist_id)?.name || 'Unknown',
+      amount: parseFloat(scc.commission_amount),
+      type: 'COD_COMMISSION_MONTHLY',
+      is_paid: !!scc.is_paid,
+      created_at: scc.date,
+      paid_at: scc.paid_at,
+      payment_reference: scc.payment_reference
+    });
+  }
+  
+  return res.json(payouts);
+});
+
+// POST /api/admin/payouts/mark-paid
+app.post('/api/admin/payouts/mark-paid', async (req, res) => {
+  const authHeader = req.headers.authorization || '';
+  const token = authHeader.replace('Bearer ', '');
+  const decoded = verifySession(token);
+  if (!decoded || !decoded.user_id) return res.status(401).json({ error: 'Unauthorized' });
+  const users = await db.getTable('users');
+  const user = users.find(u => u.id === decoded.user_id);
+  if (!user || user.role !== 'ADMIN') return res.status(403).json({ error: 'Forbidden' });
+
+  const { payouts, payment_reference } = req.body;
+  if (!payment_reference || payment_reference.length < 4) {
+    return res.status(400).json({ error: 'Valid payment reference (min 4 chars) is required' });
+  }
+  if (!Array.isArray(payouts) || payouts.length === 0) {
+    return res.status(400).json({ error: 'No payouts selected' });
+  }
+
+  const splitPayouts = await db.getTable('split_payouts');
+  const codCommLedger = await db.getTable('cod_commission_ledger');
+  const stockistCodComm = await db.getTable('stockist_cod_commissions');
+  const auditLogs = await db.getTable('admin_audit_log');
+  
+  let modifiedSplit = false;
+  let modifiedCodLedger = false;
+  let modifiedStockistCod = false;
+  let modifiedAudit = false;
+  const now = new Date().toISOString();
+
+  for (const p of payouts) {
+    if (p.source === 'split_payouts') {
+      const sp = splitPayouts.find(s => s.id === p.id);
+      if (sp && !sp.is_paid) {
+        sp.is_paid = true;
+        sp.paid_at = now;
+        sp.paid_by_admin_id = user.id;
+        sp.payment_reference = payment_reference;
+        modifiedSplit = true;
+        modifiedAudit = true;
+        auditLogs.push({
+          id: 'aud-' + generateId(),
+          admin_user_id: user.id,
+          entity_type: 'PAYOUT',
+          entity_id: sp.id,
+          action: 'MARK_PAYOUT_PAID',
+          metadata: { amount: sp.stockist_amount, payment_reference },
+          created_at: now
+        });
+      }
+    } else if (p.source === 'cod_commission_ledger') {
+      const cc = codCommLedger.find(c => c.id === p.id);
+      if (cc && !cc.settled) {
+        cc.settled = true;
+        cc.settled_at = now;
+        cc.settled_by_admin_id = user.id;
+        cc.payment_reference = payment_reference;
+        modifiedCodLedger = true;
+        modifiedAudit = true;
+        auditLogs.push({
+          id: 'aud-' + generateId(),
+          admin_user_id: user.id,
+          entity_type: 'PAYOUT',
+          entity_id: cc.id,
+          action: 'MARK_PAYOUT_PAID',
+          metadata: { amount: cc.amount_owed, payment_reference },
+          created_at: now
+        });
+      }
+    } else if (p.source === 'stockist_cod_commissions') {
+      const scc = stockistCodComm.find(s => s.id === p.id);
+      if (scc && !scc.is_paid) {
+        scc.is_paid = true;
+        scc.paid_at = now;
+        scc.paid_by_admin = user.id;
+        scc.payment_reference = payment_reference;
+        modifiedStockistCod = true;
+        modifiedAudit = true;
+        auditLogs.push({
+          id: 'aud-' + generateId(),
+          admin_user_id: user.id,
+          entity_type: 'PAYOUT',
+          entity_id: scc.id,
+          action: 'MARK_PAYOUT_PAID',
+          metadata: { amount: scc.commission_amount, payment_reference },
+          created_at: now
+        });
+      }
+    }
+  }
+
+  if (modifiedSplit) await db.saveTable('split_payouts', splitPayouts);
+  if (modifiedCodLedger) await db.saveTable('cod_commission_ledger', codCommLedger);
+  if (modifiedStockistCod) await db.saveTable('stockist_cod_commissions', stockistCodComm);
+  if (modifiedAudit) await db.saveTable('admin_audit_log', auditLogs);
+
+  return res.json({ success: true });
 });
 
 // ----------------------------------------------------
@@ -5190,10 +5393,13 @@ app.get('/api/partner/auth/session', async (req, res) => {
 
 // 4.1 POST /api/admin/partners
 app.post('/api/admin/partners', async (req, res) => {
-  const { legal_name, display_name, contact_phone, contact_email, address, service_types, admin_id, gst_number } = req.body;
+  let { legal_name, display_name, contact_phone, contact_email, address, service_types, admin_id, gst_number } = req.body;
   if (!legal_name || !display_name || !contact_phone || !service_types || !Array.isArray(service_types) || service_types.length === 0) {
     return res.status(400).json({ error: 'Missing required partner fields' });
   }
+  const validPhone = checkPhone(contact_phone, res);
+  if (!validPhone) return;
+  contact_phone = validPhone;
   if (!service_types.every(st => ALLOWED_SERVICE_TYPES.includes(st))) {
     return res.status(400).json({ error: 'Invalid service_types enum' });
   }
@@ -7176,7 +7382,12 @@ app.patch('/api/partner/me', async (req, res) => {
     }
   }
 
-  const { display_name, contact_phone, contact_email, address, confirm_phone_change } = req.body;
+  let { display_name, contact_phone, contact_email, address, confirm_phone_change } = req.body;
+  if (contact_phone !== undefined) {
+    const validPhone = checkPhone(contact_phone, res);
+    if (!validPhone) return;
+    contact_phone = validPhone;
+  }
   const partners = await db.getTable('partners');
   const users = await db.getTable('users');
 
