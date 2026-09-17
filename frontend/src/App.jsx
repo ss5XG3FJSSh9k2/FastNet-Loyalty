@@ -3771,8 +3771,9 @@ export default function App() {
           'Remove Account',
           msg,
           async () => {
+            let delRes, delData;
             try {
-              const delRes = await fetch(`${API_BASE}/admin/users/${userId}/account`, {
+              delRes = await fetch(`${API_BASE}/admin/users/${userId}/account`, {
                 method: 'DELETE',
                 headers: {
                   'Authorization': `Bearer ${localStorage.getItem('token') || ''}`,
@@ -3780,16 +3781,19 @@ export default function App() {
                   'x-admin-id': adminId
                 }
               });
-              const delData = await delRes.json().catch(() => ({}));
-              if (delRes.ok) {
-                showToast(`Account successfully ${delData.action?.toLowerCase() || 'removed'}.`);
-                fetchDbState();
-                setAdminRejectedList(prev => prev.filter(u => (u.user_id || u.id) !== userId));
-              } else {
-                showToast(delData.error || 'Failed to remove account', 'error');
-              }
+              delData = await delRes.json().catch(() => ({}));
             } catch (e) {
+              console.error(e);
               showToast('Server error removing account', 'error');
+              return;
+            }
+
+            if (delRes.ok) {
+              showToast(`Account successfully ${delData.action?.toLowerCase() || 'removed'}.`);
+              fetchDbState();
+              setBlacklistedUsers(prev => prev.filter(u => (u.user_id || u.id) !== userId));
+            } else {
+              showToast(delData.error || 'Failed to remove account', 'error');
             }
           }
         );
