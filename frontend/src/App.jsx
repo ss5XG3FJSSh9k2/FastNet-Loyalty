@@ -426,7 +426,7 @@ export default function App() {
   const [adminTab, setAdminTab] = useState('home');
   const [showAdvanced, setShowAdvanced] = useState(false);
 
-  const ADVANCED_TABS = ['vendors','regions','bill_photos','audit_log','feedback','anomalies'];
+  const ADVANCED_TABS = ['vendors','regions','bill_photos','feedback','anomalies'];
 
   const [tabLastSeen, setTabLastSeen] = useState(() => {
     try { return JSON.parse(localStorage.getItem('adminTabLastSeen') || '{}'); }
@@ -9782,14 +9782,13 @@ export default function App() {
                     </button>
                     <button className={`admin-nav-item ${adminTab === 'bill_photos' ? 'active' : ''}`} onClick={() => { handleSetAdminTab('bill_photos'); fetchAdminBillPhotos(); }}>
                       <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                        <FileText size={16} /> Bill Photos {adminBillPhotos.filter(b => b.flag_status === 'FLAGGED').length > 0 && <span className="badge badge-warning" style={{ marginLeft: '0.25rem', fontSize: '0.65rem' }}>{adminBillPhotos.filter(b => b.flag_status === 'FLAGGED').length}</span>}
+                        <FileText size={16} /> Bill Photos ({adminBillPhotos.length}) {adminBillPhotos.filter(b => b.flag_status === 'FLAGGED').length > 0 && <span className="badge badge-warning" style={{ marginLeft: '0.25rem', fontSize: '0.65rem' }}>{adminBillPhotos.filter(b => b.flag_status === 'FLAGGED').length}</span>}
                         {isUnread('bill_photos') && <span className="unread-dot" aria-label="Unread bill photos" />}
                       </span>
                     </button>
                     <button className={`admin-nav-item ${adminTab === 'audit_log' ? 'active' : ''}`} onClick={() => handleSetAdminTab('audit_log')}>
                       <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                         <FileText size={16} /> Audit Log
-                        {isUnread('audit_log') && <span className="unread-dot" aria-label="Unread audit logs" />}
                       </span>
                     </button>
                     <button className={`admin-nav-item ${adminTab === 'feedback' ? 'active' : ''}`} onClick={() => handleSetAdminTab('feedback')}>
@@ -12555,7 +12554,7 @@ export default function App() {
   };
 
   const isUnread = (tab) => {
-    if (tab === 'analytics' || tab === 'health') return false;
+    if (tab === 'analytics' || tab === 'health' || tab === 'audit_log') return false;
     const rows = getTabRows(tab);
     const newest = newestTs(rows, 'created_at');
     if (!newest) return false;

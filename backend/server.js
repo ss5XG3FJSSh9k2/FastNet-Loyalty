@@ -1353,6 +1353,7 @@ app.get('/api/admin/bill-photos', async (req, res) => {
     const s = stockists.find(st => st.id === b.stockist_id);
     return {
       ...b,
+      created_at: b.uploaded_at,
       product_name: p ? p.name : 'Unknown Product',
       stockist_name: s ? s.name : 'Unknown Stockist'
     };
