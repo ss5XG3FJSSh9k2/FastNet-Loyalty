@@ -58,6 +58,7 @@ CREATE TABLE stockists (
     vendor_id UUID REFERENCES vendors(id) ON DELETE SET NULL,
     delivery_radius_km DECIMAL(5,2) NOT NULL DEFAULT 5.00,
     min_order_value DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+    verified_bill_streak INTEGER DEFAULT 0,
     is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -138,6 +139,7 @@ CREATE TABLE points_ledger (
     amount DECIMAL(10,2) NOT NULL, -- Positive for EARN, negative for REDEEM
     type points_type NOT NULL,
     order_id UUID REFERENCES orders(id) ON DELETE SET NULL,
+    reference_id UUID,
     description TEXT NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -151,6 +153,7 @@ CREATE TABLE commission_rates (
     region_id UUID NOT NULL REFERENCES regions(id) ON DELETE CASCADE,
     category VARCHAR(100) NOT NULL,
     rate_percent DECIMAL(5,2) NOT NULL DEFAULT 10.00,
+    margin_threshold_percent NUMERIC(5,2) NOT NULL DEFAULT 50.00,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(tenant_id, region_id, category)
 );

@@ -11468,8 +11468,8 @@ export default function App() {
                         <th>Uploaded Date</th>
                         <th>Stockist</th>
                         <th>Product</th>
-                        <th>Selling Price</th>
-                        <th>Cost Price</th>
+                        <th>Pricing & Margin</th>
+                        <th>Held Points</th>
                         <th>Status</th>
                         <th>Preview</th>
                         <th>Actions</th>
@@ -11484,12 +11484,21 @@ export default function App() {
                             <td style={{ fontSize: '0.75rem' }}>{formatBillDate(b.uploaded_at || b.created_at)}</td>
                             <td style={{ fontWeight: 'bold' }}>{b.stockist_name || b.stockist_id}</td>
                             <td>{b.product_name || b.product_id}</td>
-                            <td style={{ fontWeight: 'bold' }}>{formatBillPrice(b.selling_price_at_upload ?? b.declared_price)}</td>
-                            <td style={{ color: 'var(--text-muted)' }}>{formatBillPrice(b.cost_price_at_upload ?? b.declared_cost_price)}</td>
                             <td>
-                              <span className={`badge ${b.flag_status === 'FLAGGED' ? 'badge-danger' : b.flag_status === 'RESOLVED' ? 'badge-primary' : 'badge-success'}`}>
-                                {b.flag_status}
+                              <div style={{ fontWeight: 'bold' }}>S: {formatBillPrice(b.selling_price_at_upload ?? b.declared_price)} / C: {formatBillPrice(b.cost_price_at_upload ?? b.declared_cost_price)}</div>
+                              <div style={{ fontSize: '0.7rem', color: (b.margin_pct > b.margin_threshold) ? 'var(--warning)' : 'var(--text-muted)' }}>Margin: {b.margin_pct ? b.margin_pct.toFixed(1) : 0}% (Max {b.margin_threshold ? b.margin_threshold.toFixed(1) : 50}%)</div>
+                            </td>
+                            <td>
+                              {b.held_points > 0 ? (
+                                <div style={{ color: 'var(--warning)', fontWeight: 'bold' }}>{formatPoints(b.held_points)}</div>
+                              ) : <div style={{ color: 'var(--text-muted)' }}>0</div>}
+                              {b.affected_orders > 0 && <div style={{ fontSize: '0.65rem' }}>{b.affected_orders} order(s)</div>}
+                            </td>
+                            <td>
+                              <span className={`badge ${b.bill_status === 'REJECTED' || b.flag_status === 'FLAGGED' ? 'badge-danger' : b.bill_status === 'VERIFIED' ? 'badge-success' : 'badge-warning'}`}>
+                                {b.bill_status || 'PENDING'}
                               </span>
+                              {b.flag_status === 'FLAGGED' && <span className="badge badge-danger" style={{ display: 'block', marginTop: '0.2rem', fontSize: '0.55rem' }}>FLAGGED</span>}
                             </td>
                             <td>
                               {billImgErrors[b.id] ? (
@@ -11505,15 +11514,25 @@ export default function App() {
                               )}
                             </td>
                             <td>
-                              <div style={{ display: 'flex', gap: '0.35rem' }}>
+                              <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+                                {(b.bill_status === 'PENDING' || !b.bill_status) && (
+                                  <>
+                                    <button className="btn btn-success" style={{ fontSize: '0.65rem', padding: '0.2rem 0.4rem' }} onClick={() => handleVerifyBill(b)}>
+                                      Verify
+                                    </button>
+                                    <button className="btn btn-danger" style={{ fontSize: '0.65rem', padding: '0.2rem 0.4rem' }} onClick={() => { setRejectingBill(b); setRejectReasonText(''); setShowRejectBillModal(true); }}>
+                                      Reject
+                                    </button>
+                                  </>
+                                )}
                                 {b.flag_status !== 'FLAGGED' && (
                                   <button className="btn btn-warning" style={{ fontSize: '0.65rem', padding: '0.2rem 0.4rem' }} onClick={() => { setFlaggingBill(b); setFlagReasonText(''); setShowFlagBillModal(true); }}>
                                     Flag Bill
                                   </button>
                                 )}
                                 {b.flag_status === 'FLAGGED' && (
-                                  <button className="btn btn-success" style={{ fontSize: '0.65rem', padding: '0.2rem 0.4rem' }} onClick={() => { setUnflaggingBill(b); setShowUnflagBillModal(true); }}>
-                                    Mark Resolved
+                                  <button className="btn btn-primary" style={{ fontSize: '0.65rem', padding: '0.2rem 0.4rem' }} onClick={() => { setUnflaggingBill(b); setShowUnflagBillModal(true); }}>
+                                    Unflag
                                   </button>
                                 )}
                                 <button className="btn btn-secondary" style={{ fontSize: '0.65rem', padding: '0.2rem 0.4rem' }} onClick={() => handleViewSignedUrl(b)}>

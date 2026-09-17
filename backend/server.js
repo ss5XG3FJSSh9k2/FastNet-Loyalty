@@ -1129,6 +1129,17 @@ const handleCreateProductRoute = async (req, res) => {
     }
   }
 
+  const commissionRates = await db.getTable('commission_rates');
+  const catConfig = commissionRates.find(c => c.category === category);
+  const marginThreshold = catConfig && catConfig.margin_threshold_percent !== undefined ? parseFloat(catConfig.margin_threshold_percent) : 50.00;
+  const marginPct = parsedPrice > 0 ? ((parsedPrice - parsedCostPrice) / parsedPrice) * 100 : 0;
+  let flagStatus = marginPct > marginThreshold ? 'IMPLAUSIBLE_MARGIN' : 'CLEAN';
+
+  const stockists = await db.getTable('stockists');
+  const stockist = stockists.find(s => s.id === stockistId);
+  const streak = stockist ? (stockist.verified_bill_streak || 0) : 0;
+  let billStatus = (streak >= 5 && flagStatus !== 'IMPLAUSIBLE_MARGIN') ? 'VERIFIED' : 'PENDING';
+
   const billPhotos = await db.getTable('product_bill_photos');
   const billPhotoId = 'pbp-' + generateId();
   const productId = 'p-' + generateId();
@@ -1143,7 +1154,8 @@ const handleCreateProductRoute = async (req, res) => {
     cost_price_at_upload: parsedCostPrice,
     file_size_bytes: req.file ? req.file.size : 0,
     content_type: req.file ? req.file.mimetype : 'image/jpeg',
-    flag_status: 'CLEAN',
+    flag_status: flagStatus,
+    bill_status: billStatus,
     flag_reason: null,
     flagged_by_admin_id: null,
     flagged_at: null,
@@ -1181,7 +1193,7 @@ const handleCreateProductRoute = async (req, res) => {
     description: description || (name + ' added by local stockist'),
     image_url: finalImageUrl || 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=200&auto=format&fit=crop&q=60',
     latest_bill_photo_id: billPhotoId,
-    has_flagged_bill: false,
+    has_flagged_bill: flagStatus === 'IMPLAUSIBLE_MARGIN',
     created_at: new Date().toISOString()
   };
 
@@ -1276,6 +1288,18 @@ app.patch('/api/products/:id', uploadBillMiddleware, async (req, res) => {
       return res.status(500).json({ error: 'upload_failed', message: uploadErr.message });
     }
 
+    const prodCategory = req.body.category !== undefined ? req.body.category : product.category;
+    const commissionRates = await db.getTable('commission_rates');
+    const catConfig = commissionRates.find(c => c.category === prodCategory);
+    const marginThreshold = catConfig && catConfig.margin_threshold_percent !== undefined ? parseFloat(catConfig.margin_threshold_percent) : 50.00;
+    const marginPct = newPrice > 0 ? ((newPrice - newCostPrice) / newPrice) * 100 : 0;
+    let flagStatus = marginPct > marginThreshold ? 'IMPLAUSIBLE_MARGIN' : 'CLEAN';
+
+    const stockists = await db.getTable('stockists');
+    const stockist = stockists.find(s => s.id === stockistId);
+    const streak = stockist ? (stockist.verified_bill_streak || 0) : 0;
+    let billStatus = (streak >= 5 && flagStatus !== 'IMPLAUSIBLE_MARGIN') ? 'VERIFIED' : 'PENDING';
+
     const billPhotos = await db.getTable('product_bill_photos');
     billPhotoRow = {
       id: 'pbp-' + generateId(),
@@ -1287,7 +1311,8 @@ app.patch('/api/products/:id', uploadBillMiddleware, async (req, res) => {
       cost_price_at_upload: newCostPrice,
       file_size_bytes: req.file.size,
       content_type: req.file.mimetype,
-      flag_status: 'CLEAN',
+      flag_status: flagStatus,
+      bill_status: billStatus,
       flag_reason: null,
       flagged_by_admin_id: null,
       flagged_at: null,
@@ -1299,6 +1324,7 @@ app.patch('/api/products/:id', uploadBillMiddleware, async (req, res) => {
     await db.saveTable('product_bill_photos', billPhotos);
 
     product.latest_bill_photo_id = billPhotoRow.id;
+    product.has_flagged_bill = flagStatus === 'IMPLAUSIBLE_MARGIN';
   }
 
   if (req.body.name !== undefined) product.name = req.body.name;
@@ -1346,29 +1372,65 @@ app.get('/api/admin/bill-photos', async (req, res) => {
     billPhotos = billPhotos.filter(b => new Date(b.uploaded_at).getTime() <= toTime);
   }
 
-  billPhotos.sort((a, b) => new Date(b.uploaded_at) - new Date(a.uploaded_at));
-
   const pageSize = 50;
   const pageNum = parseInt(page, 10) || 1;
   const startIndex = (pageNum - 1) * pageSize;
-  const paginated = billPhotos.slice(startIndex, startIndex + pageSize);
 
-  const enriched = paginated.map(b => {
+  const ledger = await db.getTable('points_ledger');
+  const orderItems = await db.getTable('order_items');
+  const commissionRates = await db.getTable('commission_rates');
+
+  const enrichedList = billPhotos.map(b => {
     const p = products.find(prod => prod.id === b.product_id);
     const s = stockists.find(st => st.id === b.stockist_id);
+
+    const sp = b.selling_price_at_upload || (p ? p.price : 0);
+    const cp = b.cost_price_at_upload || (p ? p.cost_price : 0);
+    const marginPct = sp > 0 ? ((sp - cp) / sp) * 100 : 0;
+
+    const cat = p ? p.category : 'groceries';
+    const catConfig = commissionRates.find(c => c.category === cat);
+    const marginThreshold = catConfig && catConfig.margin_threshold_percent !== undefined ? parseFloat(catConfig.margin_threshold_percent) : 50.00;
+
+    let heldPoints = 0;
+    let affectedOrdersCount = 0;
+    if (b.bill_status === 'PENDING') {
+      const heldRows = ledger.filter(l => l.type === 'EARN_HELD' && l.billing_sync_status === 'HELD');
+      for (const hr of heldRows) {
+        const items = orderItems.filter(oi => oi.order_id === hr.order_id);
+        if (items.some(oi => oi.product_id === b.product_id)) {
+          heldPoints += parseFloat(hr.amount);
+          affectedOrdersCount++;
+        }
+      }
+    }
+
     return {
       ...b,
       created_at: b.uploaded_at,
       product_name: p ? p.name : 'Unknown Product',
-      stockist_name: s ? s.name : 'Unknown Stockist'
+      stockist_name: s ? s.name : 'Unknown Stockist',
+      margin_pct: marginPct,
+      margin_threshold: marginThreshold,
+      held_points: heldPoints,
+      affected_orders: affectedOrdersCount
     };
   });
 
+  enrichedList.sort((a, b) => {
+    if (a.bill_status === 'PENDING' && b.bill_status !== 'PENDING') return -1;
+    if (b.bill_status === 'PENDING' && a.bill_status !== 'PENDING') return 1;
+    if (b.held_points !== a.held_points) return b.held_points - a.held_points;
+    return new Date(b.uploaded_at) - new Date(a.uploaded_at);
+  });
+
+  const paginated = enrichedList.slice(startIndex, startIndex + pageSize);
+
   return res.json({
-    total: billPhotos.length,
+    total: enrichedList.length,
     page: pageNum,
     page_size: pageSize,
-    data: enriched
+    data: paginated
   });
 });
 
@@ -1427,6 +1489,128 @@ app.post('/api/admin/bill-photos/:id/unflag', async (req, res) => {
   await appendAudit(req, 'BILL_PHOTO_UNFLAG', 'product_bill_photos', id, beforeState, 'RESOLVED', 'Admin resolved flag');
 
   return res.json({ success: true, bill, product });
+});
+
+// POST /api/admin/bill-photos/:id/verify
+app.post('/api/admin/bill-photos/:id/verify', async (req, res) => {
+  const { id } = req.params;
+  const billPhotos = await db.getTable('product_bill_photos');
+  const bill = billPhotos.find(b => b.id === id);
+  if (!bill) return res.status(404).json({ error: 'Bill photo not found' });
+
+  bill.bill_status = 'VERIFIED';
+  await db.saveTable('product_bill_photos', billPhotos);
+
+  const stockists = await db.getTable('stockists');
+  const stockist = stockists.find(s => s.id === bill.stockist_id);
+  if (stockist) {
+    stockist.verified_bill_streak = (stockist.verified_bill_streak || 0) + 1;
+    await db.saveTable('stockists', stockists);
+  }
+
+  const ledger = await db.getTable('points_ledger');
+  const heldRows = ledger.filter(l => l.type === 'EARN_HELD' && l.billing_sync_status === 'HELD');
+  const orderItems = await db.getTable('order_items');
+  const products = await db.getTable('products');
+
+  for (const heldRow of heldRows) {
+    const items = orderItems.filter(oi => oi.order_id === heldRow.order_id);
+    const hasThisProduct = items.some(oi => oi.product_id === bill.product_id);
+    if (!hasThisProduct) continue;
+
+    let allVerified = true;
+    for (const item of items) {
+      const p = products.find(prod => prod.id === item.product_id);
+      if (p && p.latest_bill_photo_id) {
+        const b = billPhotos.find(bp => bp.id === p.latest_bill_photo_id);
+        if (!b || b.bill_status === 'PENDING' || b.bill_status === 'REJECTED') {
+          allVerified = false;
+          break;
+        }
+      } else {
+        allVerified = false;
+        break;
+      }
+    }
+
+    if (allVerified) {
+      const alreadyReleased = ledger.some(l => l.reference_id === heldRow.id && (l.type === 'EARN' || l.type === 'EARN_VOID'));
+      if (!alreadyReleased) {
+        await db.insertRow('points_ledger', {
+          id: 'l-' + generateId(),
+          tenant_id: heldRow.tenant_id,
+          region_id: heldRow.region_id,
+          customer_id: heldRow.customer_id,
+          amount: heldRow.amount,
+          type: 'EARN',
+          order_id: heldRow.order_id,
+          description: heldRow.description + ' (Verified)',
+          created_at: new Date().toISOString(),
+          billing_sync_status: 'PENDING',
+          reference_id: heldRow.id
+        });
+      }
+    }
+  }
+
+  return res.json({ success: true, bill });
+});
+
+// POST /api/admin/bill-photos/:id/reject
+app.post('/api/admin/bill-photos/:id/reject', async (req, res) => {
+  const { id } = req.params;
+  const { reason } = req.body;
+  if (!reason || reason.trim().length < 5) {
+    return res.status(400).json({ error: 'reason_too_short', message: 'Reject reason must be at least 5 characters' });
+  }
+
+  const billPhotos = await db.getTable('product_bill_photos');
+  const bill = billPhotos.find(b => b.id === id);
+  if (!bill) return res.status(404).json({ error: 'Bill photo not found' });
+
+  bill.bill_status = 'REJECTED';
+  await db.saveTable('product_bill_photos', billPhotos);
+
+  const stockists = await db.getTable('stockists');
+  const stockist = stockists.find(s => s.id === bill.stockist_id);
+  if (stockist) {
+    stockist.verified_bill_streak = 0;
+    await db.saveTable('stockists', stockists);
+  }
+
+  const ledger = await db.getTable('points_ledger');
+  const heldRows = ledger.filter(l => l.type === 'EARN_HELD' && l.billing_sync_status === 'HELD');
+  const orderItems = await db.getTable('order_items');
+  const users = await db.getTable('users');
+
+  for (const heldRow of heldRows) {
+    const items = orderItems.filter(oi => oi.order_id === heldRow.order_id);
+    const hasThisProduct = items.some(oi => oi.product_id === bill.product_id);
+    if (!hasThisProduct) continue;
+
+    const alreadyVoided = ledger.some(l => l.reference_id === heldRow.id && (l.type === 'EARN' || l.type === 'EARN_VOID'));
+    if (!alreadyVoided) {
+      await db.insertRow('points_ledger', {
+        id: 'l-' + generateId(),
+        tenant_id: heldRow.tenant_id,
+        region_id: heldRow.region_id,
+        customer_id: heldRow.customer_id,
+        amount: heldRow.amount,
+        type: 'EARN_VOID',
+        order_id: heldRow.order_id,
+        description: `Points voided for Order #${heldRow.order_id.substring(2).toUpperCase()}: ${reason.trim()}`,
+        created_at: new Date().toISOString(),
+        billing_sync_status: 'VOIDED',
+        reference_id: heldRow.id
+      });
+      const customer = users.find(u => u.id === heldRow.customer_id);
+      if (customer && customer.phone) {
+        await smsHelper.sendSms(customer.phone, `FastNet: Your pending points for order ${heldRow.order_id.substring(2).toUpperCase()} could not be credited. Reason: ${reason.trim()}`);
+      }
+    }
+  }
+
+  return res.json({ success: true, bill });
 });
 
 // POST /api/admin/bill-photos/:id/signed-url
@@ -2519,7 +2703,7 @@ async function _sendOrderReadySms(order) {
 // Internal: credit points when order is delivered (idempotent)
 async function _creditPointsOnDelivery(order) {
   const ledger = await db.getTable('points_ledger');
-  const alreadyEarned = ledger.some(l => l.order_id === order.id && l.type === 'EARN');
+  const alreadyEarned = ledger.some(l => l.order_id === order.id && (l.type === 'EARN' || l.type === 'EARN_HELD'));
   if (alreadyEarned) return;
 
   if (!order.points_credited || order.points_credited === 0) return;
@@ -2527,17 +2711,41 @@ async function _creditPointsOnDelivery(order) {
   const stockists = await db.getTable('stockists');
   const stockist = stockists.find(s => s.id === order.stockist_id);
 
+  const orderItems = await db.getTable('order_items');
+  const items = orderItems.filter(oi => oi.order_id === order.id);
+  const products = await db.getTable('products');
+  const billPhotos = await db.getTable('product_bill_photos');
+
+  let hasUnverifiedBill = false;
+  for (const item of items) {
+    const product = products.find(p => p.id === item.product_id);
+    if (product && product.latest_bill_photo_id) {
+      const bill = billPhotos.find(b => b.id === product.latest_bill_photo_id);
+      if (!bill || bill.bill_status === 'PENDING' || bill.bill_status === 'REJECTED') {
+        hasUnverifiedBill = true;
+        break;
+      }
+    } else {
+      hasUnverifiedBill = true;
+      break;
+    }
+  }
+
+  const earnType = hasUnverifiedBill ? 'EARN_HELD' : 'EARN';
+  const syncStatus = hasUnverifiedBill ? 'HELD' : 'PENDING';
+
   await db.insertRow('points_ledger', {
     id: 'l-' + generateId(),
     tenant_id: order.tenant_id,
     region_id: order.region_id,
     customer_id: order.customer_id,
     amount: order.points_credited,
-    type: 'EARN',
+    type: earnType,
     order_id: order.id,
     description: `Earned from Order #${order.id.substring(2).toUpperCase()} at ${stockist ? stockist.name : 'Store'}`,
     created_at: new Date().toISOString(),
-    billing_sync_status: 'PENDING'
+    billing_sync_status: syncStatus,
+    reference_id: null
   });
 }
 
@@ -3027,8 +3235,19 @@ app.get('/api/ledger/balance/:customerId', async (req, res) => {
   const { customerId } = req.params;
   const ledger = await db.getTable('points_ledger');
   const customerLedger = ledger.filter(l => l.customer_id === customerId);
-  const balance = customerLedger.reduce((sum, item) => sum + parseFloat(item.amount), 0);
-  return res.json({ balance: Math.round(balance * 100) / 100 });
+  
+  const activeBalance = customerLedger
+    .filter(l => l.type !== 'EARN_HELD')
+    .reduce((sum, item) => sum + parseFloat(item.amount), 0);
+    
+  const heldBalance = customerLedger
+    .filter(l => l.type === 'EARN_HELD' && l.billing_sync_status === 'HELD')
+    .reduce((sum, item) => sum + parseFloat(item.amount), 0);
+
+  return res.json({ 
+    balance: Math.round(activeBalance * 100) / 100,
+    held_balance: Math.round(heldBalance * 100) / 100
+  });
 });
 
 app.get('/api/ledger/history/:customerId', async (req, res) => {
