@@ -1127,6 +1127,77 @@ export default function App() {
   // Stockist App State
   const [stockistProfile, setStockistProfile] = useState(null);
   const [stockistOrders, setStockistOrders] = useState([]);
+  const [unacknowledgedOrders, setUnacknowledgedOrders] = useState([]);
+  const knownOrderIds = useRef(new Set());
+  const isFirstOrderLoad = useRef(true);
+
+  const playChime = () => {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(880, ctx.currentTime);
+      gain.gain.setValueAtTime(0.1, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.5);
+    } catch(e) {}
+  };
+
+  useEffect(() => {
+    if (unacknowledgedOrders.length > 0) {
+      document.title = `(${unacknowledgedOrders.length}) FastNet — Stockist`;
+    } else {
+      document.title = 'FastNet';
+    }
+    return () => { document.title = 'FastNet'; };
+  }, [unacknowledgedOrders.length]);
+
+  useEffect(() => {
+    if (activeRole !== 'stockist' || !currentUser || currentUser.role !== 'STOCKIST') return;
+    
+    const poll = setInterval(async () => {
+      if (offlineMode) return;
+      if (!stockistProfile) return;
+      try {
+        const oRes = await fetch(`${API_BASE}/orders?stockistId=${stockistProfile.id}`);
+        if (!oRes.ok) return;
+        const oData = await oRes.json();
+        
+        if (isFirstOrderLoad.current) {
+          oData.forEach(o => knownOrderIds.current.add(o.id));
+          isFirstOrderLoad.current = false;
+          // Ensure we don't overwrite if they are actively fetching
+          return;
+        }
+        
+        const incoming = oData.filter(o => !knownOrderIds.current.has(o.id));
+        if (incoming.length > 0) {
+          incoming.forEach(o => knownOrderIds.current.add(o.id));
+          setStockistOrders(oData);
+          setUnacknowledgedOrders(prev => [...prev, ...incoming]);
+          playChime();
+        }
+      } catch(e) {}
+    }, 15000);
+    return () => clearInterval(poll);
+  }, [activeRole, currentUser, stockistProfile, offlineMode]);
+
+  const handleAcknowledgeOrders = async () => {
+    for (const o of unacknowledgedOrders) {
+      try {
+        await fetch(`${API_BASE}/orders/${o.id}/acknowledge`, {
+          method: 'PATCH',
+          headers: { 'X-User-Id': currentUser.id }
+        });
+      } catch(e) {}
+    }
+    setUnacknowledgedOrders([]);
+  };
+
   const [stockistProducts, setStockistProducts] = useState([]);
   const [offlineMode, setOfflineMode] = useState(() => {
     return localStorage.getItem('fastnet_offline_mode') === 'true';
