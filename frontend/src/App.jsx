@@ -1120,7 +1120,9 @@ export default function App() {
     });
   };
   const [stockistAnalytics, setStockistAnalytics] = useState(null);
-  const [stockistActiveTab, setStockistActiveTab] = useState('orders'); // orders | analytics | inventory
+  const [stockistActiveTab, setStockistActiveTab] = useState('orders'); // orders | analytics | inventory | settings
+  const [stockistSettings, setStockistSettings] = useState(null);
+  const [savingSettings, setSavingSettings] = useState(false);
 
   // Stockist App State
   const [stockistProfile, setStockistProfile] = useState(null);
@@ -1423,6 +1425,7 @@ export default function App() {
           if (pRes.ok) {
             const pData = await pRes.json().catch(() => ({}));
             setStockistProfile(pData);
+      setStockistSettings(pData);
             const oRes = await fetch(`${API_BASE}/orders?stockistId=${pData.id}`);
             const oData = await oRes.json().catch(() => ({}));
             setStockistOrders(oData);
@@ -9385,7 +9388,7 @@ export default function App() {
                     </div>
                   </div>
 
-                  <button className="btn btn-danger" style={{ width: '100%', marginTop: 'auto', fontSize: '0.8rem', minHeight: '36px', height: '36px' }} onClick={handleLogout}>Log Out</button>
+                  
 
                   {/* Stockist-Side Rate Customer Modal Overlay */}
                   {submittingFeedbackOrder && currentUser.role === 'STOCKIST' && (
