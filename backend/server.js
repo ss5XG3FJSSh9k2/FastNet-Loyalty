@@ -1,4 +1,5 @@
 const express = require('express');
+require('express-async-errors');
 const cors = require('cors');
 const db = require('./db');
 const cfg = require('./config');
@@ -8414,6 +8415,19 @@ async function reportMalformedPhones() {
 
   console.log(`[Diagnostic] Malformed phones found: Users(ADMIN: ${adminCount}, CUSTOMER: ${customerCount}, STOCKIST: ${stockistCount}), PartnerLeads(${partnerLeadCount})`);
 }
+
+app.use((err, req, res, next) => {
+  console.error('[Unhandled]', req.method, req.originalUrl, err);
+  if (res.headersSent) return next(err);
+  res.status(500).json({ error: 'internal_error', message: 'Something went wrong. Please try again.' });
+});
+
+process.on('unhandledRejection', (reason, p) => {
+  console.error('[unhandledRejection]', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[uncaughtException]', err);
+});
 
 // Start Server
 const PORT = process.env.PORT || 3001;

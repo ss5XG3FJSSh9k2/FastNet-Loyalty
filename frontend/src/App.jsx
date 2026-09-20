@@ -306,7 +306,7 @@ export default function App() {
     try {
       const res = await fetch(`${API_BASE}/setup/status`);
       if (res.ok) {
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         setNeedsSetup(data.needs_setup);
       }
     } catch (err) {
@@ -337,7 +337,7 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: setupName.trim(), phone: setupPhone.trim() })
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setSetupError(data.error || 'Failed to create administrator account.');
       } else {
@@ -901,7 +901,7 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       logApi('POST', '/feedback', payload, res.status, data);
       if (res.ok) {
         showToast(t('Review submitted!', 'समीक्षा प्रस्तुत की गई!', 'পর্যালোচনা জমা দেওয়া হয়েছে!'));
@@ -929,11 +929,11 @@ export default function App() {
               'Content-Type': 'application/json'
             }
           });
-          const data = await res.json();
+          const data = await res.json().catch(() => ({}));
           if (res.ok) {
             showToast(t('Rate limits cleared', 'दर सीमाएँ साफ़ कर दी गईं', 'রেট সীমা মুছে ফেলা হয়েছে'), 'success');
           } else {
-            showToast(data.error || 'Failed to clear rate limits', 'error');
+            showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
           }
         } catch (err) {
           showToast('Network error clearing rate limits', 'error');
@@ -994,7 +994,7 @@ export default function App() {
         setFlagClearData(null);
         setFlagClearNote('');
       } else {
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         alert(data.error || 'Failed to clear flag');
       }
     } catch (e) {
@@ -1147,7 +1147,7 @@ export default function App() {
     try {
       const res = await adminFetch('/admin/payouts');
       if (res.ok) {
-        setAdminPayouts(await res.json());
+        setAdminPayouts(await res.json().catch(() => ({})));
       }
     } catch (e) {
       console.error('Error fetching payouts', e);
@@ -1175,8 +1175,8 @@ export default function App() {
         setSelectedPayoutIds([]);
         fetchAdminPayouts();
       } else {
-        const data = await res.json();
-        showToast(data.error || 'Failed to mark paid', 'error');
+        const data = await res.json().catch(() => ({}));
+        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
     } catch (e) {
       console.error(e);
@@ -1188,7 +1188,7 @@ export default function App() {
     try {
       const res = await adminFetch(`/admin/vendors${includeInactive ? '?include_inactive=true' : ''}`);
       if (res.ok) {
-        setVendors(await res.json());
+        setVendors(await res.json().catch(() => ({})));
       }
     } catch (e) {
       console.error(e);
@@ -1370,7 +1370,7 @@ export default function App() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ phone: '9876543210', otp: '123456' })
         });
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         if (res.ok) {
           persistSession(data.user, data.token);
           setSelectedRegionId(data.user.region_id);
@@ -1378,12 +1378,12 @@ export default function App() {
           setActiveRole('customer');
           
           const sRes = await fetch(`${API_BASE}/stockists?regionId=${data.user.region_id}`);
-          const sData = await sRes.json();
+          const sData = await sRes.json().catch(() => ({}));
           setCustomerStockists(sData);
           if (sData.length > 0) {
             setSelectedStockist(sData[0]);
             const pRes = await fetch(`${API_BASE}/products?regionId=${data.user.region_id}&stockistId=${sData[0].id}`);
-            const pData = await pRes.json();
+            const pData = await pRes.json().catch(() => ({}));
             setCustomerProducts(pData);
             
             // Auto add Potato x3 (₹90) + Onion x2 (₹90) + Dal x2 (₹120) = ₹300 (exceeds ₹200 min order)
@@ -1406,7 +1406,7 @@ export default function App() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ phone: '7654321098', otp: '123456' })
         });
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         if (res.ok) {
           persistSession(data.user, data.token);
           setSelectedRegionId(data.user.region_id);
@@ -1414,10 +1414,10 @@ export default function App() {
           
           const pRes = await fetch(`${API_BASE}/stockists/by-user/${data.user.id}`);
           if (pRes.ok) {
-            const pData = await pRes.json();
+            const pData = await pRes.json().catch(() => ({}));
             setStockistProfile(pData);
             const oRes = await fetch(`${API_BASE}/orders?stockistId=${pData.id}`);
-            const oData = await oRes.json();
+            const oData = await oRes.json().catch(() => ({}));
             setStockistOrders(oData);
             
             // Cycle latest order straight to DELIVERED
@@ -1431,7 +1431,7 @@ export default function App() {
               showToast("Accepted & delivered! Payment has been split.", "success");
               // Reload
               const oRes2 = await fetch(`${API_BASE}/orders?stockistId=${pData.id}`);
-              const oData2 = await oRes2.json();
+              const oData2 = await oRes2.json().catch(() => ({}));
               setStockistOrders(oData2);
             }
           }
@@ -1444,7 +1444,7 @@ export default function App() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ phone: '9876543210', otp: '123456' })
         });
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         if (res.ok) {
           persistSession(data.user, data.token);
           setSelectedRegionId(data.user.region_id);
@@ -1452,7 +1452,7 @@ export default function App() {
           setActiveRole('customer');
           
           const bRes = await fetch(`${API_BASE}/ledger/balance/${data.user.id}`);
-          const bData = await bRes.json();
+          const bData = await bRes.json().catch(() => ({}));
           setCustomerBalance(bData.balance);
           
           const redeemValue = bData.balance > 0 ? bData.balance : 45.00;
@@ -1466,7 +1466,7 @@ export default function App() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ phone: '9999999999', otp: '123456' })
         });
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         if (res.ok) {
           persistSession(data.user, data.token);
           setSelectedRegionId(data.user.region_id);
@@ -1474,7 +1474,7 @@ export default function App() {
           setAdminTab('redemptions');
           
           const redRes = await fetch(`${API_BASE}/admin/redemptions`);
-          const red = await redRes.json();
+          const red = await redRes.json().catch(() => ({}));
           setPendingRedemptions(red);
           
           const pendingRed = red.find(r => r.billing_sync_status !== 'SYNCED');
@@ -1486,7 +1486,7 @@ export default function App() {
             });
             showToast("Bill discount synchronized with CRM Billing System!", "success");
             const redRes2 = await fetch(`${API_BASE}/admin/redemptions`);
-            const red2 = await redRes2.json();
+            const red2 = await redRes2.json().catch(() => ({}));
             setPendingRedemptions(red2);
           }
           setTourCompleted(true);
@@ -1545,7 +1545,7 @@ export default function App() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ phone: '9830012345', otp: '123456' })
         });
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         if (res.ok) {
           persistSession(data.user, data.token);
           setSelectedRegionId(data.user.region_id);
@@ -1556,7 +1556,7 @@ export default function App() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ phone: '7654321098', otp: '123456' })
         });
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         if (res.ok) {
           persistSession(data.user, data.token);
           setSelectedRegionId(data.user.region_id);
@@ -1567,7 +1567,7 @@ export default function App() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ phone: '9999999999', otp: '123456' })
         });
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         if (res.ok) {
           persistSession(data.user, data.token);
           setSelectedRegionId(data.user.region_id);
@@ -1578,7 +1578,7 @@ export default function App() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email: 'adhya@partners.example', password: 'password123' })
         });
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         if (res.ok) {
           persistSession({ id: data.partner.id, name: data.partner.name, role: 'PARTNER_ADMIN' }, data.token);
           setPartnerSessionToken(data.token);
@@ -1692,25 +1692,25 @@ export default function App() {
         const fbRes = await fetch(`${API_BASE}/admin/feedback`);
         const leadsRes = await fetch(`${API_BASE}/admin/partner-leads`);
         
-        const orders = await ordersRes.json();
-        const pendingKyc = await kycRes.json();
-        const rates = await ratesRes.json();
-        const anomalies = await anomaliesRes.json();
-        const redemptions = await redRes.json();
-        const vendorsList = await vendorsRes.json();
-        const productsList = await prodRes.json();
+        const orders = await ordersRes.json().catch(() => ({}));
+        const pendingKyc = await kycRes.json().catch(() => ({}));
+        const rates = await ratesRes.json().catch(() => ({}));
+        const anomalies = await anomaliesRes.json().catch(() => ({}));
+        const redemptions = await redRes.json().catch(() => ({}));
+        const vendorsList = await vendorsRes.json().catch(() => ({}));
+        const productsList = await prodRes.json().catch(() => ({}));
         
-        const stockistCommissionRates = await scrRes.json();
-        const pointsEarnConfigs = await pecRes.json();
-        const feedbackReports = await fbRes.json();
-        const leads = await leadsRes.json();
+        const stockistCommissionRates = await scrRes.json().catch(() => ({}));
+        const pointsEarnConfigs = await pecRes.json().catch(() => ({}));
+        const feedbackReports = await fbRes.json().catch(() => ({}));
+        const leads = await leadsRes.json().catch(() => ({}));
 
         const custsRes = await fetch(`${API_BASE}/admin/customers?include_inactive=true`);
         const stksRes = await fetch(`${API_BASE}/admin/stockists?include_inactive=true`);
 
         const blRes = await fetch(`${API_BASE}/admin/blacklist`);
         if (blRes.ok) {
-          const blData = await blRes.json();
+          const blData = await blRes.json().catch(() => ({}));
           const list = Array.isArray(blData) ? blData : (blData.blacklist || []);
           setBlacklistedUsers(list);
         }
@@ -1721,16 +1721,16 @@ export default function App() {
         const ccRes = await fetch(`${API_BASE}/admin/commission-config`);
         const bpRes = await fetch(`${API_BASE}/admin/bill-photos`);
 
-        if (custsRes.ok) setAdminCustomers(await custsRes.json());
-        if (stksRes.ok) setAdminStockists(await stksRes.json());
-        if (fraudRes.ok) setAdminFraudReports(await fraudRes.json());
-        if (auditRes.ok) setAdminAuditLogs(await auditRes.json());
+        if (custsRes.ok) setAdminCustomers(await custsRes.json().catch(() => ({})));
+        if (stksRes.ok) setAdminStockists(await stksRes.json().catch(() => ({})));
+        if (fraudRes.ok) setAdminFraudReports(await fraudRes.json().catch(() => ({})));
+        if (auditRes.ok) setAdminAuditLogs(await auditRes.json().catch(() => ({})));
         if (bpRes.ok) {
-          const bpData = await bpRes.json();
+          const bpData = await bpRes.json().catch(() => ({}));
           setAdminBillPhotos(bpData.data || []);
         }
         if (ccRes.ok) {
-          const ccData = await ccRes.json();
+          const ccData = await ccRes.json().catch(() => ({}));
           setCommissionConfigs(ccData);
           const gRow = ccData.find(c => c.scope === 'GLOBAL');
           if (gRow) {
@@ -1741,13 +1741,13 @@ export default function App() {
         }
 
         const partnersRes = await fetch(`${API_BASE}/admin/partners`);
-        if (partnersRes.ok) setAdminPartners(await partnersRes.json());
+        if (partnersRes.ok) setAdminPartners(await partnersRes.json().catch(() => ({})));
 
         const approvalsRes = await fetch(`${API_BASE}/admin/redemption-approvals`);
-        if (approvalsRes.ok) setAdminRedemptionApprovals(await approvalsRes.json());
+        if (approvalsRes.ok) setAdminRedemptionApprovals(await approvalsRes.json().catch(() => ({})));
 
         const healthRes = await fetch(`${API_BASE}/admin/health`);
-        if (healthRes.ok) setHealthData(await healthRes.json());
+        if (healthRes.ok) setHealthData(await healthRes.json().catch(() => ({})));
 
         setPendingKyc(pendingKyc);
         setCommissionRates(rates);
@@ -1763,7 +1763,7 @@ export default function App() {
         try {
           const regRes = await fetch(`${API_BASE}/regions`);
           if (regRes.ok) {
-            const regData = await regRes.json();
+            const regData = await regRes.json().catch(() => ({}));
             setRegions(regData);
             setAllSystemRegions(regData);
           }
@@ -1797,7 +1797,7 @@ export default function App() {
   const fetchAdminPartners = async () => {
     try {
       const res = await fetch(`${API_BASE}/admin/partners`);
-      if (res.ok) setAdminPartners(await res.json());
+      if (res.ok) setAdminPartners(await res.json().catch(() => ({})));
     } catch (e) {
       console.error(e);
     }
@@ -1806,7 +1806,7 @@ export default function App() {
   const fetchRedemptionApprovals = async () => {
     try {
       const res = await fetch(`${API_BASE}/admin/redemption-approvals`);
-      if (res.ok) setAdminRedemptionApprovals(await res.json());
+      if (res.ok) setAdminRedemptionApprovals(await res.json().catch(() => ({})));
     } catch (e) {
       console.error(e);
     }
@@ -1815,7 +1815,7 @@ export default function App() {
   const fetchHealthData = async () => {
     try {
       const res = await fetch(`${API_BASE}/admin/health`);
-      if (res.ok) setHealthData(await res.json());
+      if (res.ok) setHealthData(await res.json().catch(() => ({})));
     } catch (e) {
       console.error(e);
     }
@@ -1824,7 +1824,7 @@ export default function App() {
   const fetchAdminRegions = async () => {
     try {
       const res = await fetch(`${API_BASE}/admin/regions`);
-      if (res.ok) setAdminRegionsList(await res.json());
+      if (res.ok) setAdminRegionsList(await res.json().catch(() => ({})));
     } catch (e) {
       console.error('Error fetching admin regions:', e);
     }
@@ -1853,7 +1853,7 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: regionName.trim(), code: regionCode.trim(), admin_id: currentUser?.id })
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setRegionModalError(data.error || 'Failed to save region');
         return;
@@ -1874,9 +1874,9 @@ export default function App() {
       async () => {
         try {
           const res = await fetch(`${API_BASE}/admin/regions/${region.id}`, { method: 'DELETE' });
-          const data = await res.json();
+          const data = await res.json().catch(() => ({}));
           if (!res.ok) {
-            showToast(data.error || 'Failed to delete region', 'error');
+            showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
             return;
           }
           showToast('Region deleted successfully', 'success');
@@ -1903,7 +1903,7 @@ export default function App() {
       const res = await fetch(`${API_BASE}/admin/analytics`, {
         headers: { 'x-admin-id': currentUser.id }
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         setAnalyticsData(data);
       } else {
@@ -1950,7 +1950,7 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'REJECTED', reason: rejectLeadReason })
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         showToast('Lead marked as Do Not Onboard (Rejected)', 'success');
         setShowRejectLeadModal(false);
@@ -1958,7 +1958,7 @@ export default function App() {
         setRejectLeadId(null);
         fetchAdminPartners();
       } else {
-        showToast(data.error || 'Failed to reject lead', 'error');
+        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
     } catch (err) {
       showToast('Error rejecting lead', 'error');
@@ -1972,12 +1972,12 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'NEW', reason: 'Reconsidered' })
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         showToast('Lead status returned to NEW', 'success');
         fetchAdminPartners();
       } else {
-        showToast(data.error || 'Failed to reconsider lead', 'error');
+        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
     } catch (err) {
       showToast('Error reconsidering lead', 'error');
@@ -2009,7 +2009,7 @@ export default function App() {
           region_id: promoteRegionId
         })
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       logApi('POST', `/admin/partner-leads/${selectedLeadToPromote.id}/promote`, { admin_id: currentUser.id, service_types: promoteServiceTypes }, res.status, data);
       if (res.ok) {
         const partnerPhone = data.user?.phone || data.partner?.contact_phone || selectedLeadToPromote.phone;
@@ -2018,7 +2018,7 @@ export default function App() {
         fetchDbState();
         fetchAdminPartners();
       } else {
-        showToast(data.error || 'Failed to promote lead', 'error');
+        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
     } catch (err) {
       showToast('Network error promoting lead', 'error');
@@ -2039,7 +2039,7 @@ export default function App() {
           notes
         })
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       logApi('POST', `/admin/redemption-approvals/${id}/approve`, { admin_id: currentUser.id, notes }, res.status, data);
       if (res.ok) {
         showToast('Redemption approval approved successfully');
@@ -2047,7 +2047,7 @@ export default function App() {
         fetchRedemptionApprovals();
         fetchAnalytics();
       } else {
-        showToast(data.error || 'Failed to approve redemption', 'error');
+        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
     } catch (err) {
       showToast('Network error approving redemption', 'error');
@@ -2072,7 +2072,7 @@ export default function App() {
           reason: reason.trim()
         })
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       logApi('POST', `/admin/redemption-approvals/${id}/reject`, { admin_id: currentUser.id, reason }, res.status, data);
       if (res.ok) {
         showToast(`Refund of ${data.points_deducted} points appended to customer's ledger`);
@@ -2080,7 +2080,7 @@ export default function App() {
         fetchRedemptionApprovals();
         fetchAnalytics();
       } else {
-        showToast(data.error || 'Failed to reject redemption', 'error');
+        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
     } catch (err) {
       showToast('Network error rejecting redemption', 'error');
@@ -2102,7 +2102,7 @@ export default function App() {
           notes
         })
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       logApi('POST', `/admin/redemption-approvals/${id}/resolve-dispute`, { admin_id: currentUser.id, outcome, notes }, res.status, data);
       if (res.ok) {
         showToast(outcome === 'fulfill' ? 'Dispute resolved: FULFILLED' : 'Dispute resolved: REJECTED (Points refunded)');
@@ -2110,7 +2110,7 @@ export default function App() {
         fetchRedemptionApprovals();
         fetchAnalytics();
       } else {
-        showToast(data.error || 'Failed to resolve dispute', 'error');
+        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
     } catch (err) {
       showToast('Network error resolving dispute', 'error');
@@ -2138,12 +2138,12 @@ export default function App() {
           partner_redemption_cut_pct: cut
         })
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         showToast('Global commission config saved!');
         fetchDbState();
       } else {
-        showToast(data.error || 'Failed to save global config', 'error');
+        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
     } catch (err) {
       showToast('Network error saving global config', 'error');
@@ -2176,14 +2176,14 @@ export default function App() {
           partner_redemption_cut_pct: cut
         })
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         showToast('Store commission override saved!');
         setShowStoreOverrideModal(false);
         setOverrideStockistId('');
         fetchDbState();
       } else {
-        showToast(data.error || 'Failed to save store override', 'error');
+        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
     } catch (err) {
       showToast('Network error saving store override', 'error');
@@ -2195,14 +2195,14 @@ export default function App() {
       const res = await fetch(`${API_BASE}/admin/commission-config/${configId}`, {
         method: 'DELETE'
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         showToast('Store override removed!');
         setShowRemoveOverrideConfirmModal(false);
         setOverrideToDelete(null);
         fetchDbState();
       } else {
-        showToast(data.error || 'Failed to remove store override', 'error');
+        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
     } catch (err) {
       showToast('Network error removing store override', 'error');
@@ -2222,7 +2222,7 @@ export default function App() {
 
       const res = await fetch(query);
       if (res.ok) {
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         setAdminBillPhotos(data.data || []);
       }
     } catch (err) {
@@ -2233,34 +2233,34 @@ export default function App() {
   const syncInspectorTable = async () => {
     try {
       const ordersRes = await fetch(`${API_BASE}/orders`);
-      const list = await ordersRes.json();
+      const list = await ordersRes.json().catch(() => ({}));
       
       const ratesRes = await fetch(`${API_BASE}/admin/commission-rates`);
-      const rates = await ratesRes.json();
+      const rates = await ratesRes.json().catch(() => ({}));
 
       const anomaliesRes = await fetch(`${API_BASE}/admin/anomalies`);
-      const anomalies = await anomaliesRes.json();
+      const anomalies = await anomaliesRes.json().catch(() => ({}));
 
       const redRes = await fetch(`${API_BASE}/admin/redemptions`);
-      const red = await redRes.json();
+      const red = await redRes.json().catch(() => ({}));
 
       const prodRes = await fetch(`${API_BASE}/products?regionId=${selectedRegionId}`);
-      const prods = await prodRes.json();
+      const prods = await prodRes.json().catch(() => ({}));
 
       const venRes = await adminFetch('/admin/vendors');
-      const vens = await venRes.json();
+      const vens = await venRes.json().catch(() => ({}));
 
       const scrRes = await fetch(`${API_BASE}/admin/stockist-commission-rates`);
-      const scrs = await scrRes.json();
+      const scrs = await scrRes.json().catch(() => ({}));
 
       const pecRes = await fetch(`${API_BASE}/admin/points-earn-config`);
-      const pecs = await pecRes.json();
+      const pecs = await pecRes.json().catch(() => ({}));
 
       const fbRes = await fetch(`${API_BASE}/admin/feedback`);
-      const fbs = await fbRes.json();
+      const fbs = await fbRes.json().catch(() => ({}));
 
       const leadsRes = await fetch(`${API_BASE}/admin/partner-leads`);
-      const leads = await leadsRes.json();
+      const leads = await leadsRes.json().catch(() => ({}));
 
       setDbState({
         orders: list,
@@ -2360,7 +2360,7 @@ export default function App() {
       try {
         const oRes = await fetch(`${API_BASE}/orders?customerId=${currentUser.id}`);
         if (oRes.ok) {
-          const oData = await oRes.json();
+          const oData = await oRes.json().catch(() => ({}));
           setCustomerOrders(prev => {
             // Compare and Toast on changes
             oData.forEach(newO => {
@@ -2394,7 +2394,7 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ phone: loginPhone })
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       logApi('POST', '/auth/send-otp', { phone: loginPhone }, res.status, data);
       if (res.ok) {
         setOtpSent(true);
@@ -2424,7 +2424,7 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       logApi('POST', '/auth/verify-otp', payload, res.status, data);
 
       if (res.ok) {
@@ -2439,7 +2439,7 @@ export default function App() {
           setLoginOtp('');
         }
       } else {
-        showToast(data.message || data.error || 'Invalid OTP', 'error');
+        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
     } catch (err) {
       showToast('Authentication service error', 'error');
@@ -2471,7 +2471,7 @@ export default function App() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
         });
-        data = await res.json();
+        data = await res.json().catch(() => ({}));
         logApi('POST', '/auth/register-stockist', payload, res.status, data);
       } else {
         const payload = {
@@ -2485,7 +2485,7 @@ export default function App() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
         });
-        data = await res.json();
+        data = await res.json().catch(() => ({}));
         logApi('POST', '/auth/verify-otp (Register)', payload, res.status, data);
       }
 
@@ -2505,7 +2505,7 @@ export default function App() {
           setRegName('');
         }
       } else {
-        showToast(data.error || 'Registration failed', 'error');
+        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
     } catch (err) {
       showToast('Registration error', 'error');
@@ -2533,22 +2533,22 @@ export default function App() {
     try {
       // 1. Load stockists in customer region
       const sRes = await fetch(`${API_BASE}/stockists?regionId=${currentUser.region_id}`);
-      const sData = await sRes.json();
+      const sData = await sRes.json().catch(() => ({}));
       setCustomerStockists(sData);
 
       // 2. Load points balance
       const bRes = await fetch(`${API_BASE}/ledger/balance/${currentUser.id}`);
-      const bData = await bRes.json();
+      const bData = await bRes.json().catch(() => ({}));
       setCustomerBalance(bData.balance);
 
       // 3. Load ledger history
       const lRes = await fetch(`${API_BASE}/ledger/history/${currentUser.id}`);
-      const lData = await lRes.json();
+      const lData = await lRes.json().catch(() => ({}));
       setCustomerLedger(lData);
 
       // 4. Load order history
       const oRes = await fetch(`${API_BASE}/orders?customerId=${currentUser.id}`);
-      const oData = await oRes.json();
+      const oData = await oRes.json().catch(() => ({}));
       setCustomerOrders(oData);
     } catch (err) {
       console.error('Error loading customer data:', err);
@@ -2565,7 +2565,7 @@ export default function App() {
     if (!selectedStockist) return;
     try {
       const res = await fetch(`${API_BASE}/products?regionId=${currentUser.region_id}&stockistId=${selectedStockist.id}`);
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       setCustomerProducts(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error('Error loading products:', err);
@@ -2676,7 +2676,7 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       logApi('POST', '/orders', payload, res.status, data);
 
       if (res.ok) {
@@ -2696,7 +2696,7 @@ export default function App() {
         showToast(msg);
         if (tourStep === 1) setTourStep(2);
       } else {
-        showToast(data.error || 'Failed to place order', 'error');
+        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
     } catch (err) {
       showToast('Checkout service error', 'error');
@@ -2710,7 +2710,7 @@ export default function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         showToast(t('Order cancelled. Refund initiated (minus platform fee).', 'ऑर्डर रद्द। रिफंड शुरू (प्लेटफ़ॉर्म फीस घटाकर)।', 'অর্ডার বাতিল। ফেরত শুরু (প্ল্যাটফর্ম ফি বাদে)।'), 'success');
         loadCustomerData();
@@ -2718,7 +2718,7 @@ export default function App() {
           setCheckoutResult(prev => ({ ...prev, orders: prev.orders.map(o => o.id === orderId ? { ...o, status: 'CANCELLED' } : o) }));
         }
       } else {
-        showToast(data.error || 'Cancellation failed', 'error');
+        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
     } catch (err) {
       showToast('Cancel request error', 'error');
@@ -2735,7 +2735,7 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         showToast(action === 'RESCHEDULE'
           ? t('Slot rescheduled! One reschedule used.', 'स्लॉट पुनः निर्धारित!', 'স্লট পুনর্নির্ধারিত হয়েছে!')
@@ -2744,7 +2744,7 @@ export default function App() {
         setRescheduleSlot('');
         loadCustomerData();
       } else {
-        showToast(data.error || 'Action failed', 'error');
+        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
     } catch (err) {
       showToast('No-show action error', 'error');
@@ -2759,7 +2759,7 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ fulfillmentType: 'DELIVERY' })
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         showToast(t('Switched to delivery! Cannot return to pickup.', 'डिलिवरी पर स्विच! वापस नहीं।', 'ডেলিভারিতে পরিবর্তিত। ফেরা সম্ভব নয়।'));
         if (checkoutResult) {
@@ -2767,7 +2767,7 @@ export default function App() {
         }
         loadCustomerData();
       } else {
-        showToast(data.error || 'Switch failed', 'error');
+        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
       setDeliverySwitchConfirm(null);
     } catch (err) {
@@ -2783,12 +2783,12 @@ export default function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         showToast('Split released! Stockist payout recorded.');
         fetchDbState();
       } else {
-        showToast(data.error || 'Release failed', 'error');
+        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
     } catch (err) {
       showToast('Release split error', 'error');
@@ -2799,7 +2799,7 @@ export default function App() {
     if (!regionId) return;
     try {
       const res = await fetch(`${API_BASE}/customer/available-partners?region_id=${regionId}`);
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         setAvailablePartners(data);
       }
@@ -2818,7 +2818,7 @@ export default function App() {
     if (!currentUser || currentUser.role !== 'CUSTOMER') return;
     try {
       const res = await fetch(`${API_BASE}/customer/${currentUser.id}/profile`);
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         setProfileName(data.user?.name || '');
         setProfileAddress(data.user?.address || '');
@@ -2857,7 +2857,7 @@ export default function App() {
     try {
       const res = await fetch(`${API_BASE}/customer/rewards/available/${currentUser.id}`);
       if (res.ok) {
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         setAvailableRewards(data);
       }
     } catch (err) {
@@ -2870,7 +2870,7 @@ export default function App() {
     try {
       const res = await fetch(`${API_BASE}/customer/redemptions/${currentUser.id}`);
       if (res.ok) {
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         setCustomerRedemptions(data);
       }
     } catch (err) {
@@ -2906,7 +2906,7 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: profileName, address: profileAddress })
       });
-      const pData = await pRes.json();
+      const pData = await pRes.json().catch(() => ({}));
 
       const cableIdToSave = profileNoCable ? null : (profileCablePartnerId || null);
       const broadbandIdToSave = (profileHasBroadband && !profileNoBroadband) ? (profileBroadbandPartnerId || null) : null;
@@ -2920,7 +2920,7 @@ export default function App() {
           broadband_partner_id: broadbandIdToSave
         })
       });
-      const bData = await bRes.json();
+      const bData = await bRes.json().catch(() => ({}));
 
       if (pRes.ok && bRes.ok) {
         showToast(t('Profile updated successfully', 'प्रोफाइल सफलतापूर्वक अपडेट किया गया', 'প্রোফাইল সফলভাবে আপডেট করা হয়েছে'));
@@ -2969,7 +2969,7 @@ export default function App() {
       }
 
       const res = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       logApi('POST', endpoint.replace(API_BASE, ''), payload, res.status, data);
       if (res.ok) {
         persistSession(data.user, data.token);
@@ -2981,7 +2981,7 @@ export default function App() {
         setHasBroadbandAnswered(false); setHasBroadband(false);
         setSignupBroadbandPartnerId(''); setNoBroadbandProvider(false);
       } else {
-        showToast(data.error || 'Registration failed', 'error');
+        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
     } catch (err) { showToast('Registration error', 'error'); }
   };
@@ -2992,12 +2992,12 @@ export default function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         showToast('Refund processed successfully!', 'success');
         fetchDbState();
       } else {
-        showToast(data.error || 'Refund failed', 'error');
+        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
     } catch (err) {
       showToast('Network error processing refund', 'error');
@@ -3013,13 +3013,13 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reason })
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         showToast('Flag dismissed and moved to audit history.');
         setDismissReason(prev => { const n = { ...prev }; delete n[anomalyId]; return n; });
         fetchDbState();
       } else {
-        showToast(data.error || 'Dismiss failed', 'error');
+        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
     } catch (err) {
       showToast('Dismiss error', 'error');
@@ -3033,12 +3033,12 @@ export default function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         showToast('Anomaly marked as investigated.');
         fetchDbState();
       } else {
-        showToast(data.error || 'Update failed', 'error');
+        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
     } catch (err) {
       showToast('Investigate error', 'error');
@@ -3085,7 +3085,7 @@ export default function App() {
       formData.append('documentPhoto', regDocPhoto);
 
       const res = await fetch(`${API_BASE}/auth/register-stockist`, { method: 'POST', body: formData });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       logApi('POST', '/auth/register-stockist', { phone: loginPhone, name: regName, shopName: regShopName }, res.status, data);
       if (res.ok) {
         setStockistPendingUser(data.user);
@@ -3093,7 +3093,7 @@ export default function App() {
         setShowStockistSignup(false);
         setRegName(''); setRegShopName(''); setRegKycNumber2(''); setAadhaarDigits(''); setAadhaarDisplay(''); setAadhaarError(''); setRegAddress(''); setRegDocPhoto(null); setOtpSent(false);
       } else {
-        showToast(data.message || data.error || 'Registration failed', 'error');
+        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
     } catch (err) { showToast('Registration error', 'error'); }
   };
@@ -3123,7 +3123,7 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       logApi('POST', '/ledger/redeem', payload, res.status, data);
 
       if (res.ok) {
@@ -3135,7 +3135,7 @@ export default function App() {
         }
         setRedeemSuccessModal(true);
       } else {
-        showToast(data.error || 'Redemption failed', 'error');
+        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
     } catch (err) {
       showToast('Redemption service error', 'error');
@@ -3164,7 +3164,7 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         showToast('Report submitted. Our team will review it.', 'success');
         setShowFraudReportModal(false);
@@ -3173,7 +3173,7 @@ export default function App() {
         setFraudLinkedEntityId('');
         fetchDbState();
       } else {
-        showToast(data.error || 'Report submission failed', 'error');
+        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
     } catch (err) {
       showToast('Error submitting report', 'error');
@@ -3194,7 +3194,7 @@ export default function App() {
         setShowEditCustomerModal(false);
         fetchDbState();
       } else {
-        const d = await res.json();
+        const d = await res.json().catch(() => ({}));
         showToast(d.error || 'Update failed', 'error');
       }
     } catch (e) { showToast('Error updating customer', 'error'); }
@@ -3214,7 +3214,7 @@ export default function App() {
         setChangePhoneCurrentOtp(''); setChangePhoneNewNumber(''); setChangePhoneNewOtp('');
         fetchDbState();
       } else {
-        const d = await res.json();
+        const d = await res.json().catch(() => ({}));
         showToast(d.error || 'Phone change failed', 'error');
       }
     } catch (e) { showToast('Error changing phone', 'error'); }
@@ -3242,7 +3242,7 @@ export default function App() {
         setPointsCreditAmount(''); setPointsCreditReason('');
         fetchDbState();
       } else {
-        const d = await res.json();
+        const d = await res.json().catch(() => ({}));
         showToast(d.error || 'Points credit failed', 'error');
       }
     } catch (e) { showToast('Error crediting points', 'error'); }
@@ -3256,7 +3256,7 @@ export default function App() {
         showToast(`Customer ${cust.is_active ? 'deactivated' : 'reactivated'}`, 'success');
         fetchDbState();
       } else {
-        const d = await res.json();
+        const d = await res.json().catch(() => ({}));
         showToast(d.error || 'Action failed', 'error');
       }
     } catch (e) { showToast('Error updating customer status', 'error'); }
@@ -3300,7 +3300,7 @@ export default function App() {
         setCreateStkName(''); setCreateStkPhone('');
         fetchDbState();
       } else {
-        const d = await res.json();
+        const d = await res.json().catch(() => ({}));
         showToast(d.error || 'Failed to create stockist', 'error');
       }
     } catch (e) { showToast('Error creating stockist', 'error'); }
@@ -3340,7 +3340,7 @@ export default function App() {
         setShowEditStockistModal(false);
         fetchDbState();
       } else {
-        const d = await res.json();
+        const d = await res.json().catch(() => ({}));
         showToast(d.error || 'Update failed', 'error');
       }
     } catch (e) { showToast('Error updating stockist', 'error'); }
@@ -3354,11 +3354,11 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ rate_percent: newCommissionRate })
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         setCommissionRatePreview(data);
       } else {
-        showToast(data.error || 'Preview calculation failed', 'error');
+        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
     } catch (e) { showToast('Error fetching rate preview', 'error'); }
   };
@@ -3381,7 +3381,7 @@ export default function App() {
         setNewCommissionRate(''); setCommissionRatePreview(null); setCommissionTypedConfirm('');
         fetchDbState();
       } else {
-        const d = await res.json();
+        const d = await res.json().catch(() => ({}));
         showToast(d.error || 'Update failed', 'error');
       }
     } catch (e) { showToast('Error updating commission rate', 'error'); }
@@ -3400,7 +3400,7 @@ export default function App() {
         setShowStockistRegionModal(false);
         fetchDbState();
       } else {
-        const d = await res.json();
+        const d = await res.json().catch(() => ({}));
         showToast(d.error || 'Region change failed', 'error');
       }
     } catch (e) { showToast('Error changing region', 'error'); }
@@ -3413,7 +3413,7 @@ export default function App() {
     try {
       const res = await fetch(`${API_BASE}/admin/stockists/lookup-by-id?kyc_id=${adminStockistSearchText}`);
       if (res.ok) {
-        setAdminStockistLookupResult(await res.json());
+        setAdminStockistLookupResult(await res.json().catch(() => ({})));
       } else {
         setAdminStockistLookupResult('NOT_FOUND');
       }
@@ -3433,7 +3433,7 @@ export default function App() {
         showToast(`Stockist ${stk.is_active ? 'deactivated' : 'reactivated'}`, 'success');
         fetchDbState();
       } else {
-        const d = await res.json();
+        const d = await res.json().catch(() => ({}));
         showToast(d.error || 'Action failed', 'error');
       }
     } catch (e) { showToast('Error updating stockist status', 'error'); }
@@ -3446,7 +3446,7 @@ export default function App() {
         showToast('Stockist deleted', 'success');
         fetchDbState();
       } else {
-        const d = await res.json();
+        const d = await res.json().catch(() => ({}));
         showToast(d.error || 'Cannot delete: stockist has order history. Deactivate instead.', 'error');
       }
     } catch (e) { showToast('Error deleting stockist', 'error'); }
@@ -3464,7 +3464,7 @@ export default function App() {
         showToast(`Lead status updated to ${status}`, 'success');
         fetchDbState();
       } else {
-        const d = await res.json();
+        const d = await res.json().catch(() => ({}));
         showToast(d.error || 'Status update failed', 'error');
       }
     } catch (e) { showToast('Error updating lead status', 'error'); }
@@ -3484,7 +3484,7 @@ export default function App() {
         setShowAddLeadNoteModal(false);
         fetchDbState();
       } else {
-        const d = await res.json();
+        const d = await res.json().catch(() => ({}));
         showToast(d.error || 'Failed to add note', 'error');
       }
     } catch (e) { showToast('Error adding note', 'error'); }
@@ -3498,7 +3498,7 @@ export default function App() {
         setSelectedLeadDetail(null);
         fetchDbState();
       } else {
-        const d = await res.json();
+        const d = await res.json().catch(() => ({}));
         showToast(d.error || 'Delete failed', 'error');
       }
     } catch (e) { showToast('Error deleting lead', 'error'); }
@@ -3522,7 +3522,7 @@ export default function App() {
         setFraudReportAdminNotes('');
         fetchDbState();
       } else {
-        const d = await res.json();
+        const d = await res.json().catch(() => ({}));
         showToast(d.error || 'Status update failed', 'error');
       }
     } catch (e) { showToast('Error updating fraud report', 'error'); }
@@ -3541,22 +3541,22 @@ export default function App() {
         setStockistProfile(null);
         return;
       }
-      const pData = await pRes.json();
+      const pData = await pRes.json().catch(() => ({}));
       setStockistProfile(pData);
 
       // 2. Load stockist orders
       const oRes = await fetch(`${API_BASE}/orders?stockistId=${pData.id}`);
-      const oData = await oRes.json();
+      const oData = await oRes.json().catch(() => ({}));
       setStockistOrders(oData);
 
       // 3. Load stockist inventory products
       const prRes = await fetch(`${API_BASE}/products?regionId=${currentUser.region_id}&stockistId=${pData.id}`);
-      const prData = await prRes.json();
+      const prData = await prRes.json().catch(() => ({}));
       setStockistProducts(prData);
 
       // 4. Load approved vendor list for this stockist (§12 many-to-many)
       const vRes = await fetch(`${API_BASE}/stockists/${pData.id}/vendors`);
-      const vData = await vRes.json();
+      const vData = await vRes.json().catch(() => ({}));
       setStockistApprovedVendors(vData);
       if (vData.length > 0 && !selectedRestockVendorId) {
         setSelectedRestockVendorId(vData[0].id);
@@ -3564,13 +3564,13 @@ export default function App() {
 
       // Save all vendors list too for selection
       const allVRes = await adminFetch('/admin/vendors');
-      const allVData = await allVRes.json();
+      const allVData = await allVRes.json().catch(() => ({}));
       setVendors(allVData);
 
       // Fetch stockist stats
       const statsRes = await fetch(`${API_BASE}/stockists/${pData.id}/stats`);
       if (statsRes.ok) {
-        const statsData = await statsRes.json();
+        const statsData = await statsRes.json().catch(() => ({}));
         setStockistAnalytics(statsData);
       }
     } catch (err) {
@@ -3597,7 +3597,7 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       logApi('PATCH', `/orders/${orderId}/status`, payload, res.status, data);
 
       if (res.ok) {
@@ -3607,7 +3607,7 @@ export default function App() {
           setTourStep(3);
         }
       } else {
-        showToast(data.error || 'Failed to update order status', 'error');
+        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
     } catch (err) {
       showToast('Server update error', 'error');
@@ -3623,7 +3623,7 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       logApi('POST', '/orders/sync', payload, res.status, data);
 
       if (res.ok) {
@@ -3654,14 +3654,14 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       logApi('POST', '/stockists/restock', payload, res.status, data);
 
       if (res.ok) {
         showToast('Stock purchased and added from Wholesaler!');
         loadStockistData();
       } else {
-        showToast(data.error || 'Restock failed', 'error');
+        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
     } catch (err) {
       showToast('Network error on restock', 'error');
@@ -3680,13 +3680,13 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reason })
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         showToast('KYC rejected');
         setShowKycActionModal(false);
         fetchDbState();
       } else {
-        showToast(data.error || 'Rejection failed', 'error');
+        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
     } catch (e) { showToast('Server error rejecting KYC', 'error'); }
   };
@@ -3699,13 +3699,13 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reason })
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         showToast('User blacklisted');
         setShowKycActionModal(false);
         fetchDbState();
       } else {
-        showToast(data.error || 'Blacklisting failed', 'error');
+        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
     } catch (e) { showToast('Server error blacklisting user', 'error'); }
   };
@@ -3795,7 +3795,7 @@ export default function App() {
           }
         );
       } else {
-        showToast(data.error || 'Failed to check account references', 'error');
+        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
     } catch (e) {
       showToast('Server error checking account references', 'error');
@@ -3809,12 +3809,12 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action, reason, days })
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         showToast(`Stockist status updated: ${action}`);
         fetchDbState();
       } else {
-        showToast(data.error || 'Action failed', 'error');
+        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
     } catch (e) { showToast('Error updating stockist', 'error'); }
   };
@@ -3823,7 +3823,7 @@ export default function App() {
     try {
       const res = await fetch(`${API_BASE}/admin/stockists/${stockistId}/cod-commission`);
       if (res.ok) {
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         setStockistCodData(data);
       }
     } catch (e) { console.error('Error fetching COD commission:', e); }
@@ -3867,7 +3867,7 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       logApi('POST', '/admin/approve-kyc', payload, res.status, data);
 
       if (res.ok) {
@@ -3875,7 +3875,7 @@ export default function App() {
         fetchDbState();
         fetchAnalytics();
       } else {
-        showToast(data.error || 'Approval failed', 'error');
+        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
     } catch (err) {
       showToast('Admin server error', 'error');
@@ -3892,11 +3892,11 @@ export default function App() {
           'x-admin-id': adminId
         }
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok && data.id_number) {
         setRevealedIds(prev => ({ ...prev, [userId]: data.id_number }));
       } else {
-        showToast(data.error || 'Failed to reveal ID', 'error');
+        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
     } catch (err) {
       showToast('Network error revealing ID', 'error');
@@ -3921,7 +3921,7 @@ export default function App() {
           'x-admin-id': adminId
         }
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         let docUrl = data.document_photo_url;
         if (!docUrl) {
@@ -3945,7 +3945,7 @@ export default function App() {
         });
         setShowKycDocumentModal(true);
       } else {
-        showToast(data.error || 'Failed to fetch document', 'error');
+        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
     } catch (err) {
       showToast('Network error fetching document', 'error');
@@ -3964,14 +3964,14 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       logApi('POST', '/admin/commission-rates', payload, res.status, data);
 
       if (res.ok) {
         showToast('Commission rate updated!');
         fetchDbState();
       } else {
-        showToast(data.error || 'Failed to update commission rate', 'error');
+        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
     } catch (err) {
       showToast('Network error', 'error');
@@ -3986,7 +3986,7 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       logApi('POST', '/admin/complete-redemption', payload, res.status, data);
 
       if (res.ok) {
@@ -4025,7 +4025,7 @@ export default function App() {
             method: 'POST',
             body: JSON.stringify(payload)
           });
-          const data = await res.json();
+          const data = await res.json().catch(() => ({}));
           logApi('POST', '/admin/vendors', payload, res.status, data);
 
           if (res.ok) {
@@ -4034,7 +4034,7 @@ export default function App() {
             fetchAdminVendors();
             fetchDbState();
           } else {
-            showToast(data.message || data.error || 'Failed to create wholesaler', 'error');
+            showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
           }
         } catch (err) {
           showToast('Network error', 'error');
@@ -4049,7 +4049,7 @@ export default function App() {
   const handleRemoveVendor = async (vendor) => {
     try {
       const refRes = await adminFetch(`/admin/vendors/${vendor.id}/references`);
-      const { reference_count } = await refRes.json();
+      const { reference_count } = await refRes.json().catch(() => ({}));
 
       let message;
       if (reference_count === 0) {
@@ -4064,13 +4064,13 @@ export default function App() {
         async () => {
           try {
             const res = await adminFetch(`/admin/vendors/${vendor.id}`, { method: 'DELETE' });
-            const data = await res.json();
+            const data = await res.json().catch(() => ({}));
             if (res.ok) {
               showToast(`Wholesaler ${vendor.name} removed successfully.`);
               fetchAdminVendors();
               fetchDbState();
             } else {
-              showToast(data.message || data.error || 'Failed to remove wholesaler', 'error');
+              showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
             }
           } catch (err) {
             showToast('Network error', 'error');
@@ -4091,13 +4091,13 @@ export default function App() {
         method: 'PATCH',
         body: JSON.stringify({ is_active: true })
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         showToast(`Wholesaler ${vendor.name} reactivated.`);
         fetchAdminVendors();
         fetchDbState();
       } else {
-        showToast(data.message || data.error || 'Failed to reactivate wholesaler', 'error');
+        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
     } catch (err) {
       showToast('Network error', 'error');
@@ -4128,14 +4128,14 @@ export default function App() {
           method: 'PATCH',
           body: JSON.stringify(payload)
         });
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         if (res.ok) {
           showToast('Wholesaler updated successfully.');
           setEditingVendor(null);
           fetchAdminVendors();
           fetchDbState();
         } else {
-          showToast(data.message || data.error || 'Failed to update wholesaler', 'error');
+          showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
         }
       } catch (err) {
         showToast('Network error', 'error');
@@ -4145,7 +4145,7 @@ export default function App() {
     if (editingVendorRegionId !== editingVendor.region_id) {
       try {
         const refRes = await adminFetch(`/admin/vendors/${editingVendor.id}/references`);
-        const { reference_count } = await refRes.json();
+        const { reference_count } = await refRes.json().catch(() => ({}));
         if (reference_count > 0) {
           triggerConfirmModal(
             'Confirm Region Change',
@@ -4174,13 +4174,13 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       logApi('POST', '/admin/stockist-commission-rates', payload, res.status, data);
       if (res.ok) {
         showToast('Shop commission override updated successfully!');
         fetchDbState();
       } else {
-        showToast(data.error || 'Failed to update override', 'error');
+        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
     } catch (err) {
       showToast('Network error saving override', 'error');
@@ -4195,13 +4195,13 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       logApi('POST', '/admin/points-earn-config', payload, res.status, data);
       if (res.ok) {
         showToast('Points earn config updated successfully!');
         fetchDbState();
       } else {
-        showToast(data.error || 'Failed to update earn rate', 'error');
+        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
     } catch (err) {
       showToast('Network error saving points config', 'error');
@@ -4216,13 +4216,13 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       logApi('POST', '/admin/stockist-vendors', payload, res.status, data);
       if (res.ok) {
         showToast('Wholesaler approved and assigned to shop!');
         fetchDbState();
       } else {
-        showToast(data.error || 'Failed to assign wholesaler', 'error');
+        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
     } catch (err) {
       showToast('Network error assigning wholesaler', 'error');
@@ -4235,13 +4235,13 @@ export default function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       logApi('POST', `/admin/anomalies/${anomalyId}/flag`, null, res.status, data);
       if (res.ok) {
         showToast('Stockist account flagged for review.');
         fetchDbState();
       } else {
-        showToast(data.error || 'Failed to flag anomaly', 'error');
+        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
     } catch (err) {
       showToast('Network error flagging anomaly', 'error');
@@ -4255,7 +4255,7 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ fulfillmentType: 'DELIVERY' })
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         showToast('Switched to delivery! Payouts updated.');
         if (checkoutResult) {
@@ -4266,7 +4266,7 @@ export default function App() {
         }
         loadCustomerData();
       } else {
-        showToast(data.error || 'Failed to switch to delivery', 'error');
+        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
     } catch (err) {
       showToast('Fulfillment service error', 'error');
@@ -4283,7 +4283,7 @@ export default function App() {
       if (res.ok) {
         showToast('Pickup slot confirmed!');
         if (checkoutResult) {
-          const data = await res.json();
+          const data = await res.json().catch(() => ({}));
           setCheckoutResult(prev => {
             const updatedOrders = prev.orders.map(o => o.id === orderId ? data.order : o);
             return { ...prev, orders: updatedOrders };
@@ -4291,8 +4291,8 @@ export default function App() {
         }
         loadCustomerData();
       } else {
-        const data = await res.json();
-        showToast(data.error || 'Failed to save slot', 'error');
+        const data = await res.json().catch(() => ({}));
+        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
     } catch (err) {
       showToast('Fulfillment service error', 'error');
@@ -4335,7 +4335,7 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       logApi('POST', '/feedback', payload, res.status, data);
       if (res.ok) {
         showToast('Feedback submitted successfully!');
@@ -4347,7 +4347,7 @@ export default function App() {
         loadStockistData();
         fetchDbState();
       } else {
-        showToast(data.error || 'Failed to submit report', 'error');
+        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
     } catch (err) {
       showToast('Network error submitting feedback', 'error');
@@ -4368,7 +4368,7 @@ export default function App() {
         showToast('Failed to load store products', 'error');
         return;
       }
-      const currentProds = await res.json();
+      const currentProds = await res.json().catch(() => ({}));
       
       const newCart = [];
       let omittedCount = 0;
@@ -4444,7 +4444,7 @@ export default function App() {
         method: 'POST',
         body: formData
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         showToast(`Product ${newProdName} added successfully with bill!`, 'success');
         if (data.bill_photo && data.bill_photo.public_url) {
@@ -4462,7 +4462,7 @@ export default function App() {
         loadStockistData();
         fetchDbState();
       } else {
-        showToast(data.message || data.error || 'Failed to add product', 'error');
+        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
     } catch (err) {
       showToast('Error adding product', 'error');
@@ -4515,7 +4515,7 @@ export default function App() {
         method: 'PATCH',
         body: formData
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         showToast('Product updated successfully!', 'success');
         setEditingProduct(null);
@@ -4523,7 +4523,7 @@ export default function App() {
         loadStockistData();
         fetchDbState();
       } else {
-        showToast(data.message || data.error || 'Failed to update product', 'error');
+        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
     } catch (err) {
       showToast('Network error updating product', 'error');
@@ -4608,11 +4608,11 @@ export default function App() {
       const res = await fetch(`${API_BASE}/admin/bill-photos/${billId}/signed-url`, {
         method: 'POST'
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok && data.signed_url) {
         window.open(`${API_BASE}/bills/${billId}`, '_blank');
       } else {
-        showToast(data.message || data.error || 'Failed to get signed URL', 'error');
+        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
     } catch (err) {
       showToast('Error fetching signed URL', 'error');
@@ -4631,14 +4631,14 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pin })
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         showToast('Pickup PIN verified! Order completed.', 'success');
         setEnteredPins(prev => ({ ...prev, [orderId]: '' }));
         loadStockistData();
         fetchDbState();
       } else {
-        showToast(data.error || 'Incorrect PIN', 'error');
+        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
     } catch (err) {
       showToast('PIN verification error', 'error');
@@ -5116,7 +5116,7 @@ export default function App() {
         setPartnerRegionId('');
         fetchDbState();
       } else {
-        const errData = await res.json();
+        const errData = await res.json().catch(() => ({}));
         showToast(errData.error || 'Failed to submit details', 'error');
       }
     } catch (e) {
@@ -5139,7 +5139,7 @@ export default function App() {
         return;
       }
       if (res.ok) {
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         setPartnerDashData(data);
       }
     } catch (err) {
@@ -5155,14 +5155,14 @@ export default function App() {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         setPartnerQueueList(data);
       }
       const histRes = await fetch(`${API_BASE}/partner/redemption-history`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (histRes.ok) {
-        const histData = await histRes.json();
+        const histData = await histRes.json().catch(() => ({}));
         setPartnerDisputesList(histData.filter(item => item.status === 'DISPUTED'));
         setFbFulfilledRedemptions(histData.filter(item => item.status === 'FULFILLED'));
       }
@@ -5179,7 +5179,7 @@ export default function App() {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         setPartnerPackagesList(data.packages || []);
       }
     } catch (err) {
@@ -5195,12 +5195,12 @@ export default function App() {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         setPartnerRegionsList(data);
       }
       const regRes = await fetch(`${API_BASE}/regions`);
       if (regRes.ok) {
-        const regData = await regRes.json();
+        const regData = await regRes.json().catch(() => ({}));
         setAllSystemRegions(regData);
       } else {
         setAllSystemRegions([]);
@@ -5218,7 +5218,7 @@ export default function App() {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         setPartnerFeedbackList(data);
       }
     } catch (err) {
@@ -5234,7 +5234,7 @@ export default function App() {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         setPartnerData(data.partner);
         setPProfDisplayName(data.partner.display_name || '');
         setPProfContactPhone(data.partner.contact_phone || data.user.phone || '');
@@ -5256,7 +5256,7 @@ export default function App() {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         setPartnerNotifList(data);
         setUnreadNotifCount(data.filter(n => !n.is_read).length);
       }
@@ -5286,7 +5286,7 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: partnerLoginEmail, password: partnerLoginPassword })
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         localStorage.setItem('fastnet_partner_session', data.session_token);
         setPartnerSessionToken(data.session_token);
@@ -5297,7 +5297,7 @@ export default function App() {
         loadPartnerAppData(data.session_token);
         showToast('Logged in successfully!', 'success');
       } else {
-        showToast(data.error || 'Login failed', 'error');
+        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
     } catch (err) {
       showToast('Network error during login', 'error');
@@ -5333,12 +5333,12 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ phone: partnerLoginPhone })
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         setPartnerOtpSent(true);
         showToast('OTP sent (demo code 123456)', 'info');
       } else {
-        showToast(data.error || 'Failed to send OTP', 'error');
+        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
     } catch (err) {
       showToast('Network error sending OTP', 'error');
@@ -5356,7 +5356,7 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ phone: partnerLoginPhone, otp: partnerLoginOtp })
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         if (data.setup_required && data.setup_token) {
           setPartnerSetupToken(data.setup_token);
@@ -5380,7 +5380,7 @@ export default function App() {
           showToast('Logged in successfully!', 'success');
         }
       } else {
-        showToast(data.error || 'Invalid OTP', 'error');
+        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
     } catch (err) {
       showToast('Network error verifying OTP', 'error');
@@ -5415,7 +5415,7 @@ export default function App() {
           },
           body: JSON.stringify({ email: setupEmail, password: setupPassword })
         });
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         if (res.ok) {
           const sToken = data.session_token || data.token;
           localStorage.setItem('fastnet_partner_session', sToken);
@@ -5430,7 +5430,7 @@ export default function App() {
           loadPartnerAppData(sToken);
           showToast('Account setup completed successfully!', 'success');
         } else {
-          showToast(data.error || 'Failed to complete setup', 'error');
+          showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
         }
       } catch (err) {
         showToast('Network error during setup', 'error');
@@ -5454,13 +5454,13 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token: partnerResetToken, new_password: partnerNewPasswordLanding })
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         showToast('Password reset successfully. Please log in.', 'success');
         setPartnerResetToken('');
         setShowPartnerLogin(true);
       } else {
-        showToast(data.error || 'Invalid or expired reset token', 'error');
+        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
     } catch (err) {
       showToast('Error resetting password', 'error');
@@ -5487,7 +5487,7 @@ export default function App() {
         },
         body: JSON.stringify({ partner_notes: fulfillNotes })
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         showToast(`Redemption for ${selectedFulfillItem.customer_name} marked as fulfilled!`, 'success');
         setShowFulfillModal(false);
@@ -5497,7 +5497,7 @@ export default function App() {
         fetchPartnerDashboard();
         fetchPartnerNotifications();
       } else {
-        showToast(data.error || 'Failed to fulfill redemption', 'error');
+        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
     } catch (err) {
       showToast('Network error fulfilling redemption', 'error');
@@ -5519,7 +5519,7 @@ export default function App() {
         },
         body: JSON.stringify({ reason: disputeReasonText })
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         showToast('Dispute submitted to admin.', 'success');
         setShowDisputeModal(false);
@@ -5529,7 +5529,7 @@ export default function App() {
         fetchPartnerDashboard();
         setPartnerQueueSubTab('disputes');
       } else {
-        showToast(data.error || 'Failed to submit dispute', 'error');
+        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
     } catch (err) {
       showToast('Network error submitting dispute', 'error');
@@ -5587,13 +5587,13 @@ export default function App() {
         },
         body: JSON.stringify(payload)
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         showToast(editingPkg ? 'Package updated!' : 'Package created!', 'success');
         setShowPkgModal(false);
         fetchPartnerPackages();
       } else {
-        showToast(data.error || 'Failed to save package', 'error');
+        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
     } catch (err) {
       showToast('Network error saving package', 'error');
@@ -5611,8 +5611,8 @@ export default function App() {
         showToast(`Package ${pkg.is_active ? 'deactivated' : 'reactivated'}!`, 'success');
         fetchPartnerPackages();
       } else {
-        const data = await res.json();
-        showToast(data.error || 'Failed to update package status', 'error');
+        const data = await res.json().catch(() => ({}));
+        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
     } catch (err) {
       showToast('Error updating package status', 'error');
@@ -5629,13 +5629,13 @@ export default function App() {
         },
         body: JSON.stringify({ region_id: newRegionId, service_type: newRegionServiceType })
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         showToast('Region mapping added!', 'success');
         setShowAddRegionModal(false);
         fetchPartnerRegions();
       } else {
-        showToast(data.error || 'Failed to add region', 'error');
+        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
     } catch (err) {
       showToast('Network error adding region', 'error');
@@ -5652,7 +5652,7 @@ export default function App() {
         },
         body: JSON.stringify({ confirm })
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         showToast('Region deactivated!', 'success');
         setDeactWarnModal(false);
@@ -5662,7 +5662,7 @@ export default function App() {
         setDeactWarnPackages(data.affected_packages || []);
         setDeactWarnModal(true);
       } else {
-        showToast(data.error || 'Failed to deactivate region', 'error');
+        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
     } catch (err) {
       showToast('Network error deactivating region', 'error');
@@ -5679,8 +5679,8 @@ export default function App() {
         showToast('Region reactivated!', 'success');
         fetchPartnerRegions();
       } else {
-        const data = await res.json();
-        showToast(data.error || 'Failed to reactivate region', 'error');
+        const data = await res.json().catch(() => ({}));
+        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
     } catch (err) {
       showToast('Network error reactivating region', 'error');
@@ -5693,12 +5693,12 @@ export default function App() {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${partnerSessionToken}` }
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         showToast('Region removed!', 'success');
         fetchPartnerRegions();
       } else {
-        showToast(data.error || 'Failed to remove region', 'error');
+        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
     } catch (err) {
       showToast('Network error deleting region', 'error');
@@ -5730,7 +5730,7 @@ export default function App() {
         },
         body: JSON.stringify(payload)
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         showToast('Feedback submitted to admin!', 'success');
         setShowNewFeedbackModal(false);
@@ -5738,7 +5738,7 @@ export default function App() {
         setFbDescription('');
         fetchPartnerFeedback();
       } else {
-        showToast(data.error || 'Failed to submit feedback', 'error');
+        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
     } catch (err) {
       showToast('Network error submitting feedback', 'error');
@@ -5767,12 +5767,12 @@ export default function App() {
         },
         body: JSON.stringify(payload)
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         showToast('Partner profile updated successfully!', 'success');
         fetchPartnerProfile();
       } else {
-        showToast(data.error || 'Failed to update profile', 'error');
+        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
     } catch (err) {
       showToast('Network error updating profile', 'error');
@@ -5797,7 +5797,7 @@ export default function App() {
         },
         body: JSON.stringify({ current_password: pProfCurrentPass, new_password: pProfNewPass })
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         showToast('Password changed successfully!', 'success');
         setShowChangePasswordForm(false);
@@ -5805,7 +5805,7 @@ export default function App() {
         setPProfNewPass('');
         setPProfConfirmNewPass('');
       } else {
-        showToast(data.error || 'Failed to change password', 'error');
+        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
     } catch (err) {
       showToast('Network error changing password', 'error');
@@ -7002,7 +7002,7 @@ export default function App() {
       
       const res = await fetch(`${API_BASE}/products?regionId=${currentUser.region_id}&stockistId=${targetStockist.id}&customer=true`);
       if (!res.ok) return;
-      const currentProds = await res.json();
+      const currentProds = await res.json().catch(() => ({}));
       
       const targetProd = currentProds.find(p => p.name.toLowerCase().includes(productName.toLowerCase()));
       if (targetProd && targetProd.stock_qty > 0) {
@@ -7490,7 +7490,7 @@ export default function App() {
                                         }
                                         try {
                                           const pRes = await fetch(`${API_BASE}/products?regionId=${currentUser.region_id}&stockistId=${s.id}&customer=true`);
-                                          const prods = await pRes.json();
+                                          const prods = await pRes.json().catch(() => ({}));
                                           if (Array.isArray(prods) && prods.length === 0) {
                                             triggerConfirmModal(
                                               t('No Items', 'कोई सामान नहीं', 'কোনো জিনিসপত্র নেই'),
@@ -7863,7 +7863,7 @@ export default function App() {
                                     })
                                   });
 
-                                  const data = await res.json();
+                                  const data = await res.json().catch(() => ({}));
                                   if (res.ok) {
                                     setRedemptionSuccessModal({
                                       partnerName: partner.display_name,
@@ -7872,7 +7872,7 @@ export default function App() {
                                     loadCustomerData();
                                     fetchAvailableRewards();
                                   } else {
-                                    showToast(data.error || 'Redemption failed', 'error');
+                                    showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
                                   }
                                 } catch (err) {
                                   showToast('Redemption error', 'error');
@@ -8531,7 +8531,7 @@ export default function App() {
                                   headers: { 'Content-Type': 'application/json' },
                                   body: JSON.stringify({ user_id: currentUser.id, new_region_id: newReg })
                                 });
-                                const data = await res.json();
+                                const data = await res.json().catch(() => ({}));
                                 if (res.ok) {
                                   currentUser.region_id = newReg;
                                   if (data.cleared_partner_name) {
@@ -8540,7 +8540,7 @@ export default function App() {
                                     showToast('Region updated successfully', 'success');
                                   }
                                 } else {
-                                  showToast(data.error || 'Failed to update region', 'error');
+                                  showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
                                 }
                               } catch (err) {
                                 showToast('Network error updating region', 'error');
@@ -10311,7 +10311,7 @@ export default function App() {
                               <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
                                 <button className="btn btn-secondary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem' }} onClick={async () => {
                                   const res = await fetch(`${API_BASE}/admin/customers/${c.id}`);
-                                  if (res.ok) setSelectedCustomerDetail(await res.json());
+                                  if (res.ok) setSelectedCustomerDetail(await res.json().catch(() => ({})));
                                 }}>
                                   Details
                                 </button>
@@ -10421,7 +10421,7 @@ export default function App() {
                             onClick={async () => {
                               const res = await fetch(`${API_BASE}/admin/stockists/${adminStockistLookupResult.id}`);
                               if (res.ok) {
-                                setSelectedStockistDetail(await res.json());
+                                setSelectedStockistDetail(await res.json().catch(() => ({})));
                                 setShowStockistDetailModal(true);
                               }
                             }}
@@ -10529,7 +10529,7 @@ export default function App() {
                                     <button className="btn btn-secondary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem' }} onClick={async () => {
                                       const res = await fetch(`${API_BASE}/admin/stockists/${s.id}`);
                                       if (res.ok) {
-                                        setSelectedStockistDetail(await res.json());
+                                        setSelectedStockistDetail(await res.json().catch(() => ({})));
                                         setShowStockistDetailModal(true);
                                       }
                                     }}>
@@ -10549,7 +10549,7 @@ export default function App() {
                                       setSelectedStockistDetail(s); setNewStockistRegion(s.region_id);
                                       const ordersRes = await fetch(`${API_BASE}/orders?stockistId=${s.id}`);
                                       if (ordersRes.ok) {
-                                        const oList = await ordersRes.json();
+                                        const oList = await ordersRes.json().catch(() => ({}));
                                         setStockistBindingsCount(new Set(oList.map(ord => ord.customer_id)).size);
                                       }
                                       setShowStockistRegionModal(true);
@@ -10886,7 +10886,7 @@ export default function App() {
                                   <div style={{ display: 'flex', gap: '0.35rem' }}>
                                     <button className="btn btn-secondary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem' }} onClick={async () => {
                                       const res = await fetch(`${API_BASE}/admin/partners/${p.id}`);
-                                      if (res.ok) setSelectedPartnerDetail(await res.json());
+                                      if (res.ok) setSelectedPartnerDetail(await res.json().catch(() => ({})));
                                       else setSelectedPartnerDetail(p);
                                     }}>
                                       Details
@@ -11235,7 +11235,7 @@ export default function App() {
                                 </button>
                                 <button className="btn btn-secondary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem' }} onClick={async () => {
                                   const res = await fetch(`${API_BASE}/admin/redemption-approvals/${r.id}`);
-                                  if (res.ok) setSelectedRedemptionDetail(await res.json());
+                                  if (res.ok) setSelectedRedemptionDetail(await res.json().catch(() => ({})));
                                 }}>
                                   Details
                                 </button>
@@ -14115,12 +14115,12 @@ export default function App() {
                           headers: { 'Content-Type': 'application/json' },
                           body: JSON.stringify({ user_id: currentUser.id, new_phone: selfServiceNewPhone })
                         });
-                        const data = await res.json();
+                        const data = await res.json().catch(() => ({}));
                         if (res.ok) {
                           setSelfServiceOtpSent(true);
                           showToast('OTP sent to new phone number (Mock OTP: 123456)', 'info');
                         } else {
-                          showToast(data.error || 'Failed to send OTP', 'error');
+                          showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
                         }
                       } catch (err) {
                         showToast('Network error sending OTP', 'error');
@@ -14161,13 +14161,13 @@ export default function App() {
                           headers: { 'Content-Type': 'application/json' },
                           body: JSON.stringify({ user_id: currentUser.id, new_phone: selfServiceNewPhone, otp: selfServiceOtp })
                         });
-                        const data = await res.json();
+                        const data = await res.json().catch(() => ({}));
                         if (res.ok) {
                           currentUser.phone = selfServiceNewPhone;
                           showToast('Phone number updated successfully!', 'success');
                           setShowSelfServicePhoneModal(false);
                         } else {
-                          showToast(data.error || 'Invalid verification code', 'error');
+                          showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
                         }
                       } catch (err) {
                         showToast('Network error verifying code', 'error');
