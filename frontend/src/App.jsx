@@ -4543,7 +4543,7 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ admin_id: currentUser.id })
       });
-      data = await res.json();
+      data = await res.json().catch(() => ({}));
     } catch (e) {
       console.error(e);
       showToast('Network error verifying bill', 'error');
@@ -4554,7 +4554,7 @@ export default function App() {
       showToast('Bill verified successfully', 'success');
       fetchDbState();
     } else {
-      showToast(data.error || 'Failed to verify bill', 'error');
+      showToast(data.error || `Verify failed (${res.status})`, 'error');
     }
   };
 
@@ -4576,7 +4576,7 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ admin_id: currentUser.id, reason: rejectReasonText.trim() })
       });
-      data = await res.json();
+      data = await res.json().catch(() => ({}));
     } catch (e) {
       console.error(e);
       showToast('Network error rejecting bill', 'error');
@@ -4590,7 +4590,7 @@ export default function App() {
       setRejectReasonText('');
       fetchDbState();
     } else {
-      showToast(data.error || 'Failed to reject bill', 'error');
+      showToast(data.error || `Reject failed (${res.status})`, 'error');
     }
   };
 
