@@ -3918,10 +3918,10 @@ app.post('/api/admin/kyc/:userId/approve', async (req, res) => {
     stockist = {
       id: 's-' + generateId(),
       tenant_id: user.tenant_id || 't1',
-      region_id: user.region_id || 'r1',
+      region_id: user.region_id,
       user_id: user.id,
       name: shopName,
-      vendor_id: vendorId || 'v1',
+      vendor_id: vendorId,
       delivery_radius_km: parseFloat(deliveryRadius) || 5.0,
       min_order_value: parseFloat(minOrderValue) || 0.0,
       is_active: true,
@@ -4556,6 +4556,28 @@ app.post('/api/admin/complete-redemption', async (req, res) => {
   if (idx === -1) return res.status(404).json({ error: 'Ledger entry not found' });
   await db.query("UPDATE points_ledger SET billing_sync_status = $1 WHERE id = $2", ['SYNCED', ledgerId]);
   return res.json({ success: true, entry: ledger[idx] });
+});
+
+// GET /api/admin/vendors/load
+app.get('/api/admin/vendors/load', async (req, res) => {
+  const { region_id } = req.query;
+  if (!region_id) return res.status(400).json({ error: 'region_id is required' });
+
+  const vendors = await db.getTable('vendors');
+  const stockists = await db.getTable('stockists');
+
+  const activeVendors = vendors.filter(v => v.region_id === region_id && v.is_active !== false);
+
+  const loadData = activeVendors.map(v => {
+    const count = stockists.filter(s => s.vendor_id === v.id && s.is_active !== false).length;
+    return {
+      id: v.id,
+      name: v.name,
+      stockist_count: count
+    };
+  });
+
+  return res.json(loadData);
 });
 
 app.get('/api/admin/vendors', async (req, res) => {

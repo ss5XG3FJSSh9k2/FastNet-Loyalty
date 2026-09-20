@@ -472,6 +472,13 @@ export default function App() {
   const [blacklistFilter, setBlacklistFilter] = useState('all');
 
   const [showKycActionModal, setShowKycActionModal] = useState(false);
+
+  const [showKycApproveModal, setShowKycApproveModal] = useState(false);
+  const [kycApproveUser, setKycApproveUser] = useState(null);
+  const [kycApproveVendors, setKycApproveVendors] = useState(null);
+  const [kycApproveSelectedVendor, setKycApproveSelectedVendor] = useState('');
+  const [kycApproveHighFlags, setKycApproveHighFlags] = useState([]);
+
   const [kycActionUserId, setKycActionUserId] = useState(null);
   const [kycActionType, setKycActionType] = useState('REJECT_APPEAL');
   const [kycActionReason, setKycActionReason] = useState('');
@@ -3843,7 +3850,34 @@ export default function App() {
     } catch (e) { showToast('Error marking COD paid', 'error'); }
   };
 
-  const handleApproveKyc = async (userId) => {
+  
+  const openKycApproveModal = async (user, highFlags = []) => {
+    setKycApproveUser(user);
+    setKycApproveHighFlags(highFlags);
+    setKycApproveVendors(null);
+    setShowKycApproveModal(true);
+    
+    try {
+      const res = await fetch(`${API_BASE}/admin/vendors/load?region_id=${user.region_id}`, { headers: { 'X-Admin-Action': 'true' } });
+      if (res.ok) {
+        let data = await res.json().catch(() => ({}));
+        data.sort((a, b) => a.stockist_count - b.stockist_count);
+        setKycApproveVendors(data);
+        if (data.length > 0) {
+          setKycApproveSelectedVendor(data[0].id);
+        } else {
+          setKycApproveSelectedVendor('');
+        }
+      } else {
+        setKycApproveVendors([]);
+      }
+    } catch (e) {
+      showToast('Failed to load vendors', 'error');
+      setKycApproveVendors([]);
+    }
+  };
+
+  const handleApproveKyc = async (userId, vendorId) => {
     // Select vendor corresponding to the user's region
     const userToApprove = pendingKyc.find(u => u.id === userId);
     if (!userToApprove) return;
@@ -3871,7 +3905,7 @@ export default function App() {
       logApi('POST', '/admin/approve-kyc', payload, res.status, data);
 
       if (res.ok) {
-        showToast(`Approved stockist! Assigned vendor: ${matchingVendor.name}`);
+        showToast('Approved stockist successfully!');
         fetchDbState();
         fetchAnalytics();
       } else {
@@ -14307,6 +14341,82 @@ export default function App() {
             </div>
             <div style={{ textAlign: 'right', marginTop: '1.5rem' }}>
               <button className="btn btn-primary" onClick={() => setShowCookiesPolicyModal(false)}>Close Menu</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      
+      {/* KYC Approve Modal */}
+      {showKycApproveModal && kycApproveUser && (
+        <div className="modal-overlay">
+          <div className="modal-content glass-card" style={{ maxWidth: '450px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h3 style={{ fontSize: '1.1rem', margin: 0 }}>Approve {kycApproveUser.name} as Stockist</h3>
+              <button className="btn btn-secondary" style={{ padding: '0.2rem 0.5rem' }} onClick={() => setShowKycApproveModal(false)}>
+                <X size={14} />
+              </button>
+            </div>
+
+            {kycApproveHighFlags.length > 0 && (
+              <div style={{ padding: '0.75rem', marginBottom: '1rem', background: 'rgba(255, 68, 68, 0.1)', borderLeft: '4px solid var(--danger-color)', borderRadius: '4px' }}>
+                <strong style={{ color: 'var(--danger-color)', display: 'block', marginBottom: '0.5rem' }}>
+                  Warning: {kycApproveHighFlags.length} High-Severity Flag(s)
+                </strong>
+                <ul style={{ margin: 0, paddingLeft: '1.2rem', fontSize: '0.85rem' }}>
+                  {kycApproveHighFlags.map(f => (
+                    <li key={f.id}>{f.flag_type} — {f.detail}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+              <div className="input-group">
+                <label className="input-label">Assign Vendor (Region: {regions.find(r => r.id === kycApproveUser.region_id)?.name || kycApproveUser.region_id})</label>
+                
+                {kycApproveVendors === null ? (
+                  <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>Loading vendors...</div>
+                ) : kycApproveVendors.length === 0 ? (
+                  <div style={{ padding: '1rem', background: 'rgba(255, 170, 0, 0.1)', border: '1px solid var(--warning-color)', borderRadius: '8px' }}>
+                    <p style={{ margin: '0 0 0.5rem 0', color: 'var(--warning-color)' }}>No active vendors found in this region.</p>
+                    <button className="btn btn-secondary btn-sm" onClick={() => {
+                      setShowKycApproveModal(false);
+                      handleSetAdminTab('vendors');
+                    }}>
+                      Go to Wholesalers
+                    </button>
+                  </div>
+                ) : (
+                  <select 
+                    className="text-input" 
+                    value={kycApproveSelectedVendor} 
+                    onChange={e => setKycApproveSelectedVendor(e.target.value)}
+                  >
+                    {kycApproveVendors.map(v => (
+                      <option key={v.id} value={v.id}>
+                        {v.name} ({v.stockist_count} stockist{v.stockist_count !== 1 ? 's' : ''})
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+
+              <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+                <button className="btn btn-secondary" onClick={() => setShowKycApproveModal(false)}>
+                  Cancel
+                </button>
+                <button 
+                  className="btn btn-primary"
+                  disabled={!kycApproveVendors || kycApproveVendors.length === 0 || !kycApproveSelectedVendor}
+                  onClick={() => {
+                    handleApproveKyc(kycApproveUser.id, kycApproveSelectedVendor);
+                    setShowKycApproveModal(false);
+                  }}
+                >
+                  Approve Application
+                </button>
+              </div>
             </div>
           </div>
         </div>
