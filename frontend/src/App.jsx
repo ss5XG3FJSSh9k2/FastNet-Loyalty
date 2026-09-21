@@ -9971,7 +9971,14 @@ export default function App() {
                             <input 
                               type="datetime-local" 
                               className="text-input" 
-                              value={stockistProfile.closed_until ? stockistProfile.closed_until.substring(0,16) : ''}
+                              value={stockistProfile.closed_until
+                                ? (() => {
+                                    const d = new Date(stockistProfile.closed_until);
+                                    if (isNaN(d)) return '';
+                                    const off = d.getTimezoneOffset() * 60000;
+                                    return new Date(d.getTime() - off).toISOString().slice(0, 16);
+                                  })()
+                                : ''}
                               onChange={e => {
                                 const dt = e.target.value ? new Date(e.target.value).toISOString() : '';
                                 setStockistProfile({ ...stockistProfile, closed_until: dt });
