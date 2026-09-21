@@ -1329,6 +1329,7 @@ export default function App() {
 
   // Stockist App State
   const [stockistProfile, setStockistProfile] = useState(null);
+  const [closedUntilDraft, setClosedUntilDraft] = useState(null);
   const [stockistOrders, setStockistOrders] = useState([]);
 
 
@@ -9968,23 +9969,68 @@ export default function App() {
                         {stockistProfile.manual_closed && (
                           <div className="input-group" style={{ margin: 0 }}>
                             <label className="input-label">Closed until (Optional)</label>
-                            <input 
-                              type="datetime-local" 
-                              className="text-input" 
-                              value={stockistProfile.closed_until
-                                ? (() => {
-                                    const d = new Date(stockistProfile.closed_until);
-                                    if (isNaN(d)) return '';
-                                    const off = d.getTimezoneOffset() * 60000;
-                                    return new Date(d.getTime() - off).toISOString().slice(0, 16);
-                                  })()
-                                : ''}
-                              onChange={e => {
-                                const dt = e.target.value ? new Date(e.target.value).toISOString() : '';
-                                setStockistProfile({ ...stockistProfile, closed_until: dt });
-                              }}
-                            />
-                            <p style={{ fontSize: '0.65rem', color: 'var(--text-muted)', margin: '0.2rem 0 0 0' }}>If left empty, shop will automatically reopen at the next scheduled opening time.</p>
+                            
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                              <button
+                                className={`btn ${((closedUntilDraft !== null ? closedUntilDraft : (stockistProfile.closed_until || '')) === '') ? 'btn-accent' : 'btn-outline'}`}
+                                onClick={() => setClosedUntilDraft('')}
+                                style={{ textAlign: 'left', padding: '0.5rem' }}
+                              >
+                                Until next opening <span style={{ fontSize: '0.7rem', opacity: 0.8 }}>(Shop reopens automatically at your next opening time)</span>
+                              </button>
+                              
+                              <button
+                                className={`btn ${((closedUntilDraft !== null ? closedUntilDraft : stockistProfile.closed_until) && !['23:59'].includes(new Date(closedUntilDraft !== null ? closedUntilDraft : stockistProfile.closed_until).toLocaleTimeString([],{hour12:false,hour:'2-digit',minute:'2-digit'})) && new Date(closedUntilDraft !== null ? closedUntilDraft : stockistProfile.closed_until).getDate() === new Date().getDate()) ? 'btn-accent' : 'btn-outline'}`}
+                                onClick={() => setClosedUntilDraft(new Date(Date.now() + 2 * 3600 * 1000).toISOString())}
+                                style={{ textAlign: 'left', padding: '0.5rem' }}
+                              >
+                                2 hours
+                              </button>
+                              
+                              <button
+                                className={`btn ${((closedUntilDraft !== null ? closedUntilDraft : stockistProfile.closed_until) && new Date(closedUntilDraft !== null ? closedUntilDraft : stockistProfile.closed_until).getHours() === 23 && new Date(closedUntilDraft !== null ? closedUntilDraft : stockistProfile.closed_until).getMinutes() === 59) ? 'btn-accent' : 'btn-outline'}`}
+                                onClick={() => {
+                                  const d = new Date();
+                                  d.setHours(23, 59, 0, 0);
+                                  setClosedUntilDraft(d.toISOString());
+                                }}
+                                style={{ textAlign: 'left', padding: '0.5rem' }}
+                              >
+                                Rest of today
+                              </button>
+
+                              <button
+                                className={`btn ${((closedUntilDraft !== null ? closedUntilDraft : stockistProfile.closed_until) && new Date(closedUntilDraft !== null ? closedUntilDraft : stockistProfile.closed_until).getDate() !== new Date().getDate()) ? 'btn-accent' : 'btn-outline'}`}
+                                onClick={() => {
+                                  const d = new Date();
+                                  d.setDate(d.getDate() + 1);
+                                  const op = stockistProfile.opening_time || '09:00';
+                                  const [h, m] = op.split(':');
+                                  d.setHours(parseInt(h, 10), parseInt(m, 10), 0, 0);
+                                  setClosedUntilDraft(d.toISOString());
+                                }}
+                                style={{ textAlign: 'left', padding: '0.5rem' }}
+                              >
+                                Tomorrow morning
+                              </button>
+                            </div>
+
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--surface-color)', padding: '0.75rem', borderRadius: '4px', color: 'white' }}>
+                              <div style={{ fontSize: '0.85rem' }}>
+                                <strong>Selected: </strong>
+                                {(closedUntilDraft !== null ? closedUntilDraft : stockistProfile.closed_until) ? new Date(closedUntilDraft !== null ? closedUntilDraft : stockistProfile.closed_until).toLocaleString() : 'Reopens at next opening time'}
+                                {closedUntilDraft !== null && <span style={{ color: 'var(--warning-color)', marginLeft: '0.5rem', fontSize: '0.75rem' }}>(Unsaved)</span>}
+                              </div>
+                              {closedUntilDraft !== null && (
+                                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                  <button className="btn btn-secondary" onClick={() => setClosedUntilDraft(null)} style={{ padding: '0.4rem 0.8rem' }}>Cancel</button>
+                                  <button className="btn btn-accent" onClick={() => {
+                                    setStockistProfile(prev => ({ ...prev, closed_until: closedUntilDraft ?? (prev.closed_until || '') }));
+                                    setClosedUntilDraft(null);
+                                  }} style={{ padding: '0.4rem 0.8rem' }}>OK</button>
+                                </div>
+                              )}
+                            </div>
                           </div>
                         )}
                       </div>
