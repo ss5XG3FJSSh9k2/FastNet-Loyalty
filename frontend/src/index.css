@@ -20,6 +20,9 @@
   --warning: #F59E0B; /* Amber */
   --warning-glow: rgba(245, 158, 11, 0.15);
   --danger: #EF4444; /* Rose Red */
+  --success-color: #10B981;  /* emerald — matches --accent */
+  --danger-color: #EF4444;   /* rose — matches --danger */
+  --success: #10B981;        /* alias for success */
   
   --text-main: #F3F4F6;
   --text-muted: #9CA3AF;
