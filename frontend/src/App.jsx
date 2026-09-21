@@ -157,6 +157,34 @@ class PanelErrorBoundary extends React.Component {
   }
 }
 
+// Center-crop to square, scale to `size`, return a compressed JPEG/WebP Blob
+function resizeImageToSquare(file, size = 512, quality = 0.85) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new window.Image();
+    img.onload = () => {
+      const side = Math.min(img.width, img.height);      // largest centered square that fits
+      const sx = (img.width - side) / 2;
+      const sy = (img.height - side) / 2;
+      const target = Math.min(size, side < size ? size : size); // never upscale beyond `size`; small imgs fill to size
+      const canvas = document.createElement('canvas');
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext('2d');
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(img, sx, sy, side, side, 0, 0, size, size);
+      URL.revokeObjectURL(url);
+      canvas.toBlob(
+        blob => blob ? resolve({ blob, previewUrl: URL.createObjectURL(blob) }) : reject(new Error('resize-failed')),
+        'image/jpeg',
+        quality
+      );
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('bad-image')); };
+    img.src = url;
+  });
+}
+
 const MemoizedStockistRow = React.memo(({ stockist, regionName, onDetails, onDeactivate }) => {
   return (
     <tr>
@@ -9815,13 +9843,13 @@ export default function App() {
                         <div className="input-group">
                           <label className="input-label">Product Image</label>
                           <p style={{ fontSize: '0.65rem', margin: '0 0 0.35rem 0' }}>
-                            Square image works best. At least 400×400 pixels. JPG, PNG or WebP. Maximum 5 MB.
+                            Any square-ish photo works. We'll crop and resize it automatically. At least 200×200. JPG, PNG or WebP. Max 5 MB.
                           </p>
                           <input 
                             type="file" 
                             accept=".jpg,.jpeg,.png,.webp"
                             className="text-input" 
-                            onChange={e => {
+                            onChange={async e => {
                               const file = e.target.files[0];
                               if (!file) { setNewProdImageFile(null); setNewProdImagePreview(null); return; }
                               if (file.size > 5 * 1024 * 1024) {
@@ -9829,27 +9857,31 @@ export default function App() {
                                 showToast(`That image is ${sizeMb} MB. Please use one under 5 MB.`, 'error');
                                 return;
                               }
-                              const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
-                              if (!allowedTypes.includes(file.type)) {
-                                showToast("Please use a JPG, PNG or WebP image.", 'error');
+                              if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+                                showToast('Please use a JPG, PNG or WebP image.', 'error');
                                 return;
                               }
-                              const objectUrl = URL.createObjectURL(file);
-                              const img = new window.Image();
-                              img.onload = () => {
-                                if (img.width < 400 || img.height < 400) {
-                                  showToast(`That image is ${img.width}×${img.height}. Please use one at least 400×400 so it looks sharp.`, 'error');
-                                  URL.revokeObjectURL(objectUrl);
-                                  return;
-                                }
-                                setNewProdImageFile(file);
-                                setNewProdImagePreview(objectUrl);
-                              };
-                              img.onerror = () => {
-                                showToast("Please use a JPG, PNG or WebP image.", 'error');
-                                URL.revokeObjectURL(objectUrl);
-                              };
-                              img.src = objectUrl;
+                              // read dimensions first for the sane floor
+                              const dims = await new Promise(res => {
+                                const u = URL.createObjectURL(file); const im = new window.Image();
+                                im.onload = () => { res({ w: im.width, h: im.height }); URL.revokeObjectURL(u); };
+                                im.onerror = () => { res(null); URL.revokeObjectURL(u); };
+                                im.src = u;
+                              });
+                              if (!dims) { showToast('Please use a JPG, PNG or WebP image.', 'error'); return; }
+                              if (dims.w < 200 || dims.h < 200) {
+                                showToast(`That image is ${dims.w}×${dims.h}. Please use one at least 200×200.`, 'error');
+                                return;
+                              }
+                              try {
+                                const { blob, previewUrl } = await resizeImageToSquare(file, 512, 0.85);
+                                // wrap blob as a File so the existing formData.append sends exactly what it expects
+                                const processed = new window.File([blob], (file.name.replace(/\.[^.]+$/, '') || 'product') + '.jpg', { type: 'image/jpeg' });
+                                setNewProdImageFile(processed);
+                                setNewProdImagePreview(previewUrl);
+                              } catch {
+                                showToast('Could not process that image — try another.', 'error');
+                              }
                             }}
                           />
                           {newProdImagePreview && (
