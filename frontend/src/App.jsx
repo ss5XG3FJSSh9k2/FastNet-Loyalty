@@ -235,6 +235,163 @@ const MemoizedAuditLogRow = React.memo(({ log }) => {
 });
 MemoizedAuditLogRow.displayName = 'MemoizedAuditLogRow';
 
+const TimePicker = ({ value, onChange }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [draft, setDraft] = useState({ hour12: '12', minute: '00', meridiem: 'AM' });
+  const pickerRef = useRef(null);
+
+  const to12h = (hhmm) => {
+    if (!hhmm) return { hour12: '12', minute: '00', meridiem: 'AM' };
+    const [h, m] = hhmm.split(':');
+    let hour = parseInt(h, 10);
+    const minute = m || '00';
+    const meridiem = hour >= 12 ? 'PM' : 'AM';
+    if (hour === 0) hour = 12;
+    if (hour > 12) hour -= 12;
+    return { hour12: hour.toString(), minute, meridiem };
+  };
+
+  const to24h = (hour12, minute, meridiem) => {
+    let h = parseInt(hour12, 10);
+    if (meridiem === 'AM' && h === 12) h = 0;
+    if (meridiem === 'PM' && h < 12) h += 12;
+    return `${h.toString().padStart(2, '0')}:${minute.padStart(2, '0')}`;
+  };
+
+  const format12h = (hhmm) => {
+    if (!hhmm) return '';
+    const { hour12, minute, meridiem } = to12h(hhmm);
+    return `${hour12.padStart(2, '0')}:${minute} ${meridiem}`;
+  };
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (pickerRef.current && !pickerRef.current.contains(e.target)) {
+        setIsOpen(false);
+      }
+    };
+    if (isOpen) document.addEventListener('mousedown', handleClickOutside);
+    else document.removeEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isOpen]);
+
+  const handleOpen = () => {
+    setDraft(to12h(value));
+    setIsOpen(true);
+  };
+
+  const handleOk = () => {
+    onChange(to24h(draft.hour12, draft.minute, draft.meridiem));
+    setIsOpen(false);
+  };
+
+  const hours = ['12', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11'];
+  const minutes = Array.from({ length: 60 }, (_, i) => i.toString().padStart(2, '0'));
+  const meridiems = ['AM', 'PM'];
+
+  return (
+    <div style={{ position: 'relative' }} ref={pickerRef}>
+      <div 
+        className="text-input" 
+        style={{ cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+        onClick={handleOpen}
+      >
+        {format12h(value) || 'Select Time'}
+      </div>
+      
+      {isOpen && (
+        <div className="glass-card" style={{ 
+          position: 'absolute', 
+          top: '100%', 
+          left: 0, 
+          marginTop: '0.5rem', 
+          zIndex: 100, 
+          width: '280px',
+          maxWidth: '90vw',
+          padding: '1rem',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '1rem'
+        }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.5rem', height: '200px' }}>
+            <div style={{ overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+              {hours.map(h => (
+                <div 
+                  key={h} 
+                  onClick={() => setDraft({ ...draft, hour12: h })}
+                  style={{ 
+                    padding: '0.5rem', 
+                    textAlign: 'center', 
+                    cursor: 'pointer',
+                    minHeight: '40px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    background: draft.hour12 === h ? 'var(--accent)' : 'transparent',
+                    borderRadius: '4px',
+                    color: draft.hour12 === h ? 'white' : 'inherit'
+                  }}
+                >
+                  {h.padStart(2, '0')}
+                </div>
+              ))}
+            </div>
+            <div style={{ overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+              {minutes.map(m => (
+                <div 
+                  key={m} 
+                  onClick={() => setDraft({ ...draft, minute: m })}
+                  style={{ 
+                    padding: '0.5rem', 
+                    textAlign: 'center', 
+                    cursor: 'pointer',
+                    minHeight: '40px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    background: draft.minute === m ? 'var(--accent)' : 'transparent',
+                    borderRadius: '4px',
+                    color: draft.minute === m ? 'white' : 'inherit'
+                  }}
+                >
+                  {m}
+                </div>
+              ))}
+            </div>
+            <div style={{ overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+              {meridiems.map(m => (
+                <div 
+                  key={m} 
+                  onClick={() => setDraft({ ...draft, meridiem: m })}
+                  style={{ 
+                    padding: '0.5rem', 
+                    textAlign: 'center', 
+                    cursor: 'pointer',
+                    minHeight: '40px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    background: draft.meridiem === m ? 'var(--accent)' : 'transparent',
+                    borderRadius: '4px',
+                    color: draft.meridiem === m ? 'white' : 'inherit'
+                  }}
+                >
+                  {m}
+                </div>
+              ))}
+            </div>
+          </div>
+          
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+            <button className="btn btn-secondary" onClick={() => setIsOpen(false)}>Cancel</button>
+            <button className="btn btn-accent" onClick={handleOk}>OK</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 export default function App() {
   const enablePushAlerts = async () => {
     try {
@@ -9832,11 +9989,11 @@ export default function App() {
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
                           <div className="input-group" style={{ margin: 0 }}>
                             <label className="input-label">Opening Time</label>
-                            <input type="time" className="text-input" value={stockistProfile.opening_time || '09:00'} onChange={e => setStockistProfile({...stockistProfile, opening_time: e.target.value})} />
+                            <TimePicker value={stockistProfile.opening_time || '09:00'} onChange={(v) => setStockistProfile({...stockistProfile, opening_time: v})} />
                           </div>
                           <div className="input-group" style={{ margin: 0 }}>
                             <label className="input-label">Closing Time</label>
-                            <input type="time" className="text-input" value={stockistProfile.closing_time || '17:00'} onChange={e => setStockistProfile({...stockistProfile, closing_time: e.target.value})} />
+                            <TimePicker value={stockistProfile.closing_time || '17:00'} onChange={(v) => setStockistProfile({...stockistProfile, closing_time: v})} />
                           </div>
                         </div>
 
