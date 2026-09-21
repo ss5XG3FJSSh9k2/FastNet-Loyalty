@@ -1911,8 +1911,12 @@ app.get('/api/stockists/by-user/:userId', async (req, res) => {
   if (!stockist) {
     return res.status(404).json({ error: 'Stockist record not found or pending KYC' });
   }
+  const rates = await db.getTable('stockist_commission_rates');
+  const stkRates = rates.filter(r => r.stockist_id === stockist.id);
+  const latestRate = stkRates.length > 0 ? stkRates[stkRates.length - 1].rate_percent : 10.0;
   return res.json({
     ...stockist,
+    commission_rate: latestRate,
     is_shop_open: calculateIsShopOpen(stockist)
   });
 });

@@ -10048,7 +10048,7 @@ export default function App() {
                         <div style={{ fontSize: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                           <div><span style={{color: 'var(--text-muted)'}}>Region: </span><strong>{regions.find(r => r.id === stockistProfile.region_id)?.name || stockistProfile.region_id}</strong></div>
                           <div><span style={{color: 'var(--text-muted)'}}>Wholesaler: </span><strong>{vendors.find(v => v.id === stockistProfile.vendor_id)?.name || stockistProfile.vendor_id}</strong></div>
-                          <div><span style={{color: 'var(--text-muted)'}}>Commission Rate: </span><strong>{stockistProfile.commission_rate != null ? `${stockistProfile.commission_rate}%` : '—'}</strong></div>
+                          <div><span style={{color: 'var(--text-muted)'}}>Current Commission Rate: </span><strong>{stockistProfile.commission_rate != null ? `${stockistProfile.commission_rate}%` : '—'}</strong></div>
                           <div><span style={{color: 'var(--text-muted)'}}>Minimum Order: </span><strong>₹{stockistProfile.min_order_value}</strong></div>
                           <p style={{ fontSize: '0.65rem', color: 'var(--accent)', marginTop: '0.2rem', marginBottom: 0 }}>
                             Contact FastNet support to change any of these details.
