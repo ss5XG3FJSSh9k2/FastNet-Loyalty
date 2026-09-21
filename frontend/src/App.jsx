@@ -1340,6 +1340,7 @@ export default function App() {
   const [stockistProfile, setStockistProfile] = useState(null);
   const [closedUntilDraft, setClosedUntilDraft] = useState(null);
   const [showCustomDate, setShowCustomDate] = useState(false);
+  const [closedUntilPreset, setClosedUntilPreset] = useState(null);
   const [stockistOrders, setStockistOrders] = useState([]);
 
 
@@ -9973,6 +9974,7 @@ export default function App() {
                             onClick={() => {
                               setStockistProfile({ ...stockistProfile, manual_closed: !stockistProfile.manual_closed, closed_until: '' });
                               setShowCustomDate(false);
+                              setClosedUntilPreset(null);
                             }}
                             aria-pressed={!stockistProfile.manual_closed}
                             aria-label={stockistProfile.manual_closed ? 'Shop closed, tap to open' : 'Shop open, tap to close'}
@@ -10054,7 +10056,7 @@ export default function App() {
                               </div>
                               {closedUntilDraft !== null && (
                                 <div style={{ display: 'flex', gap: '0.5rem' }}>
-                                  <button className="btn btn-secondary" onClick={() => { setClosedUntilDraft(null); setShowCustomDate(false); }} style={{ padding: '0.4rem 0.8rem' }}>Cancel</button>
+                                  <button className="btn btn-secondary" onClick={() => { setClosedUntilDraft(null); setShowCustomDate(false); setClosedUntilPreset(null); }} style={{ padding: '0.4rem 0.8rem' }}>Cancel</button>
                                   <button className="btn btn-accent" onClick={() => {
                                     setStockistProfile(prev => ({ ...prev, closed_until: closedUntilDraft ?? (prev.closed_until || '') }));
                                     setClosedUntilDraft(null);
