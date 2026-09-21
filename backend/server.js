@@ -2580,6 +2580,37 @@ const handleCreateOrderRoute = async (req, res) => {
 
   await db.saveTable('stockist_inventory', inventory);
 
+  try {
+    const allSubs = await db.getTable('stockist_push_subscriptions');
+    let subsUpdated = false;
+    for (const order of createdOrders) {
+      const subs = allSubs.filter(s => s.stockist_id === order.stockist_id);
+      for (const sub of subs) {
+        try {
+          await webpush.sendNotification(
+            sub.subscription,
+            JSON.stringify({ title: 'New Order', body: `New order #${order.id} received.`, url: '/' })
+          );
+        } catch (err) {
+          if (err.statusCode === 404 || err.statusCode === 410) {
+            const idx = allSubs.indexOf(sub);
+            if (idx > -1) {
+              allSubs.splice(idx, 1);
+              subsUpdated = true;
+            }
+          } else {
+            console.error('[push] Send failed for stockist:', order.stockist_id, err);
+          }
+        }
+      }
+    }
+    if (subsUpdated) {
+      await db.saveTable('stockist_push_subscriptions', allSubs);
+    }
+  } catch (err) {
+    console.error('[push] Error processing push notifications:', err);
+  }
+
   return res.json({
     success: true,
     cart_id: cartId,

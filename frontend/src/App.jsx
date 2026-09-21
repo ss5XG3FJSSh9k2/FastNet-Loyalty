@@ -436,34 +436,45 @@ const TimePicker = ({ value, onChange }) => {
 };
 
 export default function App() {
+  function urlBase64ToUint8Array(base64String) {
+    const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+    const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+    const raw = window.atob(base64);
+    const arr = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+    return arr;
+  }
+
   const enablePushAlerts = async () => {
     try {
+      if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+        showToast('Push alerts aren\'t supported on this browser', 'error');
+        return;
+      }
       const perm = await Notification.requestPermission();
       if (perm !== 'granted') {
-        showToast('Notification permission denied', 'error');
+        showToast('Notification permission denied — enable it in browser settings', 'error');
         return;
       }
       const reg = await navigator.serviceWorker.register('/sw.js');
+      await navigator.serviceWorker.ready;
       const vapidRes = await fetch(`${API_BASE}/config/vapid`);
       const { publicKey } = await vapidRes.json();
-      
+      if (!publicKey) { showToast('Push not configured on server', 'error'); return; }
       const subscription = await reg.pushManager.subscribe({
         userVisibleOnly: true,
-        applicationServerKey: publicKey
+        applicationServerKey: urlBase64ToUint8Array(publicKey)
       });
-      
       const res = await fetch(`${API_BASE}/stockist/push-subscription`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-User-Id': currentUser.id },
         body: JSON.stringify({ subscription })
       });
-      if (res.ok) {
-        showToast('Order alerts enabled on this device', 'success');
-      } else {
-        throw new Error('Failed to save subscription');
-      }
+      if (res.ok) showToast('Order alerts enabled on this device', 'success');
+      else throw new Error('save-failed');
     } catch (e) {
-      showToast('Push alerts not supported or failed', 'error');
+      console.error('[push] enable failed:', e);
+      showToast('Couldn\'t enable push alerts: ' + (e.message || 'unknown error'), 'error');
     }
   };
   const isDevMode = new URLSearchParams(window.location.search).has('dev');
