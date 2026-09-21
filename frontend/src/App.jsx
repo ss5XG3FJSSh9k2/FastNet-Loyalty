@@ -224,6 +224,36 @@ const MemoizedAuditLogRow = React.memo(({ log }) => {
 MemoizedAuditLogRow.displayName = 'MemoizedAuditLogRow';
 
 export default function App() {
+  const enablePushAlerts = async () => {
+    try {
+      const perm = await Notification.requestPermission();
+      if (perm !== 'granted') {
+        showToast('Notification permission denied', 'error');
+        return;
+      }
+      const reg = await navigator.serviceWorker.register('/sw.js');
+      const vapidRes = await fetch(`${API_BASE}/config/vapid`);
+      const { publicKey } = await vapidRes.json();
+      
+      const subscription = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: publicKey
+      });
+      
+      const res = await fetch(`${API_BASE}/stockist/push-subscription`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-User-Id': currentUser.id },
+        body: JSON.stringify({ subscription })
+      });
+      if (res.ok) {
+        showToast('Order alerts enabled on this device', 'success');
+      } else {
+        throw new Error('Failed to save subscription');
+      }
+    } catch (e) {
+      showToast('Push alerts not supported or failed', 'error');
+    }
+  };
   const isDevMode = new URLSearchParams(window.location.search).has('dev');
 
   const adminFetch = (path, options = {}) => {
@@ -478,6 +508,9 @@ export default function App() {
   const [kycApproveVendors, setKycApproveVendors] = useState(null);
   const [kycApproveSelectedVendor, setKycApproveSelectedVendor] = useState('');
   const [kycApproveHighFlags, setKycApproveHighFlags] = useState([]);
+
+
+
 
   const [kycActionUserId, setKycActionUserId] = useState(null);
   const [kycActionType, setKycActionType] = useState('REJECT_APPEAL');
@@ -1124,9 +1157,12 @@ export default function App() {
   const [stockistSettings, setStockistSettings] = useState(null);
   const [savingSettings, setSavingSettings] = useState(false);
 
+
   // Stockist App State
   const [stockistProfile, setStockistProfile] = useState(null);
   const [stockistOrders, setStockistOrders] = useState([]);
+
+
   const [unacknowledgedOrders, setUnacknowledgedOrders] = useState([]);
   const knownOrderIds = useRef(new Set());
   const isFirstOrderLoad = useRef(true);
@@ -1428,8 +1464,17 @@ export default function App() {
         </button>
       );
     } else if (o.status !== 'CANCELLED') {
-      const closedText = t(
-        'Cancellation window closed',
+      
+  const formatReopenTime = (s) => {
+    if (s.closed_until) {
+      const d = new Date(s.closed_until);
+      return d.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+    }
+    return s.opening_time || '09:00';
+  };
+
+  const closedText = t(
+    'Cancellation window closed',
         'रद्दीकरण विंडो बंद हो गई है',
         'বাতিলের সময়সীমা শেষ হয়েছে'
       );
@@ -1501,9 +1546,14 @@ export default function App() {
             const pData = await pRes.json().catch(() => ({}));
             setStockistProfile(pData);
       setStockistSettings(pData);
+      setStockistSettings(pData);
             const oRes = await fetch(`${API_BASE}/orders?stockistId=${pData.id}`);
             const oData = await oRes.json().catch(() => ({}));
-            setStockistOrders(oData);
+      if (isFirstOrderLoad.current && Array.isArray(oData)) {
+        oData.forEach(o => knownOrderIds.current.add(o.id));
+        isFirstOrderLoad.current = false;
+      }
+      setStockistOrders(oData);
             
             // Cycle latest order straight to DELIVERED
             const pendingOrder = oData.find(o => ['CONFIRMING', 'RECEIVED', 'READY'].includes(o.status));
@@ -3960,16 +4010,10 @@ export default function App() {
     const userToApprove = pendingKyc.find(u => u.id === userId);
     if (!userToApprove) return;
 
-    const matchingVendor = vendors.find(v => v.region_id === userToApprove.region_id);
-    if (!matchingVendor) {
-      showToast('Please create a Vendor for this region first!', 'error');
-      return;
-    }
-
     try {
       const payload = {
         userId,
-        vendorId: matchingVendor.id,
+        vendorId,
         deliveryRadius: userToApprove.region_id === 'r2' ? 6.0 : 3.0,
         minOrderValue: userToApprove.region_id === 'r2' ? 100 : 200
       };
@@ -9442,26 +9486,7 @@ export default function App() {
                     </div>
                   )}
 
-                  <div className="stockist-profile-card glass-card" style={{ padding: '0.85rem', marginTop: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: '0.75rem' }}>
-                    <div style={{ fontWeight: 'bold', color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span>Shop Profile</span>
-                      <button
-                        type="button"
-                        className="btn btn-secondary"
-                        style={{ padding: '0.15rem 0.4rem', fontSize: '0.65rem' }}
-                        onClick={() => { setSelfServiceNewPhone(''); setSelfServiceOtp(''); setSelfServiceOtpSent(false); setShowSelfServicePhoneModal(true); }}
-                      >
-                        Change phone number
-                      </button>
-                    </div>
-                    <div>
-                      <span style={{ color: 'var(--text-muted)' }}>Shop Area / Region: </span>
-                      <strong style={{ color: 'white' }}>{regions.find(r => r.id === stockistProfile.region_id)?.name || stockistProfile.region_id}</strong>
-                      <p style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: '0.2rem', marginBottom: 0 }}>
-                        Contact FastNet support to change your shop's area.
-                      </p>
-                    </div>
-                  </div>
+                  
 
                   
 
@@ -9752,6 +9777,182 @@ export default function App() {
 
                 </div>
 
+                  {stockistActiveTab === 'settings' && stockistSettings && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', paddingBottom: '2rem' }}>
+                      <h3 style={{ fontSize: '1rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.4rem', display: 'flex', alignItems: 'center', gap: '0.35rem', margin: 0 }}>
+                        <Settings size={16} style={{ color: 'var(--primary)' }} />
+                        {t("Shop Settings", "दुकान सेटिंग", "দোকান সেটিংস")}
+                      </h3>
+
+                      {/* Manual Closure */}
+                      <div className="glass-card" style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem', borderLeft: stockistSettings.manual_closed ? '3px solid var(--danger-color)' : '3px solid var(--success-color)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <h4 style={{ margin: 0, fontSize: '0.9rem', color: 'white' }}>Shop Status: {stockistSettings.manual_closed ? <span style={{color: 'var(--danger-color)'}}>Closed</span> : <span style={{color: 'var(--success-color)'}}>Open</span>}</h4>
+                          <button 
+                            className={`toggle-switch ${stockistSettings.manual_closed ? 'active' : ''}`} 
+                            style={{ background: stockistSettings.manual_closed ? 'var(--danger-color)' : 'var(--success-color)' }}
+                            onClick={() => setStockistSettings({ ...stockistSettings, manual_closed: !stockistSettings.manual_closed, closed_until: '' })}
+                          >
+                            <div className="toggle-slider"></div>
+                          </button>
+                        </div>
+                        
+                        {stockistSettings.manual_closed && (
+                          <div className="input-group" style={{ margin: 0 }}>
+                            <label className="input-label">Closed until (Optional)</label>
+                            <input 
+                              type="datetime-local" 
+                              className="text-input" 
+                              value={stockistSettings.closed_until ? stockistSettings.closed_until.substring(0,16) : ''}
+                              onChange={e => {
+                                const dt = e.target.value ? new Date(e.target.value).toISOString() : '';
+                                setStockistSettings({ ...stockistSettings, closed_until: dt });
+                              }}
+                            />
+                            <p style={{ fontSize: '0.65rem', color: 'var(--text-muted)', margin: '0.2rem 0 0 0' }}>If left empty, shop will automatically reopen at the next scheduled opening time.</p>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Operational Settings */}
+                      <div className="glass-card" style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                        <h4 style={{ margin: 0, fontSize: '0.9rem', color: 'white' }}>Operational Settings</h4>
+                        
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                          <div className="input-group" style={{ margin: 0 }}>
+                            <label className="input-label">Opening Time</label>
+                            <input type="time" className="text-input" value={stockistSettings.opening_time || '09:00'} onChange={e => setStockistSettings({...stockistSettings, opening_time: e.target.value})} />
+                          </div>
+                          <div className="input-group" style={{ margin: 0 }}>
+                            <label className="input-label">Closing Time</label>
+                            <input type="time" className="text-input" value={stockistSettings.closing_time || '17:00'} onChange={e => setStockistSettings({...stockistSettings, closing_time: e.target.value})} />
+                          </div>
+                        </div>
+
+                        <div className="input-group" style={{ margin: 0 }}>
+                          <label className="input-label">Preparation Time (minutes)</label>
+                          <input type="number" min="5" max="120" className="text-input" value={stockistSettings.prep_eta_minutes || 15} onChange={e => setStockistSettings({...stockistSettings, prep_eta_minutes: parseInt(e.target.value, 10)})} />
+                        </div>
+
+                        <div className="input-group" style={{ margin: 0 }}>
+                          <label className="input-label">Delivery Radius (km)</label>
+                          <input type="number" step="0.1" max={stockistProfile.max_delivery_radius_km || 5.0} className="text-input" value={stockistSettings.delivery_radius_km || 5.0} onChange={e => setStockistSettings({...stockistSettings, delivery_radius_km: e.target.value})} />
+                          <p style={{ fontSize: '0.65rem', color: 'var(--text-muted)', margin: '0.2rem 0 0 0' }}>Maximum allowed: {stockistProfile.max_delivery_radius_km || 5.0} km</p>
+                        </div>
+                      </div>
+
+                      {/* Payout Details */}
+                      <div className="glass-card" style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                        <h4 style={{ margin: 0, fontSize: '0.9rem', color: 'white' }}>Payout Details</h4>
+                        
+                        <div className="input-group" style={{ margin: 0 }}>
+                          <label className="input-label">UPI ID (Primary)</label>
+                          <input type="text" placeholder="name@bank" className="text-input" value={stockistSettings.payout_upi_id || ''} onChange={e => setStockistSettings({...stockistSettings, payout_upi_id: e.target.value})} />
+                        </div>
+
+                        <div style={{ borderTop: '1px dashed var(--border-color)', margin: '0.5rem 0' }}></div>
+
+                        <div className="input-group" style={{ margin: 0 }}>
+                          <label className="input-label">Bank Account Number (Fallback)</label>
+                          <input type="text" className="text-input" value={stockistSettings.payout_bank_account || ''} onChange={e => setStockistSettings({...stockistSettings, payout_bank_account: e.target.value})} />
+                        </div>
+                        <div className="input-group" style={{ margin: 0 }}>
+                          <label className="input-label">IFSC Code</label>
+                          <input type="text" placeholder="ABCD0123456" className="text-input" value={stockistSettings.payout_ifsc || ''} onChange={e => setStockistSettings({...stockistSettings, payout_ifsc: e.target.value.toUpperCase()})} />
+                        </div>
+                        <div className="input-group" style={{ margin: 0 }}>
+                          <label className="input-label">Account Holder Name</label>
+                          <input type="text" className="text-input" value={stockistSettings.payout_account_name || ''} onChange={e => setStockistSettings({...stockistSettings, payout_account_name: e.target.value})} />
+                        </div>
+                      </div>
+
+                      {/* Read-Only Information */}
+                      <div className="glass-card" style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem', opacity: 0.8 }}>
+                        <h4 style={{ margin: 0, fontSize: '0.9rem', color: 'white' }}>Account Information</h4>
+                        
+                        <div style={{ fontSize: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                          <div><span style={{color: 'var(--text-muted)'}}>Region: </span><strong>{regions.find(r => r.id === stockistSettings.region_id)?.name || stockistSettings.region_id}</strong></div>
+                          <div><span style={{color: 'var(--text-muted)'}}>Wholesaler: </span><strong>{vendors.find(v => v.id === stockistSettings.vendor_id)?.name || stockistSettings.vendor_id}</strong></div>
+                          <div><span style={{color: 'var(--text-muted)'}}>Commission Rate: </span><strong>{stockistSettings.commission_rate}%</strong></div>
+                          <div><span style={{color: 'var(--text-muted)'}}>Minimum Order: </span><strong>₹{stockistSettings.min_order_value}</strong></div>
+                          <p style={{ fontSize: '0.65rem', color: 'var(--accent)', marginTop: '0.2rem', marginBottom: 0 }}>
+                            Contact FastNet support to change any of these details.
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Consolidated App Preferences */}
+                      <div className="glass-card" style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                        <h4 style={{ margin: 0, fontSize: '0.9rem', color: 'white' }}>App Preferences</h4>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Order Alerts (Push)</span>
+                          <button type="button" className="btn btn-secondary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.7rem' }} onClick={enablePushAlerts}>
+                            Enable
+                          </button>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Language</span>
+                          <select className="text-input" style={{ fontSize: '0.75rem', padding: '0.2rem 0.4rem', width: 'auto' }} value={lang} onChange={e => setLang(e.target.value)}>
+                            <option value="en">English</option>
+                            <option value="hi">हिंदी</option>
+                            <option value="bn">বাংলা</option>
+                          </select>
+                        </div>
+
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Phone Number</span>
+                          <button type="button" className="btn btn-secondary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.7rem' }} onClick={() => { setSelfServiceNewPhone(''); setSelfServiceOtp(''); setSelfServiceOtpSent(false); setShowSelfServicePhoneModal(true); }}>
+                            Change
+                          </button>
+                        </div>
+
+                        {developerOptions && (
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.5rem', borderTop: '1px dashed var(--border-color)', paddingTop: '0.5rem' }}>
+                            <div>
+                              <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Test Network Signal</span>
+                            </div>
+                            <button onClick={toggleOfflineMode} className={`toggle-switch ${offlineMode ? 'active' : ''}`}>
+                              <div className="toggle-slider"></div>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      <button 
+                        className="btn btn-accent" 
+                        disabled={savingSettings}
+                        style={{ width: '100%', minHeight: '40px', marginTop: '0.5rem' }}
+                        onClick={async () => {
+                          setSavingSettings(true);
+                          try {
+                            const res = await fetch(`${API_BASE}/stockist/profile`, {
+                              method: 'PATCH',
+                              headers: { 'Content-Type': 'application/json', 'X-User-Id': currentUser.id },
+                              body: JSON.stringify(stockistSettings)
+                            });
+                            if (!res.ok) {
+                              const err = await res.json().catch(()=>({}));
+                              showToast(err.error || 'Failed to save settings', 'error');
+                            } else {
+                              const data = await res.json();
+                              setStockistProfile(data.stockist);
+                              setStockistSettings(data.stockist);
+                              showToast('Settings saved successfully', 'success');
+                            }
+                          } catch(e) {
+                            showToast('Network error', 'error');
+                          } finally {
+                            setSavingSettings(false);
+                          }
+                        }}
+                      >
+                        {savingSettings ? 'Saving...' : 'Save Settings'}
+                      </button>
+
+                      <button className="btn btn-danger" style={{ width: '100%', marginTop: '0.5rem', fontSize: '0.8rem', minHeight: '36px', height: '36px' }} onClick={handleLogout}>Log Out</button>
+                    </div>
+                  )}
+
                 <div className="phone-footer">
                   <button className={`phone-nav-btn ${stockistActiveTab === 'orders' ? 'active' : ''}`} onClick={() => setStockistActiveTab('orders')}>
                     <ArrowRightLeft size={18} />
@@ -9769,6 +9970,10 @@ export default function App() {
                   <button className={`phone-nav-btn ${stockistActiveTab === 'analytics' ? 'active' : ''}`} onClick={() => { setStockistActiveTab('analytics'); loadStockistData(); }}>
                     <BarChart2 size={18} />
                     {t("Analytics", "विश्लेषण", "অ্যানালিটিক্স")}
+                  </button>
+                  <button className={`phone-nav-btn ${stockistActiveTab === 'settings' ? 'active' : ''}`} onClick={() => setStockistActiveTab('settings')}>
+                    <Settings size={18} />
+                    {t("Settings", "सेटिंग्स", "সেটিংস")}
                   </button>
                 </div>
               </>
@@ -11111,17 +11316,11 @@ export default function App() {
                                 <button className="btn btn-accent" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }} onClick={() => {
                                   if (hasHigh) {
                                     const flagListText = activeFlags.filter(f => f.severity === 'HIGH').map(f => `• ${f.flag_type} — ${f.detail}`).join('\n');
-                                    triggerConfirmModal(
-                                      t('Approve Stockist KYC', 'स्टॉकिस्ट KYC स्वीकृत करें', 'স্টকিস্ট KYC অনুমোদন করুন'),
-                                      `This application has ${activeFlags.filter(f => f.severity === 'HIGH').length} high-severity flags:\n${flagListText}\n\nApprove anyway?`,
-                                      () => handleApproveKyc(u.id)
-                                    );
+                                    const highFlags = hasHigh ? activeFlags.filter(f => f.severity === 'HIGH') : [];
+                                    openKycApproveModal(u, highFlags);
                                   } else {
-                                    triggerConfirmModal(
-                                      t('Approve Stockist KYC', 'स्टॉकिस्ट KYC स्वीकृत करें', 'স্টকিস্ট KYC অনুমোদন করুন'),
-                                      `Approve ${u.name} as stockist? A vendor will be auto-assigned based on their region.`,
-                                      () => handleApproveKyc(u.id)
-                                    );
+                                    const highFlags = hasHigh ? activeFlags.filter(f => f.severity === 'HIGH') : [];
+                                    openKycApproveModal(u, highFlags);
                                   }
                                 }}>
                                   ✓ Approve
@@ -14419,6 +14618,82 @@ export default function App() {
             </div>
             <div style={{ textAlign: 'right', marginTop: '1.5rem' }}>
               <button className="btn btn-primary" onClick={() => setShowCookiesPolicyModal(false)}>Close Menu</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      
+      {/* KYC Approve Modal */}
+      {showKycApproveModal && kycApproveUser && (
+        <div className="modal-overlay">
+          <div className="modal-content glass-card" style={{ maxWidth: '450px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h3 style={{ fontSize: '1.1rem', margin: 0 }}>Approve {kycApproveUser.name} as Stockist</h3>
+              <button className="btn btn-secondary" style={{ padding: '0.2rem 0.5rem' }} onClick={() => setShowKycApproveModal(false)}>
+                <X size={14} />
+              </button>
+            </div>
+
+            {kycApproveHighFlags.length > 0 && (
+              <div style={{ padding: '0.75rem', marginBottom: '1rem', background: 'rgba(255, 68, 68, 0.1)', borderLeft: '4px solid var(--danger-color)', borderRadius: '4px' }}>
+                <strong style={{ color: 'var(--danger-color)', display: 'block', marginBottom: '0.5rem' }}>
+                  Warning: {kycApproveHighFlags.length} High-Severity Flag(s)
+                </strong>
+                <ul style={{ margin: 0, paddingLeft: '1.2rem', fontSize: '0.85rem' }}>
+                  {kycApproveHighFlags.map(f => (
+                    <li key={f.id}>{f.flag_type} — {f.detail}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+              <div className="input-group">
+                <label className="input-label">Assign Vendor (Region: {regions.find(r => r.id === kycApproveUser.region_id)?.name || kycApproveUser.region_id})</label>
+                
+                {kycApproveVendors === null ? (
+                  <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>Loading vendors...</div>
+                ) : kycApproveVendors.length === 0 ? (
+                  <div style={{ padding: '1rem', background: 'rgba(255, 170, 0, 0.1)', border: '1px solid var(--warning-color)', borderRadius: '8px' }}>
+                    <p style={{ margin: '0 0 0.5rem 0', color: 'var(--warning-color)' }}>No active vendors found in this region.</p>
+                    <button className="btn btn-secondary btn-sm" onClick={() => {
+                      setShowKycApproveModal(false);
+                      handleSetAdminTab('vendors');
+                    }}>
+                      Go to Wholesalers
+                    </button>
+                  </div>
+                ) : (
+                  <select 
+                    className="text-input" 
+                    value={kycApproveSelectedVendor} 
+                    onChange={e => setKycApproveSelectedVendor(e.target.value)}
+                  >
+                    {kycApproveVendors.map(v => (
+                      <option key={v.id} value={v.id}>
+                        {v.name} ({v.stockist_count} stockist{v.stockist_count !== 1 ? 's' : ''})
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+
+              <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+                <button className="btn btn-secondary" onClick={() => setShowKycApproveModal(false)}>
+                  Cancel
+                </button>
+                <button 
+                  className="btn btn-primary"
+                  disabled={!kycApproveVendors || kycApproveVendors.length === 0 || !kycApproveSelectedVendor}
+                  onClick={() => {
+                    handleApproveKyc(kycApproveUser.id, kycApproveSelectedVendor);
+                    setShowKycApproveModal(false);
+                  }}
+                >
+                  Approve Application
+                </button>
+              </div>
             </div>
           </div>
         </div>
