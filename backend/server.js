@@ -357,8 +357,8 @@ const uploadBillMiddleware = (req, res, next) => {
     if (req.files) {
       const bFile = (req.files['bill_photo'] && req.files['bill_photo'][0]) ||
                     (req.files['billFile'] && req.files['billFile'][0]) ||
-                    (req.files['imageFile'] && req.files['imageFile'][0]) ||
-                    (req.files['image'] && req.files['image'][0]);
+                    (req.files['documentPhoto'] && req.files['documentPhoto'][0]) ||
+                    (req.files['document_photo'] && req.files['document_photo'][0]);
       if (bFile) req.file = bFile;
     }
     next();
@@ -1351,6 +1351,19 @@ app.patch('/api/products/:id', uploadBillMiddleware, async (req, res) => {
   if (req.body.description !== undefined) product.description = req.body.description;
   if (req.body.category !== undefined) product.category = req.body.category;
   if (req.body.image_url !== undefined) product.image_url = req.body.image_url;
+  if (req.files) {
+    const imgFile = (req.files['imageFile'] && req.files['imageFile'][0]) ||
+                    (req.files['image'] && req.files['image'][0]) ||
+                    (req.files['image_file'] && req.files['image_file'][0]);
+    if (imgFile) {
+      try {
+        const imgUploadRes = await r2.uploadBillPhoto(imgFile.buffer, imgFile.mimetype, `product-images/${stockistId}`);
+        product.image_url = `/api/images/${imgUploadRes.key}`;
+      } catch (uploadErr) {
+        console.error('Failed to upload product image file on edit:', uploadErr);
+      }
+    }
+  }
 
   product.price = newPrice;
   product.cost_price = newCostPrice;
