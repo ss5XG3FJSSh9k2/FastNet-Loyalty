@@ -9999,17 +9999,6 @@ export default function App() {
                                 2 hours
                               </button>
                               
-                              <button
-                                className={`btn ${((closedUntilDraft !== null ? closedUntilDraft : stockistProfile.closed_until) && new Date(closedUntilDraft !== null ? closedUntilDraft : stockistProfile.closed_until).getHours() === 23 && new Date(closedUntilDraft !== null ? closedUntilDraft : stockistProfile.closed_until).getMinutes() === 59) ? 'btn-accent' : 'btn-outline'}`}
-                                onClick={() => {
-                                  const d = new Date();
-                                  d.setHours(23, 59, 0, 0);
-                                  setClosedUntilDraft(d.toISOString());
-                                }}
-                                style={{ textAlign: 'left', padding: '0.5rem' }}
-                              >
-                                Rest of today
-                              </button>
 
                               <button
                                 className={`btn ${((closedUntilDraft !== null ? closedUntilDraft : stockistProfile.closed_until) && new Date(closedUntilDraft !== null ? closedUntilDraft : stockistProfile.closed_until).getDate() !== new Date().getDate()) ? 'btn-accent' : 'btn-outline'}`}
