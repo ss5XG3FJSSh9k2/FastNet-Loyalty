@@ -9906,7 +9906,9 @@ export default function App() {
                     </div>
                   )}
 
-                  {editingProduct && (
+                  {editingProduct && (() => {
+                    const priceChanged = (Math.abs(parseFloat(editProdPrice || 0) - editingProduct.price) > 0.001 || Math.abs(parseFloat(editProdCostPrice || 0) - editingProduct.cost_price) > 0.001);
+                    return (
                     <div style={{ position: 'absolute', inset: 0, background: 'rgba(11,14,20,0.96)', zIndex: 110, display: 'flex', flexDirection: 'column', padding: '1rem', overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
                       <div className="glass-card" style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '2rem' }}>
                         <h3 style={{ fontSize: '1.1rem', color: 'white', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
@@ -9914,7 +9916,7 @@ export default function App() {
                           {t('Edit SKU details', 'SKU विवरण संपादित करें', 'SKU বিবরণ সংশোধন করুন')}
                         </h3>
 
-                        {(Math.abs(parseFloat(editProdPrice || 0) - editingProduct.price) > 0.001 || Math.abs(parseFloat(editProdCostPrice || 0) - editingProduct.cost_price) > 0.001) && (
+                        {priceChanged && (
                           <div style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid var(--danger)', padding: '0.5rem', borderRadius: '6px', fontSize: '0.75rem', color: '#fca5a5' }}>
                             ⚠️ Price change detected. A new bill is required.
                           </div>
@@ -9939,8 +9941,13 @@ export default function App() {
                         </div>
 
                         <div className="input-group">
+                          {!editProdBillFile && (
+                            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '0.3rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                              <span>✓ A bill photo is already on file — you only need to upload a new one if you change the price.</span>
+                            </div>
+                          )}
                           <label className="input-label">
-                            {t('Wholesale bill photo', 'थोक बिल फोटो', 'পাইকারি বিল ছবি')} {(Math.abs(parseFloat(editProdPrice || 0) - editingProduct.price) > 0.001 || Math.abs(parseFloat(editProdCostPrice || 0) - editingProduct.cost_price) > 0.001) && <span style={{ color: 'var(--danger)' }}>*</span>}
+                            {t('Replace wholesale bill photo', 'थोक बिल फोटो बदलें', 'পাইকারি বিলের ছবি পরিবর্তন করুন')} {priceChanged && <span style={{ color: 'var(--danger)' }}>*</span>}
                           </label>
                           <input 
                             type="file" 
@@ -9958,6 +9965,11 @@ export default function App() {
                           {editProdBillFile && (
                             <div style={{ fontSize: '0.7rem', color: 'var(--accent)', marginTop: '0.2rem' }}>
                               Selected: {editProdBillFile.name} ({(editProdBillFile.size / 1024).toFixed(1)} KB)
+                            </div>
+                          )}
+                          {!priceChanged && !editProdBillFile && (
+                            <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
+                              Optional — only required if you change the price.
                             </div>
                           )}
                         </div>
@@ -9987,7 +9999,8 @@ export default function App() {
                         </div>
                       </div>
                     </div>
-                  )}
+                    );
+                  })()}
 
                 </div>
 
