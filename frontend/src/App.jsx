@@ -10007,16 +10007,16 @@ export default function App() {
                             
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '0.5rem' }}>
                               <button
-                                className={`btn ${((closedUntilDraft !== null ? closedUntilDraft : (stockistProfile.closed_until || '')) === '') ? 'btn-accent' : 'btn-outline'}`}
-                                onClick={() => setClosedUntilDraft('')}
+                                className={`btn ${closedUntilPreset === 'next' ? 'btn-accent' : 'btn-outline'}`}
+                                onClick={() => { setClosedUntilDraft(''); setClosedUntilPreset('next'); setShowCustomDate(false); }}
                                 style={{ textAlign: 'left', padding: '0.5rem' }}
                               >
                                 Until next opening <span style={{ fontSize: '0.7rem', opacity: 0.8 }}>(Shop reopens automatically at your next opening time)</span>
                               </button>
                               
                               <button
-                                className={`btn ${((closedUntilDraft !== null ? closedUntilDraft : stockistProfile.closed_until) && !['23:59'].includes(new Date(closedUntilDraft !== null ? closedUntilDraft : stockistProfile.closed_until).toLocaleTimeString([],{hour12:false,hour:'2-digit',minute:'2-digit'})) && new Date(closedUntilDraft !== null ? closedUntilDraft : stockistProfile.closed_until).getDate() === new Date().getDate()) ? 'btn-accent' : 'btn-outline'}`}
-                                onClick={() => setClosedUntilDraft(new Date(Date.now() + 2 * 3600 * 1000).toISOString())}
+                                className={`btn ${closedUntilPreset === '2h' ? 'btn-accent' : 'btn-outline'}`}
+                                onClick={() => { setClosedUntilDraft(new Date(Date.now() + 2 * 3600 * 1000).toISOString()); setClosedUntilPreset('2h'); setShowCustomDate(false); }}
                                 style={{ textAlign: 'left', padding: '0.5rem' }}
                               >
                                 2 hours
@@ -10024,7 +10024,7 @@ export default function App() {
                               
 
                               <button
-                                className={`btn ${((closedUntilDraft !== null ? closedUntilDraft : stockistProfile.closed_until) && new Date(closedUntilDraft !== null ? closedUntilDraft : stockistProfile.closed_until).getDate() !== new Date().getDate()) ? 'btn-accent' : 'btn-outline'}`}
+                                className={`btn ${closedUntilPreset === 'tomorrow' ? 'btn-accent' : 'btn-outline'}`}
                                 onClick={() => {
                                   const d = new Date();
                                   d.setDate(d.getDate() + 1);
@@ -10032,6 +10032,8 @@ export default function App() {
                                   const [h, m] = op.split(':');
                                   d.setHours(parseInt(h, 10), parseInt(m, 10), 0, 0);
                                   setClosedUntilDraft(d.toISOString());
+                                  setClosedUntilPreset('tomorrow');
+                                  setShowCustomDate(false);
                                 }}
                                 style={{ textAlign: 'left', padding: '0.5rem' }}
                               >
@@ -10039,8 +10041,8 @@ export default function App() {
                               </button>
 
                               <button
-                                className={`btn ${showCustomDate ? 'btn-accent' : 'btn-outline'}`}
-                                onClick={() => setShowCustomDate(true)}
+                                className={`btn ${closedUntilPreset === 'custom' ? 'btn-accent' : 'btn-outline'}`}
+                                onClick={() => { setShowCustomDate(true); setClosedUntilPreset('custom'); }}
                                 style={{ textAlign: 'left', padding: '0.5rem' }}
                               >
                                 Specific date <span style={{ fontSize: '0.7rem', opacity: 0.8 }}>(e.g. back from vacation)</span>
@@ -10057,8 +10059,9 @@ export default function App() {
                                     const [y, mo, dd] = e.target.value.split('-').map(Number);
                                     const op = stockistProfile.opening_time || '09:00';
                                     const [h, m] = op.split(':').map(Number);
-                                    const d = new Date(y, mo - 1, dd, h, m, 0, 0);  // local date @ opening time
-                                    setClosedUntilDraft(d.toISOString());            // UTC ISO for storage
+                                    const d = new Date(y, mo - 1, dd, h, m, 0, 0);
+                                    setClosedUntilDraft(d.toISOString());
+                                    setClosedUntilPreset('custom');
                                   }}
                                   style={{ marginTop: '0.25rem' }}
                                 />
@@ -10078,6 +10081,7 @@ export default function App() {
                                     setStockistProfile(prev => ({ ...prev, closed_until: closedUntilDraft ?? (prev.closed_until || '') }));
                                     setClosedUntilDraft(null);
                                     setShowCustomDate(false);
+                                    setClosedUntilPreset(null);
                                   }} style={{ padding: '0.4rem 0.8rem' }}>OK</button>
                                 </div>
                               )}
