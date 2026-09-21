@@ -1740,6 +1740,12 @@ const isCustomerVisible = (stockist, users) => {
 
 
 // PATCH /api/stockist/profile - Stockist self-editable settings (TESTER-47)
+async function resolveStockistRate(stockistId) {
+  const rates = await db.getTable('stockist_commission_rates');
+  const stkRates = rates.filter(r => r.stockist_id === stockistId);
+  return stkRates.length > 0 ? stkRates[stkRates.length - 1].rate_percent : 10.0;
+}
+
 app.patch('/api/stockist/profile', async (req, res) => {
   const stockistId = req.headers['x-user-id'];
   try {
@@ -1865,7 +1871,8 @@ app.patch('/api/stockist/profile', async (req, res) => {
       console.warn('[Audit Log] Failed to write audit log:', err.message);
     }
 
-    res.json({ success: true, stockist });
+    const _latestRate = await resolveStockistRate(stockist.id);
+    res.json({ success: true, stockist: { ...stockist, commission_rate: _latestRate, is_shop_open: calculateIsShopOpen(stockist) } });
   } catch (e) {
     console.error('[stockist/profile PATCH]', stockistId, e);
     return res.status(500).json({ error: 'save_failed', message: e.message });
@@ -1911,9 +1918,7 @@ app.get('/api/stockists/by-user/:userId', async (req, res) => {
   if (!stockist) {
     return res.status(404).json({ error: 'Stockist record not found or pending KYC' });
   }
-  const rates = await db.getTable('stockist_commission_rates');
-  const stkRates = rates.filter(r => r.stockist_id === stockist.id);
-  const latestRate = stkRates.length > 0 ? stkRates[stkRates.length - 1].rate_percent : 10.0;
+  const latestRate = await resolveStockistRate(stockist.id);
   return res.json({
     ...stockist,
     commission_rate: latestRate,
