@@ -1339,6 +1339,7 @@ export default function App() {
   // Stockist App State
   const [stockistProfile, setStockistProfile] = useState(null);
   const [closedUntilDraft, setClosedUntilDraft] = useState(null);
+  const [showCustomDate, setShowCustomDate] = useState(false);
   const [stockistOrders, setStockistOrders] = useState([]);
 
 
@@ -9969,7 +9970,10 @@ export default function App() {
                           <button
                             type="button"
                             className={`shop-toggle ${stockistProfile.manual_closed ? 'is-closed' : 'is-open'}`}
-                            onClick={() => setStockistProfile({ ...stockistProfile, manual_closed: !stockistProfile.manual_closed, closed_until: '' })}
+                            onClick={() => {
+                              setStockistProfile({ ...stockistProfile, manual_closed: !stockistProfile.manual_closed, closed_until: '' });
+                              setShowCustomDate(false);
+                            }}
                             aria-pressed={!stockistProfile.manual_closed}
                             aria-label={stockistProfile.manual_closed ? 'Shop closed, tap to open' : 'Shop open, tap to close'}
                           >
@@ -10014,6 +10018,32 @@ export default function App() {
                               >
                                 Tomorrow morning
                               </button>
+
+                              <button
+                                className={`btn ${showCustomDate ? 'btn-accent' : 'btn-outline'}`}
+                                onClick={() => setShowCustomDate(true)}
+                                style={{ textAlign: 'left', padding: '0.5rem' }}
+                              >
+                                Specific date <span style={{ fontSize: '0.7rem', opacity: 0.8 }}>(e.g. back from vacation)</span>
+                              </button>
+
+                              {showCustomDate && (
+                                <input
+                                  type="date"
+                                  className="text-input"
+                                  min={(() => { const d = new Date(); d.setDate(d.getDate() + 1); return d.toISOString().slice(0,10); })()}
+                                  max={(() => { const d = new Date(); d.setDate(d.getDate() + 90); return d.toISOString().slice(0,10); })()}
+                                  onChange={e => {
+                                    if (!e.target.value) return;
+                                    const [y, mo, dd] = e.target.value.split('-').map(Number);
+                                    const op = stockistProfile.opening_time || '09:00';
+                                    const [h, m] = op.split(':').map(Number);
+                                    const d = new Date(y, mo - 1, dd, h, m, 0, 0);  // local date @ opening time
+                                    setClosedUntilDraft(d.toISOString());            // UTC ISO for storage
+                                  }}
+                                  style={{ marginTop: '0.25rem' }}
+                                />
+                              )}
                             </div>
 
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--surface-color)', padding: '0.75rem', borderRadius: '4px', color: 'white' }}>
@@ -10024,10 +10054,11 @@ export default function App() {
                               </div>
                               {closedUntilDraft !== null && (
                                 <div style={{ display: 'flex', gap: '0.5rem' }}>
-                                  <button className="btn btn-secondary" onClick={() => setClosedUntilDraft(null)} style={{ padding: '0.4rem 0.8rem' }}>Cancel</button>
+                                  <button className="btn btn-secondary" onClick={() => { setClosedUntilDraft(null); setShowCustomDate(false); }} style={{ padding: '0.4rem 0.8rem' }}>Cancel</button>
                                   <button className="btn btn-accent" onClick={() => {
                                     setStockistProfile(prev => ({ ...prev, closed_until: closedUntilDraft ?? (prev.closed_until || '') }));
                                     setClosedUntilDraft(null);
+                                    setShowCustomDate(false);
                                   }} style={{ padding: '0.4rem 0.8rem' }}>OK</button>
                                 </div>
                               )}
