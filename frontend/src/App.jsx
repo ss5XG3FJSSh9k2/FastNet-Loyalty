@@ -3181,7 +3181,7 @@ export default function App() {
         setProfileAvailablePartners(data.available_partners || { cable: [], broadband: [] });
 
         if (data.bindings?.cable_partner_id) {
-          setProfileCablePartnerId(data.bindings.cable_partner_id);
+          setProfileCablePartnerId(data.bindings.cable_partner_id || '');
           setProfileNoCable(false);
         } else {
           setProfileCablePartnerId('');
@@ -3190,7 +3190,7 @@ export default function App() {
 
         if (data.bindings?.broadband_partner_id) {
           setProfileHasBroadband(true);
-          setProfileBroadbandPartnerId(data.bindings.broadband_partner_id);
+          setProfileBroadbandPartnerId(data.bindings.broadband_partner_id || '');
           setProfileNoBroadband(false);
         } else {
           setProfileHasBroadband(false);
@@ -8958,7 +8958,7 @@ export default function App() {
                             {t('CHOOSE YOUR LOCAL CABLE OPERATOR', 'अपने स्थानीय केबल ऑपरेटर को चुनें', 'আপনার স্থানীয় কেবল অপারেটর বাছুন')}
                           </label>
                           <select className="text-input"
-                            value={profileNoCable ? 'NOT_LISTED' : profileCablePartnerId}
+                            value={profileNoCable ? 'NOT_LISTED' : (profileCablePartnerId || '')}
                             onChange={e => {
                               const val = e.target.value;
                               if (val === 'NOT_LISTED') {
@@ -9023,7 +9023,7 @@ export default function App() {
                           {profileHasBroadband && (
                             <div style={{ marginTop: '0.5rem' }}>
                               <select className="text-input"
-                                value={profileNoBroadband ? 'NOT_LISTED' : profileBroadbandPartnerId}
+                                value={profileNoBroadband ? 'NOT_LISTED' : (profileBroadbandPartnerId || '')}
                                 onChange={e => {
                                   const val = e.target.value;
                                   if (val === 'NOT_LISTED') {
@@ -12782,7 +12782,7 @@ export default function App() {
                         </div>
                         <div className="input-group">
                           <label className="input-label">Region Area</label>
-                          <select className="text-input" value={selectedRegionId} onChange={e => setSelectedRegionId(e.target.value)}>
+                          <select className="text-input" value={selectedRegionId || ''} onChange={e => setSelectedRegionId(e.target.value)}>
                             <option value="">-- Select Region --</option>
                             {regions.map(r => (
                               <option key={r.id} value={r.id}>{r.name}</option>
@@ -12884,7 +12884,7 @@ export default function App() {
                               </div>
                               <div className="input-group">
                                 <label className="input-label">Region</label>
-                                <select className="text-input" value={editingVendorRegionId} onChange={e => setEditingVendorRegionId(e.target.value)}>
+                                <select className="text-input" value={editingVendorRegionId || ''} onChange={e => setEditingVendorRegionId(e.target.value)}>
                                   <option value="">-- Select Region --</option>
                                   {regions.map(r => (
                                     <option key={r.id} value={r.id}>{r.name}</option>
