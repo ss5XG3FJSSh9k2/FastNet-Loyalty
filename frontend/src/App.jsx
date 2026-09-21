@@ -9966,12 +9966,15 @@ export default function App() {
                       <div className="glass-card" style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem', borderLeft: stockistProfile.manual_closed ? '3px solid var(--danger-color)' : '3px solid var(--success-color)' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                           <h4 style={{ margin: 0, fontSize: '0.9rem', color: 'white' }}>Shop Status: {stockistProfile.manual_closed ? <span style={{color: 'var(--danger-color)'}}>Closed</span> : <span style={{color: 'var(--success-color)'}}>Open</span>}</h4>
-                          <button 
-                            className={`toggle-switch ${!stockistProfile.manual_closed ? 'active' : ''}`} 
-                            style={{ background: !stockistProfile.manual_closed ? 'var(--success-color)' : 'var(--danger-color)' }}
+                          <button
+                            type="button"
+                            className={`shop-toggle ${stockistProfile.manual_closed ? 'is-closed' : 'is-open'}`}
                             onClick={() => setStockistProfile({ ...stockistProfile, manual_closed: !stockistProfile.manual_closed, closed_until: '' })}
+                            aria-pressed={!stockistProfile.manual_closed}
+                            aria-label={stockistProfile.manual_closed ? 'Shop closed, tap to open' : 'Shop open, tap to close'}
                           >
-                            <div className="toggle-slider"></div>
+                            <span className="shop-toggle-label">{stockistProfile.manual_closed ? 'CLOSE' : 'OPEN'}</span>
+                            <span className="shop-toggle-knob"></span>
                           </button>
                         </div>
                         
@@ -10141,8 +10144,9 @@ export default function App() {
                             <div>
                               <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Test Network Signal</span>
                             </div>
-                            <button onClick={toggleOfflineMode} className={`toggle-switch ${offlineMode ? 'active' : ''}`}>
-                              <div className="toggle-slider"></div>
+                            <button type="button" onClick={toggleOfflineMode} className={`shop-toggle ${offlineMode ? 'is-closed' : 'is-open'}`}>
+                              <span className="shop-toggle-label">{offlineMode ? 'OFF' : 'ON'}</span>
+                              <span className="shop-toggle-knob"></span>
                             </button>
                           </div>
                         )}
