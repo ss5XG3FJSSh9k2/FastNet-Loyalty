@@ -7813,18 +7813,7 @@ export default function App() {
                             {customerStockists
                               .filter(s => s.name.toLowerCase().includes(shopSearchQuery.toLowerCase()))
                               .map(s => {
-                                const isOpen = (() => {
-                                  if (!s.opening_time || !s.closing_time) return true;
-                                  let closing = s.closing_time;
-                                  if (closing === '24:00') closing = '23:59';
-                                  const opening = s.opening_time;
-                                  const now = new Date();
-                                  const curTime = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
-                                  if (closing <= opening) {
-                                    return curTime >= opening || curTime < closing;
-                                  }
-                                  return curTime >= opening && curTime < closing;
-                                })();
+                                const isOpen = s.is_shop_open !== undefined ? s.is_shop_open : true;
 
                                 const productCountLabel = (s.product_count !== undefined && s.product_count === 0)
                                   ? t('No items listed yet', 'अभी कोई उत्पाद सूचीबद्ध नहीं', 'এখনও কোনো পণ্য তালিকাভুক্ত নয়')

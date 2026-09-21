@@ -2399,6 +2399,9 @@ const handleCreateOrderRoute = async (req, res) => {
     if (!isCustomerVisible(stockist, users)) {
       return res.status(400).json({ error: 'stockist_unavailable', message: 'This shop is no longer accepting orders.' });
     }
+    if (!calculateIsShopOpen(stockist)) {
+      return res.status(400).json({ error: 'stockist_closed', message: 'This shop is currently closed and not accepting orders.' });
+    }
 
     let subtotal = 0;
     let totalProfitMargin = 0;
