@@ -9996,11 +9996,11 @@ export default function App() {
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
                           <div className="input-group" style={{ margin: 0 }}>
                             <label className="input-label">Opening Time</label>
-                            <TimePicker value={stockistProfile.opening_time || '09:00'} onChange={(v) => setStockistProfile({...stockistProfile, opening_time: v})} />
+                            <TimePicker value={stockistProfile.opening_time || '09:00'} onChange={(v) => setStockistProfile(prev => ({...prev, opening_time: v}))} />
                           </div>
                           <div className="input-group" style={{ margin: 0 }}>
                             <label className="input-label">Closing Time</label>
-                            <TimePicker value={stockistProfile.closing_time || '17:00'} onChange={(v) => setStockistProfile({...stockistProfile, closing_time: v})} />
+                            <TimePicker value={stockistProfile.closing_time || '17:00'} onChange={(v) => setStockistProfile(prev => ({...prev, closing_time: v}))} />
                           </div>
                         </div>
 
