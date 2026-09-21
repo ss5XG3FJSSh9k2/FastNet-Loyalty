@@ -9957,8 +9957,8 @@ export default function App() {
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                           <h4 style={{ margin: 0, fontSize: '0.9rem', color: 'white' }}>Shop Status: {stockistProfile.manual_closed ? <span style={{color: 'var(--danger-color)'}}>Closed</span> : <span style={{color: 'var(--success-color)'}}>Open</span>}</h4>
                           <button 
-                            className={`toggle-switch ${stockistProfile.manual_closed ? 'active' : ''}`} 
-                            style={{ background: stockistProfile.manual_closed ? 'var(--danger-color)' : 'var(--success-color)' }}
+                            className={`toggle-switch ${!stockistProfile.manual_closed ? 'active' : ''}`} 
+                            style={{ background: !stockistProfile.manual_closed ? 'var(--success-color)' : 'var(--danger-color)' }}
                             onClick={() => setStockistProfile({ ...stockistProfile, manual_closed: !stockistProfile.manual_closed, closed_until: '' })}
                           >
                             <div className="toggle-slider"></div>
