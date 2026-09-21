@@ -1,7 +1,8 @@
 /* global FormData, URLSearchParams */
 /* eslint-disable react-hooks/exhaustive-deps */
 /* eslint-disable no-unused-vars */
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+/* global CustomEvent, Notification */
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   ShoppingBag, 
   Home,
@@ -856,6 +857,7 @@ export default function App() {
   // Admin Bill Photos Tab State
   const [adminBillPhotos, setAdminBillPhotos] = useState([]);
   const [billPhotoStockistFilter, setBillPhotoStockistFilter] = useState('ALL');
+  const [billPhotoFlagFilter, setBillPhotoFlagFilter] = useState('ALL');
   const [billPhotoDateFrom, setBillPhotoDateFrom] = useState('');
   const [billPhotoDateTo, setBillPhotoDateTo] = useState('');
   const [rejectingBill, setRejectingBill] = useState(null);
@@ -9904,7 +9906,7 @@ export default function App() {
                           </button>
                         </div>
 
-                        {developerOptions && (
+                        {showDevSettings && (
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.5rem', borderTop: '1px dashed var(--border-color)', paddingTop: '0.5rem' }}>
                             <div>
                               <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Test Network Signal</span>
