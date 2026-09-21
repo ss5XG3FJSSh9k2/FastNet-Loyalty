@@ -1554,7 +1554,7 @@ export default function App() {
       }
     } catch (e) {
       console.error(e);
-      showToast('Network error', 'error');
+      showToast(t('Network error', 'नेटवर्क त्रुटि', 'নেটওয়ার্ক ত্রুটি'), 'error');
     }
   };
 
@@ -9285,6 +9285,16 @@ export default function App() {
                           <span style={{ fontSize: '0.6rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'rgba(255,255,255,0.7)', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
                             <Store size={10} /> {t("Today's Earnings", "आज की कमाई", "আজকের আয়")}
                           </span>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{t('Shop Status', 'दुकान की स्थिति', 'দোকানের অবস্থা')}:</span>
+                            <div style={{ fontSize: '0.9rem' }}>
+                              {stockistProfile.manual_closed ? (
+                                <span style={{ color: 'var(--danger-color)', fontWeight: 'bold' }}>{t('Closed','बंद','বন্ধ')}</span>
+                              ) : (
+                                <span style={{ color: 'var(--accent-color)', fontWeight: 'bold' }}>{t('Open','खुला','খোলা')}</span>
+                              )}
+                            </div>
+                          </div>
                           <span style={{ fontSize: '1.4rem', fontWeight: 'bold', fontFamily: 'var(--font-display)' }}>
                             ₹{todaysEarnings.toFixed(2)}
                           </span>
@@ -9619,9 +9629,36 @@ export default function App() {
                         <>
                           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.65rem' }}>
                             <div className="glass-card" style={{ padding: '0.75rem', textAlign: 'center' }}>
-                              <span style={{ fontSize: '0.55rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{t("Today's Sales", "आज की बिक्री", "आजকের বিক্রি")}</span>
+                              <span style={{ fontSize: '0.55rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{t("Today's Sales", "आज की बिक्री", "আজকের বিক্রি")}</span>
                               <h3 style={{ fontSize: '1.2rem', color: 'white', margin: '0.15rem 0' }}>₹{stockistAnalytics.today_earnings.toFixed(2)}</h3>
                               <span style={{ fontSize: '0.55rem', color: 'var(--accent)', fontWeight: 'bold' }}>{stockistAnalytics.today_order_count} orders</span>
+                              <button
+                                type="button"
+                                className={`shop-toggle ${stockistProfile.manual_closed ? 'is-closed' : 'is-open'}`}
+                                style={{ margin: '1rem auto' }}
+                                onClick={async () => {
+                                  const next = !stockistProfile.manual_closed;
+                                  setStockistProfile(prev => ({ ...prev, manual_closed: next }));
+                                  try {
+                                    const res = await fetch(`${API_BASE}/stockist/profile`, {
+                                      method: 'PATCH',
+                                      headers: { 'Content-Type': 'application/json', 'X-User-Id': currentUser.id },
+                                      body: JSON.stringify({ manual_closed: next })
+                                    });
+                                    const data = await res.json();
+                                    if (data.stockist) setStockistProfile(data.stockist);
+                                    showToast(next ? t('Shop closed', 'दुकान बंद', 'দোকান বন্ধ') : t('Shop opened', 'दुकान खुली', 'দোকান খোলা'), 'success');
+                                  } catch (e) {
+                                    setStockistProfile(prev => ({ ...prev, manual_closed: !next }));
+                                    showToast(t("Couldn't update shop status — try again", "दुकान की स्थिति अपडेट नहीं हो सकी — पुनः प्रयास करें", "দোকানের অবস্থা আপডেট করা যায়নি — আবার চেষ্টা করুন"), 'error');
+                                  }
+                                }}
+                                aria-pressed={!stockistProfile.manual_closed}
+                                aria-label={stockistProfile.manual_closed ? t('Shop closed, tap to open', 'दुकान बंद है, खोलने के लिए टैप करें', 'দোকান বন্ধ, খুলতে ট্যাপ করুন') : t('Shop open, tap to close', 'दुकान खुली है, बंद करने के लिए टैप करें', 'দোকান খোলা, বন্ধ করতে ট্যাপ করুন')}
+                              >
+                                <span className="shop-toggle-label">{stockistProfile.manual_closed ? t('CLOSE','बंद','বন্ধ') : t('OPEN','खुला','খোলা')}</span>
+                                <span className="shop-toggle-knob"></span>
+                              </button>
                             </div>
                             <div className="glass-card" style={{ padding: '0.75rem', textAlign: 'center' }}>
                               <span style={{ fontSize: '0.55rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{t("Avg Order Value", "औसत ऑर्डर मूल्य", "গড় অর্ডার মূল্য")}</span>
@@ -9633,7 +9670,7 @@ export default function App() {
                           <div className="glass-card" style={{ padding: '0.75rem' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
                               <span style={{ fontSize: '0.55rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                                {analyticsRange === 'weekly' ? t('7-Day Sales Trend (₹)', '7-दिवसीय बिक्री रुझान (₹)', '৭-দিনের সেলস ট্রেন্ড (₹)') : t('4-Week Sales Trend (₹)', '4-सप्ताह बिक्री रुझान (₹)', '৪-সप्ताहের সেলস ট্রেন্ড (₹)')}
+                                {analyticsRange === 'weekly' ? t('7-Day Sales Trend (₹)', '7-दिवसीय बिक्री रुझान (₹)', '৭-দিনের সেলস ট্রেন্ড (₹)') : t('4-Week Sales Trend (₹)', '4-सप्ताह बिक्री रुझान (₹)', '৪-সপ্তাহের সেলস ট্রেন্ড (₹)')}
                               </span>
                               <div style={{ display: 'flex', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', padding: '0.1rem' }}>
                                 <button
@@ -10046,7 +10083,7 @@ export default function App() {
                       {/* Manual Closure */}
                       <div className="glass-card" style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem', borderLeft: stockistProfile.manual_closed ? '3px solid var(--danger-color)' : '3px solid var(--success-color)' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <h4 style={{ margin: 0, fontSize: '0.9rem', color: 'white' }}>Shop Status: {stockistProfile.manual_closed ? <span style={{color: 'var(--danger-color)'}}>Closed</span> : <span style={{color: 'var(--success-color)'}}>Open</span>}</h4>
+                          <h4 style={{ margin: 0, fontSize: '0.9rem', color: 'white' }}>{t('Shop Status', 'दुकान की स्थिति', 'দোকানের অবস্থা')}: {stockistProfile.manual_closed ? <span style={{color: 'var(--danger-color)'}}>{t('Closed','बंद','বন্ধ')}</span> : <span style={{color: 'var(--success-color)'}}>{t('Open','खुला','খোলা')}</span>}</h4>
                           <button
                             type="button"
                             className={`shop-toggle ${stockistProfile.manual_closed ? 'is-closed' : 'is-open'}`}
@@ -10080,7 +10117,7 @@ export default function App() {
                         
                         {stockistProfile.manual_closed && (
                           <div className="input-group" style={{ margin: 0 }}>
-                            <label className="input-label">Closed until (Optional)</label>
+                            <label className="input-label">{t('Closed until (Optional)', 'तक बंद (वैकल्पिक)', 'পর্যন্ত বন্ধ (ঐচ্ছিক)')}</label>
                             
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '0.5rem' }}>
                               <button
@@ -10088,7 +10125,7 @@ export default function App() {
                                 onClick={() => { setClosedUntilDraft(''); setClosedUntilPreset('next'); setShowCustomDate(false); }}
                                 style={{ textAlign: 'left', padding: '0.5rem' }}
                               >
-                                Until next opening <span style={{ fontSize: '0.7rem', opacity: 0.8 }}>(Shop reopens automatically at your next opening time)</span>
+                                {t('Until next opening', 'अगले खुलने तक', 'পরবর্তী খোলা পর্যন্ত')} <span style={{ fontSize: '0.7rem', opacity: 0.8 }}>({t('Shop reopens automatically at your next opening time', 'आपकी अगली खुलने के समय दुकान अपने आप खुल जाएगी', 'আপনার পরবর্তী খোলার সময়ে দোকানটি স্বয়ংক্রিয়ভাবে খুলে যাবে')})</span>
                               </button>
                               
                               <button
@@ -10096,7 +10133,7 @@ export default function App() {
                                 onClick={() => { setClosedUntilDraft(new Date(Date.now() + 2 * 3600 * 1000).toISOString()); setClosedUntilPreset('2h'); setShowCustomDate(false); }}
                                 style={{ textAlign: 'left', padding: '0.5rem' }}
                               >
-                                2 hours
+                                {t('2 hours', '2 घंटे', '২ ঘন্টা')}
                               </button>
                               
 
@@ -10114,7 +10151,7 @@ export default function App() {
                                 }}
                                 style={{ textAlign: 'left', padding: '0.5rem' }}
                               >
-                                Tomorrow morning
+                                {t('Tomorrow morning', 'कल सुबह', 'আগামীকাল সকালে')}
                               </button>
 
                               <button
@@ -10122,7 +10159,7 @@ export default function App() {
                                 onClick={() => { setShowCustomDate(true); setClosedUntilPreset('custom'); }}
                                 style={{ textAlign: 'left', padding: '0.5rem' }}
                               >
-                                Specific date <span style={{ fontSize: '0.7rem', opacity: 0.8 }}>(e.g. back from vacation)</span>
+                                {t('Specific date', 'विशिष्ट तिथि', 'নির্দিষ্ট তারিখ')} <span style={{ fontSize: '0.7rem', opacity: 0.8 }}>({t('e.g. back from vacation', 'जैसे छुट्टी से वापसी', 'যেমন ছুটি থেকে ফেরা')})</span>
                               </button>
 
                               {showCustomDate && (
@@ -10147,19 +10184,19 @@ export default function App() {
 
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--surface-color)', padding: '0.75rem', borderRadius: '4px', color: 'white' }}>
                               <div style={{ fontSize: '0.85rem' }}>
-                                <strong>Selected: </strong>
-                                {(closedUntilDraft !== null ? closedUntilDraft : stockistProfile.closed_until) ? new Date(closedUntilDraft !== null ? closedUntilDraft : stockistProfile.closed_until).toLocaleString() : 'Reopens at next opening time'}
-                                {closedUntilDraft !== null && <span style={{ color: 'var(--warning-color)', marginLeft: '0.5rem', fontSize: '0.75rem' }}>(Unsaved)</span>}
+                                <strong>{t('Selected:', 'चयनित:', 'নির্বাচিত:')} </strong>
+                                {(closedUntilDraft !== null ? closedUntilDraft : stockistProfile.closed_until) ? new Date(closedUntilDraft !== null ? closedUntilDraft : stockistProfile.closed_until).toLocaleString() : t('Reopens at next opening time', 'अगले खुलने के समय खुलेगा', 'পরবর্তী খোলার সময়ে পুনরায় খুলবে')}
+                                {closedUntilDraft !== null && <span style={{ color: 'var(--warning-color)', marginLeft: '0.5rem', fontSize: '0.75rem' }}>{t('(Unsaved)', '(सहेजा नहीं गया)', '(সংরক্ষিত নয়)')}</span>}
                               </div>
                               {closedUntilDraft !== null && (
                                 <div style={{ display: 'flex', gap: '0.5rem' }}>
-                                  <button className="btn btn-secondary" onClick={() => { setClosedUntilDraft(null); setShowCustomDate(false); setClosedUntilPreset(null); }} style={{ padding: '0.4rem 0.8rem' }}>Cancel</button>
+                                  <button className="btn btn-secondary" onClick={() => { setClosedUntilDraft(null); setShowCustomDate(false); setClosedUntilPreset(null); }} style={{ padding: '0.4rem 0.8rem' }}>{t('Cancel', 'रद्द करें', 'বাতিল করুন')}</button>
                                   <button className="btn btn-accent" onClick={() => {
                                     setStockistProfile(prev => ({ ...prev, closed_until: closedUntilDraft ?? (prev.closed_until || '') }));
                                     setClosedUntilDraft(null);
                                     setShowCustomDate(false);
                                     setClosedUntilPreset(null);
-                                  }} style={{ padding: '0.4rem 0.8rem' }}>OK</button>
+                                  }} style={{ padding: '0.4rem 0.8rem' }}>{t('OK', 'ठीक है', 'ঠিক আছে')}</button>
                                 </div>
                               )}
                             </div>
@@ -10169,82 +10206,82 @@ export default function App() {
 
                       {/* Operational Settings */}
                       <div className="glass-card" style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                        <h4 style={{ margin: 0, fontSize: '0.9rem', color: 'white' }}>Operational Settings</h4>
+                        <h4 style={{ margin: 0, fontSize: '0.9rem', color: 'white' }}>{t('Operational Settings', 'परिचालन सेटिंग', 'পরিচালন সেটিংস')}</h4>
                         
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
                           <div className="input-group" style={{ margin: 0 }}>
-                            <label className="input-label">Opening Time</label>
+                            <label className="input-label">{t('Opening Time', 'खुलने का समय', 'খোলার সময়')}</label>
                             <TimePicker value={stockistProfile.opening_time || '09:00'} onChange={(v) => setStockistProfile(prev => ({...prev, opening_time: v}))} />
                           </div>
                           <div className="input-group" style={{ margin: 0 }}>
-                            <label className="input-label">Closing Time</label>
+                            <label className="input-label">{t('Closing Time', 'बंद होने का समय', 'বন্ধের সময়')}</label>
                             <TimePicker value={stockistProfile.closing_time || '17:00'} onChange={(v) => setStockistProfile(prev => ({...prev, closing_time: v}))} />
                           </div>
                         </div>
 
                         <div className="input-group" style={{ margin: 0 }}>
-                          <label className="input-label">Preparation Time (minutes)</label>
+                          <label className="input-label">{t('Preparation Time (minutes)', 'तैयारी का समय (मिनट)', 'প্রস্তুতির সময় (মিনিট)')}</label>
                           <NumberStepper value={stockistProfile.prep_eta_minutes || 15} onChange={v => setStockistProfile(prev => ({ ...prev, prep_eta_minutes: parseInt(v, 10) }))} min={5} max={120} step={5} decimals={0} />
                         </div>
 
                         <div className="input-group" style={{ margin: 0 }}>
-                          <label className="input-label">Delivery Radius (km)</label>
+                          <label className="input-label">{t('Delivery Radius (km)', 'डिलीवरी का दायरा (किमी)', 'ডেলিভারি ব্যাসার্ধ (কিমি)')}</label>
                           <NumberStepper value={stockistProfile.delivery_radius_km || 5.0} onChange={v => setStockistProfile(prev => ({ ...prev, delivery_radius_km: parseFloat(v) }))} min={0.5} max={stockistProfile.max_delivery_radius_km || 5.0} step={0.5} decimals={1} suffix="km" />
-                          <p style={{ fontSize: '0.65rem', color: 'var(--text-muted)', margin: '0.2rem 0 0 0' }}>Maximum allowed: {stockistProfile.max_delivery_radius_km || 5.0} km</p>
+                          <p style={{ fontSize: '0.65rem', color: 'var(--text-muted)', margin: '0.2rem 0 0 0' }}>{t('Maximum allowed', 'अधिकतम अनुमत', 'সর্বাধিক অনুমোদিত')}: {stockistProfile.max_delivery_radius_km || 5.0} {t('km', 'किमी', 'কিমি')}</p>
                         </div>
                       </div>
 
                       {/* Payout Details */}
                       <div className="glass-card" style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                        <h4 style={{ margin: 0, fontSize: '0.9rem', color: 'white' }}>Payout Details</h4>
+                        <h4 style={{ margin: 0, fontSize: '0.9rem', color: 'white' }}>{t('Payout Details', 'भुगतान विवरण', 'পেআউট বিবরণ')}</h4>
                         
                         <div className="input-group" style={{ margin: 0 }}>
-                          <label className="input-label">UPI ID (Primary)</label>
+                          <label className="input-label">{t('UPI ID (Primary)', 'UPI आईडी (प्राथमिक)', 'UPI আইডি (প্রাথমিক)')}</label>
                           <input type="text" placeholder="name@bank" className="text-input" value={stockistProfile.payout_upi_id || ''} onChange={e => setStockistProfile({...stockistProfile, payout_upi_id: e.target.value})} />
                         </div>
 
                         <div style={{ borderTop: '1px dashed var(--border-color)', margin: '0.5rem 0' }}></div>
 
                         <div className="input-group" style={{ margin: 0 }}>
-                          <label className="input-label">Bank Account Number (Fallback)</label>
+                          <label className="input-label">{t('Bank Account Number (Fallback)', 'बैंक खाता संख्या (वैकल्पिक)', 'ব্যাংক অ্যাকাউন্ট নম্বর (বিকল্প)')}</label>
                           <input type="text" className="text-input" value={stockistProfile.payout_bank_account || ''} onChange={e => setStockistProfile({...stockistProfile, payout_bank_account: e.target.value})} />
                         </div>
                         <div className="input-group" style={{ margin: 0 }}>
-                          <label className="input-label">IFSC Code</label>
+                          <label className="input-label">{t('IFSC Code', 'IFSC कोड', 'IFSC কোড')}</label>
                           <input type="text" placeholder="ABCD0123456" className="text-input" value={stockistProfile.payout_ifsc || ''} onChange={e => setStockistProfile({...stockistProfile, payout_ifsc: e.target.value.toUpperCase()})} />
                         </div>
                         <div className="input-group" style={{ margin: 0 }}>
-                          <label className="input-label">Account Holder Name</label>
+                          <label className="input-label">{t('Account Holder Name', 'खाताधारक का नाम', 'অ্যাকাউন্ট হোল্ডারের নাম')}</label>
                           <input type="text" className="text-input" value={stockistProfile.payout_account_name || ''} onChange={e => setStockistProfile({...stockistProfile, payout_account_name: e.target.value})} />
                         </div>
                       </div>
 
                       {/* Read-Only Information */}
                       <div className="glass-card" style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem', opacity: 0.8 }}>
-                        <h4 style={{ margin: 0, fontSize: '0.9rem', color: 'white' }}>Account Information</h4>
+                        <h4 style={{ margin: 0, fontSize: '0.9rem', color: 'white' }}>{t('Account Information', 'खाता जानकारी', 'অ্যাকাউন্ট তথ্য')}</h4>
                         
                         <div style={{ fontSize: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                          <div><span style={{color: 'var(--text-muted)'}}>Region: </span><strong>{regions.find(r => r.id === stockistProfile.region_id)?.name || stockistProfile.region_id}</strong></div>
-                          <div><span style={{color: 'var(--text-muted)'}}>Wholesaler: </span><strong>{vendors.find(v => v.id === stockistProfile.vendor_id)?.name || stockistProfile.vendor_id}</strong></div>
-                          <div><span style={{color: 'var(--text-muted)'}}>Current Commission Rate: </span><strong>{stockistProfile.commission_rate != null ? `${stockistProfile.commission_rate}%` : '—'}</strong></div>
-                          <div><span style={{color: 'var(--text-muted)'}}>Minimum Order: </span><strong>₹{stockistProfile.min_order_value}</strong></div>
+                          <div><span style={{color: 'var(--text-muted)'}}>{t('Region','क्षेत्र','অঞ্চল')}: </span><strong>{regions.find(r => r.id === stockistProfile.region_id)?.name || stockistProfile.region_id}</strong></div>
+                          <div><span style={{color: 'var(--text-muted)'}}>{t('Wholesaler','थोक विक्रेता','পাইকারি বিক্রেতা')}: </span><strong>{vendors.find(v => v.id === stockistProfile.vendor_id)?.name || stockistProfile.vendor_id}</strong></div>
+                          <div><span style={{color: 'var(--text-muted)'}}>{t('Current Commission Rate','वर्तमान कमीशन दर','বর্তমান কমিশন হার')}: </span><strong>{stockistProfile.commission_rate != null ? `${stockistProfile.commission_rate}%` : '—'}</strong></div>
+                          <div><span style={{color: 'var(--text-muted)'}}>{t('Minimum Order','न्यूनतम ऑर्डर','সর্বনিম্ন অর্ডার')}: </span><strong>₹{stockistProfile.min_order_value}</strong></div>
                           <p style={{ fontSize: '0.65rem', color: 'var(--accent)', marginTop: '0.2rem', marginBottom: 0 }}>
-                            Contact FastNet support to change any of these details.
+                            {t('Contact FastNet support to change any of these details.', 'इन विवरणों को बदलने के लिए FastNet सहायता से संपर्क करें।', 'এই বিবরণগুলি পরিবর্তন করতে FastNet সহায়তার সাথে যোগাযোগ করুন।')}
                           </p>
                         </div>
                       </div>
 
                       {/* Consolidated App Preferences */}
                       <div className="glass-card" style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                        <h4 style={{ margin: 0, fontSize: '0.9rem', color: 'white' }}>App Preferences</h4>
+                        <h4 style={{ margin: 0, fontSize: '0.9rem', color: 'white' }}>{t('App Preferences', 'ऐप प्राथमिकताएं', 'অ্যাপ পছন্দসমূহ')}</h4>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Order Alerts (Push)</span>
+                          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{t('Order Alerts (Push)', 'ऑर्डर अलर्ट (पुश)', 'অর্ডার সতর্কতা (পুশ)')}</span>
                           <button type="button" className="btn btn-secondary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.7rem' }} onClick={enablePushAlerts}>
-                            Enable
+                            {t('Enable','सक्षम करें','সক্ষম করুন')}
                           </button>
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Language</span>
+                          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{t('Language','भाषा','ভাষা')}</span>
                           <select className="text-input" style={{ fontSize: '0.75rem', padding: '0.2rem 0.4rem', width: 'auto' }} value={lang} onChange={e => setLang(e.target.value)}>
                             <option value="en">English</option>
                             <option value="hi">हिंदी</option>
@@ -10253,9 +10290,9 @@ export default function App() {
                         </div>
 
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Phone Number</span>
+                          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{t('Phone Number','फ़ोन नंबर','ফোন নম্বর')}</span>
                           <button type="button" className="btn btn-secondary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.7rem' }} onClick={() => { setSelfServiceNewPhone(''); setSelfServiceOtp(''); setSelfServiceOtpSent(false); setShowSelfServicePhoneModal(true); }}>
-                            Change
+                            {t('Change','बदलें','পরিবর্তন')}
                           </button>
                         </div>
 
@@ -10299,11 +10336,11 @@ export default function App() {
                             });
                             if (!res.ok) {
                               const err = await res.json().catch(()=>({}));
-                              showToast(err.error || 'Failed to save settings', 'error');
+                              showToast(err.error || t('Failed to save settings', 'सेटिंग्स सहेजने में विफल', 'সেটিংস সংরক্ষণ করতে ব্যর্থ'), 'error');
                             } else {
                               const data = await res.json();
                               setStockistProfile(data.stockist);
-                              showToast('Settings saved successfully', 'success');
+                              showToast(t('Settings saved successfully', 'सेटिंग्स सफलतापूर्वक सहेजी गईं', 'সেটিংস সফলভাবে সংরক্ষিত হয়েছে'), 'success');
                             }
                           } catch(e) {
                             showToast('Network error', 'error');
@@ -10312,7 +10349,7 @@ export default function App() {
                           }
                         }}
                       >
-                        {savingSettings ? 'Saving...' : 'Save Settings'}
+                        {savingSettings ? t('Saving...','सहेजा जा रहा है...','সংরক্ষণ করা হচ্ছে...') : t('Save Settings','सेटिंग्स सहेजें','সেটিংস সংরক্ষণ করুন')}
                       </button>
 
                       <button className="btn btn-danger" style={{ width: '100%', marginTop: '0.5rem', fontSize: '0.8rem', minHeight: '36px', height: '36px' }} onClick={handleLogout}>Log Out</button>
@@ -13818,7 +13855,7 @@ export default function App() {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem', fontSize: '0.85rem' }}>
               <div><strong>Phone:</strong> {selectedCustomerDetail.phone}</div>
               <div><strong>Email:</strong> {selectedCustomerDetail.email || 'N/A'}</div>
-              <div><strong>Region:</strong> {selectedCustomerDetail.region_id}</div>
+              <div><strong>{t('Region','क्षेत्र','অঞ্চল')}:</strong> {selectedCustomerDetail.region_id}</div>
               <div><strong>Status:</strong> {selectedCustomerDetail.is_active !== false ? 'Active' : 'Deactivated'}</div>
               <div><strong>Points Balance:</strong> {selectedCustomerDetail.points_balance || 0} pts</div>
               <div><strong>Joined:</strong> {new Date(selectedCustomerDetail.created_at).toLocaleDateString()}</div>
@@ -14685,7 +14722,7 @@ export default function App() {
                   {ownerName && ownerName !== shopName ? ` (${ownerName})` : ''}
                 </div>
                 <div><strong>Region:</strong> {regName}</div>
-                <div><strong>Wholesaler:</strong> {vendorName}</div>
+                <div><strong>{t('Wholesaler','थोक विक्रेता','পাইকারি বিক্রেতা')}:</strong> {vendorName}</div>
                 <div><strong>Commission Rate:</strong> {rate != null ? `${rate}%` : '—'}</div>
                 <div><strong>Delivery Radius:</strong> {radius} km</div>
                 <div><strong>Min Order Value:</strong> ₹{minOrder}</div>
