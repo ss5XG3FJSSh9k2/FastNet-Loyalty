@@ -1237,3 +1237,12 @@ body:has(.modal-overlay) {
 }
 .shop-toggle.is-closed .shop-toggle-knob { order: 0; }  /* knob left */
 .shop-toggle.is-open   .shop-toggle-knob { order: 1; }  /* knob right */
+
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+input[type="number"] { -moz-appearance: textfield; }
+
+
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+input[type="number"] { -moz-appearance: textfield; }

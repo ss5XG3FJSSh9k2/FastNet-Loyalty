@@ -235,6 +235,35 @@ const MemoizedAuditLogRow = React.memo(({ log }) => {
 });
 MemoizedAuditLogRow.displayName = 'MemoizedAuditLogRow';
 
+const NumberStepper = ({ value, onChange, min, max, step, decimals = 0, suffix = '' }) => {
+  const hasMax = max !== undefined && max !== null;
+  const round = v => Number(v.toFixed(decimals));
+  const clamp = v => {
+    let n = round(v);
+    if (n < min) n = min;
+    if (hasMax && n > max) n = max;
+    return n;
+  };
+  const cur = (value === '' || value === undefined || value === null || isNaN(Number(value))) ? min : Number(value);
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+      <button type="button" className="btn btn-secondary"
+        style={{ width: 44, height: 44, fontSize: '1.25rem', flexShrink: 0, padding: 0 }}
+        disabled={cur <= min}
+        onClick={() => onChange(clamp(cur - step))}>−</button>
+      <input type="number" inputMode="decimal" className="text-input stepper-input"
+        style={{ textAlign: 'center', flex: 1, minWidth: 0 }}
+        value={cur} min={min} max={hasMax ? max : undefined} step={step}
+        onChange={e => { const v = parseFloat(e.target.value); onChange(isNaN(v) ? min : clamp(v)); }} />
+      <button type="button" className="btn btn-secondary"
+        style={{ width: 44, height: 44, fontSize: '1.25rem', flexShrink: 0, padding: 0 }}
+        disabled={hasMax && cur >= max}
+        onClick={() => onChange(clamp(cur + step))}>＋</button>
+      {suffix && <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{suffix}</span>}
+    </div>
+  );
+};
+
 const TimePicker = ({ value, onChange }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [draft, setDraft] = useState({ hour12: '12', minute: '00', meridiem: 'AM' });
@@ -6966,18 +6995,18 @@ export default function App() {
                   <div className="input-group">
                     <label className="input-label">Face Value ₹ *</label>
                     <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', marginTop: '-0.25rem', marginBottom: '0.5rem' }}>The rupee value the customer perceives. What you'd normally charge them for this.</div>
-                    <input type="number" className="text-input" value={pkgFaceValue} onChange={e => setPkgFaceValue(e.target.value)} />
+                    <input type="number" inputMode="decimal" className="text-input" value={pkgFaceValue} onChange={e => setPkgFaceValue(e.target.value)} />
                   </div>
                   <div className="input-group">
                     <label className="input-label">Cost to Partner ₹</label>
                     <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', marginTop: '-0.25rem', marginBottom: '0.5rem' }}>Your actual cost to provide it. Used to calculate your platform payout. Defaults to Face Value if empty.</div>
-                    <input type="number" className="text-input" value={pkgCostToPartner} onChange={e => setPkgCostToPartner(e.target.value)} placeholder={pkgFaceValue} />
+                    <input type="number" inputMode="decimal" className="text-input" value={pkgCostToPartner} onChange={e => setPkgCostToPartner(e.target.value)} placeholder={pkgFaceValue} />
                   </div>
                 </div>
                 <div className="input-group">
                   <label className="input-label">Point Cost *</label>
                   <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', marginTop: '-0.25rem', marginBottom: '0.5rem' }}>How many loyalty points a customer must spend to redeem this. Usually 1 point = ₹1, so equal to Face Value.</div>
-                  <input type="number" className="text-input" value={pkgPointCost} onChange={e => setPkgPointCost(e.target.value)} placeholder={pkgFaceValue} />
+                  <input type="number" inputMode="decimal" className="text-input" value={pkgPointCost} onChange={e => setPkgPointCost(e.target.value)} placeholder={pkgFaceValue} />
                 </div>
                 <div className="input-group">
                   <label className="input-label">Active Regions</label>
@@ -9457,13 +9486,7 @@ export default function App() {
 
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.02)', padding: '0.4rem 0.6rem', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.05)' }}>
                         <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>{t("Low Stock Threshold:", "कम स्टॉक सीमा:", "কম স্টক থ্রেশহোল্ড:")}</span>
-                        <input 
-                          type="number" 
-                          min="0" 
-                          style={{ width: '45px', padding: '0.2rem', fontSize: '0.7rem', background: 'var(--bg-surface-elevated)', border: '1px solid var(--border-color)', color: 'white', borderRadius: '4px', textAlign: 'center' }}
-                          value={lowStockThreshold}
-                          onChange={e => setLowStockThreshold(e.target.value)}
-                        />
+                              <NumberStepper value={lowStockThreshold} onChange={v => setLowStockThreshold(parseInt(v, 10))} min={0} step={1} decimals={0} />
                       </div>
                       
                       <div className="input-group" style={{ margin: 0 }}>
@@ -9521,13 +9544,7 @@ export default function App() {
                                   </div>
                                 </div>
                                 <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
-                                  <input 
-                                    type="number" 
-                                    min="1" 
-                                    style={{ width: '45px', padding: '0.25rem', fontSize: '0.7rem', background: 'var(--bg-surface-elevated)', border: '1px solid var(--border-color)', color: 'white', borderRadius: '4px', textAlign: 'center' }}
-                                    value={restockQuantities[p.id] || '20'}
-                                    onChange={e => setRestockQuantities(prev => ({ ...prev, [p.id]: e.target.value }))}
-                                  />
+                          <NumberStepper value={restockQuantities[p.id] || 20} onChange={v => setRestockQuantities(prev => ({ ...prev, [p.id]: parseInt(v, 10) }))} min={1} step={1} decimals={0} />
                                   <button 
                                     className="btn btn-accent" 
                                     style={{ padding: '0.25rem 0.5rem', fontSize: '0.7rem', minHeight: '28px', height: '28px' }}
@@ -9752,12 +9769,12 @@ export default function App() {
                         
                         <div className="input-group">
                           <label className="input-label">{t('Selling Price (₹)', 'विक्रय मूल्य (₹)', 'বিক্রয় মূল্য (₹)')}</label>
-                          <input type="number" className="text-input" value={newProdPrice} onChange={e => setNewProdPrice(e.target.value)} />
+                          <input type="number" inputMode="decimal" className="text-input" value={newProdPrice} onChange={e => setNewProdPrice(e.target.value)} />
                         </div>
                         
                         <div className="input-group">
                           <label className="input-label">{t('Cost Price (₹)', 'लागत मूल्य (₹)', 'ক্রয় মূল্য (₹)')}</label>
-                          <input type="number" className="text-input" value={newProdCostPrice} onChange={e => setNewProdCostPrice(e.target.value)} />
+                          <input type="number" inputMode="decimal" className="text-input" value={newProdCostPrice} onChange={e => setNewProdCostPrice(e.target.value)} />
                           <small style={{ color: 'var(--text-muted)', fontSize: '0.65rem', display: 'block', marginTop: '0.2rem' }}>
                             {t('Points customers earn are based on your margin', 'ग्राहकों द्वारा अर्जित अंक आपके मार्जिन पर आधारित होते हैं', 'গ্রাহকদের অর্জিত পয়েন্ট আপনার মার্জিনের ওপর ভিত্তি করে নির্ধারিত হয়')}
                           </small>
@@ -9775,7 +9792,7 @@ export default function App() {
                         
                         <div className="input-group">
                           <label className="input-label">{t('Initial Stock', 'प्रारंभिक स्टॉक', 'প্রাথমिक स्टॉक')}</label>
-                          <input type="number" className="text-input" value={newProdInitialStock} onChange={e => setNewProdInitialStock(e.target.value)} />
+                          <input type="number" inputMode="decimal" className="text-input" value={newProdInitialStock} onChange={e => setNewProdInitialStock(e.target.value)} />
                         </div>
 
                         <div className="input-group">
@@ -9893,12 +9910,12 @@ export default function App() {
                         
                         <div className="input-group">
                           <label className="input-label">{t('Selling Price (₹)', 'विक्रय मूल्य (₹)', 'বিক্রয় মূল্য (₹)')}</label>
-                          <input type="number" className="text-input" value={editProdPrice} onChange={e => setEditProdPrice(e.target.value)} />
+                          <input type="number" inputMode="decimal" className="text-input" value={editProdPrice} onChange={e => setEditProdPrice(e.target.value)} />
                         </div>
                         
                         <div className="input-group">
                           <label className="input-label">{t('Cost Price (₹)', 'लागत मूल्य (₹)', 'ক্রয় মূল্য (₹)')}</label>
-                          <input type="number" className="text-input" value={editProdCostPrice} onChange={e => setEditProdCostPrice(e.target.value)} />
+                          <input type="number" inputMode="decimal" className="text-input" value={editProdCostPrice} onChange={e => setEditProdCostPrice(e.target.value)} />
                           <small style={{ color: 'var(--text-muted)', fontSize: '0.65rem', display: 'block', marginTop: '0.2rem' }}>
                             {t('Points customers earn are based on your margin', 'ग्राहकों द्वारा अर्जित अंक आपके मार्जिन पर आधारित होते हैं', 'গ্রাহকদের অর্জিত পয়েন্ট আপনার মার্জিনের ওপর ভিত্তি করে নির্ধারিত হয়')}
                           </small>
@@ -10086,12 +10103,12 @@ export default function App() {
 
                         <div className="input-group" style={{ margin: 0 }}>
                           <label className="input-label">Preparation Time (minutes)</label>
-                          <input type="number" min="5" max="120" className="text-input" value={stockistProfile.prep_eta_minutes || 15} onChange={e => setStockistProfile({...stockistProfile, prep_eta_minutes: parseInt(e.target.value, 10)})} />
+                          <NumberStepper value={stockistProfile.prep_eta_minutes || 15} onChange={v => setStockistProfile(prev => ({ ...prev, prep_eta_minutes: parseInt(v, 10) }))} min={5} max={120} step={5} decimals={0} />
                         </div>
 
                         <div className="input-group" style={{ margin: 0 }}>
                           <label className="input-label">Delivery Radius (km)</label>
-                          <input type="number" step="0.1" max={stockistProfile.max_delivery_radius_km || 5.0} className="text-input" value={stockistProfile.delivery_radius_km || 5.0} onChange={e => setStockistProfile({...stockistProfile, delivery_radius_km: e.target.value})} />
+                          <NumberStepper value={stockistProfile.delivery_radius_km || 5.0} onChange={v => setStockistProfile(prev => ({ ...prev, delivery_radius_km: parseFloat(v) }))} min={0.5} max={stockistProfile.max_delivery_radius_km || 5.0} step={0.5} decimals={1} suffix="km" />
                           <p style={{ fontSize: '0.65rem', color: 'var(--text-muted)', margin: '0.2rem 0 0 0' }}>Maximum allowed: {stockistProfile.max_delivery_radius_km || 5.0} km</p>
                         </div>
                       </div>
@@ -12253,12 +12270,7 @@ export default function App() {
                         
                         <div className="input-group">
                           <label className="input-label">Stockist reinvestment % (of profit)</label>
-                          <input 
-                            type="number" 
-                            className="text-input" 
-                            value={globalReinvestPct} 
-                            onChange={e => setGlobalReinvestPct(e.target.value)} 
-                          />
+                      <NumberStepper value={globalReinvestPct} onChange={setGlobalReinvestPct} min={0} max={100} step={0.5} decimals={1} suffix="%" />
                           <p style={{ fontSize: '0.65rem', color: 'var(--text-muted)', margin: '0.2rem 0 0 0' }}>
                             Portion of profit reinvested back to the stockist. The remainder is the platform pot.
                           </p>
@@ -12266,12 +12278,7 @@ export default function App() {
 
                         <div className="input-group">
                           <label className="input-label">Customer points % (of platform pot)</label>
-                          <input 
-                            type="number" 
-                            className="text-input" 
-                            value={globalPointsPct} 
-                            onChange={e => setGlobalPointsPct(e.target.value)} 
-                          />
+                      <NumberStepper value={globalPointsPct} onChange={setGlobalPointsPct} min={0} max={100} step={0.5} decimals={1} suffix="%" />
                           <p style={{ fontSize: '0.65rem', color: 'var(--text-muted)', margin: '0.2rem 0 0 0' }}>
                             Portion of the platform pot credited to customer as points. The remainder is company commission.
                           </p>
@@ -12279,12 +12286,7 @@ export default function App() {
 
                         <div className="input-group">
                           <label className="input-label">Partner redemption cut % (of face value)</label>
-                          <input 
-                            type="number" 
-                            className="text-input" 
-                            value={globalCutPct} 
-                            onChange={e => setGlobalCutPct(e.target.value)} 
-                          />
+                      <NumberStepper value={globalCutPct} onChange={setGlobalCutPct} min={0} max={100} step={0.5} decimals={1} suffix="%" />
                           <p style={{ fontSize: '0.65rem', color: 'var(--text-muted)', margin: '0.2rem 0 0 0' }}>
                             When a customer redeems a partner reward, the platform keeps this percentage. The partner receives the rest.
                           </p>
@@ -13709,7 +13711,7 @@ export default function App() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', margin: '1rem 0' }}>
               <div className="input-group">
                 <label className="input-label">Points Amount (positive integer)</label>
-                <input type="number" className="text-input" placeholder="100" value={pointsCreditAmount} onChange={e => setPointsCreditAmount(e.target.value)} />
+                <input type="number" inputMode="decimal" className="text-input" placeholder="100" value={pointsCreditAmount} onChange={e => setPointsCreditAmount(e.target.value)} />
               </div>
               <div className="input-group">
                 <label className="input-label">Reason (Required for audit log)</label>
@@ -13808,11 +13810,11 @@ export default function App() {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
                 <div className="input-group">
                   <label className="input-label">Commission Rate (%)</label>
-                  <input type="number" className="text-input" value={createStkRate} onChange={e => setCreateStkRate(e.target.value)} />
+                  <NumberStepper value={createStkRate} onChange={setCreateStkRate} min={0} max={100} step={0.5} decimals={1} suffix="%" />
                 </div>
                 <div className="input-group">
                   <label className="input-label">Delivery Radius (km)</label>
-                  <input type="number" step="0.5" className="text-input" value={createStkRadius} onChange={e => setCreateStkRadius(e.target.value)} />
+                  <NumberStepper value={createStkRadius} onChange={v => setCreateStkRadius(parseFloat(v))} min={0.5} step={0.5} decimals={1} suffix="km" />
                 </div>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.5rem' }}>
@@ -13826,7 +13828,7 @@ export default function App() {
                 </div>
                 <div className="input-group">
                   <label className="input-label">Prep ETA (m)</label>
-                  <input type="number" className="text-input" value={createStkEta} onChange={e => setCreateStkEta(e.target.value)} />
+                  <NumberStepper value={createStkEta} onChange={v => setCreateStkEta(parseInt(v, 10))} min={5} max={120} step={5} decimals={0} />
                 </div>
               </div>
               <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
@@ -13906,29 +13908,14 @@ export default function App() {
                   <label htmlFor="edit-stk-eta" className="input-label">
                     {t('Prep ETA (min)', 'तैयारी का समय (मिनट)', 'প্রস্তুতি সময় (মিনিট)')} <span style={{ color: 'var(--danger)' }}>*</span>
                   </label>
-                  <input 
-                    id="edit-stk-eta" 
-                    type="number" 
-                    className="text-input" 
-                    value={editStkEta} 
-                    onChange={e => setEditStkEta(e.target.value)} 
-                    required
-                  />
+                <NumberStepper value={editStkEta} onChange={v => setEditStkEta(parseInt(v, 10))} min={5} max={120} step={5} decimals={0} />
                 </div>
               </div>
               <div className="input-group">
                 <label htmlFor="edit-stk-radius" className="input-label">
                   {t('Delivery Radius (km)', 'डिलीवरी का दायरा (किमी)', 'ডেলিভারি ব্যাসার্ধ (কিমি)')} <span style={{ color: 'var(--danger)' }}>*</span>
                 </label>
-                <input 
-                  id="edit-stk-radius" 
-                  type="number" 
-                  step="0.5" 
-                  className="text-input" 
-                  value={editStkRadius} 
-                  onChange={e => setEditStkRadius(e.target.value)} 
-                  required
-                />
+                <NumberStepper value={editStkRadius} onChange={v => setEditStkRadius(parseFloat(v))} min={0.5} step={0.5} decimals={1} suffix="km" />
               </div>
               <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
                 <button className="btn btn-secondary" onClick={() => setShowEditStockistModal(false)}>
@@ -13956,7 +13943,7 @@ export default function App() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', margin: '1rem 0' }}>
               <div className="input-group">
                 <label className="input-label">New Commission Rate (%)</label>
-                <input type="number" step="0.1" className="text-input" value={newCommissionRate} onChange={e => setNewCommissionRate(e.target.value)} />
+                <NumberStepper value={newCommissionRate} onChange={setNewCommissionRate} min={0} max={100} step={0.5} decimals={1} suffix="%" />
               </div>
               
               <button className="btn btn-secondary" style={{ fontSize: '0.75rem' }} onClick={handlePreviewCommissionRate}>
@@ -14130,17 +14117,17 @@ export default function App() {
 
             <div className="input-group">
               <label className="input-label">Stockist reinvestment % (of profit)</label>
-              <input type="number" className="text-input" value={overrideReinvestPct} onChange={e => setOverrideReinvestPct(e.target.value)} />
+              <NumberStepper value={overrideReinvestPct} onChange={setOverrideReinvestPct} min={0} max={100} step={0.5} decimals={1} suffix="%" />
             </div>
 
             <div className="input-group">
               <label className="input-label">Customer points % (of platform pot)</label>
-              <input type="number" className="text-input" value={overridePointsPct} onChange={e => setOverridePointsPct(e.target.value)} />
+              <NumberStepper value={overridePointsPct} onChange={setOverridePointsPct} min={0} max={100} step={0.5} decimals={1} suffix="%" />
             </div>
 
             <div className="input-group">
               <label className="input-label">Partner redemption cut % (of face value)</label>
-              <input type="number" className="text-input" value={overrideCutPct} onChange={e => setOverrideCutPct(e.target.value)} />
+              <NumberStepper value={overrideCutPct} onChange={setOverrideCutPct} min={0} max={100} step={0.5} decimals={1} suffix="%" />
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '0.5rem' }}>
