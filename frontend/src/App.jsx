@@ -235,7 +235,7 @@ const MemoizedAuditLogRow = React.memo(({ log }) => {
 });
 MemoizedAuditLogRow.displayName = 'MemoizedAuditLogRow';
 
-const NumberStepper = ({ value, onChange, min, max, step, decimals = 0, suffix = '' }) => {
+const NumberStepper = ({ value, onChange, min, max, step, decimals = 0, suffix = '', size = 'md' }) => {
   const hasMax = max !== undefined && max !== null;
   const round = v => Number(v.toFixed(decimals));
   const clamp = v => {
@@ -245,18 +245,23 @@ const NumberStepper = ({ value, onChange, min, max, step, decimals = 0, suffix =
     return n;
   };
   const cur = (value === '' || value === undefined || value === null || isNaN(Number(value))) ? min : Number(value);
+  const sm = size === 'sm';
+  const btn = sm ? 32 : 44;
+  const valStyle = sm
+    ? { textAlign: 'center', width: 48, flexShrink: 0, padding: '0.25rem' }   // fixed width, no flex-grow
+    : { textAlign: 'center', flex: 1, minWidth: 0 };
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+    <div style={{ display: 'inline-flex', alignItems: 'center', gap: sm ? '0.25rem' : '0.5rem' }}>
       <button type="button" className="btn btn-secondary"
-        style={{ width: 44, height: 44, fontSize: '1.25rem', flexShrink: 0, padding: 0 }}
+        style={{ width: btn, height: btn, fontSize: sm ? '1rem' : '1.25rem', flexShrink: 0, padding: 0 }}
         disabled={cur <= min}
         onClick={() => onChange(clamp(cur - step))}>−</button>
       <input type="number" inputMode="decimal" className="text-input stepper-input"
-        style={{ textAlign: 'center', flex: 1, minWidth: 0 }}
+        style={{ ...valStyle, fontSize: sm ? '0.8rem' : undefined }}
         value={cur} min={min} max={hasMax ? max : undefined} step={step}
         onChange={e => { const v = parseFloat(e.target.value); onChange(isNaN(v) ? min : clamp(v)); }} />
       <button type="button" className="btn btn-secondary"
-        style={{ width: 44, height: 44, fontSize: '1.25rem', flexShrink: 0, padding: 0 }}
+        style={{ width: btn, height: btn, fontSize: sm ? '1rem' : '1.25rem', flexShrink: 0, padding: 0 }}
         disabled={hasMax && cur >= max}
         onClick={() => onChange(clamp(cur + step))}>＋</button>
       {suffix && <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{suffix}</span>}
@@ -9484,9 +9489,9 @@ export default function App() {
                         )}
                       </div>
 
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.02)', padding: '0.4rem 0.6rem', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem', background: 'rgba(255,255,255,0.02)', padding: '0.4rem 0.6rem', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.05)' }}>
                         <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>{t("Low Stock Threshold:", "कम स्टॉक सीमा:", "কম স্টক থ্রেশহোল্ড:")}</span>
-                              <NumberStepper value={lowStockThreshold} onChange={v => setLowStockThreshold(parseInt(v, 10))} min={0} step={1} decimals={0} />
+                              <NumberStepper value={lowStockThreshold} onChange={v => setLowStockThreshold(parseInt(v, 10))} min={0} step={1} decimals={0} size="sm" />
                       </div>
                       
                       <div className="input-group" style={{ margin: 0 }}>
@@ -9511,7 +9516,7 @@ export default function App() {
                           .map(p => {
                             const isLowStock = p.stock_qty < parseInt(lowStockThreshold || '15', 10);
                             return (
-                              <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-surface)', padding: '0.5rem 0.75rem', borderRadius: '6px', border: isLowStock ? '1px dashed var(--warning)' : '1px solid var(--border-color)', fontSize: '0.75rem' }}>
+                              <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem', background: 'var(--bg-surface)', padding: '0.5rem 0.75rem', borderRadius: '6px', border: isLowStock ? '1px dashed var(--warning)' : '1px solid var(--border-color)', fontSize: '0.75rem' }}>
                                 <div style={{ flex: 1 }}>
                                   <div style={{ fontWeight: '600', color: 'white', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
                                     {p.name}
@@ -9544,7 +9549,7 @@ export default function App() {
                                   </div>
                                 </div>
                                 <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
-                          <NumberStepper value={restockQuantities[p.id] || 20} onChange={v => setRestockQuantities(prev => ({ ...prev, [p.id]: parseInt(v, 10) }))} min={1} step={1} decimals={0} />
+                          <NumberStepper value={restockQuantities[p.id] || 20} onChange={v => setRestockQuantities(prev => ({ ...prev, [p.id]: parseInt(v, 10) }))} min={1} step={1} decimals={0} size="sm" />
                                   <button 
                                     className="btn btn-accent" 
                                     style={{ padding: '0.25rem 0.5rem', fontSize: '0.7rem', minHeight: '28px', height: '28px' }}
