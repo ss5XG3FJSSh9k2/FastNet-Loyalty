@@ -1147,6 +1147,29 @@ export default function App() {
     } catch(e) {}
   };
 
+
+
+
+  const [offlineMode, setOfflineMode] = useState(() => {
+    return localStorage.getItem('fastnet_offline_mode') === 'true';
+  });
+  const [offlineQueue, setOfflineQueue] = useState(() => {
+    try {
+      const saved = localStorage.getItem('fastnet_offline_queue');
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    localStorage.setItem('fastnet_offline_mode', offlineMode.toString());
+  }, [offlineMode]);
+
+  useEffect(() => {
+    localStorage.setItem('fastnet_offline_queue', JSON.stringify(offlineQueue));
+  }, [offlineQueue]);
+
   useEffect(() => {
     if (unacknowledgedOrders.length > 0) {
       document.title = `(${unacknowledgedOrders.length}) FastNet — Stockist`;
@@ -1199,25 +1222,6 @@ export default function App() {
   };
 
   const [stockistProducts, setStockistProducts] = useState([]);
-  const [offlineMode, setOfflineMode] = useState(() => {
-    return localStorage.getItem('fastnet_offline_mode') === 'true';
-  });
-  const [offlineQueue, setOfflineQueue] = useState(() => {
-    try {
-      const saved = localStorage.getItem('fastnet_offline_queue');
-      return saved ? JSON.parse(saved) : [];
-    } catch (e) {
-      return [];
-    }
-  });
-
-  useEffect(() => {
-    localStorage.setItem('fastnet_offline_mode', offlineMode.toString());
-  }, [offlineMode]);
-
-  useEffect(() => {
-    localStorage.setItem('fastnet_offline_queue', JSON.stringify(offlineQueue));
-  }, [offlineQueue]);
 
   const [vendors, setVendors] = useState([]);
   const [showInactiveVendors, setShowInactiveVendors] = useState(false);
