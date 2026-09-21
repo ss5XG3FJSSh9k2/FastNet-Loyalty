@@ -1154,8 +1154,7 @@ export default function App() {
   };
   const [stockistAnalytics, setStockistAnalytics] = useState(null);
   const [stockistActiveTab, setStockistActiveTab] = useState('orders'); // orders | analytics | inventory | settings
-  const [stockistSettings, setStockistSettings] = useState(null);
-  const [savingSettings, setSavingSettings] = useState(false);
+    const [savingSettings, setSavingSettings] = useState(false);
 
 
   // Stockist App State
@@ -1545,8 +1544,6 @@ export default function App() {
           if (pRes.ok) {
             const pData = await pRes.json().catch(() => ({}));
             setStockistProfile(pData);
-      setStockistSettings(pData);
-      setStockistSettings(pData);
             const oRes = await fetch(`${API_BASE}/orders?stockistId=${pData.id}`);
             const oData = await oRes.json().catch(() => ({}));
       if (isFirstOrderLoad.current && Array.isArray(oData)) {
@@ -9778,7 +9775,7 @@ export default function App() {
 
                 </div>
 
-                  {stockistActiveTab === 'settings' && stockistSettings && (
+                  {stockistActiveTab === 'settings' && stockistProfile && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', paddingBottom: '2rem' }}>
                       <h3 style={{ fontSize: '1rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.4rem', display: 'flex', alignItems: 'center', gap: '0.35rem', margin: 0 }}>
                         <Settings size={16} style={{ color: 'var(--primary)' }} />
@@ -9786,28 +9783,28 @@ export default function App() {
                       </h3>
 
                       {/* Manual Closure */}
-                      <div className="glass-card" style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem', borderLeft: stockistSettings.manual_closed ? '3px solid var(--danger-color)' : '3px solid var(--success-color)' }}>
+                      <div className="glass-card" style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem', borderLeft: stockistProfile.manual_closed ? '3px solid var(--danger-color)' : '3px solid var(--success-color)' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <h4 style={{ margin: 0, fontSize: '0.9rem', color: 'white' }}>Shop Status: {stockistSettings.manual_closed ? <span style={{color: 'var(--danger-color)'}}>Closed</span> : <span style={{color: 'var(--success-color)'}}>Open</span>}</h4>
+                          <h4 style={{ margin: 0, fontSize: '0.9rem', color: 'white' }}>Shop Status: {stockistProfile.manual_closed ? <span style={{color: 'var(--danger-color)'}}>Closed</span> : <span style={{color: 'var(--success-color)'}}>Open</span>}</h4>
                           <button 
-                            className={`toggle-switch ${stockistSettings.manual_closed ? 'active' : ''}`} 
-                            style={{ background: stockistSettings.manual_closed ? 'var(--danger-color)' : 'var(--success-color)' }}
-                            onClick={() => setStockistSettings({ ...stockistSettings, manual_closed: !stockistSettings.manual_closed, closed_until: '' })}
+                            className={`toggle-switch ${stockistProfile.manual_closed ? 'active' : ''}`} 
+                            style={{ background: stockistProfile.manual_closed ? 'var(--danger-color)' : 'var(--success-color)' }}
+                            onClick={() => setStockistProfile({ ...stockistProfile, manual_closed: !stockistProfile.manual_closed, closed_until: '' })}
                           >
                             <div className="toggle-slider"></div>
                           </button>
                         </div>
                         
-                        {stockistSettings.manual_closed && (
+                        {stockistProfile.manual_closed && (
                           <div className="input-group" style={{ margin: 0 }}>
                             <label className="input-label">Closed until (Optional)</label>
                             <input 
                               type="datetime-local" 
                               className="text-input" 
-                              value={stockistSettings.closed_until ? stockistSettings.closed_until.substring(0,16) : ''}
+                              value={stockistProfile.closed_until ? stockistProfile.closed_until.substring(0,16) : ''}
                               onChange={e => {
                                 const dt = e.target.value ? new Date(e.target.value).toISOString() : '';
-                                setStockistSettings({ ...stockistSettings, closed_until: dt });
+                                setStockistProfile({ ...stockistProfile, closed_until: dt });
                               }}
                             />
                             <p style={{ fontSize: '0.65rem', color: 'var(--text-muted)', margin: '0.2rem 0 0 0' }}>If left empty, shop will automatically reopen at the next scheduled opening time.</p>
@@ -9822,22 +9819,22 @@ export default function App() {
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
                           <div className="input-group" style={{ margin: 0 }}>
                             <label className="input-label">Opening Time</label>
-                            <input type="time" className="text-input" value={stockistSettings.opening_time || '09:00'} onChange={e => setStockistSettings({...stockistSettings, opening_time: e.target.value})} />
+                            <input type="time" className="text-input" value={stockistProfile.opening_time || '09:00'} onChange={e => setStockistProfile({...stockistProfile, opening_time: e.target.value})} />
                           </div>
                           <div className="input-group" style={{ margin: 0 }}>
                             <label className="input-label">Closing Time</label>
-                            <input type="time" className="text-input" value={stockistSettings.closing_time || '17:00'} onChange={e => setStockistSettings({...stockistSettings, closing_time: e.target.value})} />
+                            <input type="time" className="text-input" value={stockistProfile.closing_time || '17:00'} onChange={e => setStockistProfile({...stockistProfile, closing_time: e.target.value})} />
                           </div>
                         </div>
 
                         <div className="input-group" style={{ margin: 0 }}>
                           <label className="input-label">Preparation Time (minutes)</label>
-                          <input type="number" min="5" max="120" className="text-input" value={stockistSettings.prep_eta_minutes || 15} onChange={e => setStockistSettings({...stockistSettings, prep_eta_minutes: parseInt(e.target.value, 10)})} />
+                          <input type="number" min="5" max="120" className="text-input" value={stockistProfile.prep_eta_minutes || 15} onChange={e => setStockistProfile({...stockistProfile, prep_eta_minutes: parseInt(e.target.value, 10)})} />
                         </div>
 
                         <div className="input-group" style={{ margin: 0 }}>
                           <label className="input-label">Delivery Radius (km)</label>
-                          <input type="number" step="0.1" max={stockistProfile.max_delivery_radius_km || 5.0} className="text-input" value={stockistSettings.delivery_radius_km || 5.0} onChange={e => setStockistSettings({...stockistSettings, delivery_radius_km: e.target.value})} />
+                          <input type="number" step="0.1" max={stockistProfile.max_delivery_radius_km || 5.0} className="text-input" value={stockistProfile.delivery_radius_km || 5.0} onChange={e => setStockistProfile({...stockistProfile, delivery_radius_km: e.target.value})} />
                           <p style={{ fontSize: '0.65rem', color: 'var(--text-muted)', margin: '0.2rem 0 0 0' }}>Maximum allowed: {stockistProfile.max_delivery_radius_km || 5.0} km</p>
                         </div>
                       </div>
@@ -9848,22 +9845,22 @@ export default function App() {
                         
                         <div className="input-group" style={{ margin: 0 }}>
                           <label className="input-label">UPI ID (Primary)</label>
-                          <input type="text" placeholder="name@bank" className="text-input" value={stockistSettings.payout_upi_id || ''} onChange={e => setStockistSettings({...stockistSettings, payout_upi_id: e.target.value})} />
+                          <input type="text" placeholder="name@bank" className="text-input" value={stockistProfile.payout_upi_id || ''} onChange={e => setStockistProfile({...stockistProfile, payout_upi_id: e.target.value})} />
                         </div>
 
                         <div style={{ borderTop: '1px dashed var(--border-color)', margin: '0.5rem 0' }}></div>
 
                         <div className="input-group" style={{ margin: 0 }}>
                           <label className="input-label">Bank Account Number (Fallback)</label>
-                          <input type="text" className="text-input" value={stockistSettings.payout_bank_account || ''} onChange={e => setStockistSettings({...stockistSettings, payout_bank_account: e.target.value})} />
+                          <input type="text" className="text-input" value={stockistProfile.payout_bank_account || ''} onChange={e => setStockistProfile({...stockistProfile, payout_bank_account: e.target.value})} />
                         </div>
                         <div className="input-group" style={{ margin: 0 }}>
                           <label className="input-label">IFSC Code</label>
-                          <input type="text" placeholder="ABCD0123456" className="text-input" value={stockistSettings.payout_ifsc || ''} onChange={e => setStockistSettings({...stockistSettings, payout_ifsc: e.target.value.toUpperCase()})} />
+                          <input type="text" placeholder="ABCD0123456" className="text-input" value={stockistProfile.payout_ifsc || ''} onChange={e => setStockistProfile({...stockistProfile, payout_ifsc: e.target.value.toUpperCase()})} />
                         </div>
                         <div className="input-group" style={{ margin: 0 }}>
                           <label className="input-label">Account Holder Name</label>
-                          <input type="text" className="text-input" value={stockistSettings.payout_account_name || ''} onChange={e => setStockistSettings({...stockistSettings, payout_account_name: e.target.value})} />
+                          <input type="text" className="text-input" value={stockistProfile.payout_account_name || ''} onChange={e => setStockistProfile({...stockistProfile, payout_account_name: e.target.value})} />
                         </div>
                       </div>
 
@@ -9872,10 +9869,10 @@ export default function App() {
                         <h4 style={{ margin: 0, fontSize: '0.9rem', color: 'white' }}>Account Information</h4>
                         
                         <div style={{ fontSize: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                          <div><span style={{color: 'var(--text-muted)'}}>Region: </span><strong>{regions.find(r => r.id === stockistSettings.region_id)?.name || stockistSettings.region_id}</strong></div>
-                          <div><span style={{color: 'var(--text-muted)'}}>Wholesaler: </span><strong>{vendors.find(v => v.id === stockistSettings.vendor_id)?.name || stockistSettings.vendor_id}</strong></div>
-                          <div><span style={{color: 'var(--text-muted)'}}>Commission Rate: </span><strong>{stockistSettings.commission_rate}%</strong></div>
-                          <div><span style={{color: 'var(--text-muted)'}}>Minimum Order: </span><strong>₹{stockistSettings.min_order_value}</strong></div>
+                          <div><span style={{color: 'var(--text-muted)'}}>Region: </span><strong>{regions.find(r => r.id === stockistProfile.region_id)?.name || stockistProfile.region_id}</strong></div>
+                          <div><span style={{color: 'var(--text-muted)'}}>Wholesaler: </span><strong>{vendors.find(v => v.id === stockistProfile.vendor_id)?.name || stockistProfile.vendor_id}</strong></div>
+                          <div><span style={{color: 'var(--text-muted)'}}>Commission Rate: </span><strong>{stockistProfile.commission_rate}%</strong></div>
+                          <div><span style={{color: 'var(--text-muted)'}}>Minimum Order: </span><strong>₹{stockistProfile.min_order_value}</strong></div>
                           <p style={{ fontSize: '0.65rem', color: 'var(--accent)', marginTop: '0.2rem', marginBottom: 0 }}>
                             Contact FastNet support to change any of these details.
                           </p>
@@ -9929,7 +9926,7 @@ export default function App() {
                             const res = await fetch(`${API_BASE}/stockist/profile`, {
                               method: 'PATCH',
                               headers: { 'Content-Type': 'application/json', 'X-User-Id': currentUser.id },
-                              body: JSON.stringify(stockistSettings)
+                              body: JSON.stringify(stockistProfile)
                             });
                             if (!res.ok) {
                               const err = await res.json().catch(()=>({}));
@@ -9937,7 +9934,6 @@ export default function App() {
                             } else {
                               const data = await res.json();
                               setStockistProfile(data.stockist);
-                              setStockistSettings(data.stockist);
                               showToast('Settings saved successfully', 'success');
                             }
                           } catch(e) {
