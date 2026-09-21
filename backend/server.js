@@ -1067,6 +1067,7 @@ app.get('/api/products', async (req, res) => {
   }
 
   if (stockistId) {
+    filtered = filtered.filter(p => p.stockist_id === stockistId);
     const billPhotos = await db.getTable('product_bill_photos');
     filtered = filtered.map(p => {
       const inv = inventory.find(i => i.stockist_id === stockistId && i.product_id === p.id);
@@ -1209,7 +1210,8 @@ const handleCreateProductRoute = async (req, res) => {
   const newProduct = {
     id: productId,
     tenant_id: 't1',
-    region_id: regionId,
+    region_id: stockist ? stockist.region_id : regionId,
+    stockist_id: stockistId,
     name,
     category,
     price: parsedPrice,
@@ -1885,7 +1887,7 @@ app.get('/api/stockists', async (req, res) => {
     const finished = shopOrders.filter(o => ['DELIVERED', 'CANCELLED'].includes(o.status));
     const delivered = finished.filter(o => o.status === 'DELIVERED').length;
     const totalFinished = finished.length;
-    const shopProducts = products.filter(p => p.stockist_id === s.id && p.is_active !== false);
+    const shopProducts = products.filter(p => p.stockist_id === s.id && p.is_active !== false && p.is_sellable !== false);
 
     let reliabilityBadge = 'Active Partner';
     if (totalFinished > 0) {
