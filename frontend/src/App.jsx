@@ -10016,10 +10016,25 @@ export default function App() {
                           <button
                             type="button"
                             className={`shop-toggle ${stockistProfile.manual_closed ? 'is-closed' : 'is-open'}`}
-                            onClick={() => {
-                              setStockistProfile({ ...stockistProfile, manual_closed: !stockistProfile.manual_closed, closed_until: '' });
+                            onClick={async () => {
+                              const next = !stockistProfile.manual_closed;
+                              setStockistProfile(prev => ({ ...prev, manual_closed: next, closed_until: '' }));
                               setShowCustomDate(false);
                               setClosedUntilPreset(null);
+                              try {
+                                const res = await fetch(`${API_BASE}/stockist/profile`, {
+                                  method: 'PATCH',
+                                  headers: { 'Content-Type': 'application/json', 'X-User-Id': currentUser.id },
+                                  body: JSON.stringify({ manual_closed: next, closed_until: '' })
+                                });
+                                if (!res.ok) throw new Error('save-failed');
+                                const data = await res.json();
+                                if (data.stockist) setStockistProfile(data.stockist);
+                                showToast(next ? 'Shop closed' : 'Shop opened', 'success');
+                              } catch (e) {
+                                setStockistProfile(prev => ({ ...prev, manual_closed: !next }));
+                                showToast("Couldn't update shop status — try again", 'error');
+                              }
                             }}
                             aria-pressed={!stockistProfile.manual_closed}
                             aria-label={stockistProfile.manual_closed ? 'Shop closed, tap to open' : 'Shop open, tap to close'}
