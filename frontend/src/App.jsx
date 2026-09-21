@@ -79,7 +79,8 @@ const API_BASE = import.meta.env.VITE_API_BASE || '/api';
 const originalFetch = window.fetch;
 window.fetch = async (...args) => {
   const [resource, config] = args;
-  
+  let tokenAttached = false;
+
   if (typeof resource === 'string' && resource.includes(API_BASE)) {
     const token = (() => { try { return localStorage.getItem('token'); } catch { return null; } })();
     if (token) {
@@ -88,11 +89,21 @@ window.fetch = async (...args) => {
         ...args[1].headers,
         'Authorization': `Bearer ${token}`
       };
+      tokenAttached = true;
     }
   }
 
   const res = await originalFetch(...args);
-  if (res.status === 401 && typeof resource === 'string' && resource.includes(API_BASE) && !resource.includes('/auth/login') && !resource.includes('/auth/verify') && !resource.includes('/auth/setup-complete')) {
+  if (
+    res.status === 401 &&
+    tokenAttached &&
+    typeof resource === 'string' &&
+    resource.includes(API_BASE) &&
+    !resource.includes('/auth/login') &&
+    !resource.includes('/auth/verify') &&
+    !resource.includes('/auth/setup-complete') &&
+    !resource.includes('/auth/me')
+  ) {
     window.dispatchEvent(new CustomEvent('session-expired'));
   }
   return res;
