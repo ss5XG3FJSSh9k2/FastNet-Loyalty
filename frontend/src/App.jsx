@@ -1810,6 +1810,7 @@ export default function App() {
   // ----------------------------------------------------
 
   const fetchDbState = async () => {
+    if (!currentUser) return;
     try {
       const res = await fetch(`${API_BASE}/admin/kyc-queue`); // Just testing backend online
       if (res.ok) {
