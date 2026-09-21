@@ -1759,7 +1759,13 @@ export default function App() {
           const pRes = await fetch(`${API_BASE}/stockists/by-user/${data.user.id}`);
           if (pRes.ok) {
             const pData = await pRes.json().catch(() => ({}));
-            setStockistProfile(pData);
+            setStockistProfile({
+              ...pData,
+              prep_eta_minutes: pData.prep_eta_minutes ?? 15,
+              delivery_radius_km: pData.delivery_radius_km ?? 5.0,
+              opening_time: pData.opening_time || '09:00',
+              closing_time: pData.closing_time || '17:00'
+            });
             const oRes = await fetch(`${API_BASE}/orders?stockistId=${pData.id}`);
             const oData = await oRes.json().catch(() => ({}));
       if (isFirstOrderLoad.current && Array.isArray(oData)) {
@@ -3891,7 +3897,13 @@ export default function App() {
         return;
       }
       const pData = await pRes.json().catch(() => ({}));
-      setStockistProfile(pData);
+      setStockistProfile({
+        ...pData,
+        prep_eta_minutes: pData.prep_eta_minutes ?? 15,
+        delivery_radius_km: pData.delivery_radius_km ?? 5.0,
+        opening_time: pData.opening_time || '09:00',
+        closing_time: pData.closing_time || '17:00'
+      });
 
       // 2. Load stockist orders
       const oRes = await fetch(`${API_BASE}/orders?stockistId=${pData.id}`);
@@ -10214,10 +10226,10 @@ export default function App() {
                                 manual_closed: stockistProfile.manual_closed,
                                 closed_reason: stockistProfile.closed_reason,
                                 closed_until: stockistProfile.closed_until,
-                                opening_time: stockistProfile.opening_time,
-                                closing_time: stockistProfile.closing_time,
-                                prep_eta_minutes: stockistProfile.prep_eta_minutes,
-                                delivery_radius_km: stockistProfile.delivery_radius_km,
+                                opening_time: stockistProfile.opening_time || '09:00',
+                                closing_time: stockistProfile.closing_time || '17:00',
+                                prep_eta_minutes: stockistProfile.prep_eta_minutes || 15,
+                                delivery_radius_km: stockistProfile.delivery_radius_km || 5.0,
                                 payout_upi_id: stockistProfile.payout_upi_id,
                                 payout_bank_account: stockistProfile.payout_bank_account,
                                 payout_ifsc: stockistProfile.payout_ifsc,
