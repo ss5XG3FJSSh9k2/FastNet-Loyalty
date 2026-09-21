@@ -293,98 +293,107 @@ const TimePicker = ({ value, onChange }) => {
     <div style={{ position: 'relative' }} ref={pickerRef}>
       <div 
         className="text-input" 
-        style={{ cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+        style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
         onClick={handleOpen}
+        role="button"
+        tabIndex={0}
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') handleOpen(); }}
       >
-        {format12h(value) || 'Select Time'}
+        <span>{format12h(value) || 'Select Time'}</span>
+        <Clock size={16} style={{ color: 'var(--text-muted)' }} />
       </div>
       
       {isOpen && (
-        <div className="glass-card" style={{ 
-          position: 'absolute', 
-          top: '100%', 
-          left: 0, 
-          marginTop: '0.5rem', 
-          zIndex: 100, 
-          width: '280px',
-          maxWidth: '90vw',
-          padding: '1rem',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '1rem'
-        }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.5rem', height: '200px' }}>
-            <div style={{ overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-              {hours.map(h => (
-                <div 
-                  key={h} 
-                  onClick={() => setDraft({ ...draft, hour12: h })}
-                  style={{ 
-                    padding: '0.5rem', 
-                    textAlign: 'center', 
-                    cursor: 'pointer',
-                    minHeight: '40px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    background: draft.hour12 === h ? 'var(--accent)' : 'transparent',
-                    borderRadius: '4px',
-                    color: draft.hour12 === h ? 'white' : 'inherit'
-                  }}
-                >
-                  {h.padStart(2, '0')}
-                </div>
-              ))}
+        <div
+          style={{
+            position: 'fixed', inset: 0, zIndex: 1000,
+            background: 'rgba(0,0,0,0.6)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: '1rem'
+          }}
+          onClick={() => setIsOpen(false)}
+        >
+          <div
+            className="glass-card"
+            style={{
+              width: '300px', maxWidth: '90vw',
+              padding: '1rem', display: 'flex', flexDirection: 'column', gap: '1rem'
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.5rem', height: '180px' }}>
+              <div style={{ overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                {hours.map(h => (
+                  <div 
+                    key={h} 
+                    onClick={() => setDraft({ ...draft, hour12: h })}
+                    style={{ 
+                      padding: '0.5rem', 
+                      textAlign: 'center', 
+                      cursor: 'pointer',
+                      minHeight: '40px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      background: draft.hour12 === h ? 'var(--accent)' : 'transparent',
+                      borderRadius: '4px',
+                      color: draft.hour12 === h ? 'white' : 'inherit'
+                    }}
+                  >
+                    {h.padStart(2, '0')}
+                  </div>
+                ))}
+              </div>
+              <div style={{ overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                {minutes.map(m => (
+                  <div 
+                    key={m} 
+                    onClick={() => setDraft({ ...draft, minute: m })}
+                    style={{ 
+                      padding: '0.5rem', 
+                      textAlign: 'center', 
+                      cursor: 'pointer',
+                      minHeight: '40px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      background: draft.minute === m ? 'var(--accent)' : 'transparent',
+                      borderRadius: '4px',
+                      color: draft.minute === m ? 'white' : 'inherit'
+                    }}
+                  >
+                    {m}
+                  </div>
+                ))}
+              </div>
+              <div style={{ overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                {meridiems.map(m => (
+                  <div 
+                    key={m} 
+                    onClick={() => setDraft({ ...draft, meridiem: m })}
+                    style={{ 
+                      padding: '0.5rem', 
+                      textAlign: 'center', 
+                      cursor: 'pointer',
+                      minHeight: '40px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      background: draft.meridiem === m ? 'var(--accent)' : 'transparent',
+                      borderRadius: '4px',
+                      color: draft.meridiem === m ? 'white' : 'inherit'
+                    }}
+                  >
+                    {m}
+                  </div>
+                ))}
+              </div>
             </div>
-            <div style={{ overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-              {minutes.map(m => (
-                <div 
-                  key={m} 
-                  onClick={() => setDraft({ ...draft, minute: m })}
-                  style={{ 
-                    padding: '0.5rem', 
-                    textAlign: 'center', 
-                    cursor: 'pointer',
-                    minHeight: '40px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    background: draft.minute === m ? 'var(--accent)' : 'transparent',
-                    borderRadius: '4px',
-                    color: draft.minute === m ? 'white' : 'inherit'
-                  }}
-                >
-                  {m}
-                </div>
-              ))}
+            
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+              <button className="btn btn-secondary" onClick={() => setIsOpen(false)}>Cancel</button>
+              <button className="btn btn-accent" onClick={handleOk}>OK</button>
             </div>
-            <div style={{ overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-              {meridiems.map(m => (
-                <div 
-                  key={m} 
-                  onClick={() => setDraft({ ...draft, meridiem: m })}
-                  style={{ 
-                    padding: '0.5rem', 
-                    textAlign: 'center', 
-                    cursor: 'pointer',
-                    minHeight: '40px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    background: draft.meridiem === m ? 'var(--accent)' : 'transparent',
-                    borderRadius: '4px',
-                    color: draft.meridiem === m ? 'white' : 'inherit'
-                  }}
-                >
-                  {m}
-                </div>
-              ))}
-            </div>
-          </div>
-          
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
-            <button className="btn btn-secondary" onClick={() => setIsOpen(false)}>Cancel</button>
-            <button className="btn btn-accent" onClick={handleOk}>OK</button>
           </div>
         </div>
       )}
