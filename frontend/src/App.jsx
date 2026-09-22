@@ -8119,6 +8119,9 @@ export default function App() {
                             <span>{t('Subtotal', 'उप-योग', 'উপ-মোট')}: ₹{cartSubtotal}</span>
                             <span>{t('Est. Rewards', 'अनुमानित पुरस्कार', 'সম্ভাব‍্য পয়েন্ট')}: <strong style={{ color: 'var(--accent)' }}>+{formatPoints(estimatedEarnPoints)}</strong></span>
                           </div>
+                          <div style={{ fontSize: '0.55rem', color: 'var(--warning)', marginTop: '0.2rem', textAlign: 'center' }}>
+                            {t('Note: In case of cancellation, a platform commission is retained as a fee.', 'ध्यान दें: रद्दीकरण के मामले में, शुल्क के रूप में प्लेटफ़ॉर्म कमीशन बरकरार रखा जाता है।', 'দ্রষ্টব্য: বাতিলের ক্ষেত্রে, একটি প্ল্যাটফর্ম কমিশন ফি হিসাবে বজায় রাখা হয়।')}
+                          </div>
 
                           {cartFulfillment === 'DELIVERY' && (
                             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem', color: 'var(--secondary)', fontWeight: 'bold' }}>
@@ -15130,7 +15133,7 @@ export default function App() {
               <button className="btn btn-secondary btn-sm" aria-label="Close Refund Policy" onClick={() => setShowRefundPolicyModal(false)}>Close Menu</button>
             </div>
             <div style={{ fontSize: '0.9rem', lineHeight: 1.6, color: '#D1D5DB' }}>
-              <p><strong>{t('Cancellation Window:', 'Cancellation Window:', 'Cancellation Window:')}</strong> {t('Orders can be cancelled within 1 minute of placement for a full refund.', 'Orders can be cancelled within 1 minute of placement for a full refund.', 'Orders can be cancelled within 1 minute of placement for a full refund.')}</p>
+              <p><strong>{t('Cancellation Window:', 'Cancellation Window:', 'Cancellation Window:')}</strong> {t('Orders can be cancelled within 1 minute of placement for a refund (minus platform commission fee).', 'ऑर्डर देने के 1 मिनट के भीतर रद्द किए जा सकते हैं, जिसमें से प्लेटफ़ॉर्म कमीशन शुल्क काटा जाएगा।', 'অর্ডার করার ১ মিনিটের মধ্যে বাতিল করা যেতে পারে (প্ল্যাটফর্ম কমিশন ফি কেটে নেওয়া হবে)।')}</p>
               <p><strong>{t('Non-Show / Delivery Issues:', 'Non-Show / Delivery Issues:', 'Non-Show / Delivery Issues:')}</strong> {t('If stockist or delivery fails, refund processed within 24 hours to original payment method.', 'If stockist or delivery fails, refund processed within 24 hours to original payment method.', 'If stockist or delivery fails, refund processed within 24 hours to original payment method.')}</p>
               <p><strong>{t('Support Contact:', 'Support Contact:', 'Support Contact:')}</strong> {t('Email support@fastnetloyalty.com for refund assistance.', 'Email support@fastnetloyalty.com for refund assistance.', 'Email support@fastnetloyalty.com for refund assistance.')}</p>
             </div>
