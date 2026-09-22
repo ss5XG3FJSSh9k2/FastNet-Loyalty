@@ -4872,7 +4872,28 @@ app.get('/api/admin/vendors', async (req, res) => {
   const vendors = await db.getTable('vendors');
   const includeInactive = req.query.include_inactive === 'true';
   const visible = vendors.filter(v => includeInactive || v.is_active !== false);
-  res.json(visible);
+
+  const stockists = await db.getTable('stockists');
+  const stockistVendors = await db.getTable('stockist_vendors');
+
+  const enriched = visible.map(v => {
+    const assigned = stockists
+      .filter(s => s.vendor_id === v.id && s.is_active !== false)
+      .map(s => ({ id: s.id, name: s.name, shop_name: s.shop_name }));
+    
+    const approved_stockist_ids = stockistVendors
+      .filter(sv => sv.vendor_id === v.id)
+      .map(sv => sv.stockist_id);
+
+    return { 
+      ...v, 
+      assigned_stockists: assigned, 
+      assigned_count: assigned.length,
+      approved_stockist_ids 
+    };
+  });
+
+  res.json(enriched);
 });
 
 app.post('/api/admin/vendors', async (req, res) => {

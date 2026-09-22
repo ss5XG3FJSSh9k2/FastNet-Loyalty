@@ -12974,6 +12974,7 @@ export default function App() {
                             <th>Wholesaler ID</th>
                             <th>Name</th>
                             <th>Region Area</th>
+                            <th>Assigned Stockists</th>
                             <th>Status</th>
                             <th>Actions</th>
                           </tr>
@@ -12984,6 +12985,22 @@ export default function App() {
                               <td style={{ fontFamily: 'monospace' }}>{v.id}</td>
                               <td style={{ color: v.is_active === false ? 'var(--text-muted)' : 'inherit' }}>{v.name}</td>
                               <td style={{ color: v.is_active === false ? 'var(--text-muted)' : 'inherit' }}>{(regions.find(r => r.id === v.region_id) || adminRegionsList.find(r => r.id === v.region_id) || {}).name || v.region_id || '—'}</td>
+                              <td>
+                                {v.assigned_count > 0 ? (
+                                  <details>
+                                    <summary style={{ cursor: 'pointer' }}>
+                                      <span className="badge" style={{ background: 'var(--accent)', color: 'white' }}>{v.assigned_count}</span> {t('stockists','स्टॉकिस्ट','স্টকিস্ট')}
+                                    </summary>
+                                    <ul style={{ margin: '0.4rem 0 0 0', paddingLeft: '1rem', fontSize: '0.8rem' }}>
+                                      {v.assigned_stockists.map(s => (
+                                        <li key={s.id}>{s.shop_name || s.name}</li>
+                                      ))}
+                                    </ul>
+                                  </details>
+                                ) : (
+                                  <span style={{ color: 'var(--text-muted)' }}>{t('None','कोई नहीं','কোনোটি নয়')}</span>
+                                )}
+                              </td>
                               <td>
                                 {v.is_active === false ? (
                                   <span className="badge" style={{ background: '#6b7280', color: 'white' }}>INACTIVE</span>
