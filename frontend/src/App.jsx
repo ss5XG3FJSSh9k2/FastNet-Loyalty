@@ -13265,7 +13265,14 @@ export default function App() {
                             <td>
                                 {correspondingPayout ? (
                                     isPaid ? (
-                                        <span className="badge badge-success" style={{ fontSize: '0.65rem' }}><Check size={10} style={{ display: 'inline', marginRight: '2px' }}/> PAID</span>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
+                                            <span className="badge badge-success" style={{ fontSize: '0.65rem' }}><Check size={10} style={{ display: 'inline', marginRight: '2px' }}/> PAID</span>
+                                            {correspondingPayout.settled_method === 'split_offset' && (
+                                                <span style={{ fontSize: '0.55rem', color: 'var(--text-muted)' }}>
+                                                    Auto-settled via offset (#{correspondingPayout.settled_via?.substring(2)?.toUpperCase()})
+                                                </span>
+                                            )}
+                                        </div>
                                     ) : (
                                         <span className="badge badge-warning" style={{ fontSize: '0.65rem' }}>UNPAID</span>
                                     )

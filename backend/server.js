@@ -3248,6 +3248,9 @@ app.post('/api/admin/release-split/:orderId', async (req, res) => {
   unsettledCod.forEach(e => {
     if (remaining > 0 && e.amount_owed <= remaining) {
       e.settled = true;
+      e.settled_via = orderId;
+      e.settled_method = 'split_offset';
+      e.settled_at = new Date().toISOString();
       remaining -= e.amount_owed;
       appendPaymentEvent(orderId, 'COD_COMMISSION_SETTLED', e.amount_owed, { cod_order_id: e.order_id });
     }
