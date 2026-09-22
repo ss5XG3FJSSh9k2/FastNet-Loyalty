@@ -527,6 +527,7 @@ export default function App() {
   const [selectedRegionId, setSelectedRegionId] = useState('');
   const [currentUser, setCurrentUser] = useState(null);
   const [showPersonalDetails, setShowPersonalDetails] = useState(false);
+  const [rejectOrderModal, setRejectOrderModal] = useState(null);
 
   const persistSession = (user, token) => {
     setCurrentUser(user);
@@ -3989,6 +3990,10 @@ export default function App() {
     } catch (err) {
       console.error('Error loading stockist details:', err);
     }
+  };
+
+  const handleRejectOrder = (orderId) => {
+    setRejectOrderModal(orderId);
   };
 
   const handleUpdateOrderStatus = async (orderId, newStatus) => {
@@ -9483,9 +9488,14 @@ export default function App() {
                               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', marginTop: '0.25rem' }}>
                                 <div style={{ display: 'flex', gap: '0.25rem' }}>
                                   {o.status === 'PENDING' && (
-                                    <button className="btn" style={{ flex: 1, padding: '0.35rem 0', fontSize: '0.7rem' }} onClick={() => handleUpdateOrderStatus(o.id, 'RECEIVED')}>
-                                      {t('Accept Order', 'स्वीकार करें', 'গ্রহণ করুন')}
-                                    </button>
+                                    <>
+                                      <button className="btn" style={{ flex: 1, padding: '0.35rem 0', fontSize: '0.7rem' }} onClick={() => handleUpdateOrderStatus(o.id, 'RECEIVED')}>
+                                        {t('Accept Order', 'स्वीकार करें', 'গ্রহণ করুন')}
+                                      </button>
+                                      <button className="btn btn-danger" style={{ flex: 1, padding: '0.35rem 0', fontSize: '0.7rem' }} onClick={() => handleRejectOrder(o.id)}>
+                                        {t('Reject', 'अस्वीकार करें', 'প্রত্যাখ্যান করুন')}
+                                      </button>
+                                    </>
                                   )}
                                   {o.status === 'RECEIVED' && (
                                     <button className="btn btn-accent" style={{ flex: 1, padding: '0.35rem 0', fontSize: '0.7rem' }} onClick={() => handleUpdateOrderStatus(o.id, 'READY')}>
@@ -9512,9 +9522,7 @@ export default function App() {
                                       </button>
                                     </div>
                                   )}
-                                  {o.status === 'CONFIRMING' && (
-                                    <button className="btn btn-danger" style={{ flex: 1, padding: '0.35rem 0', fontSize: '0.7rem' }} onClick={() => handleUpdateOrderStatus(o.id, 'CANCELLED')}>{t('Cancel', 'रद्द करें', 'বাতিল करें')}</button>
-                                  )}
+
                                 </div>
                                 
                                 {(o.status === 'DELIVERED' || o.status === 'CANCELLED') && (
@@ -15347,6 +15355,24 @@ export default function App() {
           </div>
         </div>,
         document.body
+      )}
+
+      {/* Reject Order Modal */}
+      {rejectOrderModal && (
+        <div className="modal-overlay" onClick={() => setRejectOrderModal(null)}>
+          <div className="modal-content" style={{ maxWidth: '400px', width: '90%' }} onClick={e => e.stopPropagation()}>
+            <h4 style={{ marginTop: 0 }}>{t('Reject this order?', 'इस ऑर्डर को अस्वीकार करें?', 'এই অর্ডার প্রত্যাখ্যান করবেন?')}</h4>
+            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '1rem' }}>
+              {t('The customer will be refunded and any points reversed. This cannot be undone.',
+                 'ग्राहक को धनवापसी की जाएगी और अंक वापस ले लिए जाएंगे। इसे पूर्ववत नहीं किया जा सकता।',
+                 'গ্রাহককে ফেরত দেওয়া হবে এবং পয়েন্ট ফিরিয়ে নেওয়া হবে। এটি পূর্বাবস্থায় ফেরানো যাবে না।')}
+            </p>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setRejectOrderModal(null)}>{t('Keep Order', 'ऑर्डर रखें', 'অর্ডার রাখুন')}</button>
+              <button className="btn btn-danger" style={{ flex: 1 }} onClick={async () => { await handleUpdateOrderStatus(rejectOrderModal, 'CANCELLED'); setRejectOrderModal(null); }}>{t('Reject Order', 'ऑर्डर अस्वीकार करें', 'অর্ডার প্রত্যাখ্যান করুন')}</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
