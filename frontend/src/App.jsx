@@ -9393,7 +9393,9 @@ export default function App() {
                         {t("New Orders", "नए ऑर्डर", "নতুন অর্ডার")}
                       </h3>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                        {stockistOrders.filter(o => o.status !== 'CONFIRMING').map(o => {
+                        {stockistOrders
+                          .filter(o => ['PENDING', 'RECEIVED', 'READY'].includes(o.status))
+                          .map(o => {
                           const isNew = o.status === 'PENDING';
                           return (
                             <div 
@@ -9543,9 +9545,49 @@ export default function App() {
                             </div>
                           );
                         })}
-                        {stockistOrders.length === 0 && (
+                        {stockistOrders.filter(o => ['PENDING', 'RECEIVED', 'READY'].includes(o.status)).length === 0 && (
                           <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem', textAlign: 'center' }}>No orders in queue.</p>
                         )}
+                      </div>
+
+                      {/* Order History */}
+                      <div style={{ marginTop: '1.5rem' }}>
+                        <details style={{ background: 'rgba(255,255,255,0.02)', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                          <summary style={{ fontSize: '0.85rem', fontWeight: 'bold', color: 'var(--text-muted)', cursor: 'pointer', outline: 'none' }}>
+                            {t('Order History', 'ऑर्डर इतिहास', 'অর্ডার ইতিহাস')}
+                          </summary>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '0.75rem' }}>
+                            {stockistOrders
+                              .filter(o => o.status === 'DELIVERED' || (o.status === 'CANCELLED' && o.cancelled_from_status !== 'CONFIRMING'))
+                              .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+                              .map(o => (
+                                <div key={o.id} style={{ padding: '0.6rem', background: 'var(--bg-surface)', border: '1px solid var(--border-color)', borderRadius: '6px' }}>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.35rem' }}>
+                                    <span style={{ fontWeight: 'bold', fontSize: '0.75rem' }}>Order #{o.id.substring(2).toUpperCase()}</span>
+                                    {o.status === 'DELIVERED' ? (
+                                      <span className="badge badge-success" style={{ fontSize: '0.6rem' }}>DELIVERED</span>
+                                    ) : (
+                                      <span className="badge badge-danger" style={{ fontSize: '0.6rem' }}>CANCELLED</span>
+                                    )}
+                                  </div>
+                                  <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                                    <div>{o.customer_name || 'Customer'} • {o.items ? o.items.length : 0} items</div>
+                                    <div style={{ color: 'var(--text-main)', marginTop: '0.1rem' }}>Total: ₹{parseFloat(o.total_price || 0).toFixed(2)}</div>
+                                    {o.status === 'CANCELLED' && o.cancelled_by && (
+                                      <div style={{ marginTop: '0.2rem', color: 'var(--danger)' }}>
+                                        {t('Cancelled by', 'द्वारा रद्द', 'বাতিল করেছেন')} {o.cancelled_by}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              ))}
+                            {stockistOrders.filter(o => o.status === 'DELIVERED' || (o.status === 'CANCELLED' && o.cancelled_from_status !== 'CONFIRMING')).length === 0 && (
+                              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textAlign: 'center', padding: '0.5rem 0' }}>
+                                No history
+                              </div>
+                            )}
+                          </div>
+                        </details>
                       </div>
                     </>
                   )}

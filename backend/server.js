@@ -2208,7 +2208,10 @@ async function reverseOrderPoints(orderId) {
   }
 }
 
-async function processOrderCancellation(order) {
+async function processOrderCancellation(order, cancelledBy = 'system') {
+  order.cancelled_from_status = order.status;
+  order.cancelled_by = cancelledBy;
+  order.cancelled_at = new Date().toISOString();
   order.status = 'CANCELLED';
   await reverseOrderPoints(order.id);
 
@@ -2705,7 +2708,7 @@ app.post('/api/orders/:id/cancel', async (req, res) => {
     return res.status(400).json({ error: 'Order status does not allow cancellation' });
   }
 
-  await processOrderCancellation(order);
+  await processOrderCancellation(order, 'customer');
 
   // Record no-show / late cancel on customer profile
   const users = await db.getTable('users');
@@ -2751,7 +2754,7 @@ app.post('/api/orders/:id/noshw-action', async (req, res) => {
   }
 
   if (action === 'CANCEL') {
-    await processOrderCancellation(order);
+    await processOrderCancellation(order, req.user?.role?.toLowerCase() || 'system');
 
     // Record no-show on customer profile
     const users = await db.getTable('users');
@@ -3080,7 +3083,7 @@ app.patch('/api/orders/:id/status', async (req, res) => {
         code: 'STOCKIST_CANCEL_LOCKED'
       });
     }
-    await processOrderCancellation(order);
+    await processOrderCancellation(order, req.user?.role === 'ADMIN' ? 'admin' : 'stockist');
   } else {
     order.status = status;
   }
