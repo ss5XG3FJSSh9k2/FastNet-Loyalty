@@ -1931,9 +1931,28 @@ app.get('/api/stockists/by-user/:userId', async (req, res) => {
   if (!stockist) {
     return res.status(404).json({ error: 'Stockist record not found or pending KYC' });
   }
+
+  const users = await db.getTable('users');
+  const user = users.find(u => u.id === userId);
+  
+  let kyc = {};
+  if (user && user.kyc_details) {
+    kyc = user.kyc_details;
+    if (typeof kyc === 'string') {
+      try { kyc = JSON.parse(kyc); } catch(e) {}
+    }
+  }
+  const rawId = kyc.id_number || (user ? user.kyc_id_number : '') || '';
+
   const latestRate = await resolveStockistRate(stockist.id);
   return res.json({
     ...stockist,
+    personal_name: user ? user.name : '',
+    phone: user ? user.phone : '',
+    id_type: kyc.id_type || (user ? user.kyc_id_type : '') || '',
+    id_number: maskIdNumber(rawId),
+    shop_name: kyc.shop_name || stockist.name,
+    shop_address: kyc.shop_address || (user ? user.address : ''),
     commission_rate: latestRate,
     is_shop_open: calculateIsShopOpen(stockist)
   });

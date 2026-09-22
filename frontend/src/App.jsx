@@ -525,6 +525,7 @@ export default function App() {
   const [regions, setRegions] = useState([]);
   const [selectedRegionId, setSelectedRegionId] = useState('');
   const [currentUser, setCurrentUser] = useState(null);
+  const [showPersonalDetails, setShowPersonalDetails] = useState(false);
 
   const persistSession = (user, token) => {
     setCurrentUser(user);
@@ -5451,6 +5452,13 @@ export default function App() {
               <label className="input-label">{t('Shop Address', 'दुकान का पता', 'দোকানের ঠিকানা')} *</label>
               <input type="text" placeholder="e.g. Shop 5, Market Road" className="text-input" value={regAddress} onChange={e => setRegAddress(e.target.value)} />
             </div>
+            <div style={{ fontSize: '0.7rem', color: 'var(--accent)', background: 'rgba(16,185,129,0.08)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '0.5rem', margin: '0.5rem 0' }}>
+              {t(
+                'Please enter these details carefully. You cannot change them yourself later — to correct any detail, you\'ll need to contact FastNet support.',
+                'कृपया ये विवरण सावधानी से भरें। आप इन्हें बाद में स्वयं नहीं बदल सकते — किसी भी विवरण को ठीक करने के लिए आपको FastNet सहायता से संपर्क करना होगा।',
+                'অনুগ্রহ করে এই বিবরণগুলি সাবধানে লিখুন। আপনি পরে নিজে এগুলি পরিবর্তন করতে পারবেন পঞ্চাশ — কোনো বিবরণ সংশোধন করতে FastNet সহায়তার সাথে যোগাযোগ করতে হবে।'
+              ).replace('পঞ্চাশ', 'পারবেন না')}
+            </div>
             <div style={{ display: 'flex', gap: '0.5rem' }}>
               <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => { setShowStockistSignup(false); setOtpSent(false); }}>← {t('Back', 'वापस', 'ফিরে')}</button>
               <button 
@@ -10295,6 +10303,38 @@ export default function App() {
                             {t('Change','बदलें','পরিবর্তন')}
                           </button>
                         </div>
+
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{t('Personal Details', 'व्यक्तिगत विवरण', 'ব্যক্তিগত বিবরণ')}</span>
+                          <button type="button" className="btn btn-secondary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.7rem' }} onClick={() => setShowPersonalDetails(true)}>
+                            {t('View', 'देखें', 'দেখুন')}
+                          </button>
+                        </div>
+
+                        {showPersonalDetails && (
+                          <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }} onClick={() => setShowPersonalDetails(false)}>
+                            <div className="glass-card" style={{ width: '100%', maxWidth: '400px', padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem', background: 'var(--bg-card)' }} onClick={e => e.stopPropagation()}>
+                              <h4 style={{ margin: 0, color: 'white' }}>{t('Personal Details', 'व्यक्तिगत विवरण', 'ব্যক্তিগত বিবরণ')}</h4>
+                              <div style={{ fontSize: '0.8rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                <div><span style={{color:'var(--text-muted)'}}>{t('Name','नाम','নাম')}: </span><strong>{stockistProfile.personal_name || stockistProfile.name}</strong></div>
+                                <div><span style={{color:'var(--text-muted)'}}>{t('Phone','फ़ोन','ফোন')}: </span><strong>{stockistProfile.phone || currentUser.phone}</strong></div>
+                                <div><span style={{color:'var(--text-muted)'}}>{t('Region','क्षेत्र','অঞ্চল')}: </span><strong>{regions.find(r => r.id === stockistProfile.region_id)?.name || stockistProfile.region_id}</strong></div>
+                                <div><span style={{color:'var(--text-muted)'}}>{t('ID Type','आईडी प्रकार','আইডি ধরন')}: </span><strong>{stockistProfile.id_type}</strong></div>
+                                <div><span style={{color:'var(--text-muted)'}}>{t('ID Number','आईडी नंबर','আইডি নম্বর')}: </span><strong>{stockistProfile.id_number}</strong></div>
+                                <div><span style={{color:'var(--text-muted)'}}>{t('Shop Name','दुकान का नाम','দোকানের নাম')}: </span><strong>{stockistProfile.shop_name || stockistProfile.name}</strong></div>
+                                <div><span style={{color:'var(--text-muted)'}}>{t('Address','पता','ঠিকানা')}: </span><strong>{stockistProfile.shop_address}</strong></div>
+                              </div>
+                              <p style={{ fontSize: '0.7rem', color: 'var(--accent)', marginTop: '0.75rem' }}>
+                                {t(
+                                  'These details cannot be edited here. If you want to change any detail, please contact FastNet support.',
+                                  'इन विवरणों को यहां संपादित नहीं किया जा सकता। किसी भी विवरण को बदलने के लिए, कृपया FastNet सहायता से संपर्क करें।',
+                                  'এই বিবরণগুলি এখানে সম্পাদনা করা যাবে না। কোনো বিবরণ পরিবর্তন করতে চাইলে, অনুগ্রহ করে FastNet সহায়তার সাথে যোগাযোগ করুন।'
+                                )}
+                              </p>
+                              <button className="btn btn-secondary" onClick={() => setShowPersonalDetails(false)}>{t('Close','बंद करें','বন্ধ করুন')}</button>
+                            </div>
+                          </div>
+                        )}
 
                         {showDevSettings && (
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.5rem', borderTop: '1px dashed var(--border-color)', paddingTop: '0.5rem' }}>
