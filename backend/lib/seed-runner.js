@@ -121,9 +121,9 @@ const DEFAULT_DB = {
     { id: 's3', user_id: 'u-stk4', name: 'Banerjee Corner Store', region_id: 'r1', contact_name: 'Soumik Banerjee', contact_phone: '4321098765', is_active: true, created_at: new Date().toISOString() }
   ],
   products: [
-    { id: 'p1', tenant_id: 't1', region_id: 'r1', stockist_id: 's1', name: 'Fresh Potatoes (Alu, 1kg)', category: 'groceries', price: 30.0, cost_price: 22.0, description: 'Staple local potatoes', image_url: 'https://images.unsplash.com/photo-1518977676601-b53f82aba655?auto=format&fit=crop&q=80&w=300', created_at: new Date().toISOString() },
+    { id: 'p1', tenant_id: 't1', region_id: 'r1', stockist_id: 's1', name: 'Fresh Potatoes (Alu, 1kg)', category: 'groceries', price: 30.0, cost_price: 22.0, description: 'Staple local potatoes', image_url: 'https://images.unsplash.com/photo-1518977676601-b53f82aba655?auto=format&fit=crop&q=80&w=300', latest_bill_photo_id: 'pbp-seed1', created_at: new Date().toISOString() },
     { id: 'p2', tenant_id: 't1', region_id: 'r1', stockist_id: 's1', name: 'Fresh Onions (Piaj, 1kg)', category: 'groceries', price: 45.0, cost_price: 35.0, description: 'Red onions for daily cooking', image_url: 'https://images.unsplash.com/photo-1508747703725-719777637510?auto=format&fit=crop&q=80&w=300', created_at: new Date().toISOString() },
-    { id: 'p3', tenant_id: 't1', region_id: 'r1', stockist_id: 's1', name: 'Masoor Dal (500g)', category: 'groceries', price: 60.0, cost_price: 48.0, description: 'Red split lentils', image_url: 'https://images.unsplash.com/photo-1515942400420-2b98fed1f515?auto=format&fit=crop&q=80&w=300', created_at: new Date().toISOString() },
+    { id: 'p3', tenant_id: 't1', region_id: 'r1', stockist_id: 's1', name: 'Masoor Dal (500g)', category: 'groceries', price: 60.0, cost_price: 48.0, description: 'Red split lentils', image_url: 'https://images.unsplash.com/photo-1515942400420-2b98fed1f515?auto=format&fit=crop&q=80&w=300', latest_bill_photo_id: 'pbp-seed3', created_at: new Date().toISOString() },
     { id: 'p4', tenant_id: 't1', region_id: 'r1', stockist_id: 's1', name: 'Refined Sugar (1kg)', category: 'groceries', price: 45.0, cost_price: 38.0, description: 'Pure white sugar', image_url: 'https://images.unsplash.com/photo-1622484211148-716598e04141?auto=format&fit=crop&q=80&w=300', created_at: new Date().toISOString() },
     { id: 'p5', tenant_id: 't1', region_id: 'r1', stockist_id: 's1', name: 'Aashirvaad Atta (1kg)', category: 'groceries', price: 55.0, cost_price: 45.0, description: 'Whole wheat flour', image_url: 'https://images.unsplash.com/photo-1509440159596-0249088772ff?auto=format&fit=crop&q=80&w=300', created_at: new Date().toISOString() },
     { id: 'p6', tenant_id: 't1', region_id: 'r1', stockist_id: 's1', name: 'Amul Butter (100g)', category: 'groceries', price: 58.0, cost_price: 50.0, description: 'Pasteurized salted butter', image_url: 'https://images.unsplash.com/photo-1589985270826-4b7bb135bc9d?auto=format&fit=crop&q=80&w=300', created_at: new Date().toISOString() },
@@ -245,10 +245,23 @@ const DEFAULT_DB = {
       cost_price_at_upload: 22.0,
       file_size_bytes: 102400,
       content_type: 'image/jpeg',
-      flag_status: 'CLEAN',
-      flag_reason: null,
-      flagged_by_admin_id: null,
-      flagged_at: null,
+      bill_status: 'CLEAN',
+      rejection_reason: null,
+      uploaded_at: '2026-08-01T00:00:00.000Z',
+      uploaded_by_stockist_admin_id: 'u-stk1'
+    },
+    {
+      id: 'pbp-seed3',
+      product_id: 'p3',
+      stockist_id: 's1',
+      r2_key: 'bills/s1/1785518400112-d6ez17.jpg',
+      public_url: 'https://pub-mock.r2.dev/bills/s1/1785518400112-d6ez17.jpg',
+      selling_price_at_upload: 60.0,
+      cost_price_at_upload: 48.0,
+      file_size_bytes: 102400,
+      content_type: 'image/jpeg',
+      bill_status: 'CLEAN',
+      rejection_reason: null,
       uploaded_at: '2026-08-01T00:00:00.000Z',
       uploaded_by_stockist_admin_id: 'u-stk1'
     }

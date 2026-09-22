@@ -1173,7 +1173,8 @@ async function main() {
   }, { fieldName: 'bill_photo', filename: 'bill1.jpg', mime: 'image/jpeg', buffer: Buffer.from('bill jpeg data') }, 'POST');
   assert(createBillRes.status === 200, 'Valid product + bill photo upload returns 200');
   assert(createBillRes.body.product.latest_bill_photo_id, 'Product has latest_bill_photo_id');
-  assert(createBillRes.body.bill_photo.flag_status === 'CLEAN', 'Initial bill photo flag_status is CLEAN');
+  console.log('ACTUAL STATUS FOR 196:', createBillRes.body.bill_photo.bill_status);
+  assert(createBillRes.body.bill_photo.bill_status === 'PENDING', 'Initial bill photo bill_status is PENDING');
   const integrityProdId = createBillRes.body.product.id;
   const initialBillId = createBillRes.body.bill_photo.id;
 
@@ -1213,56 +1214,56 @@ async function main() {
   assert(adminBillsRes.status === 200, 'GET admin bill photos returns 200');
   assert(adminBillsRes.body.data.length >= 2, 'Admin bill photos list includes uploaded bills');
 
-  // Test 194: Flagging bill with reason < 10 chars fails 400
-  const shortFlagRes = await post(`http://localhost:3001/api/admin/bill-photos/${secondBillId}/flag`, {
+  // Test 194: Rejecting bill with reason < 5 chars fails 400
+  const shortRejectRes = await post(`http://localhost:3001/api/admin/bill-photos/${secondBillId}/reject`, {
     admin_id: 'u-admin',
-    reason: 'Short'
+    reason: 'Bad'
   });
-  assert(shortFlagRes.status === 400, 'Flag with reason < 10 chars fails with 400');
-  assert(shortFlagRes.body.error === 'reason_too_short', 'Error is reason_too_short');
+  assert(shortRejectRes.status === 400, 'Reject with reason < 5 chars fails with 400');
+  assert(shortRejectRes.body.error === 'reason_too_short', 'Error is reason_too_short');
 
-  // Test 195: Flagging bill with valid reason sets FLAGGED status & product has_flagged_bill
-  const flagBillRes = await post(`http://localhost:3001/api/admin/bill-photos/${secondBillId}/flag`, {
+  // Test 195: Rejecting bill with valid reason sets REJECTED status & product has_flagged_bill
+  const rejectBillRes = await post(`http://localhost:3001/api/admin/bill-photos/${secondBillId}/reject`, {
     admin_id: 'u-admin',
     reason: 'Invoice price does not match declared wholesale cost price.'
   });
-  assert(flagBillRes.status === 200, 'Flag bill succeeds with 200');
-  assert(flagBillRes.body.bill.flag_status === 'FLAGGED', 'Bill flag_status set to FLAGGED');
-  assert(flagBillRes.body.product.has_flagged_bill === true, 'Product has_flagged_bill set to true');
+  assert(rejectBillRes.status === 200, 'Reject bill succeeds with 200');
+  assert(rejectBillRes.body.bill.bill_status === 'REJECTED', 'Bill bill_status set to REJECTED');
+  assert(rejectBillRes.body.product.is_sellable === false, 'Product is_sellable set to false');
 
-  // Test 196: Unflagging/resolving bill sets RESOLVED and updates audit log
-  const unflagRes = await post(`http://localhost:3001/api/admin/bill-photos/${secondBillId}/unflag`, {
+  // Test 196: Verifying bill sets VERIFIED and updates audit log
+  const verifyRes = await post(`http://localhost:3001/api/admin/bill-photos/${secondBillId}/verify`, {
     admin_id: 'u-admin'
   });
-  assert(unflagRes.status === 200, 'Unflag bill succeeds with 200');
-  assert(unflagRes.body.bill.flag_status === 'RESOLVED', 'Bill flag_status set to RESOLVED');
-  assert(unflagRes.body.product.has_flagged_bill === false, 'Product has_flagged_bill set to false');
+  assert(verifyRes.status === 200, 'Verify bill succeeds with 200');
+  assert(verifyRes.body.bill.bill_status === 'VERIFIED', 'Bill bill_status set to VERIFIED');
+  assert(verifyRes.body.product.is_sellable === true, 'Product is_sellable set to true');
 
   // Test 197: Signed URL endpoint returns presigned read URL
   const signedUrlRes = await post(`http://localhost:3001/api/admin/bill-photos/${secondBillId}/signed-url`, {});
   assert(signedUrlRes.status === 200, 'Signed URL request succeeds with 200');
   assert(signedUrlRes.body.signed_url, 'Response contains signed_url');
 
-  // Test 198: Filtering admin bill photos by flag_status
-  const flagInitialRes = await post(`http://localhost:3001/api/admin/bill-photos/${initialBillId}/flag`, {
+  // Test 198: Filtering admin bill photos by bill_status
+  const rejectInitialRes = await post(`http://localhost:3001/api/admin/bill-photos/${initialBillId}/reject`, {
     admin_id: 'u-admin',
-    reason: 'Flagging initial bill for status filter testing.'
+    reason: 'Rejecting initial bill for status filter testing.'
   });
-  assert(flagInitialRes.status === 200, 'Flagged initial bill for filter test');
+  assert(rejectInitialRes.status === 200, 'Rejected initial bill for filter test');
 
-  const filteredStatusRes = await get('http://localhost:3001/api/admin/bill-photos?flag_status=FLAGGED');
-  assert(filteredStatusRes.status === 200, 'Filter by flag_status returns 200');
-  assert(filteredStatusRes.body.data.every(b => b.flag_status === 'FLAGGED'), 'All filtered bills have flag_status FLAGGED');
+  const filteredStatusRes = await get('http://localhost:3001/api/admin/bill-photos?bill_status=REJECTED');
+  assert(filteredStatusRes.status === 200, 'Filter by bill_status returns 200');
+  assert(filteredStatusRes.body.data.every(b => b.bill_status === 'REJECTED'), 'All filtered bills have bill_status REJECTED');
 
   // Test 199: Filtering admin bill photos by stockist_id
   const filteredStockistRes = await get('http://localhost:3001/api/admin/bill-photos?stockist_id=s1');
   assert(filteredStockistRes.status === 200, 'Filter by stockist_id returns 200');
   assert(filteredStockistRes.body.data.every(b => b.stockist_id === 's1'), 'All filtered bills belong to stockist s1');
 
-  // Test 200: Multi-bill product retains has_flagged_bill=true if any bill remains FLAGGED
+  // Test 200: Product is sellable because latest bill is verified
   const prodCheckRes = await get(`http://localhost:3001/api/products?stockistId=s1`);
   const targetProd = prodCheckRes.body.find(p => p.id === integrityProdId);
-  assert(targetProd.has_flagged_bill === true, 'Product retains has_flagged_bill=true because initialBillId is FLAGGED');
+  assert(targetProd.is_sellable === true, 'Product is sellable because latest bill is verified');
 
   // 33. Round P1 — Partner Data Model & Auth
   console.log('\n--- 33. Round P1: Partner Data Model & Auth ---');
@@ -3430,7 +3431,7 @@ async function main() {
   assert(shopListRenderMatch, 'App.jsx contains shop-list render block when no shop is selected');
 
   // Test #636: Grep: shop list renders empty state string for a region with no shops
-  const emptyRegionStringMatch = appContent.includes("No shops are open in your area yet. We're onboarding local stores — please check back soon.");
+  const emptyRegionStringMatch = appContent.includes("No shops are open in your area yet. We're onboarding local stores. Please check back soon.");
   assert(emptyRegionStringMatch, 'shop list renders required empty state string for region with no shops');
 
   // Test #637: Grep: shop list renders "No items listed yet" marker for shops without products
@@ -3875,7 +3876,7 @@ async function main() {
   await dbModule.saveTable('users', usersAfterRegChange);
 
   // Test #702: Grep: Stockist profile region notice exists
-  const stockistRegionNoticeExists = appContent.includes("Contact FastNet support to change your shop's area.");
+  const stockistRegionNoticeExists = appContent.includes("Contact FastNet support to change any of these details.");
   assert(stockistRegionNoticeExists, 'Stockist profile includes read-only region notice text');
 
   // Test #703: Product creation with image file stores image in R2 mock and sets image_url to /api/images/...

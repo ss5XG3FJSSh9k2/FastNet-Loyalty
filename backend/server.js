@@ -317,19 +317,19 @@ app.get('/api/health', async (req, res) => {
 // Boot-Time Missing-Config Warnings (Part 3.1)
 function checkConfigWarnings() {
   if (!process.env.DATABASE_URL) {
-    console.log('[Config] WARNING: DATABASE_URL missing — set DATABASE_URL for production or fallback to mem in dev.');
+    console.log('[Config] WARNING: DATABASE_URL missing. Set DATABASE_URL for production or fallback to mem in dev.');
   }
   if (!process.env.JWT_SECRET) {
-    console.log('[Config] WARNING: JWT_SECRET missing — set JWT_SECRET for production.');
+    console.log('[Config] WARNING: JWT_SECRET missing. Set JWT_SECRET for production.');
   }
   if (!process.env.EMAIL_MOCK && !process.env.SENDGRID_API_KEY) {
-    console.log('[Config] WARNING: Email delivery disabled — set EMAIL_MOCK=true for dev, or SENDGRID_API_KEY for production.');
+    console.log('[Config] WARNING: Email delivery disabled. Set EMAIL_MOCK=true for dev, or SENDGRID_API_KEY for production.');
   }
   if (!process.env.SMS_MOCK && !process.env.MSG91_AUTH_KEY) {
-    console.log('[Config] WARNING: SMS delivery disabled — set SMS_MOCK=true for dev, or MSG91_AUTH_KEY for production.');
+    console.log('[Config] WARNING: SMS delivery disabled. Set SMS_MOCK=true for dev, or MSG91_AUTH_KEY for production.');
   }
   if (!process.env.R2_MOCK && !process.env.R2_ACCESS_KEY_ID) {
-    console.log('[Config] WARNING: R2 storage disabled — set R2_MOCK=true for dev, or R2_ACCESS_KEY_ID for production.');
+    console.log('[Config] WARNING: R2 storage disabled. Set R2_MOCK=true for dev, or R2_ACCESS_KEY_ID for production.');
   }
 }
 
@@ -358,7 +358,10 @@ const uploadBillMiddleware = (req, res, next) => {
       const bFile = (req.files['bill_photo'] && req.files['bill_photo'][0]) ||
                     (req.files['billFile'] && req.files['billFile'][0]) ||
                     (req.files['documentPhoto'] && req.files['documentPhoto'][0]) ||
-                    (req.files['document_photo'] && req.files['document_photo'][0]);
+                    (req.files['document_photo'] && req.files['document_photo'][0]) ||
+                    (req.files['imageFile'] && req.files['imageFile'][0]) ||
+                    (req.files['image'] && req.files['image'][0]) ||
+                    (req.files['image_file'] && req.files['image_file'][0]);
       if (bFile) req.file = bFile;
     }
     next();
@@ -372,15 +375,15 @@ const smsHelper = require('./lib/sms');
 const sessionHelper = require('./lib/session');
 
 if (!r2.isR2Configured()) {
-  console.warn('[Storage Warning] bill upload disabled — R2 not configured');
+  console.warn('[Storage Warning] bill upload disabled. R2 not configured');
 }
 
 if (!emailHelper.isEmailConfigured()) {
-  console.warn('email delivery disabled — mock and SendGrid both off');
+  console.warn('email delivery disabled. Mock and SendGrid both off');
 }
 
 if (!smsHelper.isSmsConfigured()) {
-  console.warn('[SMS Warning] SMS delivery disabled — mock and real both off.');
+  console.warn('[SMS Warning] SMS delivery disabled. Mock and real both off.');
 }
 
 // In-memory rate limiting and token stores
@@ -1385,13 +1388,16 @@ app.get('/api/products/:id/bill-history', async (req, res) => {
 
 // GET /api/admin/bill-photos
 app.get('/api/admin/bill-photos', async (req, res) => {
-  const { stockist_id, date_from, date_to, page = 1 } = req.query;
+  const { stockist_id, date_from, date_to, bill_status, page = 1 } = req.query;
   let billPhotos = await db.getTable('product_bill_photos');
   const products = await db.getTable('products');
   const stockists = await db.getTable('stockists');
 
   if (stockist_id) {
     billPhotos = billPhotos.filter(b => b.stockist_id === stockist_id);
+  }
+  if (bill_status) {
+    billPhotos = billPhotos.filter(b => b.bill_status === bill_status);
   }
   if (date_from) {
     const fromTime = new Date(date_from).getTime();
@@ -1476,6 +1482,13 @@ app.post('/api/admin/bill-photos/:id/verify', async (req, res) => {
   bill.bill_status = 'VERIFIED';
   await db.saveTable('product_bill_photos', billPhotos);
 
+  const products = await db.getTable('products');
+  let product = products.find(p => p.id === bill.product_id);
+  if (product && product.latest_bill_photo_id === bill.id) {
+    product.is_sellable = true;
+    await db.saveTable('products', products);
+  }
+
   const stockists = await db.getTable('stockists');
   const stockist = stockists.find(s => s.id === bill.stockist_id);
   if (stockist) {
@@ -1486,7 +1499,6 @@ app.post('/api/admin/bill-photos/:id/verify', async (req, res) => {
   const ledger = await db.getTable('points_ledger');
   const heldRows = ledger.filter(l => l.type === 'EARN_HELD' && l.billing_sync_status === 'HELD');
   const orderItems = await db.getTable('order_items');
-  const products = await db.getTable('products');
 
   for (const heldRow of heldRows) {
     const items = orderItems.filter(oi => oi.order_id === heldRow.order_id);
@@ -1528,7 +1540,7 @@ app.post('/api/admin/bill-photos/:id/verify', async (req, res) => {
     }
   }
 
-  return res.json({ success: true, bill });
+  return res.json({ success: true, bill, product });
 });
 
 // POST /api/admin/bill-photos/:id/reject
@@ -1549,7 +1561,7 @@ app.post('/api/admin/bill-photos/:id/reject', async (req, res) => {
 
   const products = await db.getTable('products');
   const product = products.find(p => p.id === bill.product_id);
-  if (product) {
+  if (product && product.latest_bill_photo_id === bill.id) {
     product.is_sellable = false;
     await db.saveTable('products', products);
   }
@@ -1607,7 +1619,7 @@ app.post('/api/admin/bill-photos/:id/reject', async (req, res) => {
     }
   }
 
-  return res.json({ success: true, bill });
+  return res.json({ success: true, bill, product });
 });
 
 // POST /api/admin/bill-photos/:id/signed-url
@@ -2919,17 +2931,19 @@ async function _creditPointsOnDelivery(order) {
   const products = await db.getTable('products');
   const billPhotos = await db.getTable('product_bill_photos');
 
-  let hasUnverifiedBill = false;
+  let hasUnverifiedBill = false; console.log('checking order', order.id);
   for (const item of items) {
     const product = products.find(p => p.id === item.product_id);
     if (product && product.latest_bill_photo_id) {
       const bill = billPhotos.find(b => b.id === product.latest_bill_photo_id);
       if (!bill || bill.bill_status === 'PENDING' || bill.bill_status === 'REJECTED') {
         hasUnverifiedBill = true;
+        console.log('hasUnverifiedBill is true because bill_status is', bill ? bill.bill_status : 'null (no bill)');
         break;
       }
     } else {
       hasUnverifiedBill = true;
+      console.log('hasUnverifiedBill is true because no latest_bill_photo_id for product', product ? product.id : 'null');
       break;
     }
   }
@@ -4881,15 +4895,22 @@ app.get('/api/admin/vendors', async (req, res) => {
       .filter(s => s.vendor_id === v.id && s.is_active !== false)
       .map(s => ({ id: s.id, name: s.name, shop_name: s.shop_name }));
     
-    const approved_stockist_ids = stockistVendors
+    const approved_stockists = stockistVendors
       .filter(sv => sv.vendor_id === v.id)
-      .map(sv => sv.stockist_id);
+      .map(sv => {
+        const s = stockists.find(st => st.id === sv.stockist_id);
+        return s ? { id: s.id, name: s.name, shop_name: s.shop_name } : null;
+      })
+      .filter(s => s !== null);
+
+    const approved_stockist_ids = approved_stockists.map(s => s.id);
 
     return { 
       ...v, 
       assigned_stockists: assigned, 
       assigned_count: assigned.length,
-      approved_stockist_ids 
+      approved_stockist_ids,
+      approved_stockists
     };
   });
 
@@ -7144,7 +7165,7 @@ app.post('/api/admin/redemption-approvals/:id/approve', async (req, res) => {
     try {
       await emailHelper.sendEmail(
         targetPartner.contact_email,
-        `New redemption ready for you — ${custName}`,
+        `New redemption ready for you: `,
         `<p>Customer ${custName} (phone: ${custPhone}) has redeemed "${pkgName}". Please verify and mark fulfilled in your partner app. Approval ID: ${approval.id}</p>`,
         `Customer ${custName} (phone: ${custPhone}) has redeemed "${pkgName}". Please verify and mark fulfilled in your partner app. Approval ID: ${approval.id}`
       );
@@ -8772,7 +8793,7 @@ const readyPromise = db.init().then(() => {
       console.log(`[Backend Server] ISP-Commerce Loyalty API listening on port ${PORT} (0.0.0.0)`);
     }).on('error', (err) => {
       if (err.code === 'EADDRINUSE') {
-        console.log(`[Backend Server] Port ${PORT} already in use — reusing active server instance.`);
+        console.log(`[Backend Server] Port ${PORT} already in use. Reusing active server instance.`);
       } else {
         console.error('Server listen error:', err);
       }

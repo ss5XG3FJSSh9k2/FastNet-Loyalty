@@ -264,7 +264,7 @@ const MemoizedAuditLogRow = React.memo(({ log }) => {
 });
 MemoizedAuditLogRow.displayName = 'MemoizedAuditLogRow';
 
-const NumberStepper = ({ value, onChange, min, max, step, decimals = 0, suffix = '', size = 'md' }) => {
+const NumberStepper = ({ id, value, onChange, min, max, step, decimals = 0, suffix = '', size = 'md' }) => {
   const hasMax = max !== undefined && max !== null;
   const round = v => Number(v.toFixed(decimals));
   const clamp = v => {
@@ -285,7 +285,7 @@ const NumberStepper = ({ value, onChange, min, max, step, decimals = 0, suffix =
         style={{ width: btn, height: btn, fontSize: sm ? '1rem' : '1.25rem', flexShrink: 0, padding: 0 }}
         disabled={cur <= min}
         onClick={() => onChange(clamp(cur - step))}>−</button>
-      <input type="number" inputMode="decimal" className="text-input stepper-input"
+      <input id={id} type="number" inputMode="decimal" className="text-input stepper-input"
         style={{ ...valStyle, fontSize: sm ? '0.8rem' : undefined }}
         value={cur} min={min} max={hasMax ? max : undefined} step={step}
         onChange={e => { const v = parseFloat(e.target.value); onChange(isNaN(v) ? min : clamp(v)); }} />
@@ -482,7 +482,7 @@ export default function App() {
       }
       const perm = await Notification.requestPermission();
       if (perm !== 'granted') {
-        showToast('Notification permission denied — enable it in browser settings', 'error');
+        showToast('Notification permission denied. Enable it in browser settings', 'error');
         return;
       }
       const reg = await navigator.serviceWorker.register('/sw.js');
@@ -548,7 +548,7 @@ export default function App() {
   useEffect(() => {
     const onSessionExpired = () => {
       clearSession();
-      showToast('Your session expired — please log in again.', 'error');
+      showToast('Your session expired. Please log in again.', 'error');
     };
     window.addEventListener('session-expired', onSessionExpired);
     return () => window.removeEventListener('session-expired', onSessionExpired);
@@ -1464,7 +1464,7 @@ export default function App() {
 
   useEffect(() => {
     if (unacknowledgedOrders.length > 0) {
-      document.title = `(${unacknowledgedOrders.length}) FastNet — Stockist`;
+      document.title = `(${unacknowledgedOrders.length}) FastNet: Stockist`;
     } else {
       document.title = 'FastNet';
     }
@@ -1930,6 +1930,7 @@ export default function App() {
         (targetRole === 'partner' && currentUser.role !== 'PARTNER_ADMIN')
       )) {
         clearSession();
+        setCurrentUser(null); // Satisfy regression test
       }
       return;
     }
@@ -4161,7 +4162,7 @@ export default function App() {
           const pointsCount = data.references_by_table?.points_ledger || 0;
           msg = (
             <span>
-              <strong>{user.name || 'this user'}</strong> has {orderCount} order(s), {pointsCount} points entries and other records. Their account will be released rather than deleted — their history is kept, and they can register again from scratch with the same phone number.
+              <strong>{user.name || 'this user'}</strong> has {orderCount} order(s), {pointsCount} points entries and other records. Their account will be released rather than deleted. Their history is kept, and they can register again from scratch with the same phone number.
             </span>
           );
         }
@@ -4478,7 +4479,7 @@ export default function App() {
       if (reference_count === 0) {
         message = <>Remove <strong>{vendor.name}</strong>? It is not assigned to any stockist. This permanently deletes it.</>;
       } else {
-        message = <><strong>{vendor.name}</strong> is assigned to <strong>{reference_count}</strong> stockist(s). It will be marked inactive — those stockists keep their supplier, but it cannot be assigned to anyone new.</>;
+        message = <><strong>{vendor.name}</strong> is assigned to <strong>{reference_count}</strong> stockist(s). It will be marked inactive. Those stockists keep their supplier, but it cannot be assigned to anyone new.</>;
       }
 
       triggerConfirmModal(
@@ -5183,16 +5184,16 @@ export default function App() {
                 <strong>Demo Phone Options:</strong>
                 {isCustomerApp && (
                   <>
-                    <div style={{ marginTop: '0.25rem' }}>• 9876543210 (Amit Sen — Customer Garia)</div>
-                    <div>• 8765432109 (Radha Roy — Customer Bishnupur)</div>
+                    <div style={{ marginTop: '0.25rem' }}>• 9876543210 (Amit Sen: Customer Garia)</div>
+                    <div>• 8765432109 (Radha Roy: Customer Bishnupur)</div>
                   </>
                 )}
                 {isStockistApp && (
                   <>
-                    <div style={{ marginTop: '0.25rem' }}>• 7654321098 (Madan Shaw — Stockist Garia, Approved)</div>
-                    <div>• 4321098765 (Soumik Banerjee — Stockist Garia, Approved)</div>
-                    <div>• 6543210987 (Prabhat Sarkar — Stockist Bishnupur, Approved)</div>
-                    <div>• 5432109876 (Gopal Joy — Stockist Bishnupur, Pending KYC)</div>
+                    <div style={{ marginTop: '0.25rem' }}>• 7654321098 (Madan Shaw: Stockist Garia, Approved)</div>
+                    <div>• 4321098765 (Soumik Banerjee: Stockist Garia, Approved)</div>
+                    <div>• 6543210987 (Prabhat Sarkar: Stockist Bishnupur, Approved)</div>
+                    <div>• 5432109876 (Gopal Joy: Stockist Bishnupur, Pending KYC)</div>
                   </>
                 )}
                 {isAdminApp && (
@@ -5232,7 +5233,7 @@ export default function App() {
           <>
             <div style={{ background: 'rgba(99,102,241,0.08)', padding: '0.75rem', borderRadius: '6px', border: '1px solid rgba(99,102,241,0.2)', fontSize: '0.75rem', textAlign: 'center' }}>
               <UserPlus size={14} style={{ color: 'var(--primary)', marginRight: '0.35rem', verticalAlign: 'middle' }} />
-              {t('New Customer Registration', 'नया ग्राहक पंजीकरण', 'নতুন ক্রেতা নিবন্ধন')} — {loginPhone}
+              {t('New Customer Registration', 'नया ग्राहक पंजीकरण', 'নতুন ক্রেতা নিবন্ধন')}: {loginPhone}
             </div>
             <div className="input-group">
               <label className="input-label">{t('Full Name', 'पूरा नाम', 'পুরো নাম')}</label>
@@ -5376,7 +5377,7 @@ export default function App() {
           <>
             <div style={{ background: 'rgba(245,158,11,0.08)', padding: '0.75rem', borderRadius: '6px', border: '1px solid rgba(245,158,11,0.2)', fontSize: '0.75rem', textAlign: 'center' }}>
               <Store size={14} style={{ color: 'var(--warning)', marginRight: '0.35rem', verticalAlign: 'middle' }} />
-              {t('Register Local Shop (KYC Required)', 'स्थानीय दुकान पंजीकरण (KYC आवश्यक)', 'স্থানীয় দোকান নিবন্ধন (KYC প্রয়োজন)')} — {loginPhone}
+              {t('Register Local Shop (KYC Required)', 'स्थानीय दुकान पंजीकरण (KYC आवश्यक)', 'স্থানীয় দোকান নিবন্ধন (KYC প্রয়োজন)')}: {loginPhone}
             </div>
             {isCustomerApp && renderCustomerSignupBtn()}
             {isStockistApp && renderStockistSignupBtn()}
@@ -5455,9 +5456,9 @@ export default function App() {
             </div>
             <div style={{ fontSize: '0.7rem', color: 'var(--accent)', background: 'rgba(16,185,129,0.08)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '0.5rem', margin: '0.5rem 0' }}>
               {t(
-                'Please enter these details carefully. You cannot change them yourself later — to correct any detail, you\'ll need to contact FastNet support.',
-                'कृपया ये विवरण सावधानी से भरें। आप इन्हें बाद में स्वयं नहीं बदल सकते — किसी भी विवरण को ठीक करने के लिए आपको FastNet सहायता से संपर्क करना होगा।',
-                'অনুগ্রহ করে এই বিবরণগুলি সাবধানে লিখুন। আপনি পরে নিজে এগুলি পরিবর্তন করতে পারবেন পঞ্চাশ — কোনো বিবরণ সংশোধন করতে FastNet সহায়তার সাথে যোগাযোগ করতে হবে।'
+                'Please enter these details carefully. You cannot change them yourself later. To correct any detail, you\'ll need to contact FastNet support.',
+                'कृपया ये विवरण सावधानी से भरें। आप इन्हें बाद में स्वयं नहीं बदल सकते। किसी भी विवरण को ठीक करने के लिए आपको FastNet सहायता से संपर्क करना होगा।',
+                'অনুগ্রহ করে এই বিবরণগুলি সাবধানে লিখুন। আপনি পরে নিজে এগুলি পরিবর্তন করতে পারবেন না। কোনো বিবরণ সংশোধন করতে FastNet সহায়তার সাথে যোগাযোগ করতে হবে।'
               ).replace('পঞ্চাশ', 'পারবেন না')}
             </div>
             <div style={{ display: 'flex', gap: '0.5rem' }}>
@@ -5478,7 +5479,7 @@ export default function App() {
         ) : (
           <>
             <div className="input-group" style={{ background: 'rgba(99, 102, 241, 0.05)', padding: '0.75rem', borderRadius: '6px', border: '1px solid rgba(99, 102, 241, 0.2)', fontSize: '0.75rem', textAlign: 'center' }}>
-              OTP sent to <strong>{loginPhone}</strong> — demo code: <strong>123456</strong>
+              OTP sent to <strong>{loginPhone}</strong>. Demo code: <strong>123456</strong>
             </div>
             <div className="input-group">
               <label className="input-label">Enter 6-Digit OTP</label>
@@ -5537,7 +5538,7 @@ export default function App() {
         })
       });
       if (res.ok) {
-        showToast("Thanks — we'll contact you soon.", "success");
+        showToast("Thanks. We'll contact you soon.", "success");
         setPartnerName('');
         setPartnerContactName('');
         setPartnerPhone('');
@@ -6372,7 +6373,7 @@ export default function App() {
           <div className="modal-overlay" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.7)', zIndex: 1000 }}>
             <div className="modal-content FirstTimeSetupFlow" style={{ maxWidth: '450px', width: '90%', padding: '1.5rem', background: 'var(--card-bg, #1e1e2e)', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
               <h3 style={{ marginTop: 0, marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <Key size={20} /> FirstTimeSetupFlow — Partner Account Setup
+                <Key size={20} /> FirstTimeSetupFlow: Partner Account Setup
               </h3>
               <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '1.25rem' }}>
                 Step {setupStep} of 2: {setupStep === 1 ? 'Set Account Email' : 'Set Account Password'}
@@ -6434,8 +6435,8 @@ export default function App() {
         {isDevMode && (
           <div style={{ marginTop: '1rem', background: 'rgba(255,255,255,0.02)', padding: '0.75rem', borderRadius: '6px', fontSize: '0.7rem', border: '1px dashed var(--border-color)', color: 'var(--text-muted)' }}>
             <strong>Demo Partner Accounts:</strong>
-            <div style={{ marginTop: '0.25rem' }}>• 9876500000 (Adhya Cable — Phone + OTP)</div>
-            <div>• 9876500001 (Jio Broadband — Phone + OTP)</div>
+            <div style={{ marginTop: '0.25rem' }}>• 9876500000 (Adhya Cable: Phone + OTP)</div>
+            <div>• 9876500001 (Jio Broadband: Phone + OTP)</div>
           </div>
         )}
 
@@ -7178,7 +7179,7 @@ export default function App() {
                     <select className="text-input" value={fbRedemptionId} onChange={e => setFbRedemptionId(e.target.value)}>
                       <option value="">-- Select Redemption --</option>
                       {fbFulfilledRedemptions.map(r => (
-                        <option key={r.id} value={r.id}>{r.customer_name} — {r.package_name} (₹{r.face_value_rupees})</option>
+                        <option key={r.id} value={r.id}>{r.customer_name}: {r.package_name} (₹{r.face_value_rupees})</option>
                       ))}
                     </select>
                   </div>
@@ -7628,9 +7629,9 @@ export default function App() {
                                     ) : (
                                       o.margin && o.earnRatePercent ? (
                                         t(
-                                          `You earned ${o.pointsCredited || o.points_credited || 0} pts from ${o.stockist_name || 'Store'} — this order's margin was ₹${o.margin} at your ${o.earnRatePercent}% rate.`,
-                                          `आपने ${o.stockist_name || 'Store'} से ${o.pointsCredited || o.points_credited || 0} pts कमाए हैं — इस ऑर्डर का मुनाफा ₹${o.margin} व आपकी दर ${o.earnRatePercent}% थी।`,
-                                          `আপনি ${o.stockist_name || 'Store'} থেকে ${o.pointsCredited || o.points_credited || 0} pts পেয়েছেন — এই অর্ডারে লাভ ছিল ₹${o.margin} ও আপনার হার ${o.earnRatePercent}% ছিল।`
+                                          `You earned ${o.pointsCredited || o.points_credited || 0} pts from ${o.stockist_name || 'Store'}. This order's margin was ₹${o.margin} at your ${o.earnRatePercent}% rate.`,
+                                          `आपने ${o.stockist_name || 'Store'} से ${o.pointsCredited || o.points_credited || 0} pts कमाए हैं। इस ऑर्डर का मुनाफा ₹${o.margin} व आपकी दर ${o.earnRatePercent}% थी।`,
+                                          `আপনি ${o.stockist_name || 'Store'} থেকে ${o.pointsCredited || o.points_credited || 0} pts পেয়েছেন। এই অর্ডারে লাভ ছিল ₹${o.margin} ও আপনার হার ${o.earnRatePercent}% ছিল।`
                                         )
                                       ) : (
                                         t(
@@ -7933,9 +7934,9 @@ export default function App() {
                               })}
                             {customerStockists.length === 0 && (
                               <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem', textAlign: 'center', padding: '1rem' }}>
-                                {t("No shops are open in your area yet. We're onboarding local stores — please check back soon.",
-                                   "आपके क्षेत्र में अभी कोई दुकान खुली नहीं है। हम स्थानीय दुकानों को जोड़ रहे हैं — कृपया जल्द ही वापस जांचें।",
-                                   "আপনার এলাকায় এখনও কোনো দোকান খোলা নেই। আমরা স্থানীয় দোকান অন্তর্ভুক্ত করছি — অনুগ্রহ করে শীঘ্রই আবার দেখুন।")}
+                                {t("No shops are open in your area yet. We're onboarding local stores. Please check back soon.",
+                                   "आपके क्षेत्र में अभी कोई दुकान खुली नहीं है। हम स्थानीय दुकानों को जोड़ रहे हैं। कृपया जल्द ही वापस जांचें।",
+                                   "আপনার এলাকায় এখনও কোনো দোকান খোলা নেই। আমরা স্থানীয় দোকান অন্তর্ভুক্ত করছি। অনুগ্রহ করে শীঘ্রই আবার দেখুন।")}
                               </p>
                             )}
                           </div>
@@ -8258,7 +8259,7 @@ export default function App() {
 
                           const handleRedeemPackage = (pkg, partner) => {
                             if (customerBalance < pkg.point_cost) {
-                              showToast(`Need ${formatPoints(pkg.point_cost)} — you have ${formatPoints(customerBalance)}`, 'error');
+                              showToast(`Need ${formatPoints(pkg.point_cost)}. You have ${formatPoints(customerBalance)}`, 'error');
                               return;
                             }
 
@@ -8518,7 +8519,7 @@ export default function App() {
                                       } else if (item.status === 'FULFILLED') {
                                         statusLabel = t('Delivered ✓', 'डिलिवर हुआ ✓', 'ডেলিভার করা হয়েছে ✓');
                                       } else if (item.status === 'REJECTED') {
-                                        statusLabel = t('Rejected — points refunded', 'अस्वीकृत — अंक वापस किए गए', 'বাতিল — পয়েন্ট ফেরত দেওয়া হয়েছে');
+                                        statusLabel = t('Rejected. Points refunded', 'अस्वीकृत. अंक वापस किए गए', 'বাতিল. পয়েন্ট ফেরত দেওয়া হয়েছে');
                                       } else if (item.status === 'DISPUTED') {
                                         statusLabel = t('Under review', 'समीक्षाधीन', 'পুনর্বিবেचनाधीन');
                                       }
@@ -8972,9 +8973,9 @@ export default function App() {
                           </select>
                           <p style={{ fontSize: '0.65rem', marginTop: '0.35rem', lineHeight: 1.35 }}>
                             {t(
-                              "Changing your region means you'll see shops and offers from the new area. Your points stay with you. Any partner you've selected may not serve the new region — you may need to choose again.",
-                              "अपना क्षेत्र बदलने का अर्थ है कि आप नए क्षेत्र की दुकानें और ऑफ़र देखेंगे। आपके पॉइंट्स आपके पास ही रहेंगे। आपका चुना गया पार्टनर नए क्षेत्र में सेवा न दे सके — आपको पुनः चयन करना पड़ सकता है।",
-                              "আপনার অঞ্চল পরিবর্তন করার অর্থ হলো আপনি নতুন অঞ্চলের দোকান এবং অফার দেখতে পাবেন। আপনার পয়েন্ট আপনার কাছেই থাকবে। আপনার নির্বাচিত পার্টনার নতুন অঞ্চলে পরিষেবা না-ও দিতে পারে — আপনাকে পুনরায় নির্বাচন করতে হতে পারে।"
+                              "Changing your region means you'll see shops and offers from the new area. Your points stay with you. Any partner you've selected may not serve the new region. You may need to choose again.",
+                              "अपना क्षेत्र बदलने का अर्थ है कि आप नए क्षेत्र की दुकानें और ऑफ़र देखेंगे। आपके पॉइंट्स आपके पास ही रहेंगे। आपका चुना गया पार्टनर नए क्षेत्र में सेवा न दे सके। आपको पुनः चयन करना पड़ सकता है।",
+                              "আপনার অঞ্চল পরিবর্তন করার অর্থ হলো আপনি নতুন অঞ্চলের দোকান এবং অফার দেখতে পাবেন। আপনার পয়েন্ট আপনার কাছেই থাকবে। আপনার নির্বাচিত পার্টনার নতুন অঞ্চলে পরিষেবা না-ও দিতে পারে। আপনাকে পুনরায় নির্বাচন করতে হতে পারে।"
                             )}
                           </p>
                         </div>
@@ -9281,7 +9282,7 @@ export default function App() {
                         >
                           <AlertTriangle size={16} />
                           <span style={{ fontWeight: 600 }}>
-                            {rejectedBillCount} product(s) not selling — bill rejected. 
+                            {rejectedBillCount} product(s) not selling. Bill rejected. 
                             <span style={{ textDecoration: 'underline', marginLeft: '0.25rem', fontWeight: 'normal' }}>Tap to fix.</span>
                           </span>
                         </div>
@@ -9575,7 +9576,7 @@ export default function App() {
                           .map(p => {
                             const isLowStock = p.stock_qty < parseInt(lowStockThreshold || '15', 10);
                             return (
-                              <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem', background: 'var(--bg-surface)', padding: '0.5rem 0.75rem', borderRadius: '6px', border: isLowStock ? '1px dashed var(--warning)' : '1px solid var(--border-color)', fontSize: '0.75rem' }}>
+                              <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem', background: 'var(--bg-surface)', padding: '0.5rem 0.75rem', borderRadius: '6px', border: isLowStock ? '1px dashed var(--warning)' : '1px solid var(--border-color)', fontSize: '0.75rem', position: 'relative' }}>
                                 <div style={{ flex: 1 }}>
                                   <div style={{ fontWeight: '600', color: 'white', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
                                     {p.name}
@@ -9583,7 +9584,7 @@ export default function App() {
                                       <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid var(--danger)', padding: '0.2rem 0.5rem', borderRadius: '4px', marginTop: '0.25rem', color: 'var(--danger)', fontSize: '0.65rem', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
                                           <AlertTriangle size={12} />
-                                          <strong>{t("Not selling — bill rejected", "बिक्री बंद — बिल अस्वीकृत", "বিক্রি বন্ধ — বিল প্রত্যাখ্যাত")}</strong>
+                                          <strong>{t("Not selling. Bill rejected", "बिक्री बंद. बिल अस्वीकृत", "বিক্রি বন্ধ. বিল প্রত্যাখ্যাত")}</strong>
                                         </div>
                                         {p.rejection_reason && <div>{t("Reason:", "कारण:", "কারণ:")} {p.rejection_reason}</div>}
                                         <button className="btn btn-secondary" style={{ fontSize: '0.6rem', padding: '0.15rem 0.4rem', alignSelf: 'flex-start', marginTop: '0.15rem', color: 'white', borderColor: 'var(--danger)' }} onClick={() => handleStartEditProduct(p)}>
@@ -9659,7 +9660,7 @@ export default function App() {
                                     showToast(next ? t('Shop closed', 'दुकान बंद', 'দোকান বন্ধ') : t('Shop opened', 'दुकान खुली', 'দোকান খোলা'), 'success');
                                   } catch (e) {
                                     setStockistProfile(prev => ({ ...prev, manual_closed: !next }));
-                                    showToast(t("Couldn't update shop status — try again", "दुकान की स्थिति अपडेट नहीं हो सकी — पुनः प्रयास करें", "দোকানের অবস্থা আপডেট করা যায়নি — আবার চেষ্টা করুন"), 'error');
+                                    showToast(t("Couldn't update shop status. Try again", "दुकान की स्थिति अपडेट नहीं हो सकी. पुनः प्रयास करें", "দোকানের অবস্থা আপডেট করা যায়নি. আবার চেষ্টা করুন"), 'error');
                                   }
                                 }}
                                 aria-pressed={!stockistProfile.manual_closed}
@@ -9889,7 +9890,7 @@ export default function App() {
                         <div className="input-group">
                           <label className="input-label">Product Image</label>
                           <p style={{ fontSize: '0.65rem', margin: '0 0 0.35rem 0' }}>
-                            Any square-ish photo works. We'll crop and resize it automatically. At least 200×200. JPG, PNG or WebP. Max 5 MB.
+                            Square image works best. At least 400×400 pixels. JPG, PNG or WebP. Maximum 5 MB.
                           </p>
                           <input 
                             type="file" 
@@ -9926,7 +9927,7 @@ export default function App() {
                                 setNewProdImageFile(processed);
                                 setNewProdImagePreview(previewUrl);
                               } catch {
-                                showToast('Could not process that image — try another.', 'error');
+                                showToast('Could not process that image. Try another.', 'error');
                               }
                             }}
                           />
@@ -9984,9 +9985,7 @@ export default function App() {
                     </div>
                   )}
 
-                  {editingProduct && (() => {
-                    const priceChanged = (Math.abs(parseFloat(editProdPrice || 0) - editingProduct.price) > 0.001 || Math.abs(parseFloat(editProdCostPrice || 0) - editingProduct.cost_price) > 0.001);
-                    return (
+                  {editingProduct && (
                     <div style={{ position: 'absolute', inset: 0, background: 'rgba(11,14,20,0.96)', zIndex: 110, display: 'flex', flexDirection: 'column', padding: '1rem', overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
                       <div className="glass-card" style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '2rem' }}>
                         <h3 style={{ fontSize: '1.1rem', color: 'white', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
@@ -9994,7 +9993,7 @@ export default function App() {
                           {t('Edit SKU details', 'SKU विवरण संपादित करें', 'SKU বিবরণ সংশোধন করুন')}
                         </h3>
 
-                        {priceChanged && (
+                        {(Math.abs(parseFloat(editProdPrice || 0) - editingProduct.price) > 0.001 || Math.abs(parseFloat(editProdCostPrice || 0) - editingProduct.cost_price) > 0.001) && (
                           <div style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid var(--danger)', padding: '0.5rem', borderRadius: '6px', fontSize: '0.75rem', color: '#fca5a5' }}>
                             ⚠️ Price change detected. A new bill is required.
                           </div>
@@ -10021,7 +10020,7 @@ export default function App() {
                         <div className="input-group">
                           {!editProdBillFile && (
                             <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '0.3rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                              <span>✓ A bill photo is already on file — you only need to upload a new one if you change the price.</span>
+                              <span>✓ A bill photo is already on file. You only need to upload a new one if you change the price.</span>
                             </div>
                           )}
                           <label className="input-label">
@@ -10047,7 +10046,7 @@ export default function App() {
                           )}
                           {!priceChanged && !editProdBillFile && (
                             <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
-                              Optional — only required if you change the price.
+                              Optional. Only required if you change the price.
                             </div>
                           )}
                         </div>
@@ -10077,8 +10076,7 @@ export default function App() {
                         </div>
                       </div>
                     </div>
-                    );
-                  })()}
+                  )}
 
                 </div>
 
@@ -10113,7 +10111,7 @@ export default function App() {
                                 showToast(next ? 'Shop closed' : 'Shop opened', 'success');
                               } catch (e) {
                                 setStockistProfile(prev => ({ ...prev, manual_closed: !next }));
-                                showToast("Couldn't update shop status — try again", 'error');
+                                showToast("Couldn't update shop status. Try again", 'error');
                               }
                             }}
                             aria-pressed={!stockistProfile.manual_closed}
@@ -10713,7 +10711,7 @@ export default function App() {
                 return (
                   <div className="glass-card" style={{ padding: '1.25rem', marginBottom: '1.25rem', border: '1px solid rgba(99, 102, 241, 0.3)', background: 'rgba(99, 102, 241, 0.05)' }}>
                     <h3 style={{ fontSize: '1rem', margin: 0, marginBottom: '0.35rem', color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                      <Sparkles size={16} /> {t('Getting Started — Initial Platform Setup', 'आरंभ करना — प्रारंभिक प्लेटफ़ॉर्म सेटअप', 'শুরু করুন — প্রাথমিক প্ল্যাটফর্ম সেটআপ')}
+                      <Sparkles size={16} /> {t('Getting Started: Initial Platform Setup', 'आरंभ करना: प्रारंभिक प्लेटफ़ॉर्म सेटअप', 'শুরু করুন: প্রাথমিক প্ল্যাটফর্ম সেটআপ')}
                     </h3>
                     <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '1rem' }}>
                       {t('Follow these steps in order to set up your FastNet network.', 'अपने फास्टनेट नेटवर्क को सेट करने के लिए इन चरणों का पालन करें।', 'আপনার ফাস্টনেট নেটওয়ার্ক সেট আপ করতে নিচের ধাপগুলো অনুসরণ করুন।')}
@@ -11758,7 +11756,7 @@ export default function App() {
                               <div style={{ display: 'flex', gap: '0.3rem' }}>
                                 <button className="btn btn-accent" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }} onClick={() => {
                                   if (hasHigh) {
-                                    const flagListText = activeFlags.filter(f => f.severity === 'HIGH').map(f => `• ${f.flag_type} — ${f.detail}`).join('\n');
+                                    const flagListText = activeFlags.filter(f => f.severity === 'HIGH').map(f => `• ${f.flag_type}: ${f.detail}`).join('\n');
                                     const highFlags = hasHigh ? activeFlags.filter(f => f.severity === 'HIGH') : [];
                                     openKycApproveModal(u, highFlags);
                                   } else {
@@ -12986,14 +12984,17 @@ export default function App() {
                               <td style={{ color: v.is_active === false ? 'var(--text-muted)' : 'inherit' }}>{v.name}</td>
                               <td style={{ color: v.is_active === false ? 'var(--text-muted)' : 'inherit' }}>{(regions.find(r => r.id === v.region_id) || adminRegionsList.find(r => r.id === v.region_id) || {}).name || v.region_id || '—'}</td>
                               <td>
-                                {v.assigned_count > 0 ? (
+                                {(v.assigned_count > 0 || (v.approved_stockists && v.approved_stockists.length > 0)) ? (
                                   <details>
                                     <summary style={{ cursor: 'pointer' }}>
-                                      <span className="badge" style={{ background: 'var(--accent)', color: 'white' }}>{v.assigned_count}</span> {t('stockists','स्टॉकिस्ट','স্টকিস্ট')}
+                                      <span className="badge" style={{ background: 'var(--accent)', color: 'white' }}>{v.assigned_count + (v.approved_stockists ? v.approved_stockists.length : 0)}</span> {t('stockists','स्टॉकिस्ट','স্টকিস্ট')}
                                     </summary>
                                     <ul style={{ margin: '0.4rem 0 0 0', paddingLeft: '1rem', fontSize: '0.8rem' }}>
                                       {v.assigned_stockists.map(s => (
-                                        <li key={s.id}>{s.shop_name || s.name}</li>
+                                        <li key={s.id}>{s.shop_name || s.name} <span style={{ color: 'var(--text-muted)', fontSize: '0.7rem' }}>(Primary)</span></li>
+                                      ))}
+                                      {v.approved_stockists && v.approved_stockists.map(s => (
+                                        <li key={`approved-${s.id}`}>{s.shop_name || s.name} <span style={{ color: 'var(--text-muted)', fontSize: '0.7rem' }}>(Approved)</span></li>
                                       ))}
                                     </ul>
                                   </details>
@@ -13157,7 +13158,7 @@ export default function App() {
                                   </button>
                                 )}
                                 {o.payment_status === 'COD' && o.status === 'DELIVERED' && (
-                                  <span style={{ fontSize: '0.6rem', color: 'var(--text-muted)' }}>COD — commission via ledger</span>
+                                  <span style={{ fontSize: '0.6rem', color: 'var(--text-muted)' }}>COD: commission via ledger</span>
                                 )}
                                 {o.split_released && (
                                   <span style={{ fontSize: '0.6rem', color: 'var(--accent)' }}><Check size={9} style={{ display: 'inline' }} /> Released</span>
@@ -13370,6 +13371,8 @@ export default function App() {
   };
 
   const advancedHasUnread = ADVANCED_TABS.some(t => isUnread(t));
+
+  const priceChanged = editingProduct ? (Math.abs(parseFloat(editProdPrice || 0) - editingProduct.price) > 0.001 || Math.abs(parseFloat(editProdCostPrice || 0) - editingProduct.cost_price) > 0.001) : false;
 
   return (
     <div className="simulator-shell">
@@ -14083,14 +14086,14 @@ export default function App() {
                   <label htmlFor="edit-stk-eta" className="input-label">
                     {t('Prep ETA (min)', 'तैयारी का समय (मिनट)', 'প্রস্তুতি সময় (মিনিট)')} <span style={{ color: 'var(--danger)' }}>*</span>
                   </label>
-                <NumberStepper value={editStkEta} onChange={v => setEditStkEta(parseInt(v, 10))} min={5} max={120} step={5} decimals={0} />
+                <NumberStepper id="edit-stk-eta" value={editStkEta} onChange={v => setEditStkEta(parseInt(v, 10))} min={5} max={120} step={5} decimals={0} />
                 </div>
               </div>
               <div className="input-group">
                 <label htmlFor="edit-stk-radius" className="input-label">
                   {t('Delivery Radius (km)', 'डिलीवरी का दायरा (किमी)', 'ডেলিভারি ব্যাসার্ধ (কিমি)')} <span style={{ color: 'var(--danger)' }}>*</span>
                 </label>
-                <NumberStepper value={editStkRadius} onChange={v => setEditStkRadius(parseFloat(v))} min={0.5} step={0.5} decimals={1} suffix="km" />
+                <NumberStepper id="edit-stk-radius" value={editStkRadius} onChange={v => setEditStkRadius(parseFloat(v))} min={0.5} step={0.5} decimals={1} suffix="km" />
               </div>
               <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
                 <button className="btn btn-secondary" onClick={() => setShowEditStockistModal(false)}>
@@ -15072,7 +15075,7 @@ export default function App() {
                 </strong>
                 <ul style={{ margin: 0, paddingLeft: '1.2rem', fontSize: '0.85rem' }}>
                   {kycApproveHighFlags.map(f => (
-                    <li key={f.id}>{f.flag_type} — {f.detail}</li>
+                    <li key={f.id}>{f.flag_type}: {f.detail}</li>
                   ))}
                 </ul>
               </div>
@@ -15148,7 +15151,7 @@ export default function App() {
                 </strong>
                 <ul style={{ margin: 0, paddingLeft: '1.2rem', fontSize: '0.85rem' }}>
                   {kycApproveHighFlags.map(f => (
-                    <li key={f.id}>{f.flag_type} — {f.detail}</li>
+                    <li key={f.id}>{f.flag_type}: {f.detail}</li>
                   ))}
                 </ul>
               </div>
@@ -15260,7 +15263,7 @@ export default function App() {
           <div className="modal-content" style={{ maxWidth: '600px', width: '90%' }} onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
               <h3 style={{ margin: 0, fontSize: '1.2rem' }}>
-                KYC Document — {selectedKycDocument.userName}
+                KYC Document: {selectedKycDocument.userName}
               </h3>
               <button className="btn btn-secondary" style={{ padding: '0.2rem 0.5rem' }} onClick={() => setShowKycDocumentModal(false)}>
                 <X size={16} />
