@@ -689,6 +689,7 @@ export default function App() {
   const [simulatedWaMessage, setSimulatedWaMessage] = useState(null);
   const [customerLedger, setCustomerLedger] = useState([]);
   const [customerBalance, setCustomerBalance] = useState(0);
+  const [customerHeldBalance, setCustomerHeldBalance] = useState(0);
   const [customerOrders, setCustomerOrders] = useState([]);
   const [customerAppTab, setCustomerAppTab] = useState('store'); // store, ledger, orders
   const [redeemAmount, setRedeemAmount] = useState('');
@@ -1860,6 +1861,7 @@ export default function App() {
           const bRes = await fetch(`${API_BASE}/ledger/balance/${data.user.id}`);
           const bData = await bRes.json().catch(() => ({}));
           setCustomerBalance(bData.balance);
+          setCustomerHeldBalance(bData.held_balance || 0);
           
           const redeemValue = bData.balance > 0 ? bData.balance : 45.00;
           setRedeemAmount(redeemValue.toString());
@@ -2948,6 +2950,7 @@ export default function App() {
       const bRes = await fetch(`${API_BASE}/ledger/balance/${currentUser.id}`);
       const bData = await bRes.json().catch(() => ({}));
       setCustomerBalance(bData.balance);
+      setCustomerHeldBalance(bData.held_balance || 0);
 
       // 3. Load ledger history
       const lRes = await fetch(`${API_BASE}/ledger/history/${currentUser.id}`);
@@ -8591,7 +8594,12 @@ export default function App() {
                           {t('ACCUMULATED LOYALTY POINTS', 'संचित लॉयल्टी पॉइंट्स', 'সঞ্চিত লয়্যালটি পয়েন্ট')}
                         </span>
                         <h1 style={{ fontSize: '1.75rem', margin: '0.25rem 0', color: 'white', fontWeight: 'bold' }}>{formatPoints(customerBalance)}</h1>
-                        <p style={{ fontSize: '0.6rem', color: 'var(--text-muted)', margin: 0 }}>
+                        {customerHeldBalance > 0 && (
+                          <p style={{ fontSize: '0.65rem', color: 'var(--warning)', margin: '0.25rem 0 0' }}>
+                            {formatPoints(customerHeldBalance)} {t('pending bill verification', 'बिल सत्यापन लंबित', 'বিল যাচাই মুলতুবি')}
+                          </p>
+                        )}
+                        <p style={{ fontSize: '0.6rem', color: 'var(--text-muted)', margin: '0.25rem 0 0' }}>
                           {t('Closed-loop points redeemable in the Rewards tab.', 'पुरस्कार टैब में रिडीम करने योग्य पॉइंट्स।', 'রিওয়ার্ডस ট্যাবে রিডিম করার যোগ্য পয়েন্ট।')}
                         </p>
                       </div>
@@ -8610,6 +8618,13 @@ export default function App() {
                           {t('Report a problem', 'समस्या रिपोर्ट करें', 'সমস্যা रिपोर्ट करें')}
                         </button>
                       </div>
+                      {customerHeldBalance > 0 && (
+                        <p style={{ fontSize: '0.6rem', color: 'var(--text-muted)' }}>
+                          {t('Points are added to your balance once the store\'s bill is verified.',
+                             'स्टोर का बिल सत्यापित होने के बाद पॉइंट्स आपके बैलेंस में जुड़ जाते हैं।',
+                             'দোকানের বিল যাচাই হওয়ার পরে পয়েন্ট আপনার ব্যালেন্সে যোগ হয়।')}
+                        </p>
+                      )}
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                         {customerLedger.map(l => (
                           <div key={l.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.45rem 0', borderBottom: '1px dashed rgba(255,255,255,0.05)', fontSize: '0.7rem' }}>
@@ -8617,8 +8632,11 @@ export default function App() {
                               <div style={{ fontWeight: '600', color: 'white' }}>{l.description}</div>
                               <div style={{ color: 'var(--text-muted)', fontSize: '0.6rem' }}>{new Date(l.created_at).toLocaleDateString()}</div>
                             </div>
-                            <div style={{ fontWeight: 'bold', color: l.type === 'EARN' ? 'var(--accent)' : 'var(--danger)', fontSize: '0.8rem' }}>
+                            <div style={{ fontWeight: 'bold', color: l.type === 'EARN_HELD' ? 'var(--warning)' : (l.type === 'EARN' ? 'var(--accent)' : 'var(--danger)'), fontSize: '0.8rem', textAlign: 'right' }}>
                               {l.amount > 0 ? '+' : ''}{formatPoints(l.amount)}
+                              {l.type === 'EARN_HELD' && (
+                                <div style={{ fontSize: '0.55rem', color: 'var(--warning)', fontWeight: 'normal' }}>{t('pending', 'लंबित', 'মুলতুবি')}</div>
+                              )}
                             </div>
                           </div>
                         ))}
