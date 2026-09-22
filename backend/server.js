@@ -2213,6 +2213,14 @@ async function processOrderCancellation(order, cancelledBy = 'system') {
   order.cancelled_by = cancelledBy;
   order.cancelled_at = new Date().toISOString();
   order.status = 'CANCELLED';
+
+  // Remove any COD commission accrued for this order (it never completed)
+  const codLedger = await db.getTable('cod_commission_ledger');
+  const filtered = codLedger.filter(e => e.order_id !== order.id);
+  if (filtered.length !== codLedger.length) {
+    await db.saveTable('cod_commission_ledger', filtered);
+  }
+
   await reverseOrderPoints(order.id);
 
   if (order.payment_status === 'HELD') {
@@ -2606,21 +2614,6 @@ const handleCreateOrderRoute = async (req, res) => {
       platform_share: platformPayout
     });
 
-    // COD commission accrual
-    if (paymentStatus === 'COD') {
-      const codLedger = await db.getTable('cod_commission_ledger');
-      codLedger.push({
-        id: 'cod-' + generateId(),
-        stockist_id: stockistId,
-        order_id: orderId,
-        amount_owed: platformCommission,
-        settled: false,
-        created_at: now.toISOString()
-      });
-      await db.saveTable('cod_commission_ledger', codLedger);
-      appendPaymentEvent(orderId, 'COD_COMMISSION_ACCRUED', platformCommission, { stockist_id: stockistId });
-    }
-
     // Fraud detection
     await runFraudDetection(order, customer);
 
@@ -2792,6 +2785,27 @@ app.post('/api/orders/:id/verify-pickup', async (req, res) => {
   // §REGULATORY: Points credited only on delivery confirmation
   await _creditPointsOnDelivery(order);
   await _processReferralBonusOnDelivery(order);
+
+  // COD commission accrues ONLY on delivery, for COD orders
+  if (order.payment_method?.includes('COD') || order.payment_status === 'COD') {
+    const codLedger = await db.getTable('cod_commission_ledger');
+    // guard against double-accrual
+    const already = codLedger.some(e => e.order_id === order.id);
+    if (!already) {
+      const payout = (await db.getTable('split_payouts')).find(sp => sp.order_id === order.id);
+      const platformCommission = payout ? parseFloat(payout.platform_amount) : 0;
+      codLedger.push({
+        id: 'cod-' + generateId(),
+        stockist_id: order.stockist_id,
+        order_id: order.id,
+        amount_owed: platformCommission,
+        settled: false,
+        created_at: new Date().toISOString()
+      });
+      await db.saveTable('cod_commission_ledger', codLedger);
+      appendPaymentEvent(order.id, 'COD_COMMISSION_ACCRUED', platformCommission, { stockist_id: order.stockist_id });
+    }
+  }
 
   const splitPayouts = await db.getTable('split_payouts');
   const payout = splitPayouts.find(sp => sp.order_id === id);
@@ -3110,6 +3124,27 @@ app.patch('/api/orders/:id/status', async (req, res) => {
     }
     await _creditPointsOnDelivery(order);
     await _processReferralBonusOnDelivery(order);
+
+    // COD commission accrues ONLY on delivery, for COD orders
+    if (order.payment_method?.includes('COD') || order.payment_status === 'COD') {
+      const codLedger = await db.getTable('cod_commission_ledger');
+      // guard against double-accrual
+      const already = codLedger.some(e => e.order_id === order.id);
+      if (!already) {
+        const payout = (await db.getTable('split_payouts')).find(sp => sp.order_id === order.id);
+        const platformCommission = payout ? parseFloat(payout.platform_amount) : 0;
+        codLedger.push({
+          id: 'cod-' + generateId(),
+          stockist_id: order.stockist_id,
+          order_id: order.id,
+          amount_owed: platformCommission,
+          settled: false,
+          created_at: new Date().toISOString()
+        });
+        await db.saveTable('cod_commission_ledger', codLedger);
+        appendPaymentEvent(order.id, 'COD_COMMISSION_ACCRUED', platformCommission, { stockist_id: order.stockist_id });
+      }
+    }
 
     // Release split if HELD
     if (order.payment_status === 'HELD' && !order.split_released) {

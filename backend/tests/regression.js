@@ -490,16 +490,23 @@ async function main() {
   const codOrder = await post('http://localhost:3001/api/orders', {
     customerId: 'u-cust1',
     stockistId: 's1',
-    fulfillmentType: 'DELIVERY',
+    fulfillmentType: 'PICKUP',
+    pickupSlot: 'Morning (8AM–12PM)',
     paymentMethod: 'COD',
     items: [{ productId: 'p1', quantity: 1 }]
   });
   assert(codOrder.status === 200, 'COD order created successfully');
   assert(codOrder.body.order.payment_status === 'COD', 'COD payment status is COD');
   
-  const codLedger = await dbModule.getTable('cod_commission_ledger');
-  const codEntry = codLedger.find(e => e.order_id === codOrder.body.orderId);
-  assert(codEntry !== undefined, 'COD commission entry added to ledger');
+  let codLedger = await dbModule.getTable('cod_commission_ledger');
+  let codEntry = codLedger.find(e => e.order_id === codOrder.body.orderId);
+  assert(codEntry === undefined, 'COD commission entry NOT added at creation');
+
+  // Verify COD commission accrues on delivery
+  await patch(`http://localhost:3001/api/orders/${codOrder.body.orderId}/status`, { status: 'DELIVERED' });
+  codLedger = await dbModule.getTable('cod_commission_ledger');
+  codEntry = codLedger.find(e => e.order_id === codOrder.body.orderId);
+  assert(codEntry !== undefined, 'COD commission entry added to ledger on delivery');
 
   // 18. Fraud Flag Dismissals
   console.log('\n--- 18. Fraud Flag Dismissals ---');
