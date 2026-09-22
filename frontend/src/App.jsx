@@ -1420,7 +1420,7 @@ export default function App() {
 
 
   const [unacknowledgedOrders, setUnacknowledgedOrders] = useState([]);
-  const knownOrderIds = useRef(new Set());
+  const alertedOrderIds = useRef(new Set());
   const isFirstOrderLoad = useRef(true);
 
   const playChime = () => {
@@ -1481,25 +1481,31 @@ export default function App() {
         const oRes = await fetch(`${API_BASE}/orders?stockistId=${stockistProfile.id}`);
         if (!oRes.ok) return;
         const oData = await oRes.json();
-        
+        setStockistOrders(oData);
+
+        // Only orders that are actionable count as "new" for the bell.
+        // An order is newly-actionable when it is PENDING and we haven't already alerted on it.
+        const actionable = oData.filter(o => o.status === 'PENDING');
+
         if (isFirstOrderLoad.current) {
-          oData.forEach(o => knownOrderIds.current.add(o.id));
+          // On first load, remember which are ALREADY pending so we don't alert for pre-existing ones
+          actionable.forEach(o => alertedOrderIds.current.add(o.id));
           isFirstOrderLoad.current = false;
-          // Ensure we don't overwrite if they are actively fetching
           return;
         }
-        
-        const incoming = oData.filter(o => !knownOrderIds.current.has(o.id));
-        if (incoming.length > 0) {
-          incoming.forEach(o => knownOrderIds.current.add(o.id));
-          setUnacknowledgedOrders(prev => [...prev, ...incoming]);
+
+        const newlyActionable = actionable.filter(o => !alertedOrderIds.current.has(o.id));
+        if (newlyActionable.length > 0) {
+          newlyActionable.forEach(o => alertedOrderIds.current.add(o.id));
+          setUnacknowledgedOrders(prev => {
+            // avoid duplicates
+            const existingIds = new Set(prev.map(p => p.id));
+            return [...prev, ...newlyActionable.filter(o => !existingIds.has(o.id))];
+          });
           playChime();
         }
-        
-        // Always update orders to reflect status changes (e.g. CONFIRMING -> PENDING)
-        setStockistOrders(oData);
       } catch(e) {}
-    }, 15000);
+    }, 10000);
     return () => clearInterval(poll);
   }, [activeRole, currentUser, stockistProfile, offlineMode]);
 
@@ -1814,7 +1820,7 @@ export default function App() {
             const oRes = await fetch(`${API_BASE}/orders?stockistId=${pData.id}`);
             const oData = await oRes.json().catch(() => ({}));
       if (isFirstOrderLoad.current && Array.isArray(oData)) {
-        oData.forEach(o => knownOrderIds.current.add(o.id));
+        oData.filter(o => o.status === 'PENDING').forEach(o => alertedOrderIds.current.add(o.id));
         isFirstOrderLoad.current = false;
       }
       setStockistOrders(oData);
