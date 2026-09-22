@@ -3428,6 +3428,8 @@ app.get('/api/admin/payouts', async (req, res) => {
       amount: parseFloat(cc.amount_owed),
       type: 'COD_COMMISSION',
       is_paid: !!cc.settled,
+      settled_method: cc.settled_method || null,
+      settled_via: cc.settled_via || null,
       created_at: cc.created_at,
       paid_at: cc.settled_at,
       payment_reference: cc.payment_reference
