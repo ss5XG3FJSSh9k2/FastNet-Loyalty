@@ -197,7 +197,7 @@ async function main() {
     ]
   });
   
-  assert(orderRes.status === 200, 'Order created successfully');
+  if(orderRes.status !== 200) console.log(orderRes.body); assert(orderRes.status === 200, 'Order created successfully');
   const orderId = orderRes.body.orderId;
   const orderDetails = (await get(`http://localhost:3001/api/orders`)).body.find(o => o.id === orderId);
   

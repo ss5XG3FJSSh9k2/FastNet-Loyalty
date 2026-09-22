@@ -2524,7 +2524,7 @@ const handleCreateOrderRoute = async (req, res) => {
     // Determine payment status
     // Pickup = UPI → HELD. Delivery COD = COD. Delivery UPI = HELD.
     const effectivePaymentMethod = paymentMethod || (reqFulfillment === 'PICKUP' ? 'UPI' : 'COD');
-    const paymentStatus = effectivePaymentMethod === 'COD' ? 'COD' : 'HELD';
+    const paymentStatus = effectivePaymentMethod?.includes('COD') ? 'COD' : 'HELD';
 
     // Deduct stock
     inventory.forEach(inv => {
@@ -2590,7 +2590,7 @@ const handleCreateOrderRoute = async (req, res) => {
       platform_amount: platformPayout,
       commission_rate_used: settlement.commissionRateUsed,
       earn_rate_used: settlement.earnRateUsed,
-      is_cod: effectivePaymentMethod === 'COD',
+      is_cod: effectivePaymentMethod?.includes('COD'),
       status: paymentStatus === 'HELD' ? 'HELD' : 'PENDING_COD',
       created_at: now.toISOString()
     });
@@ -4891,26 +4891,18 @@ app.get('/api/admin/vendors', async (req, res) => {
   const stockistVendors = await db.getTable('stockist_vendors');
 
   const enriched = visible.map(v => {
-    const assigned = stockists
-      .filter(s => s.vendor_id === v.id && s.is_active !== false)
-      .map(s => ({ id: s.id, name: s.name, shop_name: s.shop_name }));
-    
     const approved_stockists = stockistVendors
       .filter(sv => sv.vendor_id === v.id)
-      .map(sv => {
-        const s = stockists.find(st => st.id === sv.stockist_id);
-        return s ? { id: s.id, name: s.name, shop_name: s.shop_name } : null;
-      })
-      .filter(s => s !== null);
-
-    const approved_stockist_ids = approved_stockists.map(s => s.id);
+      .map(sv => stockists.find(st => st.id === sv.stockist_id))
+      .filter(s => s && s.is_active !== false)
+      // dedupe in case of duplicate join rows:
+      .filter((s, i, arr) => arr.findIndex(x => x.id === s.id) === i)
+      .map(s => ({ id: s.id, name: s.name, shop_name: s.shop_name }));
 
     return { 
       ...v, 
-      assigned_stockists: assigned, 
-      assigned_count: assigned.length,
-      approved_stockist_ids,
-      approved_stockists
+      approved_stockists, 
+      approved_count: approved_stockists.length 
     };
   });
 

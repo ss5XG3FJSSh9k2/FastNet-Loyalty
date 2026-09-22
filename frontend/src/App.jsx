@@ -1586,6 +1586,8 @@ export default function App() {
   const [anomalies, setAnomalies] = useState([]);
   const [pendingRedemptions, setPendingRedemptions] = useState([]);
   const [adminNewVendor, setAdminNewVendor] = useState('');
+  const [stockistListModal, setStockistListModal] = useState(null);
+  const [stockistModalSearch, setStockistModalSearch] = useState('');
   const [editingVendor, setEditingVendor] = useState(null);
   const [editingVendorName, setEditingVendorName] = useState('');
   const [editingVendorRegionId, setEditingVendorRegionId] = useState('');
@@ -9251,17 +9253,37 @@ export default function App() {
                   {stockistActiveTab === 'orders' && (
                     <>
                       {/* §J: Stockist language selector */}
-                      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '0.35rem', fontSize: '0.65rem', marginBottom: '-0.35rem' }}>
-                        <Languages size={12} style={{ color: 'var(--text-muted)' }} />
-                        <select className="text-input"
-                          style={{ fontSize: '0.65rem', width: 'auto', }}
-                          value={lang}
-                          onChange={e => setLang(e.target.value)}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', marginBottom: '-0.35rem' }}>
+                        {/* LEFT: Notification bell (larger icon) */}
+                        <button
+                          type="button"
+                          onClick={() => { setStockistActiveTab('orders'); handleAcknowledgeOrders(); }}
+                          style={{ position: 'relative', background: 'none', border: 'none', cursor: 'pointer', padding: '0.15rem', display: 'flex', alignItems: 'center' }}
+                          aria-label={t('Notifications', 'सूचनाएं', 'বিজ্ঞপ্তি')}
                         >
-                          <option value="en">English</option>
-                          <option value="hi">हिंदी</option>
-                          <option value="bn">বাংলা</option>
-                        </select>
+                          <Bell size={24} style={{ color: unacknowledgedOrders.length > 0 ? 'var(--accent)' : 'var(--text-muted)' }} />
+                          {unacknowledgedOrders.length > 0 && (
+                            <span style={{
+                              position: 'absolute', top: -3, right: -3,
+                              background: 'var(--danger)', color: 'white',
+                              borderRadius: '50%', minWidth: 17, height: 17,
+                              fontSize: '0.62rem', fontWeight: 700,
+                              display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 3px'
+                            }}>
+                              {unacknowledgedOrders.length > 9 ? '9+' : unacknowledgedOrders.length}
+                            </span>
+                          )}
+                        </button>
+
+                        {/* RIGHT: Language selector (existing, unchanged) */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.65rem' }}>
+                          <Languages size={12} style={{ color: 'var(--text-muted)' }} />
+                          <select className="text-input" style={{ fontSize: '0.65rem', width: 'auto' }} value={lang} onChange={e => setLang(e.target.value)}>
+                            <option value="en">English</option>
+                            <option value="hi">हिंदी</option>
+                            <option value="bn">বাংলা</option>
+                          </select>
+                        </div>
                       </div>
 
                       {rejectedBillCount > 0 && (
@@ -12984,20 +13006,19 @@ export default function App() {
                               <td style={{ color: v.is_active === false ? 'var(--text-muted)' : 'inherit' }}>{v.name}</td>
                               <td style={{ color: v.is_active === false ? 'var(--text-muted)' : 'inherit' }}>{(regions.find(r => r.id === v.region_id) || adminRegionsList.find(r => r.id === v.region_id) || {}).name || v.region_id || '—'}</td>
                               <td>
-                                {(v.assigned_count > 0 || (v.approved_stockists && v.approved_stockists.length > 0)) ? (
-                                  <details>
-                                    <summary style={{ cursor: 'pointer' }}>
-                                      <span className="badge" style={{ background: 'var(--accent)', color: 'white' }}>{v.assigned_count + (v.approved_stockists ? v.approved_stockists.length : 0)}</span> {t('stockists','स्टॉकिस्ट','স্টকিস্ট')}
-                                    </summary>
-                                    <ul style={{ margin: '0.4rem 0 0 0', paddingLeft: '1rem', fontSize: '0.8rem' }}>
-                                      {v.assigned_stockists.map(s => (
-                                        <li key={s.id}>{s.shop_name || s.name} <span style={{ color: 'var(--text-muted)', fontSize: '0.7rem' }}>(Primary)</span></li>
-                                      ))}
-                                      {v.approved_stockists && v.approved_stockists.map(s => (
-                                        <li key={`approved-${s.id}`}>{s.shop_name || s.name} <span style={{ color: 'var(--text-muted)', fontSize: '0.7rem' }}>(Approved)</span></li>
-                                      ))}
-                                    </ul>
-                                  </details>
+                                {v.approved_count > 0 ? (
+                                  <button
+                                    type="button"
+                                    className="btn btn-secondary"
+                                    style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}
+                                    onClick={() => {
+                                      setStockistModalSearch('');
+                                      setStockistListModal({ vendorName: v.name, stockists: v.approved_stockists });
+                                    }}
+                                  >
+                                    <span className="badge" style={{ background: 'var(--accent)', color: 'white', borderRadius: '999px', padding: '0 0.4rem' }}>{v.approved_count}</span>
+                                    {t('View', 'देखें', 'দেখুন')}
+                                  </button>
                                 ) : (
                                   <span style={{ color: 'var(--text-muted)' }}>{t('None','कोई नहीं','কোনোটি নয়')}</span>
                                 )}
@@ -13115,7 +13136,7 @@ export default function App() {
                         const platformCommission = o.platform_amount || 0;
                         const netRefundAmount = o.total_price - platformCommission;
                         
-                        const isCod = o.payment_method === 'COD';
+                        const isCod = o.payment_method?.includes('COD');
                         const correspondingPayout = isCod 
                           ? (adminPayouts || []).find(p => p.order_id === o.id && p.source === 'cod_commission_ledger')
                           : (adminPayouts || []).find(p => p.order_id === o.id && p.source === 'split_payouts' && p.status !== 'PENDING_COD');
@@ -15294,6 +15315,30 @@ export default function App() {
             </div>
           </div>
         </div>
+      )}
+      {stockistListModal && createPortal(
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}
+             onClick={() => setStockistListModal(null)}>
+          <div style={{ background: '#161a24', border: '1px solid var(--border-color)', borderRadius: 12, padding: '1.5rem', width: '100%', maxWidth: 420, maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}
+               onClick={e => e.stopPropagation()}>
+            <h4 style={{ margin: '0 0 0.25rem' }}>{t('Stockists for','स्टॉकिस्ट','স্টকিস্ট')} {stockistListModal.vendorName}</h4>
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', margin: '0 0 0.75rem' }}>{stockistListModal.stockists.length} {t('assigned','सौंपे गए','নিযুক্ত')}</p>
+            <input type="text" className="text-input" placeholder={t('Search stockists','स्टॉकिस्ट खोजें','স্টকিস্ট খুঁজুন')}
+                   value={stockistModalSearch} onChange={e => setStockistModalSearch(e.target.value)}
+                   style={{ marginBottom: '0.75rem' }} />
+            <div style={{ overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+              {stockistListModal.stockists
+                .filter(s => (s.shop_name || s.name || '').toLowerCase().includes(stockistModalSearch.toLowerCase()))
+                .map(s => (
+                  <div key={s.id} style={{ padding: '0.4rem 0.5rem', background: 'rgba(255,255,255,0.03)', borderRadius: 6, fontSize: '0.85rem' }}>
+                    {s.shop_name || s.name}
+                  </div>
+                ))}
+            </div>
+            <button className="btn btn-secondary" style={{ marginTop: '0.75rem' }} onClick={() => setStockistListModal(null)}>{t('Close','बंद करें','বন্ধ করুন')}</button>
+          </div>
+        </div>,
+        document.body
       )}
     </div>
   );
