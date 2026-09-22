@@ -1,6 +1,6 @@
 /* global FormData, URLSearchParams */
 /* eslint-disable react-hooks/exhaustive-deps */
-/* eslint-disable no-unused-vars */
+ 
 /* global CustomEvent, Notification */
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
@@ -1492,10 +1492,12 @@ export default function App() {
         const incoming = oData.filter(o => !knownOrderIds.current.has(o.id));
         if (incoming.length > 0) {
           incoming.forEach(o => knownOrderIds.current.add(o.id));
-          setStockistOrders(oData);
           setUnacknowledgedOrders(prev => [...prev, ...incoming]);
           playChime();
         }
+        
+        // Always update orders to reflect status changes (e.g. CONFIRMING -> PENDING)
+        setStockistOrders(oData);
       } catch(e) {}
     }, 15000);
     return () => clearInterval(poll);
@@ -9380,8 +9382,8 @@ export default function App() {
                         {t("New Orders", "नए ऑर्डर", "নতুন অর্ডার")}
                       </h3>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                        {stockistOrders.map(o => {
-                          const isNew = o.status === 'CONFIRMING';
+                        {stockistOrders.filter(o => o.status !== 'CONFIRMING').map(o => {
+                          const isNew = o.status === 'PENDING';
                           return (
                             <div 
                               key={o.id} 
@@ -9407,8 +9409,8 @@ export default function App() {
                                       NEW
                                     </span>
                                   )}
-                                  <span className={`badge ${o.status === 'DELIVERED' ? 'badge-success' : o.status === 'CANCELLED' ? 'badge-danger' : o.status === 'CONFIRMING' ? 'badge-primary' : 'badge-warning'}`} style={{ fontSize: '0.6rem' }}>
-                                    {o.status === 'CONFIRMING' ? '⏳ RECEIVED' : formatOrderStatusDisplay(o.status, o.fulfillment_type)}
+                                  <span className={`badge ${o.status === 'DELIVERED' ? 'badge-success' : o.status === 'CANCELLED' ? 'badge-danger' : o.status === 'PENDING' ? 'badge-primary' : 'badge-warning'}`} style={{ fontSize: '0.6rem' }}>
+                                    {o.status === 'PENDING' ? '⏳ RECEIVED' : formatOrderStatusDisplay(o.status, o.fulfillment_type)}
                                   </span>
                                   {/* Pickup slot badge */}
                                   {o.pickup_slot && (
@@ -9474,7 +9476,7 @@ export default function App() {
                               {/* Action Buttons */}
                               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', marginTop: '0.25rem' }}>
                                 <div style={{ display: 'flex', gap: '0.25rem' }}>
-                                  {o.status === 'CONFIRMING' && (
+                                  {o.status === 'PENDING' && (
                                     <button className="btn" style={{ flex: 1, padding: '0.35rem 0', fontSize: '0.7rem' }} onClick={() => handleUpdateOrderStatus(o.id, 'RECEIVED')}>
                                       {t('Accept Order', 'स्वीकार करें', 'গ্রহণ করুন')}
                                     </button>
