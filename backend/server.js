@@ -2214,6 +2214,26 @@ async function processOrderCancellation(order, cancelledBy = 'system') {
   order.cancelled_at = new Date().toISOString();
   order.status = 'CANCELLED';
 
+  // Restore reserved stock — a cancelled order never sold, so return its units to inventory
+  if (!order.stock_restored) {
+    const orderItems = (await db.getTable('order_items')).filter(oi => oi.order_id === order.id);
+    if (orderItems.length > 0) {
+      const inventory = await db.getTable('stockist_inventory');
+      let changed = false;
+      orderItems.forEach(oi => {
+        const inv = inventory.find(i => i.stockist_id === order.stockist_id && i.product_id === oi.product_id);
+        if (inv) {
+          inv.stock_qty += parseInt(oi.quantity, 10);
+          inv.stock_quantity = inv.stock_qty;              // keep both fields in sync (creation uses both)
+          inv.is_available = inv.stock_qty > 0;
+          changed = true;
+        }
+      });
+      if (changed) await db.saveTable('stockist_inventory', inventory);
+    }
+    order.stock_restored = true;   // idempotency guard — never restore twice
+  }
+
   // Remove any COD commission accrued for this order (it never completed)
   const codLedger = await db.getTable('cod_commission_ledger');
   const filtered = codLedger.filter(e => e.order_id !== order.id);
