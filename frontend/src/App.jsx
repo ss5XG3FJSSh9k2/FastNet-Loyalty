@@ -3,6 +3,7 @@
 /* eslint-disable no-unused-vars */
 /* global CustomEvent, Notification */
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   ShoppingBag, 
   Home,
@@ -10311,10 +10312,10 @@ export default function App() {
                           </button>
                         </div>
 
-                        {showPersonalDetails && (
-                          <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }} onClick={() => setShowPersonalDetails(false)}>
-                            <div className="glass-card" style={{ width: '100%', maxWidth: '400px', padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem', background: 'var(--bg-card)' }} onClick={e => e.stopPropagation()}>
-                              <h4 style={{ margin: 0, color: 'white' }}>{t('Personal Details', 'व्यक्तिगत विवरण', 'ব্যক্তিগত বিবরণ')}</h4>
+                        {showPersonalDetails && createPortal(
+                          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(2px)', zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }} onClick={() => setShowPersonalDetails(false)}>
+                            <div style={{ width: '100%', maxWidth: '360px', padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '0.85rem', background: '#161a24', border: '1px solid var(--border-color)', borderRadius: '12px', boxShadow: '0 12px 40px rgba(0,0,0,0.5)', maxHeight: '85vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
+                              <h4 style={{ margin: 0, color: 'white', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem' }}>{t('Personal Details', 'व्यक्तिगत विवरण', 'ব্যক্তিগত বিবরণ')}</h4>
                               <div style={{ fontSize: '0.8rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                                 <div><span style={{color:'var(--text-muted)'}}>{t('Name','नाम','নাম')}: </span><strong>{stockistProfile.personal_name || stockistProfile.name}</strong></div>
                                 <div><span style={{color:'var(--text-muted)'}}>{t('Phone','फ़ोन','ফোন')}: </span><strong>{stockistProfile.phone || currentUser.phone}</strong></div>
@@ -10331,9 +10332,10 @@ export default function App() {
                                   'এই বিবরণগুলি এখানে সম্পাদনা করা যাবে না। কোনো বিবরণ পরিবর্তন করতে চাইলে, অনুগ্রহ করে FastNet সহায়তার সাথে যোগাযোগ করুন।'
                                 )}
                               </p>
-                              <button className="btn btn-secondary" onClick={() => setShowPersonalDetails(false)}>{t('Close','बंद करें','বন্ধ করুন')}</button>
+                              <button className="btn btn-secondary" style={{ width: '100%' }} onClick={() => setShowPersonalDetails(false)}>{t('Close','बंद करें','বন্ধ করুন')}</button>
                             </div>
-                          </div>
+                          </div>,
+                          document.body
                         )}
 
                         {showDevSettings && (
