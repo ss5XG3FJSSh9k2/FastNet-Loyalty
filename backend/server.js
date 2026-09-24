@@ -1647,7 +1647,7 @@ app.get('/api/bills/*', async (req, res) => {
 
   const isMock = process.env.R2_MOCK === 'true' || !process.env.R2_ACCOUNT_ID;
   if (isMock) {
-    const item = r2.mockStore.get(key) || r2.mockStore.get(rawKey);
+    const item = r2.mockGet(key) || r2.mockGet(rawKey);
     if (!item) {
       return res.status(404).json({ error: 'Bill photo not found' });
     }
@@ -1680,7 +1680,7 @@ app.get('/api/images/*', async (req, res) => {
 
   const isMock = process.env.R2_MOCK === 'true' || !process.env.R2_ACCOUNT_ID;
   if (isMock) {
-    const item = r2.mockStore.get(key) || r2.mockStore.get(rawKey);
+    const item = r2.mockGet(key) || r2.mockGet(rawKey);
     if (!item) {
       res.setHeader('Content-Type', 'image/svg+xml');
       return res.status(200).send(defaultPlaceholderSvg);

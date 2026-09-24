@@ -1,7 +1,43 @@
+const fs = require('fs');
+const path = require('path');
 const { S3Client, PutObjectCommand, GetObjectCommand } = require('@aws-sdk/client-s3');
 const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 
+const MOCK_DIR = path.join(__dirname, '..', 'uploads');
+if (!fs.existsSync(MOCK_DIR)) fs.mkdirSync(MOCK_DIR, { recursive: true });
+
 const mockStore = new Map();
+
+function mockKeyToPath(key) {
+  const safe = key.replace(/[^a-zA-Z0-9._-]/g, '_');
+  return path.join(MOCK_DIR, safe);
+}
+
+function mockPut(key, buffer, contentType) {
+  const filePath = mockKeyToPath(key);
+  fs.writeFileSync(filePath, buffer);
+  const meta = { contentType, uploadedAt: new Date().toISOString(), filePath };
+  mockStore.set(key, meta);
+  return meta;
+}
+
+function mockGet(key) {
+  let meta = mockStore.get(key);
+  const filePath = mockKeyToPath(key);
+  if (fs.existsSync(filePath)) {
+    const buffer = fs.readFileSync(filePath);
+    const contentType = meta?.contentType || guessContentType(filePath);
+    return { buffer, contentType };
+  }
+  if (meta && meta.buffer) return meta; // For seeded buffer
+  return null;
+}
+
+function guessContentType(fp) {
+  if (fp.endsWith('.png')) return 'image/png';
+  if (fp.endsWith('.webp')) return 'image/webp';
+  return 'image/jpeg';
+}
 
 // Seed initial bill photo key for mock mode testing
 mockStore.set('bills/s1/1785518400112-d6ez17.jpg', {
@@ -66,11 +102,7 @@ async function uploadBillPhoto(buffer, contentType, keyPrefix = 'bills') {
   const publicUrl = `${publicBase}/${key}`;
 
   if (isMockMode()) {
-    mockStore.set(key, {
-      buffer,
-      contentType,
-      uploadedAt: new Date().toISOString()
-    });
+    mockPut(key, buffer, contentType);
     return { key, publicUrl };
   }
 
@@ -108,5 +140,7 @@ module.exports = {
   isMockMode,
   uploadBillPhoto,
   getSignedReadUrl,
-  mockStore
+  mockStore,
+  mockGet,
+  mockPut
 };
