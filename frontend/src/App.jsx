@@ -1480,6 +1480,13 @@ export default function App() {
       if (offlineMode) return;
       if (!stockistProfile) return;
       try {
+        // Refresh stockist profile to keep is_shop_open fresh
+        const pRes = await fetch(`${API_BASE}/stockists/by-user/${currentUser.id}`);
+        if (pRes.ok) {
+          const pData = await pRes.json();
+          setStockistProfile(pData);
+        }
+
         const oRes = await fetch(`${API_BASE}/orders?stockistId=${stockistProfile.id}`);
         if (!oRes.ok) return;
         const oData = await oRes.json();
@@ -9360,11 +9367,21 @@ export default function App() {
                           </span>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
                             <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{t('Shop Status', 'दुकान की स्थिति', 'দোকানের অবস্থা')}:</span>
-                            <div style={{ fontSize: '0.9rem' }}>
-                              {stockistProfile.manual_closed ? (
-                                <span style={{ color: 'var(--danger-color)', fontWeight: 'bold' }}>{t('Closed','बंद','বন্ধ')}</span>
+                            <div style={{ fontSize: '0.9rem', textAlign: 'right' }}>
+                              {stockistProfile.is_shop_open ? (
+                                <span style={{ color: 'var(--success-color)', fontWeight: 'bold' }}>{t('Open','खुला','খোলা')}</span>
                               ) : (
-                                <span style={{ color: 'var(--accent-color)', fontWeight: 'bold' }}>{t('Open','खुला','খোলা')}</span>
+                                <span style={{ color: 'var(--danger-color)', fontWeight: 'bold' }}>{t('Closed','बंद','বন্ধ')}</span>
+                              )}
+                              {!stockistProfile.is_shop_open && !stockistProfile.manual_closed && (
+                                <span style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.7)', display: 'block' }}>
+                                  {t('Closed now (outside opening hours)', 'अभी बंद (खुलने के समय के बाहर)', 'এখন বন্ধ (খোলার সময়ের বাইরে)')}
+                                </span>
+                              )}
+                              {stockistProfile.manual_closed && (
+                                <span style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.7)', display: 'block' }}>
+                                  {t('Manually closed', 'मैन्युअल रूप से बंद', 'ম্যানুয়ালি বন্ধ')}
+                                </span>
                               )}
                             </div>
                           </div>
