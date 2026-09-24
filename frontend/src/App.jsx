@@ -8636,7 +8636,7 @@ export default function App() {
                         </p>
                       )}
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                        {customerLedger.map(l => (
+                        {customerLedger.filter(l => !(l.type === 'EARN_HELD' && l.billing_sync_status === 'RELEASED')).map(l => (
                           <div key={l.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.45rem 0', borderBottom: '1px dashed rgba(255,255,255,0.05)', fontSize: '0.7rem' }}>
                             <div>
                               <div style={{ fontWeight: '600', color: 'white' }}>{l.description}</div>

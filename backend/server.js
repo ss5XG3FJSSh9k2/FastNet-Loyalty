@@ -1536,6 +1536,7 @@ app.post('/api/admin/bill-photos/:id/verify', async (req, res) => {
           billing_sync_status: 'PENDING',
           reference_id: heldRow.id
         });
+        await db.updateRow('points_ledger', heldRow.id, { billing_sync_status: 'RELEASED' });
       }
     }
   }

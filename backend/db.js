@@ -305,7 +305,10 @@ async function insertRow(tableName, row, client = null) {
 
 async function updateRow(tableName, id, patch, client = null) {
   if (tableName === 'points_ledger') {
-    throw new Error('points_ledger is append-only');
+    const allowed = Object.keys(patch).every(k => k === 'billing_sync_status' || k === 'id');
+    if (!allowed) {
+      throw new Error('points_ledger is append-only (except for billing_sync_status)');
+    }
   }
   if (['stockists', 'partners', 'vendors'].includes(tableName) && patch.phone !== undefined) {
     if (patch.contact_phone === undefined) patch.contact_phone = patch.phone;
