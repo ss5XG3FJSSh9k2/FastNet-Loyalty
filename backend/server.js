@@ -2214,8 +2214,8 @@ async function processOrderCancellation(order, cancelledBy = 'system') {
   order.cancelled_at = new Date().toISOString();
   order.status = 'CANCELLED';
 
-  // Restore reserved stock — a cancelled order never sold, so return its units to inventory
-  if (!order.stock_restored) {
+  // Restore stock ONLY if it was actually decremented (order had been marked READY)
+  if (order.stock_decremented && !order.stock_restored) {
     const orderItems = (await db.getTable('order_items')).filter(oi => oi.order_id === order.id);
     if (orderItems.length > 0) {
       const inventory = await db.getTable('stockist_inventory');
@@ -2560,14 +2560,7 @@ const handleCreateOrderRoute = async (req, res) => {
     const effectivePaymentMethod = paymentMethod || (reqFulfillment === 'PICKUP' ? 'UPI' : 'COD');
     const paymentStatus = effectivePaymentMethod?.includes('COD') ? 'COD' : 'HELD';
 
-    // Deduct stock
-    inventory.forEach(inv => {
-      const item = items.find(it => it.productId === inv.product_id && inv.stockist_id === stockistId);
-      if (item) {
-        inv.stock_qty -= item.quantity;
-        inv.is_available = inv.stock_qty > 0;
-      }
-    });
+    // Stock deduction removed here. It now happens when the order is marked READY.
 
     const orderId = 'o-' + generateId();
     const order = {
@@ -3127,6 +3120,39 @@ app.patch('/api/orders/:id/status', async (req, res) => {
   await db.saveTable('orders', orders);
 
   if (['READY_FOR_PICKUP', 'READY'].includes(status)) {
+    if (!order.stock_decremented) {
+      const orderItems = (await db.getTable('order_items')).filter(oi => oi.order_id === id);
+      const inventory = await db.getTable('stockist_inventory');
+      let changed = false;
+      let insufficient = null;
+      
+      orderItems.forEach(oi => {
+        const inv = inventory.find(i => i.stockist_id === order.stockist_id && i.product_id === oi.product_id);
+        if (inv) {
+          if (inv.stock_qty < oi.quantity) insufficient = { product: oi.product_id, have: inv.stock_qty, need: oi.quantity };
+        }
+      });
+
+      if (insufficient) {
+        return res.status(400).json({ 
+          error: `Not enough stock to fulfill — you have ${insufficient.have}, order needs ${insufficient.need}`, 
+          code: 'INSUFFICIENT_STOCK' 
+        });
+      }
+
+      orderItems.forEach(oi => {
+        const inv = inventory.find(i => i.stockist_id === order.stockist_id && i.product_id === oi.product_id);
+        if (inv) {
+          inv.stock_qty -= parseInt(oi.quantity, 10);
+          inv.stock_quantity = inv.stock_qty;
+          inv.is_available = inv.stock_qty > 0;
+          changed = true;
+        }
+      });
+      if (changed) await db.saveTable('stockist_inventory', inventory);
+      order.stock_decremented = true;
+      await db.saveTable('orders', orders);
+    }
     await _sendOrderReadySms(order);
   }
 
@@ -3298,22 +3324,7 @@ app.post('/api/admin/release-split/:orderId', async (req, res) => {
     platform_share: payout ? payout.platform_amount : 0
   });
 
-  // Net against COD outstanding for this stockist
-  const codLedger = await db.getTable('cod_commission_ledger');
-  const unsettledCod = codLedger.filter(e => e.stockist_id === order.stockist_id && !e.settled);
-  const platformShare = payout ? parseFloat(payout.platform_amount) : 0;
-  let remaining = platformShare;
-  unsettledCod.forEach(e => {
-    if (remaining > 0 && e.amount_owed <= remaining) {
-      e.settled = true;
-      e.settled_via = orderId;
-      e.settled_method = 'split_offset';
-      e.settled_at = new Date().toISOString();
-      remaining -= e.amount_owed;
-      appendPaymentEvent(orderId, 'COD_COMMISSION_SETTLED', e.amount_owed, { cod_order_id: e.order_id });
-    }
-  });
-  await db.saveTable('cod_commission_ledger', codLedger);
+
 
   return res.json({ success: true, order: await enrichOrder(order) });
 });

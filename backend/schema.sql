@@ -105,6 +105,8 @@ CREATE TABLE orders (
     payment_status payment_status DEFAULT 'UNPAID',
     razorpay_order_id VARCHAR(255),
     razorpay_payment_id VARCHAR(255),
+    stock_decremented BOOLEAN DEFAULT false,
+    stock_restored BOOLEAN DEFAULT false,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
