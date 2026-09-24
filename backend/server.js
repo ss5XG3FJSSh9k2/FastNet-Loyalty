@@ -2263,10 +2263,12 @@ async function enrichOrder(o) {
   const orderItems = await db.getTable('order_items');
   const users = await db.getTable('users');
   const splitPayouts = await db.getTable('split_payouts');
+  const feedbacks = await db.getTable('feedback_reports');
 
   const items = orderItems.filter(oi => oi.order_id === o.id);
   const customer = users.find(u => u.id === o.customer_id);
   const payout = splitPayouts.find(sp => sp.order_id === o.id);
+  const stockistFeedback = feedbacks.find(fb => fb.order_id === o.id && fb.reporter_role === 'STOCKIST');
 
   let platformCommission = o.platform_commission;
   let stockistPayout = o.stockist_payout;
@@ -2307,6 +2309,7 @@ async function enrichOrder(o) {
     customer_phone: customer ? customer.phone : '',
     stockist_amount: stockistPayout,
     platform_amount: platformPayout,
+    stockist_reviewed: !!stockistFeedback,
     points_status: (await db.getTable('points_ledger')).some(l => l.order_id === o.id && l.type === 'EARN_HELD' && l.billing_sync_status === 'HELD') ? 'HELD' : 'CREDITED'
   };
 }

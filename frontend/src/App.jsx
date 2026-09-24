@@ -5079,6 +5079,13 @@ export default function App() {
         setEnteredPins(prev => ({ ...prev, [orderId]: '' }));
         loadStockistData();
         fetchDbState();
+        const justDelivered = (stockistOrders || []).find(o => o.id === orderId);
+        if (justDelivered) {
+          setSubmittingFeedbackOrder({ ...justDelivered, status: 'DELIVERED' });
+          setFeedbackRating(5);
+          setFeedbackReason('');
+          setReportFlag(false);
+        }
       } else {
         showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
@@ -9547,21 +9554,6 @@ export default function App() {
                                   )}
 
                                 </div>
-                                
-                                {(o.status === 'DELIVERED' || o.status === 'CANCELLED') && (
-                                  <button 
-                                    className="btn btn-secondary" 
-                                    style={{ width: '100%', padding: '0.25rem 0', fontSize: '0.65rem', background: 'rgba(245,158,11,0.06)', color: 'var(--warning)', border: '1px solid rgba(245,158,11,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.25rem' }}
-                                    onClick={() => {
-                                      setSubmittingFeedbackOrder(o);
-                                      setFeedbackRating(5);
-                                      setFeedbackReason('');
-                                      setReportFlag(false);
-                                    }}
-                                  >
-                                    <UserCheck size={12} /> {t('Rate Customer', 'ग्राहक को रेट करें', 'ক্রেতাকে রেটিং দিন')}
-                                  </button>
-                                )}
                               </div>
                             </div>
                           );
@@ -9585,11 +9577,18 @@ export default function App() {
                                 <div key={o.id} style={{ padding: '0.6rem', background: 'var(--bg-surface)', border: '1px solid var(--border-color)', borderRadius: '6px' }}>
                                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.35rem' }}>
                                     <span style={{ fontWeight: 'bold', fontSize: '0.75rem' }}>Order #{o.id.substring(2).toUpperCase()}</span>
-                                    {o.status === 'DELIVERED' ? (
-                                      <span className="badge badge-success" style={{ fontSize: '0.6rem' }}>DELIVERED</span>
-                                    ) : (
-                                      <span className="badge badge-danger" style={{ fontSize: '0.6rem' }}>CANCELLED</span>
-                                    )}
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                                      {o.status === 'DELIVERED' && !o.stockist_reviewed && (
+                                        <span className="badge" style={{ background: 'rgba(245,158,11,0.15)', color: 'var(--warning)', fontSize: '0.6rem' }}>
+                                          {t('Needs Review', 'समीक्षा आवश्यक', 'রিভিউ প্রয়োজন')}
+                                        </span>
+                                      )}
+                                      {o.status === 'DELIVERED' ? (
+                                        <span className="badge badge-success" style={{ fontSize: '0.6rem' }}>DELIVERED</span>
+                                      ) : (
+                                        <span className="badge badge-danger" style={{ fontSize: '0.6rem' }}>CANCELLED</span>
+                                      )}
+                                    </div>
                                   </div>
                                   <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
                                     <div>{o.customer_name || 'Customer'} • {o.items ? o.items.length : 0} items</div>
@@ -9600,6 +9599,20 @@ export default function App() {
                                       </div>
                                     )}
                                   </div>
+                                  {(o.status === 'DELIVERED' || o.status === 'CANCELLED') && (
+                                    <button 
+                                      className="btn btn-secondary" 
+                                      style={{ width: '100%', padding: '0.25rem 0', marginTop: '0.5rem', fontSize: '0.65rem', background: 'rgba(245,158,11,0.06)', color: 'var(--warning)', border: '1px solid rgba(245,158,11,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.25rem' }}
+                                      onClick={() => {
+                                        setSubmittingFeedbackOrder(o);
+                                        setFeedbackRating(5);
+                                        setFeedbackReason('');
+                                        setReportFlag(false);
+                                      }}
+                                    >
+                                      <UserCheck size={12} /> {t('Rate Customer', 'ग्राहक को रेट करें', 'ক্রেতাকে রেটিং দিন')}
+                                    </button>
+                                  )}
                                 </div>
                               ))}
                             {stockistOrders.filter(o => o.status === 'DELIVERED' || (o.status === 'CANCELLED' && o.cancelled_from_status !== 'CONFIRMING')).length === 0 && (
@@ -9931,8 +9944,8 @@ export default function App() {
                           <button className="btn btn-accent" style={{ flex: 1 }} onClick={() => handleSaveFeedback('STOCKIST')}>
                             {t('Submit', 'जमा करें', 'জমা দিন')}
                           </button>
-                          <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => { setSubmittingFeedbackOrder(null); setReportFlag(false); }}>
-                            {t('Cancel', 'रद्द करें', 'বাতিল')}
+                          <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => { setSubmittingFeedbackOrder(null); setFeedbackRating(5); setFeedbackReason(''); setReportFlag(false); }}>
+                            {t('Skip for now', 'अभी छोड़ें', 'আপাতত এড়িয়ে যান')}
                           </button>
                         </div>
                       </div>
