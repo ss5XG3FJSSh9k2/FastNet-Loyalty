@@ -77,6 +77,14 @@ import {
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api';
 
+const isWithinOpeningHours = (profile) => {
+  if (!profile.opening_time || !profile.closing_time) return true;
+  const now = new Date();
+  const cur = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+  const { opening_time: o, closing_time: c } = profile;
+  return c <= o ? (cur >= o || cur < c) : (cur >= o && cur < c);
+};
+
 const originalFetch = window.fetch;
 window.fetch = async (...args) => {
   const [resource, config] = args;
@@ -9775,29 +9783,39 @@ export default function App() {
                               <span style={{ fontSize: '0.55rem', color: 'var(--accent)', fontWeight: 'bold' }}>{stockistAnalytics.today_order_count} orders</span>
                               <button
                                 type="button"
-                                className={`shop-toggle ${stockistProfile.manual_closed ? 'is-closed' : 'is-open'}`}
+                                className={`shop-toggle ${(isWithinOpeningHours(stockistProfile) && !stockistProfile.manual_closed) ? 'is-open' : 'is-closed'}`}
                                 style={{ margin: '1rem auto' }}
                                 onClick={async () => {
-                                  const next = !stockistProfile.manual_closed;
-                                  setStockistProfile(prev => ({ ...prev, manual_closed: next }));
-                                  try {
-                                    const res = await fetch(`${API_BASE}/stockist/profile`, {
-                                      method: 'PATCH',
-                                      headers: { 'Content-Type': 'application/json', 'X-User-Id': currentUser.id },
-                                      body: JSON.stringify({ manual_closed: next })
-                                    });
-                                    const data = await res.json();
-                                    if (data.stockist) setStockistProfile(data.stockist);
-                                    showToast(next ? t('Shop closed', 'दुकान बंद', 'দোকান বন্ধ') : t('Shop opened', 'दुकान खुली', 'দোকান খোলা'), 'success');
-                                  } catch (e) {
-                                    setStockistProfile(prev => ({ ...prev, manual_closed: !next }));
-                                    showToast(t("Couldn't update shop status. Try again", "दुकान की स्थिति अपडेट नहीं हो सकी. पुनः प्रयास करें", "দোকানের অবস্থা আপডেট করা যায়নি. আবার চেষ্টা করুন"), 'error');
+                                  const withinHours = isWithinOpeningHours(stockistProfile);
+                                  if (withinHours || stockistProfile.manual_closed) {
+                                    const next = !stockistProfile.manual_closed;
+                                    setStockistProfile(prev => ({ ...prev, manual_closed: next }));
+                                    try {
+                                      const res = await fetch(`${API_BASE}/stockist/profile`, {
+                                        method: 'PATCH',
+                                        headers: { 'Content-Type': 'application/json', 'X-User-Id': currentUser.id },
+                                        body: JSON.stringify({ manual_closed: next })
+                                      });
+                                      const data = await res.json();
+                                      if (data.stockist) setStockistProfile(data.stockist);
+                                      showToast(next ? t('Shop closed', 'दुकान बंद', 'দোকান বন্ধ') : t('Shop opened', 'दुकान खुली', 'দোকান খোলা'), 'success');
+                                    } catch (e) {
+                                      setStockistProfile(prev => ({ ...prev, manual_closed: !next }));
+                                      showToast(t("Couldn't update shop status. Try again", "दुकान की स्थिति अपडेट नहीं हो सकी. पुनः प्रयास करें", "দোকানের অবস্থা আপডেট করা যায়নি. আবার চেষ্টা করুন"), 'error');
+                                    }
+                                  } else {
+                                    showToast(
+                                      t(`Your shop is outside its opening hours (${stockistProfile.opening_time}–${stockistProfile.closing_time}). Update your hours in Operational Settings to open now.`,
+                                        `आपकी दुकान खुलने के समय के बाहर है (${stockistProfile.opening_time}–${stockistProfile.closing_time})। अभी खोलने के लिए Operational Settings में अपना समय बदलें।`,
+                                        `আপনার দোকান খোলার সময়ের বাইরে (${stockistProfile.opening_time}–${stockistProfile.closing_time})। এখন খুলতে Operational Settings-এ আপনার সময় পরিবর্তন করুন।`),
+                                      'error'
+                                    );
                                   }
                                 }}
-                                aria-pressed={!stockistProfile.manual_closed}
-                                aria-label={stockistProfile.manual_closed ? t('Shop closed, tap to open', 'दुकान बंद है, खोलने के लिए टैप करें', 'দোকান বন্ধ, খুলতে ট্যাপ করুন') : t('Shop open, tap to close', 'दुकान खुली है, बंद करने के लिए टैप करें', 'দোকান খোলা, বন্ধ করতে ট্যাপ করুন')}
+                                aria-pressed={(isWithinOpeningHours(stockistProfile) && !stockistProfile.manual_closed)}
+                                aria-label={(isWithinOpeningHours(stockistProfile) && !stockistProfile.manual_closed) ? t('Shop open, tap to close', 'दुकान खुली है, बंद करने के लिए टैप करें', 'দোকান খোলা, বন্ধ করতে ট্যাপ করুন') : t('Shop closed, tap to open', 'दुकान बंद है, खोलने के लिए टैप करें', 'দোকান বন্ধ, খুলতে ট্যাপ করুন')}
                               >
-                                <span className="shop-toggle-label">{stockistProfile.manual_closed ? t('CLOSE','बंद','বন্ধ') : t('OPEN','खुला','খোলা')}</span>
+                                <span className="shop-toggle-label">{(isWithinOpeningHours(stockistProfile) && !stockistProfile.manual_closed) ? t('OPEN','खुला','খোলা') : t('CLOSED','बंद','বন্ধ')}</span>
                                 <span className="shop-toggle-knob"></span>
                               </button>
                             </div>
@@ -10219,36 +10237,46 @@ export default function App() {
                       </h3>
 
                       {/* Manual Closure */}
-                      <div className="glass-card" style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem', borderLeft: stockistProfile.manual_closed ? '3px solid var(--danger-color)' : '3px solid var(--success-color)' }}>
+                      <div className="glass-card" style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem', borderLeft: (isWithinOpeningHours(stockistProfile) && !stockistProfile.manual_closed) ? '3px solid var(--success-color)' : '3px solid var(--danger-color)' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <h4 style={{ margin: 0, fontSize: '0.9rem', color: 'white' }}>{t('Shop Status', 'दुकान की स्थिति', 'দোকানের অবস্থা')}: {stockistProfile.manual_closed ? <span style={{color: 'var(--danger-color)'}}>{t('Closed','बंद','বন্ধ')}</span> : <span style={{color: 'var(--success-color)'}}>{t('Open','खुला','খোলা')}</span>}</h4>
+                          <h4 style={{ margin: 0, fontSize: '0.9rem', color: 'white' }}>{t('Shop Status', 'दुकान की स्थिति', 'দোকানের অবস্থা')}: {!(isWithinOpeningHours(stockistProfile) && !stockistProfile.manual_closed) ? <span style={{color: 'var(--danger-color)'}}>{t('Closed','बंद','বন্ধ')}</span> : <span style={{color: 'var(--success-color)'}}>{t('Open','खुला','খোলা')}</span>}</h4>
                           <button
                             type="button"
-                            className={`shop-toggle ${stockistProfile.manual_closed ? 'is-closed' : 'is-open'}`}
+                            className={`shop-toggle ${(isWithinOpeningHours(stockistProfile) && !stockistProfile.manual_closed) ? 'is-open' : 'is-closed'}`}
                             onClick={async () => {
-                              const next = !stockistProfile.manual_closed;
-                              setStockistProfile(prev => ({ ...prev, manual_closed: next, closed_until: '' }));
-                              setShowCustomDate(false);
-                              setClosedUntilPreset(null);
-                              try {
-                                const res = await fetch(`${API_BASE}/stockist/profile`, {
-                                  method: 'PATCH',
-                                  headers: { 'Content-Type': 'application/json', 'X-User-Id': currentUser.id },
-                                  body: JSON.stringify({ manual_closed: next, closed_until: '' })
-                                });
-                                if (!res.ok) throw new Error('save-failed');
-                                const data = await res.json();
-                                if (data.stockist) setStockistProfile(data.stockist);
-                                showToast(next ? 'Shop closed' : 'Shop opened', 'success');
-                              } catch (e) {
-                                setStockistProfile(prev => ({ ...prev, manual_closed: !next }));
-                                showToast("Couldn't update shop status. Try again", 'error');
+                              const withinHours = isWithinOpeningHours(stockistProfile);
+                              if (withinHours || stockistProfile.manual_closed) {
+                                const next = !stockistProfile.manual_closed;
+                                setStockistProfile(prev => ({ ...prev, manual_closed: next, closed_until: '' }));
+                                setShowCustomDate(false);
+                                setClosedUntilPreset(null);
+                                try {
+                                  const res = await fetch(`${API_BASE}/stockist/profile`, {
+                                    method: 'PATCH',
+                                    headers: { 'Content-Type': 'application/json', 'X-User-Id': currentUser.id },
+                                    body: JSON.stringify({ manual_closed: next, closed_until: '' })
+                                  });
+                                  if (!res.ok) throw new Error('save-failed');
+                                  const data = await res.json();
+                                  if (data.stockist) setStockistProfile(data.stockist);
+                                  showToast(next ? t('Shop closed', 'दुकान बंद', 'দোকান বন্ধ') : t('Shop opened', 'दुकान खुली', 'দোকান খোলা'), 'success');
+                                } catch (e) {
+                                  setStockistProfile(prev => ({ ...prev, manual_closed: !next }));
+                                  showToast(t("Couldn't update shop status. Try again", "दुकान की स्थिति अपडेट नहीं हो सकी. पुनः प्रयास करें", "দোকানের অবস্থা আপডেট করা যায়নি. আবার চেষ্টা করুন"), 'error');
+                                }
+                              } else {
+                                showToast(
+                                  t(`Your shop is outside its opening hours (${stockistProfile.opening_time}–${stockistProfile.closing_time}). Update your hours in Operational Settings to open now.`,
+                                    `आपकी दुकान खुलने के समय के बाहर है (${stockistProfile.opening_time}–${stockistProfile.closing_time})। अभी खोलने के लिए Operational Settings में अपना समय बदलें।`,
+                                    `আপনার দোকান খোলার সময়ের বাইরে (${stockistProfile.opening_time}–${stockistProfile.closing_time})। এখন খুলতে Operational Settings-এ আপনার সময় পরিবর্তন করুন।`),
+                                  'error'
+                                );
                               }
                             }}
-                            aria-pressed={!stockistProfile.manual_closed}
-                            aria-label={stockistProfile.manual_closed ? 'Shop closed, tap to open' : 'Shop open, tap to close'}
+                            aria-pressed={(isWithinOpeningHours(stockistProfile) && !stockistProfile.manual_closed)}
+                            aria-label={(isWithinOpeningHours(stockistProfile) && !stockistProfile.manual_closed) ? t('Shop open, tap to close', 'दुकान खुली है, बंद करने के लिए टैप करें', 'দোকান খোলা, বন্ধ করতে ট্যাপ করুন') : t('Shop closed, tap to open', 'दुकान बंद है, खोलने के लिए टैप करें', 'দোকান বন্ধ, খুলতে ট্যাপ করুন')}
                           >
-                            <span className="shop-toggle-label">{stockistProfile.manual_closed ? 'CLOSE' : 'OPEN'}</span>
+                            <span className="shop-toggle-label">{(isWithinOpeningHours(stockistProfile) && !stockistProfile.manual_closed) ? t('OPEN','खुला','খোলা') : t('CLOSED','बंद','বন্ধ')}</span>
                             <span className="shop-toggle-knob"></span>
                           </button>
                         </div>
