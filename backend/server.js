@@ -5678,7 +5678,7 @@ app.post('/api/admin/stockists', async (req, res) => {
 
 app.post('/api/admin/stockists/:id', async (req, res) => {
   const { id } = req.params;
-  const { name, address, opening_time, closing_time, prep_eta_minutes, delivery_radius_km } = req.body;
+  const { name, address, opening_time, closing_time, prep_eta_minutes, delivery_radius_km, region_id, vendor_id, min_order_value, kyc_id_type, kyc_id_number, user_name, user_phone } = req.body;
   const stockists = await db.getTable('stockists');
   const stockist = stockists.find(s => s.id === id);
   if (!stockist) return res.status(404).json({ error: 'Stockist not found' });
@@ -5691,21 +5691,67 @@ app.post('/api/admin/stockists/:id', async (req, res) => {
     return res.status(400).json({ error: 'Closing time must be between 00:00 and 23:59' });
   }
 
-  const before = { name: stockist.name, opening_time: stockist.opening_time, closing_time: stockist.closing_time, prep_eta_minutes: stockist.prep_eta_minutes, delivery_radius_km: stockist.delivery_radius_km };
+  if (region_id) {
+    const regions = await db.getTable('regions');
+    if (!regions.find(r => r.id === region_id)) return res.status(400).json({ error: 'Invalid region_id' });
+  }
+  if (vendor_id) {
+    const vendors = await db.getTable('vendors');
+    const vendor = vendors.find(v => v.id === vendor_id);
+    if (!vendor) return res.status(400).json({ error: 'Invalid vendor_id' });
+    if (region_id && vendor.region_id !== region_id) return res.status(400).json({ error: 'Vendor does not belong to the selected region' });
+  }
+
+  const beforeStockist = { name: stockist.name, opening_time: stockist.opening_time, closing_time: stockist.closing_time, prep_eta_minutes: stockist.prep_eta_minutes, delivery_radius_km: stockist.delivery_radius_km, region_id: stockist.region_id, vendor_id: stockist.vendor_id, min_order_value: stockist.min_order_value };
+  
   if (name) stockist.name = name.trim();
   if (opening_time) stockist.opening_time = opening_time;
   if (closing_time) stockist.closing_time = closing_time;
   if (prep_eta_minutes !== undefined) stockist.prep_eta_minutes = parseInt(prep_eta_minutes);
   if (delivery_radius_km !== undefined) stockist.delivery_radius_km = parseFloat(delivery_radius_km);
+  if (region_id !== undefined) stockist.region_id = region_id;
+  if (vendor_id !== undefined) stockist.vendor_id = vendor_id;
+  if (min_order_value !== undefined) stockist.min_order_value = parseFloat(min_order_value);
   await db.saveTable('stockists', stockists);
   
-  if (address) {
-    const users = await db.getTable('users');
-    const user = users.find(u => u.id === stockist.user_id);
-    if (user) { user.address = address.trim(); await db.saveTable('users', users); }
+  const users = await db.getTable('users');
+  const user = users.find(u => u.id === stockist.user_id);
+  
+  if (user) { 
+    let userUpdated = false;
+    let kycChanged = false;
+    const beforeUser = { address: user.address, name: user.name, phone: user.phone, kyc_id_type: user.kyc_id_type, kyc_id_number: user.kyc_id_number, kyc_details: user.kyc_details };
+    
+    if (address) { user.address = address.trim(); userUpdated = true; }
+    
+    let kyc = user.kyc_details;
+    if (typeof kyc === 'string') { try { kyc = JSON.parse(kyc) } catch(e){ kyc = {} } }
+    kyc = kyc || {};
+
+    const oldIdType = kyc.id_type || user.kyc_id_type;
+    const oldIdNumber = kyc.id_number || user.kyc_id_number;
+
+    if (kyc_id_type && kyc_id_type !== oldIdType) { kyc.id_type = kyc_id_type; user.kyc_id_type = kyc_id_type; kycChanged = true; }
+    if (kyc_id_number && kyc_id_number !== oldIdNumber) { kyc.id_number = kyc_id_number; user.kyc_id_number = kyc_id_number; kycChanged = true; }
+    if (user_name && user_name !== user.name) { user.name = user_name.trim(); kycChanged = true; }
+    if (user_phone && user_phone !== user.phone) { user.phone = user_phone.trim(); kycChanged = true; }
+    
+    if (kycChanged) {
+      user.kyc_status = 'PENDING';
+      user.kyc_details = JSON.stringify(kyc);
+      userUpdated = true;
+      
+      const auditBefore = { name: beforeUser.name, phone: beforeUser.phone, id_type: oldIdType, id_number: oldIdNumber ? maskIdNumber(oldIdNumber) : '' };
+      const auditAfter = { name: user.name, phone: user.phone, id_type: kyc_id_type, id_number: kyc_id_number ? maskIdNumber(kyc_id_number) : '' };
+      await appendAudit(req, 'EDIT_STOCKIST_KYC', 'user', user.id, auditBefore, auditAfter);
+    }
+
+    if (userUpdated) {
+      await db.saveTable('users', users);
+    }
   }
   
-  await appendAudit(req, 'EDIT_STOCKIST', 'stockist', id, before, stockist);
+  await appendAudit(req, 'EDIT_STOCKIST', 'stockist', id, beforeStockist, stockist);
   return res.json({ success: true, stockist });
 });
 

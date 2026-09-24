@@ -833,8 +833,15 @@ export default function App() {
   const [editStkAddress, setEditStkAddress] = useState('');
   const [editStkOpen, setEditStkOpen] = useState('08:00');
   const [editStkClose, setEditStkClose] = useState('20:00');
-  const [editStkEta, setEditStkEta] = useState('15');
-  const [editStkRadius, setEditStkRadius] = useState('3.0');
+  const [editStkEta, setEditStkEta] = useState(15);
+  const [editStkRadius, setEditStkRadius] = useState(3.0);
+  const [editStkRegion, setEditStkRegion] = useState('');
+  const [editStkVendor, setEditStkVendor] = useState('');
+  const [editStkMinOrder, setEditStkMinOrder] = useState(0);
+  const [editStkIdType, setEditStkIdType] = useState('AADHAAR');
+  const [editStkIdNumber, setEditStkIdNumber] = useState('');
+  const [editStkOwnerName, setEditStkOwnerName] = useState('');
+  const [editStkPhone, setEditStkPhone] = useState('');
   const [showCommissionRateModal, setShowCommissionRateModal] = useState(false);
   const [newCommissionRate, setNewCommissionRate] = useState('');
   const [commissionRatePreview, setCommissionRatePreview] = useState(null);
@@ -3747,29 +3754,60 @@ export default function App() {
       showToast(t('Closing time must be between 00:00 and 23:59', 'बंद होने का समय 00:00 और 23:59 के बीच होना चाहिए', 'বন্ধের সময় 00:00 থেকে 23:59 এর মধ্যে হতে হবে'), 'error');
       return;
     }
-    try {
-      const payload = {
-        name: editStkName,
-        address: editStkAddress,
-        opening_time: editStkOpen,
-        closing_time: editStkClose,
-        prep_eta_minutes: editStkEta,
-        delivery_radius_km: editStkRadius
-      };
-      const res = await fetch(`${API_BASE}/admin/stockists/${selectedStockistDetail.id}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      if (res.ok) {
-        showToast('Stockist details updated', 'success');
-        setShowEditStockistModal(false);
-        fetchDbState();
-      } else {
-        const d = await res.json().catch(() => ({}));
-        showToast(d.error || 'Update failed', 'error');
-      }
-    } catch (e) { showToast('Error updating stockist', 'error'); }
+    
+    const doSave = async () => {
+      try {
+        const payload = {
+          name: editStkName,
+          address: editStkAddress,
+          opening_time: editStkOpen,
+          closing_time: editStkClose,
+          prep_eta_minutes: editStkEta,
+          delivery_radius_km: editStkRadius,
+          region_id: editStkRegion,
+          vendor_id: editStkVendor,
+          min_order_value: editStkMinOrder,
+          kyc_id_type: editStkIdType,
+          kyc_id_number: editStkIdNumber,
+          user_name: editStkOwnerName,
+          user_phone: editStkPhone
+        };
+        const res = await fetch(`${API_BASE}/admin/stockists/${selectedStockistDetail.id}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (res.ok) {
+          showToast('Stockist details updated', 'success');
+          setShowEditStockistModal(false);
+          fetchDbState();
+        } else {
+          const d = await res.json().catch(() => ({}));
+          showToast(d.error || 'Update failed', 'error');
+        }
+      } catch (e) { showToast('Error updating stockist', 'error'); }
+    };
+
+    let kycStr = selectedStockistDetail.user?.kyc_details;
+    if (typeof kycStr === 'string') try { kycStr = JSON.parse(kycStr) } catch(e){}
+    const oldId = kycStr?.id_number || selectedStockistDetail.user?.kyc_id_number || '';
+    const oldName = selectedStockistDetail.user?.name || '';
+    const oldPhone = selectedStockistDetail.user?.phone || selectedStockistDetail.phone || '';
+
+    if (
+      (editStkIdNumber && editStkIdNumber !== oldId) || 
+      (editStkOwnerName && editStkOwnerName !== oldName) || 
+      (editStkPhone && editStkPhone !== oldPhone)
+    ) {
+      triggerConfirmModal(
+        t('Identity Change', 'पहचान परिवर्तन', 'পরিচয় পরিবর্তন'),
+        t("You're changing this stockist's identity fields (ID, Name, or Phone). This is logged and may require re-verification. Continue?", "आप इस स्टॉकिस्ट की पहचान बदल रहे हैं। यह लॉग किया जाएगा और पुनः सत्यापन की आवश्यकता हो सकती है। जारी रखें?", "আপনি এই স্টকিস্টের পরিচয় পরিবর্তন করছেন। এটি লগ করা হবে এবং পুনরায় যাচাইকরণের প্রয়োজন হতে পারে। চালিয়ে যাবেন?"),
+        doSave,
+        true
+      );
+    } else {
+      doSave();
+    }
   };
 
   const handlePreviewCommissionRate = async () => {
@@ -11452,8 +11490,30 @@ export default function App() {
                                     }}>
                                       Details
                                     </button>
-                                    <button className="btn btn-secondary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem' }} onClick={() => {
-                                      setSelectedStockistDetail(s); setEditStkName(s.name); setEditStkAddress(s.address || ''); setEditStkOpen(s.opening_time || '08:00'); setEditStkClose(s.closing_time || '20:00'); setEditStkEta(s.prep_eta_minutes || 15); setEditStkRadius(s.delivery_radius_km || 3.0); setShowEditStockistModal(true);
+                                    <button className="btn btn-secondary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem' }} onClick={async () => {
+                                      const res = await fetch(`${API_BASE}/admin/stockists/${s.id}`);
+                                      if (res.ok) {
+                                        const detail = await res.json().catch(() => ({}));
+                                        setSelectedStockistDetail(detail);
+                                        setEditStkName(detail.name);
+                                        setEditStkAddress(detail.address || detail.user?.address || '');
+                                        setEditStkOpen(detail.opening_time || '08:00');
+                                        setEditStkClose(detail.closing_time || '20:00');
+                                        setEditStkEta(detail.prep_eta_minutes || 15);
+                                        setEditStkRadius(detail.delivery_radius_km || 3.0);
+                                        setEditStkRegion(detail.region_id || '');
+                                        setEditStkVendor(detail.vendor_id || '');
+                                        setEditStkMinOrder(detail.min_order_value || 0);
+                                        
+                                        let kyc = detail.user?.kyc_details;
+                                        if (typeof kyc === 'string') { try { kyc = JSON.parse(kyc) } catch(e){} }
+                                        setEditStkIdType(kyc?.id_type || detail.user?.kyc_id_type || 'AADHAAR');
+                                        setEditStkIdNumber(kyc?.id_number || detail.user?.kyc_id_number || '');
+                                        setEditStkOwnerName(detail.user?.name || detail.name || '');
+                                        setEditStkPhone(detail.user?.phone || detail.phone || '');
+                                        
+                                        setShowEditStockistModal(true);
+                                      }
                                     }}>
                                       Edit
                                     </button>
@@ -14251,14 +14311,74 @@ export default function App() {
                   <label htmlFor="edit-stk-eta" className="input-label">
                     {t('Prep ETA (min)', 'तैयारी का समय (मिनट)', 'প্রস্তুতি সময় (মিনিট)')} <span style={{ color: 'var(--danger)' }}>*</span>
                   </label>
-                <NumberStepper id="edit-stk-eta" value={editStkEta} onChange={v => setEditStkEta(parseInt(v, 10))} min={5} max={120} step={5} decimals={0} />
+                  <NumberStepper id="edit-stk-eta" value={editStkEta} onChange={v => setEditStkEta(parseInt(v, 10))} min={5} max={120} step={5} decimals={0} />
+                </div>
+                <div className="input-group">
+                  <label htmlFor="edit-stk-radius" className="input-label">
+                    {t('Delivery Radius (km)', 'डिलीवरी का दायरा (किमी)', 'ডেলিভারি ব্যাসার্ধ (কিমি)')} <span style={{ color: 'var(--danger)' }}>*</span>
+                  </label>
+                  <NumberStepper id="edit-stk-radius" value={editStkRadius} onChange={v => setEditStkRadius(parseFloat(v))} min={0.5} step={0.5} decimals={1} suffix="km" />
                 </div>
               </div>
-              <div className="input-group">
-                <label htmlFor="edit-stk-radius" className="input-label">
-                  {t('Delivery Radius (km)', 'डिलीवरी का दायरा (किमी)', 'ডেলিভারি ব্যাসার্ধ (কিমি)')} <span style={{ color: 'var(--danger)' }}>*</span>
-                </label>
-                <NumberStepper id="edit-stk-radius" value={editStkRadius} onChange={v => setEditStkRadius(parseFloat(v))} min={0.5} step={0.5} decimals={1} suffix="km" />
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.5rem' }}>
+                <div className="input-group">
+                  <label className="input-label">{t('Region', 'क्षेत्र', 'অঞ্চল')} <span style={{ color: 'var(--danger)' }}>*</span></label>
+                  <select className="text-input" value={editStkRegion} onChange={e => setEditStkRegion(e.target.value)}>
+                    <option value="">{t('Select Region...', 'क्षेत्र चुनें...', 'অঞ্চল নির্বাচন করুন...')}</option>
+                    {regions.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                  </select>
+                </div>
+                <div className="input-group">
+                  <label className="input-label">{t('Wholesaler', 'थोक विक्रेता', 'হোলসেলার')} <span style={{ color: 'var(--danger)' }}>*</span></label>
+                  <select className="text-input" value={editStkVendor} onChange={e => setEditStkVendor(e.target.value)}>
+                    <option value="">{t('Select Wholesaler...', 'थोक विक्रेता चुनें...', 'হোলসেলার নির্বাচন করুন...')}</option>
+                    {vendors.filter(v => !editStkRegion || v.region_id === editStkRegion).map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+                  </select>
+                </div>
+                <div className="input-group">
+                  <label className="input-label">{t('Min Order (₹)', 'न्यूनतम ऑर्डर (₹)', 'সর্বনিম্ন অর্ডার (₹)')}</label>
+                  <NumberStepper value={editStkMinOrder} onChange={v => setEditStkMinOrder(parseFloat(v))} min={0} step={50} decimals={0} suffix="₹" />
+                </div>
+              </div>
+
+              <div className="input-group" style={{ padding: '0.75rem', background: 'rgba(255,255,255,0.02)', borderRadius: '6px', border: '1px solid var(--border-color)' }}>
+                <label className="input-label">{t('Commission Rate (Versioned)', 'कमीशन दर (संस्करणित)', 'কমিশন হার (সংস্করণযুক্ত)')}</label>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '1rem', color: 'var(--primary)', fontWeight: 'bold' }}>{selectedStockistDetail?.stockist?.commission_rate ?? selectedStockistDetail?.commission_rate ?? 10}%</span>
+                  <button type="button" className="btn btn-secondary" style={{ fontSize: '0.7rem', padding: '0.2rem 0.5rem' }} onClick={() => { setShowEditStockistModal(false); setShowCommissionRateModal(true); }}>
+                    {t('Change Rate', 'दर बदलें', 'হার পরিবর্তন করুন')}
+                  </button>
+                </div>
+              </div>
+
+              <div style={{ padding: '0.75rem', background: 'rgba(255,0,0,0.02)', borderRadius: '6px', border: '1px solid rgba(255,0,0,0.1)', marginTop: '0.5rem' }}>
+                <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '0.85rem', color: 'var(--warning)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  <ShieldAlert size={14} /> {t('Identity / KYC (Changes are logged)', 'पहचान / KYC (परिवर्तन लॉग किए जाते हैं)', 'পরিচয় / KYC (পরিবর্তন লগ করা হয়)')}
+                </h4>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                  <div className="input-group">
+                    <label className="input-label">{t('Owner Name', 'मालिक का नाम', 'মালিকের নাম')}</label>
+                    <input type="text" className="text-input" value={editStkOwnerName} onChange={e => setEditStkOwnerName(e.target.value)} />
+                  </div>
+                  <div className="input-group">
+                    <label className="input-label">{t('Phone', 'फ़ोन', 'ফোন')}</label>
+                    <input type="text" className="text-input" value={editStkPhone} onChange={e => setEditStkPhone(e.target.value)} />
+                  </div>
+                  <div className="input-group">
+                    <label className="input-label">{t('ID Type', 'पहचान का प्रकार', 'পরিচয়ের ধরন')}</label>
+                    <select className="text-input" value={editStkIdType} onChange={e => setEditStkIdType(e.target.value)}>
+                      <option value="AADHAAR">Aadhaar</option>
+                      <option value="PAN">PAN</option>
+                      <option value="DRIVING_LICENSE">Driving License</option>
+                      <option value="VOTER_ID">Voter ID</option>
+                    </select>
+                  </div>
+                  <div className="input-group">
+                    <label className="input-label">{t('ID Number', 'पहचान संख्या', 'পরিচয় নম্বর')}</label>
+                    <input type="text" className="text-input" value={editStkIdNumber} onChange={e => setEditStkIdNumber(e.target.value)} />
+                  </div>
+                </div>
               </div>
               <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
                 <button className="btn btn-secondary" onClick={() => setShowEditStockistModal(false)}>
