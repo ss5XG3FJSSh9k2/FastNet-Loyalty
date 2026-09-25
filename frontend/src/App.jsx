@@ -718,7 +718,7 @@ export default function App() {
   const [adminTab, setAdminTab] = useState('home');
   const [showAdvanced, setShowAdvanced] = useState(false);
 
-  const ADVANCED_TABS = ['vendors','regions','feedback','anomalies'];
+  const ADVANCED_TABS = ['vendors','regions','anomalies'];
 
   const [tabLastSeen, setTabLastSeen] = useState(() => {
     try { return JSON.parse(localStorage.getItem('adminTabLastSeen') || '{}'); }
@@ -905,6 +905,43 @@ export default function App() {
       })
       .catch(err => console.error(err));
   };
+
+  const fetchAdminPartnerFeedback = () => {
+    adminFetch(`/admin/partner-feedback`)
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data)) setAdminPartnerFeedback(data);
+      })
+      .catch(err => console.error(err));
+  };
+
+  const handleUpdatePartnerFeedback = async () => {
+    if (['RESOLVED', 'DISMISSED'].includes(partnerFeedbackStatus) && partnerFeedbackNotes.trim().length < 10) {
+      showToast('Admin notes must be at least 10 characters for this status.', 'error');
+      return;
+    }
+    try {
+      const res = await adminFetch(`/admin/partner-feedback/${selectedPartnerFeedback.id}/status`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          status: partnerFeedbackStatus, 
+          admin_notes: partnerFeedbackNotes 
+        })
+      });
+      if (res.ok) {
+        showToast('Feedback updated successfully!');
+        setShowPartnerFeedbackModal(false);
+        fetchAdminPartnerFeedback();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        showToast(err.error || 'Failed to update feedback', 'error');
+      }
+    } catch (e) {
+      console.error(e);
+      showToast('Network error', 'error');
+    }
+  };
   const [redemptionApprovalSubTab, setRedemptionApprovalSubTab] = useState('pending');
   const [showApproveRedemptionModal, setShowApproveRedemptionModal] = useState(false);
   const [selectedRedemptionToApprove, setSelectedRedemptionToApprove] = useState(null);
@@ -934,6 +971,11 @@ export default function App() {
   const [allStockistCommissionRates, setAllStockistCommissionRates] = useState([]);
   const [allPointsEarnConfigs, setAllPointsEarnConfigs] = useState([]);
   const [allFeedbackReports, setAllFeedbackReports] = useState([]);
+  const [adminPartnerFeedback, setAdminPartnerFeedback] = useState([]);
+  const [showPartnerFeedbackModal, setShowPartnerFeedbackModal] = useState(false);
+  const [selectedPartnerFeedback, setSelectedPartnerFeedback] = useState(null);
+  const [partnerFeedbackNotes, setPartnerFeedbackNotes] = useState('');
+  const [partnerFeedbackStatus, setPartnerFeedbackStatus] = useState('REVIEWING');
   const [submittingFeedbackOrder, setSubmittingFeedbackOrder] = useState(null);
   const [feedbackRating, setFeedbackRating] = useState(5);
   const [feedbackReason, setFeedbackReason] = useState('');
@@ -2212,6 +2254,7 @@ export default function App() {
         const approvalsRes = await fetch(`${API_BASE}/admin/redemption-approvals`);
         if (approvalsRes.ok) setAdminRedemptionApprovals(await approvalsRes.json().catch(() => ({})));
         fetchAdminPartnerPayouts();
+        fetchAdminPartnerFeedback();
 
         const healthRes = await fetch(`${API_BASE}/admin/health`);
         if (healthRes.ok) setHealthData(await healthRes.json().catch(() => ({})));
@@ -10759,6 +10802,14 @@ export default function App() {
               <button className={`admin-nav-item ${adminTab === 'config' || adminTab === 'rates' || adminTab === 'settings' ? 'active' : ''}`} onClick={() => setAdminTab('config')}>
                 <Settings size={16} /> Settings
               </button>
+              
+              <button className={`admin-nav-item ${adminTab === 'feedback' ? 'active' : ''}`} onClick={() => handleSetAdminTab('feedback')}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <ShieldAlert size={16} /> Feedback & Reports ({allFeedbackReports.length})
+                  {adminPartnerFeedback.filter(f => f.status === 'NEW').length > 0 && <span className="badge badge-warning" style={{ marginLeft: '0.25rem', fontSize: '0.65rem' }}>{adminPartnerFeedback.filter(f => f.status === 'NEW').length}</span>}
+                  {isUnread('feedback') && <span className="unread-dot" aria-label="Unread feedback" />}
+                </span>
+              </button>
 
               {/* Collapsible Advanced Section */}
               <div style={{ marginTop: '0.75rem', paddingTop: '0.5rem', borderTop: '1px solid var(--border-color)' }}>
@@ -10802,12 +10853,7 @@ export default function App() {
                         <FileText size={16} /> Audit Log
                       </span>
                     </button>
-                    <button className={`admin-nav-item ${adminTab === 'feedback' ? 'active' : ''}`} onClick={() => handleSetAdminTab('feedback')}>
-                      <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                        <ShieldAlert size={16} /> Feedback & Reports ({allFeedbackReports.length})
-                        {isUnread('feedback') && <span className="unread-dot" aria-label="Unread feedback" />}
-                      </span>
-                    </button>
+
                     <button className={`admin-nav-item ${adminTab === 'health' ? 'active' : ''}`} onClick={() => { handleSetAdminTab('health'); fetchHealthData(); }}>
                       <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                         <TrendingUp size={16} /> System Health
@@ -10828,6 +10874,17 @@ export default function App() {
                   ⚠️
                   <div>
                     <strong>{t('Open Disputes','खुले विवाद','খোলা বিরোধ')}</strong>: {adminRedemptionApprovals.filter(r => r.status === 'DISPUTED').length} {t('waiting on your resolution','आपके समाधान की प्रतीक्षा','আপনার সমাধানের অপেক্ষায়')}
+                  </div>
+                </div>
+              )}
+              {adminPartnerFeedback.filter(f => f.status === 'NEW').length > 0 && (
+                <div 
+                  onClick={() => { handleSetAdminTab('feedback'); }}
+                  style={{ background: 'rgba(234, 179, 8, 0.1)', border: '1px solid var(--warning)', padding: '1rem', borderRadius: '10px', cursor: 'pointer', marginBottom: '1.25rem', color: 'var(--warning)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+                >
+                  📝
+                  <div>
+                    <strong>{t('New Partner Feedback','नई पार्टनर प्रतिक्रिया','নতুন পার্টনার ফিডব্যাক')}</strong>: {adminPartnerFeedback.filter(f => f.status === 'NEW').length} {t('waiting on your resolution','आपके समाधान की प्रतीक्षा','আপনার সমাধানের অপেক্ষায়')}
                   </div>
                 </div>
               )}
@@ -12939,6 +12996,107 @@ export default function App() {
                       )}
                     </tbody>
                   </table>
+
+                  <h2 style={{ fontSize: '1.4rem', marginBottom: '1rem', marginTop: '3rem' }}>{t('Partner Feedback & Requests', 'पार्टनर प्रतिक्रिया और अनुरोध', 'পার্টনার ফিডব্যাক এবং অনুরোধ')}</h2>
+                  <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
+                    {t('View feedback, issues, and requests from onboarded partners.', 'शामिल किए गए पार्टनर से प्रतिक्रिया, समस्याएं और अनुरोध देखें।', 'অনবোর্ড করা পার্টনারদের থেকে ফিডব্যাক, সমস্যা এবং অনুরোধগুলি দেখুন।')}
+                  </p>
+
+                  <table className="admin-table">
+                    <thead>
+                      <tr>
+                        <th>{t('Date', 'तारीख', 'তারিখ')}</th>
+                        <th>{t('Partner', 'पार्टनर', 'পার্টনার')}</th>
+                        <th>{t('Category', 'श्रेणी', 'বিভাগ')}</th>
+                        <th>{t('Subject', 'विषय', 'বিষয়')}</th>
+                        <th>{t('Status', 'स्थिति', 'অবস্থা')}</th>
+                        <th>{t('Action', 'कार्रवाई', 'কর্ম')}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {adminPartnerFeedback.map(fb => (
+                        <tr key={fb.id}>
+                          <td>{new Date(fb.created_at).toLocaleDateString()}</td>
+                          <td style={{ fontWeight: 'bold' }}>{fb.partner_name}</td>
+                          <td>
+                            <span className="badge badge-primary" style={{ fontSize: '0.65rem' }}>{fb.category}</span>
+                          </td>
+                          <td style={{ fontWeight: 'bold' }}>{fb.subject}</td>
+                          <td>
+                            <span className={`badge ${fb.status === 'NEW' ? 'badge-warning' : fb.status === 'REVIEWING' ? 'badge-primary' : fb.status === 'RESOLVED' ? 'badge-success' : 'badge-danger'}`} style={{ fontSize: '0.65rem' }}>
+                                {fb.status}
+                            </span>
+                          </td>
+                          <td>
+                            <button className="btn btn-secondary" style={{ padding: '0.2rem 0.5rem', fontSize: '0.7rem' }} onClick={() => {
+                              setSelectedPartnerFeedback(fb);
+                              setPartnerFeedbackStatus(fb.status === 'NEW' ? 'REVIEWING' : fb.status);
+                              setPartnerFeedbackNotes(fb.admin_notes || '');
+                              setShowPartnerFeedbackModal(true);
+                            }}>
+                                {t('Respond', 'जवाब दें', 'উত্তর দিন')}
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                      {adminPartnerFeedback.length === 0 && (
+                        <tr>
+                          <td colSpan="6" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
+                            {t('No partner feedback submitted yet.', 'अभी तक कोई पार्टनर प्रतिक्रिया सबमिट नहीं की गई है।', 'এখনো কোনো পার্টনার ফিডব্যাক জমা দেওয়া হয়নি।')}
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+
+                  {showPartnerFeedbackModal && selectedPartnerFeedback && (
+                    <div className="modal-overlay">
+                      <div className="modal-content glass-card" style={{ maxWidth: '500px' }}>
+                        <h3 style={{ marginTop: 0 }}>{t('Respond to Partner Feedback', 'पार्टनर प्रतिक्रिया का जवाब दें', 'পার্টনার ফিডব্যাকের উত্তর দিন')}</h3>
+                        
+                        <div style={{ background: 'var(--bg-surface)', padding: '1rem', borderRadius: '8px', marginBottom: '1rem' }}>
+                            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>
+                                {t('From:', 'से:', 'থেকে:')} <strong>{selectedPartnerFeedback.partner_name}</strong> &bull; {new Date(selectedPartnerFeedback.created_at).toLocaleString()}
+                            </div>
+                            <div style={{ fontSize: '0.9rem', fontWeight: 'bold', marginBottom: '0.5rem' }}>
+                                {selectedPartnerFeedback.subject} ({selectedPartnerFeedback.category})
+                            </div>
+                            <div style={{ fontSize: '0.9rem', whiteSpace: 'pre-wrap' }}>
+                                {selectedPartnerFeedback.message}
+                            </div>
+                        </div>
+
+                        <div className="form-group">
+                          <label>{t('Update Status', 'स्थिति अपडेट करें', 'স্ট্যাটাস আপডেট করুন')}</label>
+                          <select className="text-input" value={partnerFeedbackStatus} onChange={e => setPartnerFeedbackStatus(e.target.value)}>
+                            <option value="NEW">NEW</option>
+                            <option value="REVIEWING">REVIEWING (In Progress)</option>
+                            <option value="RESOLVED">RESOLVED</option>
+                            <option value="DISMISSED">DISMISSED</option>
+                          </select>
+                        </div>
+                        <div className="form-group">
+                          <label>{t('Admin Notes (Visible to Partner)', 'व्यवस्थापक नोट्स (पार्टनर को दिखाई देंगे)', 'অ্যাডমিন নোটস (পার্টনার দেখতে পাবেন)')}</label>
+                          <textarea 
+                            className="text-input" 
+                            rows="3" 
+                            value={partnerFeedbackNotes}
+                            onChange={e => setPartnerFeedbackNotes(e.target.value)}
+                            placeholder={t('Add your response or resolution details here...', 'अपना जवाब या समाधान विवरण यहां जोड़ें...', 'আপনার প্রতিক্রিয়া বা সমাধানের বিবরণ এখানে যোগ করুন...')}
+                          ></textarea>
+                          {['RESOLVED', 'DISMISSED'].includes(partnerFeedbackStatus) && (
+                            <div style={{ fontSize: '0.7rem', color: 'var(--warning)', marginTop: '0.25rem' }}>
+                                * {t('Minimum 10 characters required for RESOLVED/DISMISSED status.', 'RESOLVED/DISMISSED स्थिति के लिए न्यूनतम 10 वर्ण आवश्यक हैं।', 'RESOLVED/DISMISSED স্ট্যাটাসের জন্য ন্যূনতম ১০টি অক্ষর প্রয়োজন।')}
+                            </div>
+                          )}
+                        </div>
+                        <div style={{ display: 'flex', gap: '1rem', marginTop: '1.5rem' }}>
+                          <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setShowPartnerFeedbackModal(false)}>{t('Cancel', 'रद्द करें', 'বাতিল করুন')}</button>
+                          <button className="btn btn-primary" style={{ flex: 1 }} onClick={handleUpdatePartnerFeedback}>{t('Update Feedback', 'प्रतिक्रिया अपडेट करें', 'ফিডব্যাক আপডেট করুন')}</button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
