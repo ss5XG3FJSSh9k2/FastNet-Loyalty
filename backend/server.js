@@ -3491,6 +3491,102 @@ app.get('/api/admin/payouts', async (req, res) => {
   return res.json(payouts);
 });
 
+// GET /api/admin/partner-payouts
+app.get('/api/admin/partner-payouts', async (req, res) => {
+  const authHeader = req.headers.authorization || '';
+  const token = authHeader.replace('Bearer ', '');
+  let decoded;
+  try { decoded = sessionHelper.verifySession(token); } catch (e) { return res.status(401).json({ error: 'Unauthorized' }); }
+  if (!decoded || (!decoded.userId && !decoded.user_id)) return res.status(401).json({ error: 'Unauthorized' });
+  const users = await db.getTable('users');
+  const userId = decoded.userId || decoded.user_id;
+  const user = users.find(u => u.id === userId);
+  if (!user || user.role !== 'ADMIN') return res.status(403).json({ error: 'Forbidden' });
+
+  const partners = await db.getTable('partners');
+  const redemptions = await db.getTable('redemption_approvals');
+  
+  const partnerMap = {};
+  for (const r of redemptions) {
+    if (r.status === 'FULFILLED' && r.partner_paid !== true) {
+      if (!partnerMap[r.partner_id]) {
+        const p = partners.find(p => p.id === r.partner_id);
+        partnerMap[r.partner_id] = {
+          partner_id: r.partner_id,
+          partner_name: p ? p.name : 'Unknown Partner',
+          payout_upi: p ? p.payout_upi : null,
+          payout_bank_account: p ? p.payout_bank_account : null,
+          payout_bank_ifsc: p ? p.payout_bank_ifsc : null,
+          amount_owed: 0,
+          redemption_count: 0
+        };
+      }
+      
+      const faceVal = Number(r.face_value_rupees || r.rupees_value);
+      const { partnerPayout } = await calculatePartnerPayout(faceVal);
+      partnerMap[r.partner_id].amount_owed += partnerPayout;
+      partnerMap[r.partner_id].redemption_count += 1;
+    }
+  }
+
+  const payouts = Object.values(partnerMap);
+  return res.json(payouts);
+});
+
+// POST /api/admin/partner-payouts/:partnerId/mark-paid
+app.post('/api/admin/partner-payouts/:partnerId/mark-paid', async (req, res) => {
+  const authHeader = req.headers.authorization || '';
+  const token = authHeader.replace('Bearer ', '');
+  let decoded;
+  try { decoded = sessionHelper.verifySession(token); } catch (e) { return res.status(401).json({ error: 'Unauthorized' }); }
+  if (!decoded || (!decoded.userId && !decoded.user_id)) return res.status(401).json({ error: 'Unauthorized' });
+  const users = await db.getTable('users');
+  const userId = decoded.userId || decoded.user_id;
+  const user = users.find(u => u.id === userId);
+  if (!user || user.role !== 'ADMIN') return res.status(403).json({ error: 'Forbidden' });
+
+  const { payment_reference } = req.body;
+  if (!payment_reference || payment_reference.length < 4) {
+    return res.status(400).json({ error: 'Valid payment reference (min 4 chars) is required' });
+  }
+
+  const partnerId = req.params.partnerId;
+  const redemptions = await db.getTable('redemption_approvals');
+  
+  const now = new Date().toISOString();
+  let paidCount = 0;
+  let paidAmount = 0;
+
+  for (const r of redemptions) {
+    if (r.partner_id === partnerId && r.status === 'FULFILLED' && r.partner_paid !== true) {
+      r.partner_paid = true;
+      r.partner_payout_ref = payment_reference;
+      r.partner_payout_at = now;
+      await db.updateRow('redemption_approvals', r.id, r);
+      
+      const faceVal = Number(r.face_value_rupees || r.rupees_value);
+      const { partnerPayout } = await calculatePartnerPayout(faceVal);
+      paidAmount += partnerPayout;
+      paidCount++;
+    }
+  }
+
+  if (paidCount > 0) {
+    await db.appendAudit({
+      id: 'aud-' + Date.now() + '-' + Math.random().toString(36).substr(2,5),
+      admin_id: user.id,
+      admin_name: user.name,
+      action: 'PARTNER_PAYOUT_PAID',
+      target_type: 'PARTNER',
+      target_id: partnerId,
+      details: { payment_reference, count: paidCount, amount: paidAmount },
+      created_at: now
+    });
+  }
+
+  return res.json({ success: true, count: paidCount, amount: paidAmount });
+});
+
 // POST /api/admin/payouts/mark-paid
 app.post('/api/admin/payouts/mark-paid', async (req, res) => {
   const authHeader = req.headers.authorization || '';

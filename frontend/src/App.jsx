@@ -895,6 +895,16 @@ export default function App() {
   const [promoteRegionId, setPromoteRegionId] = useState('');
 
   const [adminRedemptionApprovals, setAdminRedemptionApprovals] = useState([]);
+  const [adminPartnerPayouts, setAdminPartnerPayouts] = useState([]);
+
+  const fetchAdminPartnerPayouts = () => {
+    adminFetch(`/admin/partner-payouts`)
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data)) setAdminPartnerPayouts(data);
+      })
+      .catch(err => console.error(err));
+  };
   const [redemptionApprovalSubTab, setRedemptionApprovalSubTab] = useState('pending');
   const [showApproveRedemptionModal, setShowApproveRedemptionModal] = useState(false);
   const [selectedRedemptionToApprove, setSelectedRedemptionToApprove] = useState(null);
@@ -949,6 +959,7 @@ export default function App() {
   const [payoutFilter, setPayoutFilter] = useState("UNPAID");
   const [selectedPayoutIds, setSelectedPayoutIds] = useState([]);
   const [paymentRefModalOpen, setPaymentRefModalOpen] = useState(false);
+  const [markingPartnerId, setMarkingPartnerId] = useState(null);
   const [paymentRefValue, setPaymentRefValue] = useState("");
   const [adminCodCommission, setAdminCodCommission] = useState([]);
 
@@ -1589,6 +1600,32 @@ export default function App() {
     }
   };
 
+  const handleMarkPartnerPayoutPaid = async () => {
+    if (paymentRefValue.length < 4) {
+      showToast('Payment reference must be at least 4 characters', 'error');
+      return;
+    }
+    try {
+      const res = await adminFetch(`/admin/partner-payouts/${markingPartnerId}/mark-paid`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ payment_reference: paymentRefValue })
+      });
+      if (res.ok) {
+        showToast('Successfully marked partner payout as paid!');
+        setMarkingPartnerId(null);
+        setPaymentRefValue('');
+        fetchAdminPartnerPayouts();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        showToast(data.message || data.error || 'Request failed', 'error');
+      }
+    } catch (e) {
+      console.error(e);
+      showToast(t('Network error', 'नेटवर्क त्रुटि', 'নেটওয়ার্ক ত্রুটি'), 'error');
+    }
+  };
+
   const fetchAdminVendors = async (includeInactive = showInactiveVendors) => {
     try {
       const res = await adminFetch(`/admin/vendors${includeInactive ? '?include_inactive=true' : ''}`);
@@ -2174,6 +2211,7 @@ export default function App() {
 
         const approvalsRes = await fetch(`${API_BASE}/admin/redemption-approvals`);
         if (approvalsRes.ok) setAdminRedemptionApprovals(await approvalsRes.json().catch(() => ({})));
+        fetchAdminPartnerPayouts();
 
         const healthRes = await fetch(`${API_BASE}/admin/health`);
         if (healthRes.ok) setHealthData(await healthRes.json().catch(() => ({})));
@@ -10604,7 +10642,8 @@ export default function App() {
     const refundDueCount = dbState?.orders?.filter(o => o.payment_status === 'REFUND_DUE').length || 0;
     const payoutsDue = (adminPayouts || []).filter(p => !p.is_paid && p.direction === 'OUTGOING');
     const commissionOwed = (adminPayouts || []).filter(p => !p.is_paid && p.source === 'cod_commission_ledger');
-    const UNPAID = payoutsDue.length + commissionOwed.length;
+    const partnerPayoutsDue = adminPartnerPayouts.filter(p => p.amount_owed > 0);
+    const UNPAID = payoutsDue.length + commissionOwed.length + partnerPayoutsDue.length;
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.75rem', width: '100%' }}>
         <div className="perspective-banner">
@@ -10865,6 +10904,20 @@ export default function App() {
                   </div>
                   <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: commissionOwed.length > 0 ? 'var(--primary)' : '#4ade80' }}>
                     ₹{commissionOwed.reduce((sum, p) => sum + (p.amount || 0), 0).toFixed(2)}
+                  </div>
+                  
+                  <div style={{ height: '1px', background: 'rgba(255,255,255,0.1)', margin: '0.25rem 0' }}></div>
+                  
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: '600', textTransform: 'uppercase' }}>
+                      {t('Partner Payouts Due', 'पार्टनर भुगतान बकाया', 'পার্টনার পেমেন্ট বকেয়া')}
+                    </div>
+                    <span className={`badge ${partnerPayoutsDue.length > 0 ? 'badge-warning' : 'badge-success'}`} style={{ fontSize: '0.65rem' }}>
+                      {partnerPayoutsDue.length} pending
+                    </span>
+                  </div>
+                  <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: partnerPayoutsDue.length > 0 ? 'var(--warning)' : '#4ade80' }}>
+                    ₹{partnerPayoutsDue.reduce((sum, p) => sum + (p.amount_owed || 0), 0).toFixed(2)}
                   </div>
                 </div>
               </div>
@@ -13289,12 +13342,7 @@ export default function App() {
 
               {adminTab === 'transactions' && (
                 <div>
-                  <h2 style={{ fontSize: '1.4rem', marginBottom: '1rem' }}>All Marketplace Transactions</h2>
-                  <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
-                    Full visibility into orders, split commissions, and points generated across Garia & Bishnupur regions.
-                  </p>
-
-                  {paymentRefModalOpen && (
+                  {(paymentRefModalOpen || markingPartnerId) && (
                     <div className="modal-overlay">
                       <div className="modal-content glass-card" style={{ maxWidth: '400px' }}>
                         <h3 style={{ marginTop: 0 }}>Mark as Paid / Received</h3>
@@ -13312,12 +13360,66 @@ export default function App() {
                           />
                         </div>
                         <div style={{ display: 'flex', gap: '1rem', marginTop: '1.5rem' }}>
-                          <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => { setPaymentRefModalOpen(false); setSelectedPayoutIds([]); }}>Cancel</button>
-                          <button className="btn btn-primary" style={{ flex: 1 }} onClick={handleMarkPayoutsPaid}>Confirm Payment</button>
+                          <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => { setPaymentRefModalOpen(false); setMarkingPartnerId(null); setSelectedPayoutIds([]); }}>Cancel</button>
+                          <button className="btn btn-primary" style={{ flex: 1 }} onClick={markingPartnerId ? handleMarkPartnerPayoutPaid : handleMarkPayoutsPaid}>Confirm Payment</button>
                         </div>
                       </div>
                     </div>
                   )}
+
+                  <h2 style={{ fontSize: '1.4rem', marginBottom: '1rem' }}>Partner Payouts</h2>
+                  <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
+                    Outstanding payouts owed to partners for fulfilled redemptions.
+                  </p>
+                  
+                  <table className="admin-table" style={{ marginBottom: '3rem' }}>
+                    <thead>
+                      <tr>
+                        <th>Partner</th>
+                        <th>Payout Details</th>
+                        <th>Redemptions</th>
+                        <th>Amount Owed</th>
+                        <th>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {adminPartnerPayouts.length === 0 ? (
+                        <tr>
+                          <td colSpan="5" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
+                            No outstanding partner payouts.
+                          </td>
+                        </tr>
+                      ) : adminPartnerPayouts.map(p => (
+                        <tr key={p.partner_id}>
+                          <td>{p.partner_name}</td>
+                          <td style={{ fontSize: '0.8rem' }}>
+                            UPI: {p.payout_upi || 'N/A'}<br/>
+                            Bank: {p.payout_bank_account ? `${p.payout_bank_account} (IFSC: ${p.payout_bank_ifsc})` : 'N/A'}
+                          </td>
+                          <td>{p.redemption_count}</td>
+                          <td style={{ fontWeight: 'bold' }}>₹{p.amount_owed}</td>
+                          <td>
+                            <button 
+                                className="btn btn-primary" 
+                                style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem' }}
+                                onClick={() => {
+                                    setMarkingPartnerId(p.partner_id);
+                                }}
+                            >
+                                Mark Paid
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+
+                  <h2 style={{ fontSize: '1.4rem', marginBottom: '1rem' }}>Stockist Payouts / Transactions</h2>
+                  <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
+                    Full visibility into orders, split commissions, and points generated across Garia & Bishnupur regions.
+                  </p>
+
+
 
                   <table className="admin-table">
                     <thead>
