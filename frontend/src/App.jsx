@@ -1132,8 +1132,6 @@ export default function App() {
   const [rejectReasonText, setRejectReasonText] = useState('');
   const [showRejectBillModal, setShowRejectBillModal] = useState(false);
   const [viewingBillModal, setViewingBillModal] = useState(null);
-  const [customerProvenanceProduct, setCustomerProvenanceProduct] = useState(null);
-  const [customerProvenanceHistory, setCustomerProvenanceHistory] = useState([]);
   const [billImgErrors, setBillImgErrors] = useState({});
 
   const formatBillDate = (dateVal) => {
@@ -8060,17 +8058,6 @@ export default function App() {
                                       <h4 style={{ fontSize: '0.75rem', color: 'white', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
                                           {p.name}
                                         </h4>
-                                        <button 
-                                          style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: '0.6rem', padding: 0, cursor: 'pointer', textAlign: 'left', display: 'block', marginTop: '0.1rem' }}
-                                          onClick={() => {
-                                            setCustomerProvenanceProduct(p);
-                                            fetch(`${API_BASE}/products/${p.id}/bill-history`)
-                                              .then(res => res.json())
-                                              .then(data => setCustomerProvenanceHistory(data));
-                                          }}
-                                        >
-                                          View price provenance
-                                        </button>
                                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.2rem' }}>
                                         <span style={{ fontWeight: 'bold', fontSize: '0.85rem' }}>₹{p.price}</span>
                                         {hasCostPrice ? (
@@ -14911,43 +14898,6 @@ export default function App() {
             <div style={{ marginTop: '1rem', fontSize: '0.75rem', color: 'var(--text-muted)', textAlign: 'left' }}>
               <p>Uploaded: {formatBillDate(viewingBillModal.uploaded_at || viewingBillModal.created_at)}</p>
               <p>Selling Price: {formatBillPrice(viewingBillModal.selling_price_at_upload ?? viewingBillModal.declared_price)} | Cost: {formatBillPrice(viewingBillModal.cost_price_at_upload ?? viewingBillModal.declared_cost_price)}</p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Customer Price Provenance Modal */}
-      {customerProvenanceProduct && (
-        <div className="modal-overlay">
-          <div className="modal-content glass-card" style={{ maxWidth: '450px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-              <h3 style={{ fontSize: '1.1rem', margin: 0 }}>Price Provenance & Integrity</h3>
-              <button className="btn btn-secondary" style={{ padding: '0.2rem 0.5rem' }} onClick={() => setCustomerProvenanceProduct(null)}><X size={14} /></button>
-            </div>
-            <p style={{ fontSize: '0.85rem', fontWeight: 'bold' }}>{customerProvenanceProduct.name}</p>
-            <div style={{ background: 'var(--bg-surface)', padding: '0.75rem', borderRadius: '6px', margin: '0.75rem 0', fontSize: '0.8rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', margin: '0.25rem 0' }}>
-                <span>Listed Selling Price:</span>
-                <strong>₹{customerProvenanceProduct.price}</strong>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', margin: '0.25rem 0' }}>
-                <span>Verified Wholesale Cost:</span>
-                <span>₹{customerProvenanceProduct.cost_price}</span>
-              </div>
-            </div>
-
-
-
-            <h4 style={{ fontSize: '0.85rem', marginBottom: '0.5rem' }}>Wholesale Bill Upload History</h4>
-            <div style={{ maxHeight: '150px', overflowY: 'auto' }}>
-              {customerProvenanceHistory.map(b => (
-                <div key={b.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.75rem', padding: '0.3rem 0', borderBottom: '1px dashed rgba(255,255,255,0.05)' }}>
-                  <span>{formatBillDate(b.uploaded_at || b.created_at)}</span>
-                  <span>Cost: {formatBillPrice(b.cost_price_at_upload ?? b.declared_cost_price)} → Price: {formatBillPrice(b.selling_price_at_upload ?? b.declared_price)}</span>
-                  <span className={`badge ${b.bill_status === 'REJECTED' ? 'badge-danger' : b.bill_status === 'VERIFIED' ? 'badge-success' : 'badge-warning'}`}>{b.bill_status || 'PENDING'}</span>
-                </div>
-              ))}
-              {customerProvenanceHistory.length === 0 && <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>No bill history records found.</p>}
             </div>
           </div>
         </div>
