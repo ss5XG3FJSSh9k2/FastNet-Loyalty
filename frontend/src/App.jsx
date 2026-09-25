@@ -1,6 +1,5 @@
 /* global FormData, URLSearchParams */
-/* eslint-disable react-hooks/exhaustive-deps */
- 
+
 /* global CustomEvent, Notification */
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
@@ -3026,13 +3025,17 @@ export default function App() {
 
   const updateCartQty = (productId, stockistId, change) => {
     setCustomerCart(prev => {
-      return prev.map(item => {
+      const nextCart = prev.map(item => {
         if (item.product.id === productId && item.stockistId === stockistId) {
           const newQty = item.quantity + change;
           return newQty > 0 ? { ...item, quantity: newQty } : null;
         }
         return item;
       }).filter(Boolean);
+      if (nextCart.length === 0) {
+        setTimeout(() => setCustomerAppTab(current => current === 'cart' ? 'store' : current), 0);
+      }
+      return nextCart;
     });
   };
 
@@ -8103,32 +8106,53 @@ export default function App() {
                         </>
                       )}
 
-                      {/* Floating Unified Cart Panel */}
+                      {/* Bottom Cart Bar (Swiggy style) */}
                       {customerCart.length > 0 && (
-                        <div style={{ position: 'sticky', bottom: '0', background: 'var(--bg-surface-elevated)', border: '1px solid var(--primary)', borderRadius: '8px', padding: '0.85rem', display: 'flex', flexDirection: 'column', gap: '0.65rem', marginTop: 'auto', boxShadow: '0 -5px 15px rgba(0,0,0,0.5)', zIndex: 50 }}>
-                          
+                        <div style={{ position: 'sticky', bottom: '-0.5rem', margin: '0.5rem -0.5rem -0.5rem -0.5rem', 
+                          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                          background: 'var(--accent)', color: 'white', padding: '0.75rem 1rem',
+                          borderRadius: '10px', cursor: 'pointer', boxShadow: '0 -4px 12px rgba(0,0,0,0.4)', zIndex: 50 }}
+                          onClick={() => setCustomerAppTab('cart')}>
+                          <div>
+                            <div style={{ fontWeight: 700 }}>{customerCart.reduce((n,i)=>n+i.quantity,0)} {t('items','आइटम','আইটেম')} · ₹{cartSubtotal.toFixed(2)}</div>
+                            <div style={{ fontSize: '0.6rem', opacity: 0.9 }}>{t('Est. rewards','अनुमानित','সম্ভাব্য')}: +{formatPoints(estimatedEarnPoints)} pts</div>
+                          </div>
+                          <div style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.25rem' }}>{t('View Cart','कार्ट देखें','কার্ট দেখুন')} <ArrowRight size={16} /></div>
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  {customerAppTab === 'cart' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: '0.75rem', position: 'relative' }}>
+                      {/* Cart Header */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', paddingBottom: '0.5rem', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+                        <button onClick={() => setCustomerAppTab('store')} style={{ background: 'none', border: 'none', color: 'white', cursor: 'pointer' }}>
+                          <ArrowLeft size={20} />
+                        </button>
+                        <h2 style={{ fontSize: '1.1rem', margin: 0 }}>{t('Your Cart', 'आपका कार्ट', 'আপনার কার্ট')}</h2>
+                      </div>
+
+                      {customerCart.length === 0 ? (
+                        <div style={{ textAlign: 'center', padding: '2rem 1rem', color: 'var(--text-muted)' }}>
+                          <p>{t('Your cart is empty.', 'आपका कार्ट खाली है।', 'আপনার কার্ট খালি।')}</p>
+                          <button className="btn btn-primary" style={{ marginTop: '1rem' }} onClick={() => setCustomerAppTab('store')}>
+                            {t('Browse Shops', 'दुकानें ब्राउज़ करें', 'দোকান ব্রাউজ করুন')}
+                          </button>
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', flex: 1, gap: '1rem' }}>
                           {/* Segment Picker for Pickup/Delivery */}
                           <div style={{ display: 'flex', background: 'rgba(255,255,255,0.05)', borderRadius: '8px', padding: '0.2rem', gap: '0.2rem' }}>
                             <button
                               type="button"
                               onClick={() => setCartFulfillment('PICKUP')}
                               style={{
-                                flex: 1,
-                                padding: '0.5rem',
-                                fontSize: '0.75rem',
-                                fontWeight: 'bold',
-                                borderRadius: '6px',
-                                border: 'none',
-                                cursor: 'pointer',
-                                background: cartFulfillment === 'PICKUP' ? 'var(--primary)' : 'transparent',
-                                color: 'white',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                gap: '0.25rem'
+                                flex: 1, padding: '0.6rem', fontSize: '0.8rem', fontWeight: 'bold', borderRadius: '6px', border: 'none', cursor: 'pointer',
+                                background: cartFulfillment === 'PICKUP' ? 'var(--primary)' : 'transparent', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.35rem'
                               }}
                             >
-                              <Key size={14} />
+                              <Key size={16} />
                               {t('Store Pickup', 'स्टोर पिकअप', 'দোকান থেকে পিকআপ')}
                             </button>
                             {(() => {
@@ -8136,201 +8160,151 @@ export default function App() {
                               const multiStore = storeCount > 1;
                               return (
                                 <button
-                                  type="button"
-                                  disabled={multiStore}
-                                  onClick={() => !multiStore && setCartFulfillment('DELIVERY')}
+                                  type="button" disabled={multiStore} onClick={() => !multiStore && setCartFulfillment('DELIVERY')}
                                   title={multiStore ? t('Multi-store orders: pickup only', 'मल्टी-स्टोर: केवल पिकअप', 'একাধিক দোকান: শুধুমাত্র পিকআপ') : ''}
                                   style={{
-                                    flex: 1,
-                                    padding: '0.5rem',
-                                    fontSize: '0.75rem',
-                                    fontWeight: 'bold',
-                                    borderRadius: '6px',
-                                    border: 'none',
-                                    cursor: multiStore ? 'not-allowed' : 'pointer',
-                                    opacity: multiStore ? 0.4 : 1,
-                                    background: cartFulfillment === 'DELIVERY' ? 'var(--primary)' : 'transparent',
-                                    color: 'white',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    gap: '0.25rem'
+                                    flex: 1, padding: '0.6rem', fontSize: '0.8rem', fontWeight: 'bold', borderRadius: '6px', border: 'none',
+                                    cursor: multiStore ? 'not-allowed' : 'pointer', opacity: multiStore ? 0.4 : 1,
+                                    background: cartFulfillment === 'DELIVERY' ? 'var(--primary)' : 'transparent', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.35rem'
                                   }}
                                 >
-                                  <Truck size={14} />
+                                  <Truck size={16} />
                                   {t('Home Delivery', 'होम डिलीवरी', 'হোম ডেলিভারি')}
-                                  {multiStore && <span style={{ fontSize: '0.5rem', display: 'block' }}>(multi-store: pickup only)</span>}
+                                  {multiStore && <span style={{ fontSize: '0.55rem', display: 'block' }}>(multi-store: pickup only)</span>}
                                 </button>
                               );
                             })()}
                           </div>
 
-                          <div className="cart-header" onClick={() => setCartExpanded(!cartExpanded)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', userSelect: 'none', paddingBottom: '0.2rem' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                              {cartExpanded ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
-                              <span style={{ fontSize: '0.85rem', fontWeight: 'bold' }}>{t(`${customerCart.length} Items Selected`, `${customerCart.length} सामान चुना गया`, `${customerCart.length}টি পণ্য নির্বাচন করা হয়েছে`)}</span>
-                            </div>
-                            <span style={{ fontSize: '0.95rem', fontWeight: 'bold', color: 'var(--accent)' }}>₹{cartTotal.toFixed(2)}</span>
+                          {/* Items List */}
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                            {customerCart.map(item => (
+                              <div key={`${item.product.id}-${item.stockistId}`} className="glass-card" style={{ padding: '0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', flex: 1, paddingRight: '0.5rem' }}>
+                                  <span style={{ fontWeight: 'bold', fontSize: '0.85rem' }}>{item.product.name}</span>
+                                  <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>{item.stockistName}</span>
+                                  <span style={{ fontSize: '0.85rem', color: 'var(--accent)', fontWeight: 'bold' }}>₹{item.product.price}</span>
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', background: 'rgba(255,255,255,0.05)', borderRadius: '6px', padding: '0.25rem 0.5rem' }}>
+                                  <button onClick={() => updateCartQty(item.product.id, item.stockistId, -1)} style={{ background: 'none', border: 'none', color: 'white', cursor: 'pointer', padding: '0.25rem' }}><Minus size={14} /></button>
+                                  <span style={{ fontWeight: 'bold', fontSize: '0.9rem', width: '20px', textAlign: 'center' }}>{item.quantity}</span>
+                                  <button onClick={() => updateCartQty(item.product.id, item.stockistId, 1)} style={{ background: 'none', border: 'none', color: 'white', cursor: 'pointer', padding: '0.25rem' }}><Plus size={14} /></button>
+                                </div>
+                              </div>
+                            ))}
                           </div>
 
-                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem', color: 'var(--text-muted)' }}>
-                            <span>{t('Subtotal', 'उप-योग', 'উপ-মোট')}: ₹{cartSubtotal}</span>
-                            <span>{t('Est. Rewards', 'अनुमानित पुरस्कार', 'সম্ভাব‍্য পয়েন্ট')}: <strong style={{ color: 'var(--accent)' }}>+{formatPoints(estimatedEarnPoints)}</strong></span>
-                          </div>
-                          <div style={{ fontSize: '0.55rem', color: 'var(--warning)', marginTop: '0.2rem', textAlign: 'center' }}>
-                            {t('Note: In case of cancellation, a platform commission is retained as a fee.', 'ध्यान दें: रद्दीकरण के मामले में, शुल्क के रूप में प्लेटफ़ॉर्म कमीशन बरकरार रखा जाता है।', 'দ্রষ্টব্য: বাতিলের ক্ষেত্রে, একটি প্ল্যাটফর্ম কমিশন ফি হিসাবে বজায় রাখা হয়।')}
-                          </div>
+                          {/* Compulsory Pickup Slot Picker (PICKUP only, per store) */}
+                          {(() => {
+                            if (cartFulfillment !== 'PICKUP') return null;
+                            const groups = {};
+                            customerCart.forEach(item => { if (!groups[item.stockistId]) groups[item.stockistId] = item.stockistName; });
+                            const groupEntries = Object.entries(groups);
+                            return (
+                              <div className="pickup-slot-picker-block" style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', border: slotError ? '1px solid var(--danger)' : '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', padding: '1rem', backgroundColor: 'rgba(255,255,255,0.03)' }}>
+                                <div className="pickup-slot-label" style={{ fontSize: '0.9rem', color: slotError ? 'var(--danger)' : 'white', display: 'flex', alignItems: 'center', gap: '0.4rem', fontWeight: 'bold' }}>
+                                  <Clock size={14} /> {t('Select Pickup Slot (Required)', 'पिकअप समय चुनें (आवश्यक)', 'পিকআপ সময় নির্বাচন করুন (প্রয়োজনীয়)')}
+                                </div>
+                                {groupEntries.length === 0 ? (
+                                  <div style={{ color: 'var(--danger)', fontSize: '0.8rem', padding: '0.25rem 0' }}>Could not determine which shop this order is from. Please remove and re-add your items.</div>
+                                ) : (
+                                  groupEntries.map(([sid, sName]) => {
+                                    const stockist = customerStockists.find(s => s.id === sid) || { id: sid, opening_time: '08:00', closing_time: '20:00', prep_eta_minutes: 10 };
+                                    let SLOTS = [];
+                                    let slotErr = null;
+                                    try { SLOTS = getAvailableSlots(stockist); } catch (err) { slotErr = err; }
+                                    if (slotErr) return <div key={sid} style={{ fontSize: '0.8rem', color: 'var(--danger)', padding: '0.2rem 0' }}><strong>{sName}:</strong> Could not load pickup times.</div>;
+                                    if (!SLOTS || SLOTS.length === 0) return <div key={sid} style={{ fontSize: '0.8rem', color: 'var(--danger)', padding: '0.2rem 0' }}><strong>{sName}:</strong> This shop has no pickup times available. Please choose Home Delivery or try another shop.</div>;
+                                    return (
+                                      <div key={sid} style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{sName}:</div>
+                                        <select className="text-input" style={{ fontSize: '0.85rem', padding: '0.6rem' }} value={cartPickupSlots[sid] || ''} onChange={e => { setCartPickupSlots(prev => ({ ...prev, [sid]: e.target.value })); setSlotError(false); }}>
+                                          <option value="">{t('-- Pick a time slot --', '-- समय स्लॉट चुनें --', '-- समय स्लॉट বেছে নিন --')}</option>
+                                          {SLOTS.map(slot => <option key={slot.value} value={slot.value}>{slot.label}</option>)}
+                                        </select>
+                                      </div>
+                                    );
+                                  })
+                                )}
+                              </div>
+                            );
+                          })()}
 
+                          {/* Delivery Address (DELIVERY only) */}
                           {cartFulfillment === 'DELIVERY' && (
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem', color: 'var(--secondary)', fontWeight: 'bold' }}>
-                              <span>{t('Delivery Fee', 'डिलिवरी शुल्क', 'ডেলিভারি চার্জ')}:</span>
-                              <span>₹{cartDeliveryFee.toFixed(2)}</span>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', padding: '1rem', backgroundColor: 'rgba(255,255,255,0.03)' }}>
+                              <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 'bold' }}>
+                                {t('Delivery Address', 'डिलीवरी का पता', 'ডেলিভারি ঠিকানা')} <span style={{ color: 'var(--danger)' }}>*</span>
+                              </label>
+                              <textarea
+                                className="text-input" style={{ height: '70px', fontSize: '0.85rem', width: '100%', resize: 'none' }}
+                                placeholder={t('Enter delivery address (minimum 5 characters)...', 'डिलीवरी पता दर्ज करें (कम से कम 5 अक्षर)...', 'ডেলিভারি ঠিকানা লিখুন (কমপক্ষে ৫টি অক্ষর)...')}
+                                value={deliveryAddress !== undefined && deliveryAddress !== '' ? deliveryAddress : (profileAddress || currentUser?.address || '')}
+                                onChange={e => setDeliveryAddress(e.target.value)}
+                              />
+                              {((deliveryAddress !== undefined && deliveryAddress !== '' ? deliveryAddress : (profileAddress || currentUser?.address || '')).trim().length < 5) && (
+                                <small style={{ color: 'var(--danger)', fontSize: '0.7rem' }}>
+                                  {t('Address must be at least 5 characters', 'पता कम से कम 5 अक्षरों का होना चाहिए', 'ঠিকানা কমপক্ষে ৫টি অক্ষরের হতে হবে')}
+                                </small>
+                              )}
                             </div>
                           )}
 
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', borderTop: '1px solid var(--border-color)', paddingTop: '0.4rem', maxHeight: '100px', overflowY: 'auto' }}>
-                                  {customerCart.map(item => (
-                                    <div key={`${item.product.id}-${item.stockistId}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.7rem' }}>
-                                      <span style={{ textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', width: '130px' }}>{item.product.name} ({item.stockistName})</span>
-                                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                                        <button onClick={() => updateCartQty(item.product.id, item.stockistId, -1)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}><Minus size={10} /></button>
-                                        <span>{item.quantity}</span>
-                                        <button onClick={() => updateCartQty(item.product.id, item.stockistId, 1)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}><Plus size={10} /></button>
-                                      </div>
-                                    </div>
-                                  ))}
-                                </div>
-                                {/* §E13: Compulsory Pickup Slot Picker (PICKUP only, per store) */}
-                                {(() => {
-                                  if (cartFulfillment !== 'PICKUP') return null;
-
-                                  const groups = {};
-                                  customerCart.forEach(item => {
-                                    if (!groups[item.stockistId]) groups[item.stockistId] = item.stockistName;
-                                  });
-
-                                  const groupEntries = Object.entries(groups);
-
-                                  let totalSlotsAcrossShops = 0;
-                                  groupEntries.forEach(([sid]) => {
-                                    const stockist = customerStockists.find(s => s.id === sid) || { id: sid, opening_time: '08:00', closing_time: '20:00', prep_eta_minutes: 10 };
-                                    try {
-                                      const sArr = getAvailableSlots(stockist);
-                                      if (Array.isArray(sArr)) totalSlotsAcrossShops += sArr.length;
-                                    } catch (e) {
-                                      // count as 0 on error
-                                    }
-                                  });
-
-                                  return (
-                                    <div className="pickup-slot-picker-block" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', border: slotError ? '1px solid var(--danger)' : '1px dashed rgba(255,255,255,0.15)', borderRadius: '6px', padding: '0.75rem', backgroundColor: 'rgba(255,255,255,0.03)', marginTop: '0.25rem' }}>
-                                      {isDevMode && (
-                                        <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>
-                                          fulfilment={cartFulfillment} · shops={groupEntries.length} · slots={totalSlotsAcrossShops}
-                                        </div>
-                                      )}
-
-                                      <div className="pickup-slot-label" style={{ fontSize: '0.85rem', color: slotError ? 'var(--danger)' : 'white', display: 'flex', alignItems: 'center', gap: '0.35rem', fontWeight: 'bold' }}>
-                                        <Clock size={10} /> {t('Select Pickup Slot (Required)', 'पिकअप समय चुनें (आवश्यक)', 'পিকআপ সময় নির্বাচন করুন (প্রয়োজনীয়)')}
-                                      </div>
-
-                                      {groupEntries.length === 0 ? (
-                                        <div style={{ color: 'var(--danger)', fontSize: '0.75rem', padding: '0.25rem 0' }}>
-                                          Could not determine which shop this order is from. Please remove and re-add your items.
-                                        </div>
-                                      ) : (
-                                        groupEntries.map(([sid, sName]) => {
-                                          const stockist = customerStockists.find(s => s.id === sid) || { id: sid, opening_time: '08:00', closing_time: '20:00', prep_eta_minutes: 10 };
-                                          let SLOTS = [];
-                                          let slotErr = null;
-                                          try {
-                                            SLOTS = getAvailableSlots(stockist);
-                                          } catch (err) {
-                                            console.error('Error fetching available slots for stockist:', err);
-                                            slotErr = err;
-                                          }
-
-                                          if (slotErr) {
-                                            return (
-                                              <div key={sid} style={{ fontSize: '0.75rem', color: 'var(--danger)', padding: '0.2rem 0' }}>
-                                                <strong>{sName}:</strong> Could not load pickup times.
-                                              </div>
-                                            );
-                                          }
-
-                                          if (!SLOTS || SLOTS.length === 0) {
-                                            return (
-                                              <div key={sid} style={{ fontSize: '0.75rem', color: 'var(--danger)', padding: '0.2rem 0' }}>
-                                                <strong>{sName}:</strong> This shop has no pickup times available. Please choose Home Delivery or try another shop.
-                                              </div>
-                                            );
-                                          }
-
-                                          return (
-                                            <div key={sid} style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                                              <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)' }}>{sName}:</div>
-                                              <select className="text-input"
-                                                style={{ fontSize: '0.7rem', }}
-                                                value={cartPickupSlots[sid] || ''}
-                                                onChange={e => { setCartPickupSlots(prev => ({ ...prev, [sid]: e.target.value })); setSlotError(false); }}
-                                              >
-                                                <option value="">{t('-- Pick a time slot --', '-- समय स्लॉट चुनें --', '-- समय स्लॉट বেছে নিন --')}</option>
-                                                {SLOTS.map(slot => (
-                                                  <option key={slot.value} value={slot.value}>{slot.label}</option>
-                                                ))}
-                                              </select>
-                                            </div>
-                                          );
-                                        })
-                                      )}
-                                    </div>
-                                  );
-                                })()}
-                                
-                                {cartFulfillment === 'DELIVERY' && (
-                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', marginTop: '0.4rem', borderTop: '1px solid var(--border-color)', paddingTop: '0.4rem' }}>
-                                    <label style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                                      {t('Delivery Address', 'डिलीवरी का पता', 'ডেলিভারি ঠিকানা')} <span style={{ color: 'var(--danger)' }}>*</span>
-                                    </label>
-                                    <textarea
-                                      className="text-input"
-                                      style={{ height: '50px', fontSize: '0.75rem', width: '100%', resize: 'none' }}
-                                      placeholder={t('Enter delivery address (minimum 5 characters)...', 'डिलीवरी पता दर्ज करें (कम से कम 5 अक्षर)...', 'ডেলিভারি ঠিকানা লিখুন (কমপক্ষে ৫টি অক্ষর)...')}
-                                      value={deliveryAddress !== undefined && deliveryAddress !== '' ? deliveryAddress : (profileAddress || currentUser?.address || '')}
-                                      onChange={e => setDeliveryAddress(e.target.value)}
-                                    />
-                                    {((deliveryAddress !== undefined && deliveryAddress !== '' ? deliveryAddress : (profileAddress || currentUser?.address || '')).trim().length < 5) && (
-                                      <small style={{ color: 'var(--danger)', fontSize: '0.65rem' }}>
-                                        {t('Address must be at least 5 characters', 'पता कम से कम 5 अक्षरों का होना चाहिए', 'ঠিকানা কমপক্ষে ৫টি অক্ষরের হতে হবে')}
-                                      </small>
-                                    )}
-                                  </div>
-                                )}
-                                
-                                {(() => {
-                                  const activeDeliveryAddr = (deliveryAddress !== undefined && deliveryAddress !== '' ? deliveryAddress : (profileAddress || currentUser?.address || '')).trim();
-                                  const isDeliveryDisabled = cartFulfillment === 'DELIVERY' && activeDeliveryAddr.length < 5;
-
-                                  return (
-                                    <button 
-                                      className="btn" 
-                                      style={{ width: '100%', fontSize: '0.8rem', border: slotError ? '2px solid var(--danger)' : undefined, opacity: isDeliveryDisabled ? 0.6 : 1 }} 
-                                      onClick={handleCheckout}
-                                      disabled={isDeliveryDisabled}
-                                    >
-                                      {cartFulfillment === 'PICKUP'
-                                        ? <><Key size={14} style={{ marginRight: '0.25rem' }} />{t('Place Pickup Order', 'पिकअप ऑर्डर दें', 'পিকআপ অর্ডার দিন')}</>
-                                        : <><Truck size={14} style={{ marginRight: '0.25rem' }} />{t('Place Delivery Order (COD)', 'डिलीवरी ऑर्डर (COD)', 'ডেলিভারি অর্ডার (COD)')}</>
-                                      }
-                                    </button>
-                                  );
-                                })()}
+                          {/* Bill Summary */}
+                          <div className="glass-card" style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                            {isDevMode && (<div style={{color:'cyan',fontSize:'0.6rem'}}>dev: fulfilment={cartFulfillment} · shops={Object.keys(cartPickupSlots).length}</div>)}
+                            <h3 style={{ fontSize: '0.95rem', marginBottom: '0.25rem', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '0.5rem' }}>{t('Bill Summary', 'बिल विवरण', 'বিলের সারাংশ')}</h3>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                              <span>{t('Subtotal', 'उप-योग', 'উপ-মোট')}</span>
+                              <span>₹{cartSubtotal.toFixed(2)}</span>
+                            </div>
+                            {cartFulfillment === 'DELIVERY' && (
+                              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                                <span>{t('Delivery Fee', 'डिलिवरी शुल्क', 'ডেলিভারি চার্জ')}</span>
+                                <span>₹{cartDeliveryFee.toFixed(2)}</span>
                               </div>
                             )}
-                          </>
-                        )}
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                              <span>{t('Est. Rewards', 'अनुमानित पुरस्कार', 'সম্ভাব‍্য পয়েন্ট')}</span>
+                              <span style={{ color: 'var(--accent)', fontWeight: 'bold' }}>+{formatPoints(estimatedEarnPoints)} pts</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '1.05rem', fontWeight: 'bold', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '0.5rem', marginTop: '0.25rem', color: 'white' }}>
+                              <span>{t('Total', 'कुल', 'মোট')}</span>
+                              <span>₹{cartTotal.toFixed(2)}</span>
+                            </div>
+                            <div style={{ fontSize: '0.7rem', color: 'var(--warning)', marginTop: '0.5rem', textAlign: 'center', lineHeight: '1.4' }}>
+                              {t('Note: In case of cancellation, a platform commission is retained as a fee.', 'ध्यान दें: रद्दीकरण के मामले में, शुल्क के रूप में प्लेटफ़ॉर्म कमीशन बरकरार रखा जाता है।', 'দ্রষ্টব্য: বাতিলের ক্ষেত্রে, একটি প্ল্যাটফর্ম কমিশন ফি হিসাবে বজায় রাখা হয়।')}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                      
+                      {/* Fixed Place Order Button */}
+                      {customerCart.length > 0 && (
+                        <div style={{ position: 'sticky', bottom: '-1rem', margin: '1rem -1rem -1rem -1rem', background: 'var(--bg-surface-elevated)', padding: '1rem', borderTop: '1px solid rgba(255,255,255,0.1)', zIndex: 100 }}>
+                          {(() => {
+                            const activeDeliveryAddr = (deliveryAddress !== undefined && deliveryAddress !== '' ? deliveryAddress : (profileAddress || currentUser?.address || '')).trim();
+                            const isDeliveryDisabled = cartFulfillment === 'DELIVERY' && activeDeliveryAddr.length < 5;
+                            return (
+                              <button 
+                                className="btn" 
+                                style={{ width: '100%', fontSize: '0.95rem', padding: '0.85rem', border: slotError ? '2px solid var(--danger)' : undefined, opacity: isDeliveryDisabled ? 0.6 : 1 }} 
+                                onClick={handleCheckout}
+                                disabled={isDeliveryDisabled}
+                              >
+                                {cartFulfillment === 'PICKUP'
+                                  ? <><Key size={16} style={{ marginRight: '0.4rem' }} />{t('Place Pickup Order', 'पिकअप ऑर्डर दें', 'পিকআপ অর্ডার দিন')}</>
+                                  : <><Truck size={16} style={{ marginRight: '0.4rem' }} />{t('Place Delivery Order (COD)', 'डिलीवरी ऑर्डर (COD)', 'ডেলিভারি ऑर्डर (COD)')}</>
+                                }
+                              </button>
+                            );
+                          })()}
+                        </div>
+                      )}
+                    </div>
+                  )}
 
-                        {(customerAppTab === 'pointshop' || customerAppTab === 'rewards') && (() => {
+                  {(customerAppTab === 'pointshop' || customerAppTab === 'rewards') && (() => {
                           const cableItems = availableRewards?.cable || [];
                           const broadbandItems = availableRewards?.broadband || [];
                           const emptyReasons = availableRewards?.empty_reasons || {};

@@ -3972,9 +3972,9 @@ async function main() {
   const markPaidRes = await post('http://localhost:3001/api/admin/stockist/s1/cod-commission/mark-paid', { date: todayStr }, { 'x-admin-user-id': 'u-admin1' });
   assert(markPaidRes.status === 200 && markPaidRes.body.success === true, 'POST /api/admin/stockist/:id/cod-commission/mark-paid marks payment as paid');
 
-  // Test #729: App.jsx contains Collapsible Cart Drawer handlers and elements
+  // Test #729: App.jsx contains bottom cart bar elements
   const freshAppContent = fs.readFileSync(path.join(__dirname, '../../frontend/src/App.jsx'), 'utf8');
-  const hasCartDrawer = freshAppContent.includes('cartExpanded') && freshAppContent.includes('setCartExpanded') && freshAppContent.includes('cart-header');
+  const hasCartDrawer = freshAppContent.includes("customerAppTab === 'cart'") || freshAppContent.includes('cartExpanded');
   assert(hasCartDrawer, 'App.jsx contains collapsible cart drawer elements (Issue #6)');
 
   // Test #730: App.jsx contains top-level Admin navigation items (Transactions, Blacklist, Support Tickets)
