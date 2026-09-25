@@ -3005,13 +3005,7 @@ export default function App() {
     }
   };
 
-  const getPointsRate = (stockistId, regionId) => {
-    const pecStockist = allPointsEarnConfigs.find(c => c.stockist_id === stockistId);
-    if (pecStockist) return parseFloat(pecStockist.earn_rate_percent);
-    const pecRegion = allPointsEarnConfigs.find(c => c.region_id === regionId && !c.stockist_id);
-    if (pecRegion) return parseFloat(pecRegion.earn_rate_percent);
-    return 45.0; // default fallback
-  };
+  // getPointsRate removed, calculation moved to server
 
   const addToCart = (product) => {
     if (!selectedStockist) return;
@@ -3048,9 +3042,8 @@ export default function App() {
   const cartTotal = cartSubtotal + cartDeliveryFee;
   const estimatedEarnPoints = Math.round(
     customerCart.reduce((sum, item) => {
-      const itemMargin = (item.product.price - item.product.cost_price) * item.quantity;
-      const rate = getPointsRate(item.stockistId, currentUser?.region_id || 'r1');
-      return sum + (itemMargin * (rate / 100));
+      const itemPts = item.product.estimated_points || 0;
+      return sum + (itemPts * item.quantity);
     }, 0) * 100
   ) / 100;
 
@@ -8054,8 +8047,7 @@ export default function App() {
                           <h3 style={{ fontSize: '0.95rem', marginTop: '0.25rem' }}>{t('Popular Staples', 'लोकप्रिय स्टेपल्स', 'রোজকার বাজার')}</h3>
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                             {customerProducts.filter(p => p.name.toLowerCase().includes(customerSearch.toLowerCase())).map(p => {
-                              const rate = getPointsRate(selectedStockist.id, currentUser.region_id);
-                              const earnEst = Math.round((p.price - p.cost_price) * (rate / 100) * 100) / 100;
+                              const hasCostPrice = p.cost_price !== undefined && p.cost_price !== null;
                               const isOutOfStock = p.stock_qty <= 0;
                               return (
                                 <div key={p.id} className="netflix-card" style={{ display: 'flex', flexDirection: 'column', padding: '0.6rem', gap: '0.5rem' }}>
@@ -8078,9 +8070,15 @@ export default function App() {
                                         </button>
                                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.2rem' }}>
                                         <span style={{ fontWeight: 'bold', fontSize: '0.85rem' }}>₹{p.price}</span>
-                                        <span className="badge badge-success" style={{ fontSize: '0.55rem', padding: '0.1rem 0.25rem' }}>
-                                          Earn {formatPoints(earnEst)}
-                                        </span>
+                                        {hasCostPrice ? (
+                                          <span className="badge badge-success" style={{ fontSize: '0.55rem', padding: '0.1rem 0.25rem' }}>
+                                            Earn {formatPoints(p.estimated_points || 0)}
+                                          </span>
+                                        ) : (
+                                          <span className="badge badge-success" style={{ fontSize: '0.55rem', padding: '0.1rem 0.25rem' }}>
+                                            Earn points
+                                          </span>
+                                        )}
                                       </div>
                                     </div>
                                     <button 

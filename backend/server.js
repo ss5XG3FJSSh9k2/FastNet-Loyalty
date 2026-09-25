@@ -1088,6 +1088,26 @@ app.get('/api/products', async (req, res) => {
     });
   }
 
+  filtered = await Promise.all(filtered.map(async p => {
+    let estimated_points = null;
+    if (p.cost_price !== undefined && p.cost_price !== null) {
+      const margin = Math.max(0, p.price - p.cost_price);
+      if (margin > 0) {
+        const cfg = await getCommissionConfig(p.stockist_id);
+        const reinvestPct = parseFloat(cfg?.stockist_reinvest_pct) || 50;
+        const pointsPct = parseFloat(cfg?.points_from_pot_pct) || 40;
+        const platformPot = margin - (margin * reinvestPct / 100);
+        estimated_points = Math.round(platformPot * (pointsPct / 100) * 100) / 100;
+      } else {
+        estimated_points = 0;
+      }
+    }
+    return {
+      ...p,
+      estimated_points
+    };
+  }));
+
   return res.json(filtered);
 });
 
