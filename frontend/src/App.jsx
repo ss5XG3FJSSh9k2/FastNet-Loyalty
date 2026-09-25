@@ -10657,6 +10657,11 @@ export default function App() {
               </button>
               <button className={`admin-nav-item ${adminTab === 'redemption_approvals' ? 'active' : ''}`} onClick={() => { setAdminTab('redemption_approvals'); fetchRedemptionApprovals(); }}>
                 <Gift size={16} /> Orders {adminRedemptionApprovals.filter(r => r.status === 'PENDING_ADMIN_APPROVAL').length > 0 && <span className="badge badge-danger" style={{ marginLeft: '0.25rem', fontSize: '0.65rem' }}>{adminRedemptionApprovals.filter(r => r.status === 'PENDING_ADMIN_APPROVAL').length}</span>}
+                {adminRedemptionApprovals.filter(r => r.status === 'DISPUTED').length > 0 && (
+                  <span className="badge badge-warning" style={{ marginLeft: '0.25rem', fontSize: '0.65rem' }}>
+                    {adminRedemptionApprovals.filter(r => r.status === 'DISPUTED').length} disputed
+                  </span>
+                )}
               </button>
               <button className={`admin-nav-item ${adminTab === 'transactions' ? 'active' : ''}`} onClick={() => setAdminTab('transactions')}>
                 <ArrowRightLeft size={16} /> Transactions 
@@ -10776,6 +10781,17 @@ export default function App() {
             </div>
 
             <div className="admin-content">
+              {adminRedemptionApprovals.filter(r => r.status === 'DISPUTED').length > 0 && (
+                <div 
+                  onClick={() => { setAdminTab('redemption_approvals'); setRedemptionApprovalSubTab('disputed'); fetchRedemptionApprovals(); }}
+                  style={{ background: 'rgba(234, 179, 8, 0.1)', border: '1px solid var(--warning)', padding: '1rem', borderRadius: '10px', cursor: 'pointer', marginBottom: '1.25rem', color: 'var(--warning)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+                >
+                  ⚠️
+                  <div>
+                    <strong>{t('Open Disputes','खुले विवाद','খোলা বিরোধ')}</strong>: {adminRedemptionApprovals.filter(r => r.status === 'DISPUTED').length} {t('waiting on your resolution','आपके समाधान की प्रतीक्षा','আপনার সমাধানের অপেক্ষায়')}
+                  </div>
+                </div>
+              )}
               {/* Top 3 Admin Summary Cards */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.75rem', marginBottom: '1.25rem' }}>
                 <div 
@@ -12127,8 +12143,12 @@ export default function App() {
                       <button className={`btn ${redemptionApprovalSubTab === 'fulfilled' ? 'btn-primary' : 'btn-secondary'}`} style={{ fontSize: '0.75rem', padding: '0.25rem 0.6rem' }} onClick={() => setRedemptionApprovalSubTab('fulfilled')}>
                         Fulfilled ({adminRedemptionApprovals.filter(r => r.status === 'FULFILLED').length})
                       </button>
-                      <button className={`btn ${redemptionApprovalSubTab === 'rejected_disputed' ? 'btn-primary' : 'btn-secondary'}`} style={{ fontSize: '0.75rem', padding: '0.25rem 0.6rem' }} onClick={() => setRedemptionApprovalSubTab('rejected_disputed')}>
-                        Rejected / Disputed ({adminRedemptionApprovals.filter(r => ['REJECTED', 'DISPUTED'].includes(r.status)).length})
+                      <button className={`btn ${redemptionApprovalSubTab === 'rejected' ? 'btn-primary' : 'btn-secondary'}`} style={{ fontSize: '0.75rem', padding: '0.25rem 0.6rem' }} onClick={() => setRedemptionApprovalSubTab('rejected')}>
+                        Rejected ({adminRedemptionApprovals.filter(r => r.status === 'REJECTED').length})
+                      </button>
+                      <button className={`btn ${redemptionApprovalSubTab === 'disputed' ? 'btn-primary' : 'btn-secondary'}`} style={{ fontSize: '0.75rem', padding: '0.25rem 0.6rem' }} onClick={() => setRedemptionApprovalSubTab('disputed')}>
+                        Disputed ({adminRedemptionApprovals.filter(r => r.status === 'DISPUTED').length})
+                        {adminRedemptionApprovals.filter(r => r.status === 'DISPUTED').length > 0 && <span className="badge badge-warning" style={{ marginLeft: '0.3rem' }}>{adminRedemptionApprovals.filter(r => r.status === 'DISPUTED').length} action needed</span>}
                       </button>
                     </div>
                   </div>
@@ -12254,7 +12274,7 @@ export default function App() {
                     </div>
                   )}
 
-                  {redemptionApprovalSubTab === 'rejected_disputed' && (
+                  {redemptionApprovalSubTab === 'rejected' && (
                     <table className="admin-table">
                       <thead>
                         <tr>
@@ -12268,30 +12288,61 @@ export default function App() {
                         </tr>
                       </thead>
                       <tbody>
-                        {adminRedemptionApprovals.filter(r => ['REJECTED', 'DISPUTED'].includes(r.status)).map(r => (
-                          <tr key={r.id} style={r.status === 'DISPUTED' ? { background: 'rgba(234, 179, 8, 0.08)' } : {}}>
+                        {adminRedemptionApprovals.filter(r => r.status === 'REJECTED').map(r => (
+                          <tr key={r.id}>
                             <td style={{ fontSize: '0.7rem' }}>{new Date(r.updated_at || r.created_at).toLocaleString()}</td>
                             <td>{r.customer_name}</td>
                             <td>{r.partner_name}</td>
                             <td>{r.package_name}</td>
-                            <td><span className={`badge ${r.status === 'DISPUTED' ? 'badge-warning' : 'badge-danger'}`}>{r.status}</span></td>
+                            <td><span className="badge badge-danger">{r.status}</span></td>
                             <td style={{ fontSize: '0.7rem', maxWidth: '250px' }}>
-                              {r.status === 'DISPUTED' ? r.disputed_reason : r.rejected_reason}
+                              {r.rejected_reason}
                             </td>
                             <td>
-                              {r.status === 'DISPUTED' && (
-                                <button className="btn btn-warning" style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem' }} onClick={() => { setSelectedRedemptionToResolve(r); setResolveOutcome('fulfill'); setResolveNotes(''); setShowResolveDisputeModal(true); }}>
-                                  Resolve Dispute
-                                </button>
-                              )}
-                              {r.status === 'REJECTED' && (
-                                <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Points Refunded</span>
-                              )}
+                              <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Points Refunded</span>
                             </td>
                           </tr>
                         ))}
-                        {adminRedemptionApprovals.filter(r => ['REJECTED', 'DISPUTED'].includes(r.status)).length === 0 && (
-                          <tr><td colSpan="7" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>No rejected or disputed redemptions.</td></tr>
+                        {adminRedemptionApprovals.filter(r => r.status === 'REJECTED').length === 0 && (
+                          <tr><td colSpan="7" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>No rejected redemptions.</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  )}
+
+                  {redemptionApprovalSubTab === 'disputed' && (
+                    <table className="admin-table">
+                      <thead>
+                        <tr>
+                          <th>Date</th>
+                          <th>Customer</th>
+                          <th>Partner</th>
+                          <th>Package</th>
+                          <th>Status</th>
+                          <th>Reason / Details</th>
+                          <th>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {adminRedemptionApprovals.filter(r => r.status === 'DISPUTED').map(r => (
+                          <tr key={r.id} style={{ background: 'rgba(234, 179, 8, 0.08)' }}>
+                            <td style={{ fontSize: '0.7rem' }}>{new Date(r.updated_at || r.created_at).toLocaleString()}</td>
+                            <td>{r.customer_name}</td>
+                            <td>{r.partner_name}</td>
+                            <td>{r.package_name}</td>
+                            <td><span className="badge badge-warning">{r.status}</span></td>
+                            <td style={{ fontSize: '0.7rem', maxWidth: '250px' }}>
+                              {r.disputed_reason}
+                            </td>
+                            <td>
+                              <button className="btn btn-warning" style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem' }} onClick={() => { setSelectedRedemptionToResolve(r); setResolveOutcome('fulfill'); setResolveNotes(''); setShowResolveDisputeModal(true); }}>
+                                Resolve Dispute
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                        {adminRedemptionApprovals.filter(r => r.status === 'DISPUTED').length === 0 && (
+                          <tr><td colSpan="7" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>No disputed redemptions.</td></tr>
                         )}
                       </tbody>
                     </table>
