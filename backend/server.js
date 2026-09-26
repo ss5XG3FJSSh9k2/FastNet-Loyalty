@@ -3514,8 +3514,8 @@ app.get('/api/admin/partner-payouts', async (req, res) => {
         const p = partners.find(p => p.id === r.partner_id);
         partnerMap[r.partner_id] = {
           partner_id: r.partner_id,
-          partner_name: p ? p.name : 'Unknown Partner',
-          payout_upi: p ? p.payout_upi : null,
+          partner_name: p ? (p.name || p.display_name || p.business_name || 'Unknown Partner') : 'Unknown Partner',
+          payout_upi_id: p ? p.payout_upi_id : null,
           payout_bank_account: p ? p.payout_bank_account : null,
           payout_bank_ifsc: p ? p.payout_bank_ifsc : null,
           amount_owed: 0,
@@ -3536,56 +3536,53 @@ app.get('/api/admin/partner-payouts', async (req, res) => {
 
 // POST /api/admin/partner-payouts/:partnerId/mark-paid
 app.post('/api/admin/partner-payouts/:partnerId/mark-paid', async (req, res) => {
-  const authHeader = req.headers.authorization || '';
-  const token = authHeader.replace('Bearer ', '');
-  let decoded;
-  try { decoded = sessionHelper.verifySession(token); } catch (e) { return res.status(401).json({ error: 'Unauthorized' }); }
-  if (!decoded || (!decoded.userId && !decoded.user_id)) return res.status(401).json({ error: 'Unauthorized' });
-  const users = await db.getTable('users');
-  const userId = decoded.userId || decoded.user_id;
-  const user = users.find(u => u.id === userId);
-  if (!user || user.role !== 'ADMIN') return res.status(403).json({ error: 'Forbidden' });
+  try {
+    const authHeader = req.headers.authorization || '';
+    const token = authHeader.replace('Bearer ', '');
+    let decoded;
+    try { decoded = sessionHelper.verifySession(token); } catch (e) { return res.status(401).json({ error: 'Unauthorized' }); }
+    if (!decoded || (!decoded.userId && !decoded.user_id)) return res.status(401).json({ error: 'Unauthorized' });
+    const users = await db.getTable('users');
+    const userId = decoded.userId || decoded.user_id;
+    const user = users.find(u => u.id === userId);
+    if (!user || user.role !== 'ADMIN') return res.status(403).json({ error: 'Forbidden' });
 
-  const { payment_reference } = req.body;
-  if (!payment_reference || payment_reference.length < 4) {
-    return res.status(400).json({ error: 'Valid payment reference (min 4 chars) is required' });
-  }
-
-  const partnerId = req.params.partnerId;
-  const redemptions = await db.getTable('redemption_approvals');
-  
-  const now = new Date().toISOString();
-  let paidCount = 0;
-  let paidAmount = 0;
-
-  for (const r of redemptions) {
-    if (r.partner_id === partnerId && r.status === 'FULFILLED' && r.partner_paid !== true) {
-      r.partner_paid = true;
-      r.partner_payout_ref = payment_reference;
-      r.partner_payout_at = now;
-      await db.updateRow('redemption_approvals', r.id, r);
-      
-      const faceVal = Number(r.face_value_rupees || r.rupees_value);
-      const { partnerPayout } = await calculatePartnerPayout(faceVal);
-      paidAmount += partnerPayout;
-      paidCount++;
+    const { payment_reference } = req.body;
+    if (!payment_reference || payment_reference.length < 4) {
+      return res.status(400).json({ error: 'Valid payment reference (min 4 chars) is required' });
     }
-  }
 
-  if (paidCount > 0) {
-    await db.appendAudit({
-      id: 'aud-' + Date.now() + '-' + Math.random().toString(36).substr(2,5),
-      admin_id: user.id,
-      admin_name: user.name,
-      action: 'PARTNER_PAYOUT_PAID',
-      target_type: 'PARTNER',
-      target_id: partnerId,
-      details: { payment_reference, count: paidCount, amount: paidAmount },
-      created_at: now
-    });
-  }
+    const partnerId = req.params.partnerId;
+    const redemptions = await db.getTable('redemption_approvals');
+    
+    const now = new Date().toISOString();
+    let paidCount = 0;
+    let paidAmount = 0;
 
-  return res.json({ success: true, count: paidCount, amount: paidAmount });
+    for (const r of redemptions) {
+      if (r.partner_id === partnerId && r.status === 'FULFILLED' && r.partner_paid !== true) {
+        r.partner_paid = true;
+        r.partner_payout_ref = payment_reference;
+        r.partner_payout_at = now;
+        await db.updateRow('redemption_approvals', r.id, r);
+        
+        const faceVal = Number(r.face_value_rupees || r.rupees_value);
+        const { partnerPayout } = await calculatePartnerPayout(faceVal);
+        paidAmount += partnerPayout;
+        paidCount++;
+      }
+    }
+
+    if (paidCount > 0) {
+      await appendAudit(req, 'PARTNER_PAYOUT_PAID', 'partner', partnerId, null,
+        { payment_reference, count: paidCount, amount: paidAmount });
+    }
+
+    return res.json({ success: true, count: paidCount, amount: paidAmount });
+  } catch (e) {
+    console.error('[partner-payout mark-paid]', req.params.partnerId, e);
+    return res.status(500).json({ error: 'payout_failed', message: e.message });
+  }
 });
 
 // POST /api/admin/payouts/mark-paid
@@ -8306,7 +8303,7 @@ app.patch('/api/partner/me', async (req, res) => {
     }
   }
 
-  let { display_name, contact_phone, contact_email, address, confirm_phone_change } = req.body;
+  let { display_name, contact_phone, contact_email, address, confirm_phone_change, payout_upi_id, payout_bank_account, payout_bank_ifsc, payout_account_name } = req.body;
   if (contact_phone !== undefined) {
     const validPhone = checkPhone(contact_phone, res);
     if (!validPhone) return;
@@ -8361,6 +8358,12 @@ app.patch('/api/partner/me', async (req, res) => {
     partnerRow.address = address;
     userRow.address = address;
   }
+
+  if (payout_upi_id !== undefined) partnerRow.payout_upi_id = payout_upi_id;
+  if (payout_bank_account !== undefined) partnerRow.payout_bank_account = payout_bank_account;
+  if (payout_bank_ifsc !== undefined) partnerRow.payout_bank_ifsc = payout_bank_ifsc;
+  if (payout_account_name !== undefined) partnerRow.payout_account_name = payout_account_name;
+
   partnerRow.updated_at = new Date().toISOString();
 
   await db.saveTable('partners', partners);

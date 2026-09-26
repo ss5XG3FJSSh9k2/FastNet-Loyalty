@@ -1122,6 +1122,10 @@ export default function App() {
   const [pProfContactPhone, setPProfContactPhone] = useState('');
   const [pProfContactEmail, setPProfContactEmail] = useState('');
   const [pProfAddress, setPProfAddress] = useState('');
+  const [pProfPayoutUpiId, setPProfPayoutUpiId] = useState('');
+  const [pProfPayoutBankAccount, setPProfPayoutBankAccount] = useState('');
+  const [pProfPayoutBankIfsc, setPProfPayoutBankIfsc] = useState('');
+  const [pProfPayoutAccountName, setPProfPayoutAccountName] = useState('');
   const [confirmPhoneChangeCheck, setConfirmPhoneChangeCheck] = useState(false);
   const [initialContactPhone, setInitialContactPhone] = useState('');
   const [pProfCounts, setPProfCounts] = useState({ bound_customers: 0, redemptions_all_time: 0, disputes_open: 0 });
@@ -5825,6 +5829,10 @@ export default function App() {
         setInitialContactPhone(data.partner.contact_phone || data.user.phone || '');
         setPProfContactEmail(data.partner.contact_email || '');
         setPProfAddress(data.partner.address || '');
+        setPProfPayoutUpiId(data.partner.payout_upi_id || '');
+        setPProfPayoutBankAccount(data.partner.payout_bank_account || '');
+        setPProfPayoutBankIfsc(data.partner.payout_bank_ifsc || '');
+        setPProfPayoutAccountName(data.partner.payout_account_name || '');
         setPProfCounts(data.counts || { bound_customers: 0, redemptions_all_time: 0, disputes_open: 0 });
       }
     } catch (err) {
@@ -6340,6 +6348,10 @@ export default function App() {
       contact_phone: pProfContactPhone,
       contact_email: pProfContactEmail,
       address: pProfAddress,
+      payout_upi_id: pProfPayoutUpiId,
+      payout_bank_account: pProfPayoutBankAccount,
+      payout_bank_ifsc: pProfPayoutBankIfsc,
+      payout_account_name: pProfPayoutAccountName,
       confirm_phone_change: isPhoneChanged ? confirmPhoneChangeCheck : false
     };
     try {
@@ -7050,6 +7062,25 @@ export default function App() {
                       <label className="input-label">Operating Address</label>
                       <input type="text" className="text-input" value={pProfAddress} onChange={e => setPProfAddress(e.target.value)} />
                     </div>
+
+                    <h5 style={{ margin: '1rem 0 0.5rem 0', fontSize: '0.85rem' }}>{t('Payout Details', 'पेआउट विवरण', 'পেআউট বিবরণ')}</h5>
+                    <div className="input-group">
+                      <label className="input-label">{t('UPI ID', 'यूपीआई आईडी', 'ইউপিআই আইডি')}</label>
+                      <input type="text" className="text-input" placeholder="name@bank" value={pProfPayoutUpiId} onChange={e => setPProfPayoutUpiId(e.target.value)} />
+                    </div>
+                    <div className="input-group">
+                      <label className="input-label">{t('Bank Account Number', 'बैंक खाता संख्या', 'ব্যাংক অ্যাকাউন্ট নম্বর')}</label>
+                      <input type="text" className="text-input" value={pProfPayoutBankAccount} onChange={e => setPProfPayoutBankAccount(e.target.value)} />
+                    </div>
+                    <div className="input-group">
+                      <label className="input-label">{t('IFSC Code', 'आईएफएससी कोड', 'আইএফএসসি কোড')}</label>
+                      <input type="text" className="text-input" value={pProfPayoutBankIfsc} onChange={e => setPProfPayoutBankIfsc(e.target.value)} />
+                    </div>
+                    <div className="input-group">
+                      <label className="input-label">{t('Account Holder Name', 'खाता धारक का नाम', 'অ্যাকাউন্ট হোল্ডারের নাম')}</label>
+                      <input type="text" className="text-input" value={pProfPayoutAccountName} onChange={e => setPProfPayoutAccountName(e.target.value)} />
+                    </div>
+
                     <button className="btn btn-primary" onClick={handleSavePartnerProfile}>
                       Save Profile Changes
                     </button>
@@ -13588,7 +13619,7 @@ export default function App() {
                         <tr key={p.partner_id}>
                           <td>{p.partner_name}</td>
                           <td style={{ fontSize: '0.8rem' }}>
-                            UPI: {p.payout_upi || 'N/A'}<br/>
+                            UPI: {p.payout_upi_id || 'N/A'}<br/>
                             Bank: {p.payout_bank_account ? `${p.payout_bank_account} (IFSC: ${p.payout_bank_ifsc})` : 'N/A'}
                           </td>
                           <td>{p.redemption_count}</td>
