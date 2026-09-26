@@ -8181,7 +8181,7 @@ export default function App() {
 
                           {/* Catalog List */}
                           <h3 style={{ fontSize: '0.95rem', marginTop: '0.25rem' }}>{t('Popular Staples', 'लोकप्रिय स्टेपल्स', 'রোজকার বাজার')}</h3>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', paddingBottom: customerCart.length > 0 ? '80px' : '0' }}>
                             {customerProducts.filter(p => p.name.toLowerCase().includes(customerSearch.toLowerCase())).map(p => {
                               const hasCostPrice = p.cost_price !== undefined && p.cost_price !== null;
                               const isOutOfStock = p.stock_qty <= 0;
@@ -8228,20 +8228,6 @@ export default function App() {
                         </>
                       )}
 
-                      {/* Bottom Cart Bar (Swiggy style) */}
-                      {customerCart.length > 0 && (
-                        <div style={{ position: 'sticky', bottom: '-0.5rem', margin: '0.5rem -0.5rem -0.5rem -0.5rem', 
-                          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                          background: 'var(--accent)', color: 'white', padding: '0.75rem 1rem',
-                          borderRadius: '10px', cursor: 'pointer', boxShadow: '0 -4px 12px rgba(0,0,0,0.4)', zIndex: 50 }}
-                          onClick={() => setCustomerAppTab('cart')}>
-                          <div>
-                            <div style={{ fontWeight: 700 }}>{customerCart.reduce((n,i)=>n+i.quantity,0)} {t('items','आइटम','আইটেম')} · ₹{cartSubtotal.toFixed(2)}</div>
-                            <div style={{ fontSize: '0.6rem', opacity: 0.9 }}>{t('Est. rewards','अनुमानित','সম্ভাব্য')}: +{formatPoints(estimatedEarnPoints)} pts</div>
-                          </div>
-                          <div style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.25rem' }}>{t('View Cart','कार्ट देखें','কার্ট দেখুন')} <ArrowRight size={16} /></div>
-                        </div>
-                      )}
                     </>
                   )}
 
@@ -9348,6 +9334,23 @@ export default function App() {
                   )}
 
                 </div>
+
+                {/* Cart bar — sits directly above the bottom nav */}
+                {customerCart.length > 0 && customerAppTab === 'store' && (
+                  <div style={{
+                    position: 'absolute', left: 0, right: 0, bottom: '60px',
+                    margin: '0 0.5rem',
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    background: 'var(--accent)', color: 'white', padding: '0.75rem 1rem',
+                    borderRadius: '10px', cursor: 'pointer', boxShadow: '0 -4px 12px rgba(0,0,0,0.4)', zIndex: 60
+                  }} onClick={() => setCustomerAppTab('cart')}>
+                    <div>
+                      <div style={{ fontWeight: 700 }}>{customerCart.reduce((n,i)=>n+i.quantity,0)} {t('items','आइटम','আইটেম')} · ₹{cartSubtotal.toFixed(2)}</div>
+                      <div style={{ fontSize: '0.6rem', opacity: 0.9 }}>{t('Est. rewards','अनुमानित','সম্ভাব্য')}: +{formatPoints(estimatedEarnPoints)} pts</div>
+                    </div>
+                    <div style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.25rem' }}>{t('View Cart','कार्ट देखें','কার্ট দেখুন')} <ArrowRight size={16} /></div>
+                  </div>
+                )}
 
                 <div className="phone-footer">
                   <button className={`phone-nav-btn ${customerAppTab === 'store' ? 'active' : ''}`} onClick={() => setCustomerAppTab('store')}>

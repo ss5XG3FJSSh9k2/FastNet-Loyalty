@@ -3524,7 +3524,7 @@ async function main() {
   console.log('\n--- Round BF8a: Pickup Slot Picker: Make It Impossible To Fail Silently ---');
 
   // Test #654: Grep: the picker block renders on customerCart.length > 0, not solely on cartFulfillment === 'PICKUP'
-  const cartPanelIdx = appContent.indexOf('{customerCart.length > 0 && (');
+  const cartPanelIdx = appContent.indexOf('customerCart.length === 0 ?');
   const pickerBlockIdx = appContent.indexOf('className="pickup-slot-picker-block"');
   const directCartFulfillmentGating = appContent.includes('{cartFulfillment === \'PICKUP\' && (() => {\n                                  const groups = {};');
   assert(cartPanelIdx !== -1 && pickerBlockIdx !== -1 && pickerBlockIdx > cartPanelIdx && !directCartFulfillmentGating, 'the picker block renders on customerCart.length > 0, not solely on cartFulfillment === \'PICKUP\'');
