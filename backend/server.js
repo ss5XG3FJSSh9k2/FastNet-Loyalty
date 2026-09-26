@@ -1766,9 +1766,10 @@ function calculateIsShopOpen(stockist, currentTimeStr) {
 
   let currentTime = currentTimeStr;
   if (!currentTime) {
-    const now = new Date();
-    currentTime = now.getHours().toString().padStart(2, '0') + ':' + 
-                  now.getMinutes().toString().padStart(2, '0');
+    const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+    const istNow = new Date(Date.now() + IST_OFFSET_MS);
+    currentTime = istNow.getUTCHours().toString().padStart(2, '0') + ':' + 
+                  istNow.getUTCMinutes().toString().padStart(2, '0');
   }
 
   if (closing <= opening) {
