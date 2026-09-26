@@ -1094,6 +1094,7 @@ export default function App() {
   const [pkgCostToPartner, setPkgCostToPartner] = useState('');
   const [pkgPointCost, setPkgPointCost] = useState('');
   const [pkgActiveRegions, setPkgActiveRegions] = useState([]);
+  const [pkgDurationDays, setPkgDurationDays] = useState('');
 
   // Regions Tab state
   const [partnerRegionsList, setPartnerRegionsList] = useState([]);
@@ -6137,6 +6138,7 @@ export default function App() {
     setPkgCostToPartner('');
     setPkgPointCost('');
     setPkgActiveRegions((partnerRegionsList || []).map(r => r.region_id));
+    setPkgDurationDays('');
     setShowPkgModal(true);
   };
 
@@ -6149,6 +6151,7 @@ export default function App() {
     setPkgCostToPartner(pkg.cost_to_partner_rupees || pkg.face_value_rupees || '');
     setPkgPointCost(pkg.point_cost || pkg.face_value_rupees || '');
     setPkgActiveRegions(pkg.active_regions || []);
+    setPkgDurationDays(pkg.duration_days ? String(pkg.duration_days) : '');
     setShowPkgModal(true);
   };
 
@@ -6164,7 +6167,9 @@ export default function App() {
       face_value_rupees: Number(pkgFaceValue),
       cost_to_partner_rupees: Number(pkgCostToPartner || pkgFaceValue),
       point_cost: Number(pkgPointCost || pkgFaceValue),
-      active_regions: pkgActiveRegions
+      active_regions: pkgActiveRegions,
+      duration_days: pkgDurationDays ? Number(pkgDurationDays) : null,
+      is_timed: !!pkgDurationDays
     };
     try {
       const url = editingPkg
@@ -6875,6 +6880,7 @@ export default function App() {
                       <tr style={{ borderBottom: '1px solid var(--border-color)', textAlign: 'left', color: 'var(--text-muted)' }}>
                         <th style={{ padding: '0.4rem' }}>{t('Name', 'नाम', 'নাম')}</th>
                         <th style={{ padding: '0.4rem' }}>{t('Type', 'प्रकार', 'ধরন')}</th>
+                        <th style={{ padding: '0.4rem' }}>{t('Duration', 'अवधि', 'সময়কাল')}</th>
                         <th style={{ padding: '0.4rem' }}>{t('Value', 'मूल्य', 'মূল্য')}</th>
                         <th style={{ padding: '0.4rem' }}>{t('Points', 'अंक', 'পয়েন্ট')}</th>
                         <th style={{ padding: '0.4rem' }}>{t('Status', 'स्थिति', 'স্ট্যাটাস')}</th>
@@ -6886,6 +6892,7 @@ export default function App() {
                         <tr key={pkg.id} style={{ borderBottom: '1px dashed var(--border-color)' }}>
                           <td style={{ padding: '0.4rem', fontWeight: 'bold' }}>{pkg.name}</td>
                           <td style={{ padding: '0.4rem' }}><span className="badge badge-secondary">{getServiceTypeLabel(pkg.service_type)}</span></td>
+                          <td style={{ padding: '0.4rem' }}>{pkg.duration_days ? `${pkg.duration_days} ${t('days','दिन','দিন')}` : t('One-time','एक बार','একবার')}</td>
                           <td style={{ padding: '0.4rem' }}>₹{pkg.face_value_rupees}</td>
                           <td style={{ padding: '0.4rem' }}>{pkg.point_cost} pts</td>
                           <td style={{ padding: '0.4rem' }}>
@@ -7257,6 +7264,22 @@ export default function App() {
                   <label className="input-label">Point Cost *</label>
                   <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', marginTop: '-0.25rem', marginBottom: '0.5rem' }}>How many loyalty points a customer must spend to redeem this. Usually 1 point = ₹1, so equal to Face Value.</div>
                   <input type="number" inputMode="decimal" className="text-input" value={pkgPointCost} onChange={e => setPkgPointCost(e.target.value)} placeholder={pkgFaceValue} />
+                </div>
+                
+                <div className="input-group">
+                  <label className="input-label">{t('Subscription Duration', 'सदस्यता अवधि', 'সাবস্ক্রিপশন সময়কাল')}</label>
+                  <select className="text-input" value={pkgDurationDays} onChange={e => setPkgDurationDays(e.target.value)}>
+                    <option value="">{t('One-time (no duration)', 'एक बार (कोई अवधि नहीं)', 'একবার (কোনো সময়কাল নেই)')}</option>
+                    <option value="30">{t('1 month (30 days)', '1 महीना (30 दिन)', '1 মাস (30 দিন)')}</option>
+                    <option value="90">{t('3 months (90 days)', '3 महीने (90 दिन)', '3 মাস (90 দিন)')}</option>
+                    <option value="180">{t('6 months (180 days)', '6 महीने (180 दिन)', '6 মাস (180 দিন)')}</option>
+                    <option value="365">{t('1 year (365 days)', '1 साल (365 दिन)', '1 বছর (365 দিন)')}</option>
+                  </select>
+                  <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>
+                    {t('Customers can\'t redeem this package again until the duration ends.',
+                       'ग्राहक अवधि समाप्त होने तक इस पैकेज को दोबारा रिडीम नहीं कर सकते।',
+                       'সময়কাল শেষ না হওয়া পর্যন্ত গ্রাহকরা এই প্যাকেজটি পুনরায় রিডিম করতে পারবেন না।')}
+                  </div>
                 </div>
                 <div className="input-group">
                   <label className="input-label">Active Regions</label>
