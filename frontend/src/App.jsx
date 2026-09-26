@@ -8298,6 +8298,43 @@ export default function App() {
                             );
                           })()}
 
+                          {/* Complete your order with... Suggestions */}
+                          {(() => {
+                            const cartProductIds = new Set(customerCart.map(i => i.product.id));
+                            const suggestions = customerProducts
+                              .filter(p => !cartProductIds.has(p.id))
+                              .filter(p => p.is_active !== false && p.is_sellable !== false)
+                              .slice(0, 8);
+                            
+                            if (suggestions.length === 0) return null;
+                            
+                            return (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                <h3 style={{ fontSize: '0.9rem', margin: '0.5rem 0 0.25rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                  {t('Complete your order with', 'अपना ऑर्डर पूरा करें', 'আপনার অর্ডার সম্পূর্ণ করুন')}
+                                </h3>
+                                <div style={{ display: 'flex', gap: '0.5rem', overflowX: 'auto', paddingBottom: '0.25rem' }}>
+                                  {suggestions.map(p => (
+                                    <div key={p.id} style={{ minWidth: '110px', flexShrink: 0, background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '0.5rem' }}>
+                                      <div style={{ width: '100%', aspectRatio: '1', backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: '4px', overflow: 'hidden', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                        <img src={p.image_url ? (p.image_url.startsWith('http') || p.image_url.startsWith('data:') ? p.image_url : `${API_BASE}${p.image_url}`) : "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200' viewBox='0 0 200 200'%3E%3Crect width='200' height='200' fill='%231e293b'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' fill='%2394a3b8' font-family='sans-serif' font-size='16'%3EProduct Image%3C/text%3E%3C/svg%3E"} alt={p.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={(e) => { e.target.src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200' viewBox='0 0 200 200'%3E%3Crect width='200' height='200' fill='%231e293b'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' fill='%2394a3b8' font-family='sans-serif' font-size='16'%3EProduct Image%3C/text%3E%3C/svg%3E"; }} />
+                                      </div>
+                                      <div style={{ fontSize: '0.75rem', fontWeight: 600, marginTop: '0.25rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</div>
+                                      <div style={{ fontSize: '0.75rem', color: 'var(--accent)' }}>₹{p.price}</div>
+                                      <button
+                                        className="btn btn-secondary"
+                                        style={{ width: '100%', marginTop: '0.3rem', padding: '0.2rem', fontSize: '0.7rem' }}
+                                        onClick={() => addToCart(p)}
+                                      >
+                                        + {t('Add', 'जोड़ें', 'যোগ করুন')}
+                                      </button>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            );
+                          })()}
+
                           {/* Delivery Address (DELIVERY only) */}
                           {cartFulfillment === 'DELIVERY' && (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', padding: '1rem', backgroundColor: 'rgba(255,255,255,0.03)' }}>
