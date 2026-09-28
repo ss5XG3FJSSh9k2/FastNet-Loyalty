@@ -13779,7 +13779,12 @@ export default function App() {
                             <td>₹{o.subtotal.toFixed(2)}</td>
                             <td>₹{o.delivery_fee.toFixed(2)}</td>
                             <td style={{ color: 'var(--accent)' }}>₹{(o.stockist_amount || 0).toFixed(2)}</td>
-                            <td style={{ color: 'var(--primary)' }}>₹{(o.platform_amount || 0).toFixed(2)}</td>
+                            <td style={{ color: 'var(--primary)' }}>
+                              ₹{((o.platform_amount || 0) + (o.points_credited || 0)).toFixed(2)}
+                              <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)' }}>
+                                {t('Margin','मार्जिन','মার্জিন')} ₹{(o.platform_amount || 0).toFixed(2)} &middot; {t('Points held','अंक धारित','পয়েন্ট ধৃত')} ₹{(o.points_credited || 0).toFixed(2)}
+                              </div>
+                            </td>
                             <td>{formatPoints(o.points_credited || 0)}</td>
                             <td>
                               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', alignItems: 'flex-start' }}>
