@@ -14610,7 +14610,7 @@ export default function App() {
       {/* R6 Edit Stockist Details Modal */}
       {showEditStockistModal && selectedStockistDetail && (
         <div className="modal-overlay">
-          <div className="modal-content glass-card" style={{ maxWidth: '450px' }}>
+          <div className="modal-content glass-card" style={{ maxWidth: '720px', width: '90vw', maxHeight: '85vh', overflowY: 'auto', overflowX: 'hidden' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
               <h3 style={{ fontSize: '1.1rem', margin: 0 }}>{t('Edit Stockist Details', 'स्टॉकिस्ट विवरण संपादित करें', 'স্টকিস্টের বিবরণ সম্পাদনা করুন')}</h3>
               <button className="btn btn-secondary" style={{ padding: '0.2rem 0.5rem' }} onClick={() => setShowEditStockistModal(false)}><X size={14} /></button>
@@ -14642,7 +14642,7 @@ export default function App() {
                   required
                 />
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.5rem' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.5rem' }}>
                 <div className="input-group">
                   <label htmlFor="edit-stk-open" className="input-label">
                     {t('Opening Time', 'खुलने का समय', 'খোলার সময়')} <span style={{ color: 'var(--danger)' }}>*</span>
@@ -14685,7 +14685,7 @@ export default function App() {
                 </div>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.5rem' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.5rem' }}>
                 <div className="input-group">
                   <label className="input-label">{t('Region', 'क्षेत्र', 'অঞ্চল')} <span style={{ color: 'var(--danger)' }}>*</span></label>
                   <select className="text-input" value={editStkRegion} onChange={e => setEditStkRegion(e.target.value)}>
