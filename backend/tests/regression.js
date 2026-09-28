@@ -1674,11 +1674,28 @@ async function main() {
   assert(p2_reFulfillRes.status === 400, 'Fulfilling already fulfilled redemption returns 400');
   assert(p2_reFulfillRes.body.error === 'invalid_transition', 'Error code is invalid_transition');
 
+  // Create a second package to avoid duration lock from the first redemption
+  const p2_newPkgRes = await post('http://localhost:3001/api/admin/partners/ptr-adhya/packages', {
+    name: 'Test Package 2',
+    description: 'Test Desc',
+    service_type: 'CABLE',
+    face_value_rupees: 500,
+    cost_to_partner_rupees: 400,
+    point_cost: 500,
+    active_regions: ['r1'],
+    duration_days: 30,
+    is_timed: true
+  });
+  const p2_pkgId2 = p2_newPkgRes.body.id;
+  const p2_pkgCost2 = p2_newPkgRes.body.point_cost;
+
+  await post('http://localhost:3001/api/admin/customers/u-cust1/points-credit', { amount: 1000, reason: 'Test setup 2' });
+
   // Test 12: Create second redemption for rejection test
   const p2_redeem2Res = await post('http://localhost:3001/api/ledger/redeem', {
     customer_user_id: 'u-cust1',
-    partner_package_id: p2_pkgId,
-    amount: p2_pkgCost
+    partner_package_id: p2_pkgId2,
+    amount: p2_pkgCost2
   });
   const p2_approvalId2 = p2_redeem2Res.body.redemption_approval.id;
 
@@ -1700,13 +1717,28 @@ async function main() {
 
   // Test 15: Check ledger contains REDEEM_REFUND row for customer
   const p2_ledgerRes = await get('http://localhost:3001/api/ledger/history/u-cust1');
-  assert(p2_ledgerRes.body.some(l => l.type === 'REDEEM_REFUND' && l.amount === p2_pkgCost), 'Customer ledger contains REDEEM_REFUND credit entry');
+  assert(p2_ledgerRes.body.some(l => l.type === 'REDEEM_REFUND' && l.amount === p2_pkgCost2), 'Customer ledger contains REDEEM_REFUND credit entry');
+
+  // Create a third package to avoid duration lock
+  const p2_newPkgRes3 = await post('http://localhost:3001/api/admin/partners/ptr-adhya/packages', {
+    name: 'Test Package 3',
+    description: 'Test Desc',
+    service_type: 'CABLE',
+    face_value_rupees: 500,
+    cost_to_partner_rupees: 400,
+    point_cost: 500,
+    active_regions: ['r1'],
+    duration_days: 30,
+    is_timed: true
+  });
+  const p2_pkgId3 = p2_newPkgRes3.body.id;
+  const p2_pkgCost3 = p2_newPkgRes3.body.point_cost;
 
   // Test 16: Create third redemption for dispute workflow
   const p2_redeem3Res = await post('http://localhost:3001/api/ledger/redeem', {
     customer_user_id: 'u-cust1',
-    partner_package_id: p2_pkgId,
-    amount: p2_pkgCost
+    partner_package_id: p2_pkgId3,
+    amount: p2_pkgCost3
   });
   const p2_approvalId3 = p2_redeem3Res.body.redemption_approval.id;
   await post(`http://localhost:3001/api/admin/redemption-approvals/${p2_approvalId3}/approve`, { admin_id: 'u-admin' });
@@ -1733,11 +1765,26 @@ async function main() {
   assert(p2_resolveFulfillRes.status === 200, 'Admin resolve dispute with fulfill succeeds');
   assert(p2_resolveFulfillRes.body.status === 'FULFILLED', 'Status resolved to FULFILLED');
 
+  // Create a fourth package to avoid duration lock
+  const p2_newPkgRes4 = await post('http://localhost:3001/api/admin/partners/ptr-adhya/packages', {
+    name: 'Test Package 4',
+    description: 'Test Desc',
+    service_type: 'CABLE',
+    face_value_rupees: 500,
+    cost_to_partner_rupees: 400,
+    point_cost: 500,
+    active_regions: ['r1'],
+    duration_days: 30,
+    is_timed: true
+  });
+  const p2_pkgId4 = p2_newPkgRes4.body.id;
+  const p2_pkgCost4 = p2_newPkgRes4.body.point_cost;
+
   // Test 20: Create fourth redemption for dispute reject resolution
   const p2_redeem4Res = await post('http://localhost:3001/api/ledger/redeem', {
     customer_user_id: 'u-cust1',
-    partner_package_id: p2_pkgId,
-    amount: p2_pkgCost
+    partner_package_id: p2_pkgId4,
+    amount: p2_pkgCost4
   });
   const p2_approvalId4 = p2_redeem4Res.body.redemption_approval.id;
   await post(`http://localhost:3001/api/admin/redemption-approvals/${p2_approvalId4}/approve`, { admin_id: 'u-admin' });
@@ -2101,9 +2148,16 @@ async function main() {
   assert(p4a_fbResolveRes.body.status === 'RESOLVED', 'Feedback status updated to RESOLVED');
 
   // Test 384: Approve a redemption for adhya -> adhya's mockOutbox has email AND partner_notifications has new row
-  await post(`http://localhost:3001/api/admin/customers/${p4a_custId}/points-credit`, { amount: 1000, reason: 'Test setup' });
+  const p4a_custRes2 = await post('http://localhost:3001/api/auth/register-customer', {
+    phone: '9876500401',
+    name: 'P4A Cust 2',
+    address: 'Garia Street 2',
+    cable_partner_id: 'ptr-adhya'
+  });
+  const p4a_custId2 = p4a_custRes2.body.user.id;
+  await post(`http://localhost:3001/api/admin/customers/${p4a_custId2}/points-credit`, { amount: 1000, reason: 'Test setup' });
   const p4a_redeemRes2 = await post('http://localhost:3001/api/ledger/redeem', {
-    customer_user_id: p4a_custId,
+    customer_user_id: p4a_custId2,
     partner_package_id: 'ppk-adhya-basic',
     amount: 250
   });
@@ -2137,9 +2191,16 @@ async function main() {
   assert(p4a_notifFbCheck.body.some(n => n.kind === 'FEEDBACK_UPDATE'), 'Partner notifications include FEEDBACK_UPDATE row');
 
   // Test 390: Dispute resolution -> new notification of kind DISPUTE_RESOLVED
-  await post(`http://localhost:3001/api/admin/customers/${p4a_custId}/points-credit`, { amount: 1000, reason: 'Test setup' });
+  const p4a_custRes3 = await post('http://localhost:3001/api/auth/register-customer', {
+    phone: '9876500402',
+    name: 'P4A Cust 3',
+    address: 'Garia Street 3',
+    cable_partner_id: 'ptr-adhya'
+  });
+  const p4a_custId3 = p4a_custRes3.body.user.id;
+  await post(`http://localhost:3001/api/admin/customers/${p4a_custId3}/points-credit`, { amount: 1000, reason: 'Test setup' });
   const p4a_redeemRes3 = await post('http://localhost:3001/api/ledger/redeem', {
-    customer_user_id: p4a_custId,
+    customer_user_id: p4a_custId3,
     partner_package_id: 'ppk-adhya-basic',
     amount: 250
   });

@@ -3779,18 +3779,19 @@ app.post('/api/ledger/redeem', async (req, res) => {
       return res.status(400).json({ error: 'amount_mismatch' });
     }
 
-    // Duration lock check for timed packages
-    const isTimed = pkg.is_timed === true && pkg.duration_days && Number(pkg.duration_days) > 0;
-    if (isTimed) {
+    // Duration lock check for all packages (fallback to 30 days if untimed)
+    const effectiveDuration = (pkg.duration_days && Number(pkg.duration_days) > 0) ? Number(pkg.duration_days) : 30;
+    if (true) {
+      const activeStatuses = ['PENDING_ADMIN_APPROVAL', 'APPROVED', 'APPROVED_AWAITING_PARTNER', 'DISPUTED', 'FULFILLED'];
       const redemptions = await db.getTable('redemption_approvals');
       const lastRedemption = redemptions
         .filter(r => (r.customer_user_id === customerId || r.customer_id === customerId) && r.partner_package_id === partner_package_id)
-        .filter(r => r.status === 'FULFILLED')
+        .filter(r => activeStatuses.includes(r.status))
         .sort((a, b) => new Date(b.redeemed_at || b.created_at) - new Date(a.redeemed_at || a.created_at))[0];
 
       if (lastRedemption) {
         const nextAllowedIso = lastRedemption.next_redemption_allowed_at ||
-          (lastRedemption.redeemed_at ? new Date(new Date(lastRedemption.redeemed_at).getTime() + (Number(pkg.duration_days) * 24 * 60 * 60 * 1000)).toISOString() : null);
+          (lastRedemption.redeemed_at ? new Date(new Date(lastRedemption.redeemed_at).getTime() + (effectiveDuration * 24 * 60 * 60 * 1000)).toISOString() : null);
 
         if (nextAllowedIso) {
           const now = new Date();
@@ -3851,11 +3852,9 @@ app.post('/api/ledger/redeem', async (req, res) => {
     approvalId = 'ra-' + generateId();
     const nowTime = new Date();
     const nowIso = nowTime.toISOString();
-    const isTimed = pkg.is_timed === true || (pkg.duration_days && Number(pkg.duration_days) > 0);
+    const effectiveDuration = (pkg.duration_days && Number(pkg.duration_days) > 0) ? Number(pkg.duration_days) : 30;
     const redeemedAt = nowIso;
-    const nextAllowedAt = (isTimed && pkg.duration_days)
-      ? new Date(nowTime.getTime() + (Number(pkg.duration_days) * 24 * 60 * 60 * 1000)).toISOString()
-      : null;
+    const nextAllowedAt = new Date(nowTime.getTime() + (effectiveDuration * 24 * 60 * 60 * 1000)).toISOString();
 
     approvalRow = {
       id: approvalId,
@@ -7730,6 +7729,7 @@ app.get('/api/customer/redemptions/:customerUserId', async (req, res) => {
     return {
       ...a,
       package_name: pkg ? pkg.name : (a.package_name || 'Unknown Package'),
+      package_duration_days: pkg ? pkg.duration_days : null,
       partner_display_name: partner ? partner.display_name : (a.partner_display_name || partner?.name || 'Partner'),
       partner_name: partner ? partner.display_name : (a.partner_display_name || partner?.name || 'Partner')
     };

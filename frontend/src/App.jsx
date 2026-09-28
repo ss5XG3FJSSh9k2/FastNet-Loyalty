@@ -6141,7 +6141,7 @@ export default function App() {
     setPkgCostToPartner('');
     setPkgPointCost('');
     setPkgActiveRegions((partnerRegionsList || []).map(r => r.region_id));
-    setPkgDurationDays('');
+    setPkgDurationDays('30');
     setPkgDurationMode('preset');
     setShowPkgModal(true);
   };
@@ -6156,15 +6156,19 @@ export default function App() {
     setPkgPointCost(pkg.point_cost || pkg.face_value_rupees || '');
     setPkgActiveRegions(pkg.active_regions || []);
     const presets = ['30', '90', '180', '365'];
-    const dur = pkg.duration_days ? String(pkg.duration_days) : '';
+    const dur = pkg.duration_days ? String(pkg.duration_days) : '30';
     setPkgDurationDays(dur);
-    setPkgDurationMode(dur && !presets.includes(dur) ? 'custom' : 'preset');
+    setPkgDurationMode(!presets.includes(dur) ? 'custom' : 'preset');
     setShowPkgModal(true);
   };
 
   const handleSavePackage = async () => {
     if (!pkgName.trim() || !pkgFaceValue) {
       showToast('Package name and face value are required', 'error');
+      return;
+    }
+    if (!pkgDurationDays || Number(pkgDurationDays) <= 0) {
+      showToast('Duration is required (minimum 1 day)', 'error');
       return;
     }
     const payload = {
@@ -6175,8 +6179,8 @@ export default function App() {
       cost_to_partner_rupees: Number(pkgCostToPartner || pkgFaceValue),
       point_cost: Number(pkgPointCost || pkgFaceValue),
       active_regions: pkgActiveRegions,
-      duration_days: pkgDurationDays ? Number(pkgDurationDays) : null,
-      is_timed: !!pkgDurationDays
+      duration_days: Number(pkgDurationDays),
+      is_timed: true
     };
     try {
       const url = editingPkg
@@ -7287,7 +7291,6 @@ export default function App() {
                       }
                     }}
                   >
-                    <option value="">{t('One-time (no duration)', 'एक बार (कोई अवधि नहीं)', 'একবার (কোনো সময়কাল নেই)')}</option>
                     <option value="30">{t('1 month (30 days)', '1 महीना (30 दिन)', '1 মাস (30 দিন)')}</option>
                     <option value="90">{t('3 months (90 days)', '3 महीने (90 दिन)', '3 মাস (90 দিন)')}</option>
                     <option value="180">{t('6 months (180 days)', '6 महीने (180 दिन)', '6 মাস (180 দিন)')}</option>
@@ -8535,6 +8538,15 @@ export default function App() {
                             );
                           };
 
+                          const durationLabel = (days) => {
+                            const n = Number(days);
+                            if (n === 30) return t('1 month', '1 महीना', '1 মাস');
+                            if (n === 90) return t('3 months', '3 महीने', '3 মাস');
+                            if (n === 180) return t('6 months', '6 महीने', '6 মাস');
+                            if (n === 365) return t('1 year', '1 साल', '1 বছর');
+                            return t(`${n} days`, `${n} दिन`, `${n} দিন`);
+                          };
+
                           const renderRewardSection = (title, color, items, emptyReason, partnerName, serviceTypeKey) => {
                             const isCable = serviceTypeKey === 'cable';
                             const typeLabelEn = isCable ? 'cable' : 'broadband';
@@ -8585,13 +8597,14 @@ export default function App() {
                                       const partner = entry.partner;
                                       const canAfford = customerBalance >= pkg.point_cost;
                                       const isTimed = pkg.is_timed || (pkg.duration_days && pkg.duration_days > 0);
+                                      const activeStatuses = ['PENDING_ADMIN_APPROVAL', 'APPROVED', 'APPROVED_AWAITING_PARTNER', 'DISPUTED', 'FULFILLED'];
                                       const activeLock = (customerRedemptions || []).find(r => 
-                                        r.redemption_type === pkg.service_type && 
-                                        r.status === 'FULFILLED' && 
+                                        r.partner_package_id === pkg.id && 
+                                        activeStatuses.includes(r.status) &&
                                         r.next_redemption_allowed_at && 
                                         new Date(r.next_redemption_allowed_at) > new Date()
                                       );
-                                      const isLocked = isTimed && !!activeLock;
+                                      const isLocked = !!activeLock;
 
                                       return (
                                         <div
@@ -8631,7 +8644,17 @@ export default function App() {
                                               <span style={{ fontSize: '0.6rem', color: 'var(--text-muted)' }}>
                                                 {t(`worth ₹${pkg.face_value_rupees}`, `मूल्य ₹${pkg.face_value_rupees}`, `मूल्य ₹${pkg.face_value_rupees}`)}
                                               </span>
+                                              <span style={{ fontSize: '0.65rem', color: 'var(--accent)' }}>
+                                                &middot; {durationLabel(pkg.duration_days || 30)}
+                                              </span>
                                             </div>
+                                            {isLocked && (
+                                              <div style={{ fontSize: '0.65rem', color: '#f59e0b', marginTop: '0.2rem' }}>
+                                                {t(`Available again in ${Math.ceil((new Date(activeLock.next_redemption_allowed_at) - new Date()) / (1000 * 60 * 60 * 24))} days`, 
+                                                   `${Math.ceil((new Date(activeLock.next_redemption_allowed_at) - new Date()) / (1000 * 60 * 60 * 24))} दिनों में फिर से उपलब्ध`, 
+                                                   `আবার ${Math.ceil((new Date(activeLock.next_redemption_allowed_at) - new Date()) / (1000 * 60 * 60 * 24))} দিনের মধ্যে উপলব্ধ`)}
+                                              </div>
+                                            )}
                                           </div>
                                           <button
                                             id={`redeem-${pkg.id}`}
@@ -8768,8 +8791,12 @@ export default function App() {
                                       return (
                                         <div key={item.id} className="glass-card" style={{ padding: '0.75rem 0.85rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                           <div>
-                                            <div style={{ fontSize: '0.8rem', fontWeight: 'bold', color: 'white' }}>
-                                              {item.package_name || 'Package'} <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 'normal' }}>• {partnerDisplayName}</span>
+                                            <div style={{ fontSize: '0.8rem', fontWeight: 'bold', color: 'white', display: 'flex', alignItems: 'center', gap: '0.35rem', flexWrap: 'wrap' }}>
+                                              <span>{item.package_name || 'Package'}</span>
+                                              <span className="badge badge-primary" style={{ fontSize: '0.55rem', padding: '0.05rem 0.35rem' }}>
+                                                ⏱ {durationLabel(item.package_duration_days || 30)}
+                                              </span>
+                                              <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 'normal' }}>• {partnerDisplayName}</span>
                                             </div>
                                             <div style={{ fontSize: '0.7rem', color: statusColor, marginTop: '0.2rem', fontWeight: '600' }}>
                                               {statusLabel}
