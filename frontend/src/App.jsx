@@ -12035,7 +12035,7 @@ export default function App() {
                                 <td style={{ fontWeight: 'bold' }}>{p.display_name} <br/><span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{p.legal_name}</span></td>
                                 <td>{p.contact_phone}</td>
                                 <td>{(p.service_types || []).map(st => getServiceTypeLabel(st)).join(', ')}</td>
-                                <td>{(p.regions || []).length}</td>
+                                <td>{p.region_count ?? [...new Set((p.regions || []).map(r => r.region_id))].length}</td>
                                 <td>{(p.packages || []).length}</td>
                                 <td>{p.bound_customers_count || 0}</td>
                                 <td><span className={`badge ${p.is_active !== false ? 'badge-success' : 'badge-secondary'}`}>{p.is_active !== false ? 'Active' : 'Inactive'}</span></td>
@@ -15202,7 +15202,7 @@ export default function App() {
               </div>
 
               <div className="glass-card" style={{ padding: '0.75rem' }}>
-                <h4 style={{ margin: '0 0 0.5rem 0', color: 'var(--primary)' }}>Service Regions ({(selectedPartnerDetail.regions || []).length})</h4>
+                <h4 style={{ margin: '0 0 0.5rem 0', color: 'var(--primary)' }}>Service Regions ({selectedPartnerDetail.region_count ?? [...new Set((selectedPartnerDetail.regions || []).map(r => r.region_id))].length})</h4>
                 {(selectedPartnerDetail.regions || []).map(r => (
                   <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.25rem 0' }}>
                     <span>{(regions.find(reg => reg.id === r.region_id) || adminRegionsList.find(reg => reg.id === r.region_id) || {}).name || r.region_id || '—'} ({getServiceTypeLabel(r.service_type)})</span>

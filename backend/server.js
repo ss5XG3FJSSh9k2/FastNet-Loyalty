@@ -6584,12 +6584,15 @@ app.get('/api/admin/partners', async (req, res) => {
   }
 
   const result = partners.map(p => {
-    const regions = partnerRegions.filter(pr => pr.partner_id === p.id && pr.is_active !== false);
+    const prRows = partnerRegions.filter(pr => pr.partner_id === p.id && pr.is_active !== false);
+    const distinctRegionIds = [...new Set(prRows.map(pr => pr.region_id))];
     const active_package_count = partnerPackages.filter(pp => pp.partner_id === p.id && pp.is_active !== false).length;
     const bound_customer_count = customerBindings.filter(cb => cb.cable_partner_id === p.id || cb.broadband_partner_id === p.id).length;
     return {
       ...p,
-      regions,
+      regions: prRows,
+      region_count: distinctRegionIds.length,
+      region_ids: distinctRegionIds,
       active_package_count,
       bound_customer_count
     };
