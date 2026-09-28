@@ -1097,6 +1097,7 @@ export default function App() {
   const [pkgPointCost, setPkgPointCost] = useState('');
   const [pkgActiveRegions, setPkgActiveRegions] = useState([]);
   const [pkgDurationDays, setPkgDurationDays] = useState('');
+  const [pkgDurationMode, setPkgDurationMode] = useState('preset');
 
   // Regions Tab state
   const [partnerRegionsList, setPartnerRegionsList] = useState([]);
@@ -6141,6 +6142,7 @@ export default function App() {
     setPkgPointCost('');
     setPkgActiveRegions((partnerRegionsList || []).map(r => r.region_id));
     setPkgDurationDays('');
+    setPkgDurationMode('preset');
     setShowPkgModal(true);
   };
 
@@ -6153,7 +6155,10 @@ export default function App() {
     setPkgCostToPartner(pkg.cost_to_partner_rupees || pkg.face_value_rupees || '');
     setPkgPointCost(pkg.point_cost || pkg.face_value_rupees || '');
     setPkgActiveRegions(pkg.active_regions || []);
-    setPkgDurationDays(pkg.duration_days ? String(pkg.duration_days) : '');
+    const presets = ['30', '90', '180', '365'];
+    const dur = pkg.duration_days ? String(pkg.duration_days) : '';
+    setPkgDurationDays(dur);
+    setPkgDurationMode(dur && !presets.includes(dur) ? 'custom' : 'preset');
     setShowPkgModal(true);
   };
 
@@ -7270,13 +7275,39 @@ export default function App() {
                 
                 <div className="input-group">
                   <label className="input-label">{t('Subscription Duration', 'सदस्यता अवधि', 'সাবস্ক্রিপশন সময়কাল')}</label>
-                  <select className="text-input" value={pkgDurationDays} onChange={e => setPkgDurationDays(e.target.value)}>
+                  <select
+                    className="text-input"
+                    value={pkgDurationMode === 'custom' ? 'custom' : pkgDurationDays}
+                    onChange={e => {
+                      if (e.target.value === 'custom') {
+                        setPkgDurationMode('custom');
+                      } else {
+                        setPkgDurationMode('preset');
+                        setPkgDurationDays(e.target.value);
+                      }
+                    }}
+                  >
                     <option value="">{t('One-time (no duration)', 'एक बार (कोई अवधि नहीं)', 'একবার (কোনো সময়কাল নেই)')}</option>
                     <option value="30">{t('1 month (30 days)', '1 महीना (30 दिन)', '1 মাস (30 দিন)')}</option>
                     <option value="90">{t('3 months (90 days)', '3 महीने (90 दिन)', '3 মাস (90 দিন)')}</option>
                     <option value="180">{t('6 months (180 days)', '6 महीने (180 दिन)', '6 মাস (180 দিন)')}</option>
                     <option value="365">{t('1 year (365 days)', '1 साल (365 दिन)', '1 বছর (365 দিন)')}</option>
+                    <option value="custom">{t('Custom…', 'कस्टम…', 'কাস্টম…')}</option>
                   </select>
+                  {pkgDurationMode === 'custom' && (
+                    <div style={{ marginTop: '0.4rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                      <input
+                        type="number"
+                        className="text-input"
+                        style={{ width: '90px' }}
+                        min="1" max="3650"
+                        placeholder={t('Days', 'दिन', 'দিন')}
+                        value={pkgDurationDays}
+                        onChange={e => setPkgDurationDays(e.target.value)}
+                      />
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{t('days', 'दिन', 'দিন')}</span>
+                    </div>
+                  )}
                   <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>
                     {t('Customers can\'t redeem this package again until the duration ends.',
                        'ग्राहक अवधि समाप्त होने तक इस पैकेज को दोबारा रिडीम नहीं कर सकते।',
