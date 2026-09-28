@@ -876,6 +876,8 @@ export default function App() {
   const [healthData, setHealthData] = useState(null);
   const [adminPartners, setAdminPartners] = useState([]);
   const [partnerSubTab, setPartnerSubTab] = useState('leads');
+  const [transactionsSubTab, setTransactionsSubTab] = useState('stockist');
+  const [feedbackSubTab, setFeedbackSubTab] = useState('incidents');
   const [partnerRegionFilter, setPartnerRegionFilter] = useState('ALL');
   const [partnerServiceFilter, setPartnerServiceFilter] = useState('ALL');
   const [partnerActiveFilter, setPartnerActiveFilter] = useState('ALL');
@@ -13035,7 +13037,19 @@ export default function App() {
 
               {adminTab === 'feedback' && (
                 <div>
-                  <h2 style={{ fontSize: '1.4rem', marginBottom: '1rem' }}>Feedback & Incident Queue</h2>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                    <h2 style={{ fontSize: '1.4rem', margin: 0 }}>{t('Feedback', 'प्रतिक्रिया', 'ফিডব্যাক')}</h2>
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      <button className={`btn ${feedbackSubTab === 'incidents' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setFeedbackSubTab('incidents')}>
+                        Incident Queue
+                      </button>
+                      <button className={`btn ${feedbackSubTab === 'partner' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setFeedbackSubTab('partner')}>
+                        Partner Feedback{adminPartnerFeedback.filter(f => f.status === 'NEW').length > 0 && <span className="badge badge-warning" style={{ marginLeft: '0.3rem', fontSize: '0.65rem' }}>{adminPartnerFeedback.filter(f => f.status === 'NEW').length}</span>}
+                      </button>
+                    </div>
+                  </div>
+                  {feedbackSubTab === 'incidents' && (
+                    <>
                   <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
                     View service ratings, wrong items, no-shows, or customer behavioral reports filed by user roles.
                   </p>
@@ -13091,7 +13105,10 @@ export default function App() {
                     </tbody>
                   </table>
 
-                  <h2 style={{ fontSize: '1.4rem', marginBottom: '1rem', marginTop: '3rem' }}>{t('Partner Feedback & Requests', 'पार्टनर प्रतिक्रिया और अनुरोध', 'পার্টনার ফিডব্যাক এবং অনুরোধ')}</h2>
+                    </>
+                  )}
+                  {feedbackSubTab === 'partner' && (
+                    <>
                   <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
                     {t('View feedback, issues, and requests from onboarded partners.', 'शामिल किए गए पार्टनर से प्रतिक्रिया, समस्याएं और अनुरोध देखें।', 'অনবোর্ড করা পার্টনারদের থেকে ফিডব্যাক, সমস্যা এবং অনুরোধগুলি দেখুন।')}
                   </p>
@@ -13190,6 +13207,8 @@ export default function App() {
                         </div>
                       </div>
                     </div>
+                  )}
+                  </>
                   )}
                 </div>
               )}
@@ -13619,7 +13638,19 @@ export default function App() {
                     </div>
                   )}
 
-                  <h2 style={{ fontSize: '1.4rem', marginBottom: '1rem' }}>Partner Payouts</h2>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                    <h2 style={{ fontSize: '1.4rem', margin: 0 }}>{t('Transactions & Payouts', 'लेन-देन और भुगतान', 'লেনদেন ও পেমেন্ট')}</h2>
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      <button className={`btn ${transactionsSubTab === 'stockist' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setTransactionsSubTab('stockist')}>
+                        Stockist Payouts
+                      </button>
+                      <button className={`btn ${transactionsSubTab === 'partner' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setTransactionsSubTab('partner')}>
+                        Partner Payouts{partnerPayoutsDue.length > 0 && <span className="badge badge-warning" style={{ marginLeft: '0.3rem', fontSize: '0.65rem' }}>{partnerPayoutsDue.length}</span>}
+                      </button>
+                    </div>
+                  </div>
+                  {transactionsSubTab === 'partner' && (
+                    <>
                   <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
                     Outstanding payouts owed to partners for fulfilled redemptions.
                   </p>
@@ -13666,7 +13697,10 @@ export default function App() {
                     </tbody>
                   </table>
 
-                  <h2 style={{ fontSize: '1.4rem', marginBottom: '1rem' }}>Stockist Payouts / Transactions</h2>
+                    </>
+                  )}
+                  {transactionsSubTab === 'stockist' && (
+                    <>
                   <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
                     Full visibility into orders, split commissions, and points generated across Garia & Bishnupur regions.
                   </p>
@@ -13791,6 +13825,8 @@ export default function App() {
                       )}
                     </tbody>
                   </table>
+                  </>
+                  )}
                 </div>
               )}
 
