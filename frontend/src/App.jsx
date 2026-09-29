@@ -9501,17 +9501,19 @@ export default function App() {
                   )}
 
                   {customerAppTab === 'track' && trackingOrder && (() => {
+                    const liveOrder = (customerOrders || []).find(o => o.id === trackingOrder?.id) || trackingOrder;
+
                     const steps = [
                       { key: 'CONFIRMING', label: t('Order Placed', 'ऑर्डर दिया गया', 'অর্ডার দেওয়া হয়েছে') },
                       { key: 'RECEIVED', label: t('Received', 'प्राप्त', 'গৃহীত') },
-                      { key: 'READY', label: trackingOrder.fulfillment_type === 'PICKUP' ? t('Ready for Pickup', 'पिकअप के लिए तैयार', 'পিকআপের জন্য প্রস্তুত') : t('Ready for Delivery', 'वितरण के लिए तैयार', 'ডেলিভারির জন্য প্রস্তুত') },
-                      { key: 'DELIVERED', label: trackingOrder.fulfillment_type === 'PICKUP' ? t('Picked Up', 'पिकअप किया गया', 'পিকআপ সম্পন্ন') : t('Delivered', 'वितरित', 'ডেলিভারি সম্পন্ন') }
+                      { key: 'READY', label: liveOrder.fulfillment_type === 'PICKUP' ? t('Ready for Pickup', 'पिकअप के लिए तैयार', 'পিকআপের জন্য প্রস্তুত') : t('Ready for Delivery', 'वितरण के लिए तैयार', 'ডেলিভারির জন্য প্রস্তুত') },
+                      { key: 'DELIVERED', label: liveOrder.fulfillment_type === 'PICKUP' ? t('Picked Up', 'पिकअप किया गया', 'পিকআপ সম্পন্ন') : t('Delivered', 'वितरित', 'ডেলিভারি সম্পন্ন') }
                     ];
 
                     const orderedStatuses = ['CONFIRMING', 'PENDING', 'RECEIVED', 'READY', 'DELIVERED'];
                     
-                    const subtotal = (trackingOrder.items || []).reduce((sum, item) => sum + (item.price * item.quantity), 0);
-                    const deliveryFee = trackingOrder.fulfillment_type === 'DELIVERY' ? (trackingOrder.region_id === 'r2' ? 30.00 : 40.00) : 0;
+                    const subtotal = (liveOrder.items || []).reduce((sum, item) => sum + (item.price * item.quantity), 0);
+                    const deliveryFee = liveOrder.fulfillment_type === 'DELIVERY' ? (liveOrder.region_id === 'r2' ? 30.00 : 40.00) : 0;
                     const total = subtotal + deliveryFee;
 
                     return (
@@ -9521,8 +9523,8 @@ export default function App() {
                             <ArrowLeft size={20} />
                           </button>
                           <div>
-                            <h3 style={{ margin: 0, fontSize: '1rem' }}>{trackingOrder.stockist_name}</h3>
-                            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{t('Order', 'ऑर्डर', 'অর্ডার')} #{trackingOrder.id.substring(0,6).toUpperCase()}</div>
+                            <h3 style={{ margin: 0, fontSize: '1rem' }}>{liveOrder.stockist_name}</h3>
+                            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{t('Order', 'ऑर्डर', 'অর্ডার')} #{liveOrder.id.substring(0,6).toUpperCase()}</div>
                           </div>
                         </div>
 
@@ -9536,9 +9538,9 @@ export default function App() {
                         <div className="glass-card" style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
                             <strong style={{ fontSize: '0.9rem' }}>{t('Order Status', 'ऑर्डर स्थिति', 'অর্ডারের অবস্থা')}</strong>
-                            {trackingOrder.status !== 'DELIVERED' && trackingOrder.status !== 'CANCELLED' && (
+                            {liveOrder.status !== 'DELIVERED' && liveOrder.status !== 'CANCELLED' && (
                               <span style={{ fontSize: '0.75rem', color: 'var(--accent)', fontWeight: 'bold' }}>
-                                {t('Arriving in', 'आने में', 'আসছে')} {computeEta(trackingOrder)} {t('mins', 'मिनट', 'মিনিট')}
+                                {t('Arriving in', 'आने में', 'আসছে')} {computeEta(liveOrder)} {t('mins', 'मिनट', 'মিনিট')}
                               </span>
                             )}
                           </div>
@@ -9546,9 +9548,9 @@ export default function App() {
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginLeft: '0.5rem', borderLeft: '2px solid rgba(255,255,255,0.1)', paddingLeft: '1.25rem', position: 'relative' }}>
                             {steps.map((step, idx) => {
                               const stepIdx = orderedStatuses.indexOf(step.key);
-                              const currentIdx = orderedStatuses.indexOf(trackingOrder.status);
+                              const currentIdx = orderedStatuses.indexOf(liveOrder.status);
                               const isCompleted = currentIdx >= stepIdx;
-                              const isActive = currentIdx === stepIdx || (trackingOrder.status === 'PENDING' && step.key === 'CONFIRMING');
+                              const isActive = currentIdx === stepIdx || (liveOrder.status === 'PENDING' && step.key === 'CONFIRMING');
                               
                               let dotColor = 'rgba(255,255,255,0.2)';
                               if (isActive) dotColor = 'var(--accent)';
@@ -9570,20 +9572,20 @@ export default function App() {
                         <div className="glass-card" style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                           <strong style={{ fontSize: '0.9rem', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '0.5rem' }}>{t('Order Details', 'ऑर्डर विवरण', 'অর্ডারের বিবরণ')}</strong>
                           
-                          {trackingOrder.fulfillment_type === 'PICKUP' ? (
+                          {liveOrder.fulfillment_type === 'PICKUP' ? (
                             <div style={{ fontSize: '0.8rem' }}>
                               <span style={{ color: 'var(--text-muted)' }}>{t('Pickup PIN:', 'पिकअप पिन:', 'পিকআপ পিন:')}</span>
-                              <strong style={{ marginLeft: '0.5rem', letterSpacing: '2px', color: 'var(--accent)' }}>{trackingOrder.pickup_pin || '1234'}</strong>
+                              <strong style={{ marginLeft: '0.5rem', letterSpacing: '2px', color: 'var(--accent)' }}>{liveOrder.pickup_pin || '1234'}</strong>
                             </div>
                           ) : (
                             <div style={{ fontSize: '0.8rem' }}>
                               <span style={{ color: 'var(--text-muted)', display: 'block', marginBottom: '0.2rem' }}>{t('Delivery Address:', 'डिलीवरी का पता:', 'ডেলিভারির ঠিকানা:')}</span>
-                              <span>{trackingOrder.delivery_address || currentUser.address}</span>
+                              <span>{liveOrder.delivery_address || currentUser.address}</span>
                             </div>
                           )}
 
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', marginTop: '0.5rem' }}>
-                            {(trackingOrder.items || []).map((item, idx) => (
+                            {(liveOrder.items || []).map((item, idx) => (
                               <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem' }}>
                                 <span>{item.quantity}x {item.product_name || item.name}</span>
                                 <span>₹{(item.price * item.quantity).toFixed(2)}</span>
@@ -9596,7 +9598,7 @@ export default function App() {
                               <span>{t('Subtotal', 'उप-कुल', 'সাবটোটাল')}</span>
                               <span>₹{subtotal.toFixed(2)}</span>
                             </div>
-                            {trackingOrder.fulfillment_type === 'DELIVERY' && (
+                            {liveOrder.fulfillment_type === 'DELIVERY' && (
                               <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-muted)' }}>
                                 <span>{t('Delivery Fee', 'वितरण शुल्क', 'ডেলিভারি চার্জ')}</span>
                                 <span>₹{deliveryFee.toFixed(2)}</span>
@@ -9611,7 +9613,7 @@ export default function App() {
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'rgba(255,153,0,0.1)', padding: '0.75rem', borderRadius: '8px', border: '1px solid rgba(255,153,0,0.2)', marginTop: '0.5rem' }}>
                             <Sparkles size={16} style={{ color: 'var(--warning)' }} />
                             <div style={{ fontSize: '0.75rem' }}>
-                              <strong style={{ color: 'var(--warning)' }}>+{formatPoints(trackingOrder.points_credited || trackingOrder.estimated_points_credit || 0)} pts</strong>
+                              <strong style={{ color: 'var(--warning)' }}>+{formatPoints(liveOrder.points_credited || liveOrder.estimated_points_credit || 0)} pts</strong>
                               <span style={{ color: 'var(--text-muted)', marginLeft: '0.25rem' }}>{t('with this order', 'इस ऑर्डर के साथ', 'এই অর্ডারের সাথে')}</span>
                             </div>
                           </div>
