@@ -36,7 +36,7 @@ These rules are law. They were each earned by a real failure in this project. Vi
 - Points are EARNED from commission on completed orders only. Paid money NEVER converts into points under any flow (that would make them a regulated prepaid instrument).
 - Points credit only on DELIVERED, any payment mode. Cancellation reverses/never-credits.
 - Customer funds live with the payment gateway (HELD) — never in a platform account. Refunds are admin-triggered (REFUND_DUE → REFUNDED), amount = paid minus platform commission, and that deduction must remain disclosed at checkout.
-- Points: non-transferable, non-cashable, redeemable only against the operator's own services (cable/wifi). Never add merchandise redemption or transfer features.
+- Points: non-transferable, non-cashable. Redeemable against the operator's own services AND, by owner decision, as a coupon discount on a single-shop prepaid order at checkout (BF-CPN). Never convertible to cash, never transferable, never loaded with paid money. Legal review pending before go-live.
 
 ## 7. REPORT FORMAT — exactly this, every round
 1) synced-from hash  2) each item: DONE/NOT DONE (+ file:line for DONE)  3) raw gate outputs  4) suite count  5) `git diff --stat` paste  6) commit hash + "pushed to master, servers restarted, DB reset"
@@ -47,6 +47,7 @@ These rules are law. They were each earned by a real failure in this project. Vi
 - Orders reach the stockist queue immediately. Multi-store carts are pickup-only, one sub-order per store.
 - No-show: 30-min grace → one reschedule → 20-min grace → auto-cancel (refund minus commission).
 - Points reveal to the customer happens in the Delivered popup, not at checkout.
+- Coupons: Applies to a single-shop, prepaid order only. Max discount is the order subtotal. Excludes delivery fee. Fully refunded (points returned) on cancellation.
 
 ## 9. COMMIT BEFORE RESET, PUSH WHEN DONE
 - **Commit before any reset:** Never run `git reset --hard` over uncommitted changes. If `git status` is not clean, commit first: `git add -A && git commit -m "wip: <ticket> — <what works so far>"`. A `wip:` commit is always acceptable.
