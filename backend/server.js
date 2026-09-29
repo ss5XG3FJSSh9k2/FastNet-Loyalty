@@ -3754,6 +3754,40 @@ app.post('/api/ledger/redeem', async (req, res) => {
     if (!generic || generic.is_active === false) {
       return res.status(404).json({ error: 'Generic reward missing or inactive' });
     }
+    if (generic.valid_until && new Date() > new Date(generic.valid_until)) {
+      return res.status(400).json({ error: 'reward_expired', message: 'This reward is no longer available' });
+    }
+
+    const ct = generic.cooldown_type || 'NONE';
+    if (ct !== 'NONE') {
+      const activeStatuses = ['PENDING_ADMIN_APPROVAL', 'APPROVED', 'APPROVED_AWAITING_PARTNER', 'DISPUTED', 'FULFILLED'];
+      const redemptions = await db.getTable('redemption_approvals');
+      const lastRedemption = redemptions
+        .filter(r => (r.customer_user_id === customerId || r.customer_id === customerId) && r.partner_package_id === generic.id)
+        .filter(r => activeStatuses.includes(r.status))
+        .sort((a, b) => new Date(b.redeemed_at || b.created_at) - new Date(a.redeemed_at || a.created_at))[0];
+
+      if (lastRedemption) {
+        if (ct === 'ONCE') {
+          return res.status(400).json({ error: 'already_redeemed', message: 'Already redeemed' });
+        } else if (ct === 'DAYS') {
+          const cd = parseInt(generic.cooldown_days, 10);
+          if (cd > 0) {
+            const nextAllowedIso = lastRedemption.next_redemption_allowed_at || new Date(new Date(lastRedemption.redeemed_at || lastRedemption.created_at).getTime() + (cd * 24 * 60 * 60 * 1000)).toISOString();
+            const now = new Date();
+            if (now < new Date(nextAllowedIso)) {
+              const daysLeft = Math.ceil((new Date(nextAllowedIso) - now) / (1000 * 60 * 60 * 24));
+              return res.status(400).json({
+                error: 'Already redeemed',
+                message: `Available again in ${daysLeft} days`,
+                available_at: nextAllowedIso
+              });
+            }
+          }
+        }
+      }
+    }
+
     // Amount match check
     if (amount && parseFloat(amount) !== parseFloat(generic.point_cost)) {
       return res.status(400).json({ error: 'amount_mismatch' });
@@ -3765,7 +3799,9 @@ app.post('/api/ledger/redeem', async (req, res) => {
       name: generic.name,
       point_cost: generic.point_cost,
       face_value_rupees: generic.value_rupees,
-      service_type: 'generic'
+      service_type: 'generic',
+      cooldown_type: ct,
+      cooldown_days: generic.cooldown_days
     };
   } else if (partner_package_id) {
     pkg = partnerPackages.find(p => p.id === partner_package_id);
@@ -3871,9 +3907,15 @@ app.post('/api/ledger/redeem', async (req, res) => {
     approvalId = 'ra-' + generateId();
     const nowTime = new Date();
     const nowIso = nowTime.toISOString();
-    const effectiveDuration = (pkg.duration_days && Number(pkg.duration_days) > 0) ? Number(pkg.duration_days) : 30;
-    const redeemedAt = nowIso;
-    const nextAllowedAt = new Date(nowTime.getTime() + (effectiveDuration * 24 * 60 * 60 * 1000)).toISOString();
+    let nextAllowedAt = null;
+    if (pkg.service_type === 'generic') {
+      if (pkg.cooldown_type === 'DAYS' && parseInt(pkg.cooldown_days, 10) > 0) {
+        nextAllowedAt = new Date(nowTime.getTime() + (parseInt(pkg.cooldown_days, 10) * 24 * 60 * 60 * 1000)).toISOString();
+      }
+    } else {
+      const effectiveDuration = (pkg.duration_days && Number(pkg.duration_days) > 0) ? Number(pkg.duration_days) : 30;
+      nextAllowedAt = new Date(nowTime.getTime() + (effectiveDuration * 24 * 60 * 60 * 1000)).toISOString();
+    }
 
     approvalRow = {
       id: approvalId,
@@ -3900,7 +3942,7 @@ app.post('/api/ledger/redeem', async (req, res) => {
       fulfilled_at: null,
       disputed_at: null,
       refund_ledger_id: null,
-      redeemed_at: redeemedAt,
+      redeemed_at: nowIso,
       next_redemption_allowed_at: nextAllowedAt,
       created_at: nowIso,
       updated_at: nowIso
@@ -4017,7 +4059,11 @@ app.get(['/api/customer/rewards/available/:customerUserId', '/api/customer/avail
     const broadbandRes = resolveAvailable(broadbandPartnerId, 'broadband');
 
     const genericRewardsTable = await db.getTable('generic_rewards');
-    const genericRewards = genericRewardsTable.filter(r => r.is_active !== false);
+    const genericRewards = genericRewardsTable.filter(r => {
+      if (r.is_active === false) return false;
+      if (r.valid_until && new Date() > new Date(r.valid_until)) return false;
+      return true;
+    });
 
     return res.json({
       cable: cableRes.list,
@@ -4029,7 +4075,10 @@ app.get(['/api/customer/rewards/available/:customerUserId', '/api/customer/avail
           description: r.description,
           service_type: 'generic',
           face_value_rupees: parseFloat(r.value_rupees) || 0,
-          point_cost: parseInt(r.point_cost, 10)
+          point_cost: parseInt(r.point_cost, 10),
+          cooldown_type: r.cooldown_type || 'NONE',
+          cooldown_days: r.cooldown_days || null,
+          valid_until: r.valid_until || null
         },
         partner: {
           id: 'GENERIC',
@@ -7347,8 +7396,27 @@ app.get('/api/admin/generic-rewards', async (req, res) => {
 });
 
 app.post('/api/admin/generic-rewards', async (req, res) => {
-  const { name, description, point_cost, value_rupees } = req.body;
+  const { name, description, point_cost, value_rupees, cooldown_type, cooldown_days, valid_until } = req.body;
   if (!name || !point_cost) return res.status(400).json({ error: 'Missing fields' });
+  if (!['NONE', 'DAYS', 'ONCE'].includes(cooldown_type)) return res.status(400).json({ error: 'Invalid cooldown_type' });
+  
+  let finalCooldownDays = null;
+  if (cooldown_type === 'DAYS') {
+    finalCooldownDays = parseInt(cooldown_days, 10);
+    if (isNaN(finalCooldownDays) || finalCooldownDays < 1 || finalCooldownDays > 3650) {
+      return res.status(400).json({ error: 'Invalid cooldown_days' });
+    }
+  }
+
+  let finalValidUntil = null;
+  if (valid_until) {
+    const datePart = valid_until.split('T')[0];
+    const isoString = `${datePart}T23:59:59.999+05:30`;
+    const d = new Date(isoString);
+    if (isNaN(d.getTime())) return res.status(400).json({ error: 'Invalid valid_until date' });
+    if (d < new Date()) return res.status(400).json({ error: 'valid_until cannot be in the past on create' });
+    finalValidUntil = isoString;
+  }
 
   const rewards = await db.getTable('generic_rewards');
   const newReward = {
@@ -7358,6 +7426,9 @@ app.post('/api/admin/generic-rewards', async (req, res) => {
     point_cost: parseInt(point_cost, 10),
     value_rupees: parseFloat(value_rupees) || 0,
     is_active: true,
+    cooldown_type,
+    cooldown_days: finalCooldownDays,
+    valid_until: finalValidUntil,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString()
   };
@@ -7368,7 +7439,7 @@ app.post('/api/admin/generic-rewards', async (req, res) => {
 
 app.patch('/api/admin/generic-rewards/:id', async (req, res) => {
   const { id } = req.params;
-  const { name, description, point_cost, value_rupees, is_active } = req.body;
+  const { name, description, point_cost, value_rupees, is_active, cooldown_type, cooldown_days, valid_until } = req.body;
   const rewards = await db.getTable('generic_rewards');
   const reward = rewards.find(r => r.id === id);
   if (!reward) return res.status(404).json({ error: 'Not found' });
@@ -7378,6 +7449,35 @@ app.patch('/api/admin/generic-rewards/:id', async (req, res) => {
   if (point_cost !== undefined) reward.point_cost = parseInt(point_cost, 10);
   if (value_rupees !== undefined) reward.value_rupees = parseFloat(value_rupees);
   if (is_active !== undefined) reward.is_active = is_active;
+  
+  if (cooldown_type !== undefined) {
+    if (!['NONE', 'DAYS', 'ONCE'].includes(cooldown_type)) return res.status(400).json({ error: 'Invalid cooldown_type' });
+    reward.cooldown_type = cooldown_type;
+    if (cooldown_type === 'DAYS') {
+      const cd = parseInt(cooldown_days !== undefined ? cooldown_days : reward.cooldown_days, 10);
+      if (isNaN(cd) || cd < 1 || cd > 3650) return res.status(400).json({ error: 'Invalid cooldown_days' });
+      reward.cooldown_days = cd;
+    } else {
+      reward.cooldown_days = null;
+    }
+  } else if (cooldown_days !== undefined && reward.cooldown_type === 'DAYS') {
+    const cd = parseInt(cooldown_days, 10);
+    if (isNaN(cd) || cd < 1 || cd > 3650) return res.status(400).json({ error: 'Invalid cooldown_days' });
+    reward.cooldown_days = cd;
+  }
+
+  if (valid_until !== undefined) {
+    if (valid_until === null || valid_until === '') {
+      reward.valid_until = null;
+    } else {
+      const datePart = valid_until.split('T')[0];
+      const isoString = `${datePart}T23:59:59.999+05:30`;
+      const d = new Date(isoString);
+      if (isNaN(d.getTime())) return res.status(400).json({ error: 'Invalid valid_until date' });
+      reward.valid_until = isoString;
+    }
+  }
+
   reward.updated_at = new Date().toISOString();
 
   await db.saveTable('generic_rewards', rewards);

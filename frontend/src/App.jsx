@@ -931,6 +931,9 @@ export default function App() {
   const [savingGenericReward, setSavingGenericReward] = useState(false);
   const [genericRewardErrors, setGenericRewardErrors] = useState({});
   const [genericRewardActive, setGenericRewardActive] = useState(true);
+  const [genericRewardCooldownMode, setGenericRewardCooldownMode] = useState('');
+  const [genericRewardCooldownDays, setGenericRewardCooldownDays] = useState('');
+  const [genericRewardValidUntil, setGenericRewardValidUntil] = useState('');
   const [adminPartnerPayouts, setAdminPartnerPayouts] = useState([]);
 
   const fetchAdminPartnerPayouts = () => {
@@ -8693,15 +8696,66 @@ export default function App() {
                                       const pkg = entry.package;
                                       const partner = entry.partner;
                                       const canAfford = customerBalance >= pkg.point_cost;
-                                      const isTimed = pkg.is_timed || (pkg.duration_days && pkg.duration_days > 0);
+                                      const isTimed = pkg.service_type !== 'generic' && (pkg.is_timed || (pkg.duration_days && pkg.duration_days > 0));
                                       const activeStatuses = ['PENDING_ADMIN_APPROVAL', 'APPROVED', 'APPROVED_AWAITING_PARTNER', 'DISPUTED', 'FULFILLED'];
-                                      const activeLock = (customerRedemptions || []).find(r => 
+                                      const baseLock = (customerRedemptions || []).find(r => 
                                         r.partner_package_id === pkg.id && 
-                                        activeStatuses.includes(r.status) &&
-                                        r.next_redemption_allowed_at && 
-                                        new Date(r.next_redemption_allowed_at) > new Date()
+                                        activeStatuses.includes(r.status)
                                       );
-                                      const isLocked = !!activeLock;
+
+                                      let isLocked = false;
+                                      let lockMessage = null;
+                                      
+                                      if (pkg.service_type === 'generic') {
+                                        if (pkg.cooldown_type === 'ONCE') {
+                                          if (baseLock) {
+                                            isLocked = true;
+                                            lockMessage = t('Already redeemed', 'पहले ही भुनाया जा चुका है', 'ইতিমধ্যেই রিডিম করা হয়েছে');
+                                          }
+                                        } else if (pkg.cooldown_type === 'DAYS') {
+                                          if (baseLock && baseLock.next_redemption_allowed_at && new Date(baseLock.next_redemption_allowed_at) > new Date()) {
+                                            isLocked = true;
+                                            const daysLeft = Math.ceil((new Date(baseLock.next_redemption_allowed_at) - new Date()) / (1000 * 60 * 60 * 24));
+                                            lockMessage = t(`Available again in ${daysLeft} days`, 
+                                                             `${daysLeft} दिनों में फिर से उपलब्ध`, 
+                                                             `আবার ${daysLeft} দিনের মধ্যে উপলব্ধ`);
+                                          }
+                                        }
+                                      } else {
+                                        if (baseLock && baseLock.next_redemption_allowed_at && new Date(baseLock.next_redemption_allowed_at) > new Date()) {
+                                          isLocked = true;
+                                          const daysLeft = Math.ceil((new Date(baseLock.next_redemption_allowed_at) - new Date()) / (1000 * 60 * 60 * 24));
+                                          lockMessage = t(`Available again in ${daysLeft} days`, 
+                                                             `${daysLeft} दिनों में फिर से उपलब्ध`, 
+                                                             `আবার ${daysLeft} দিনের মধ্যে উপলব্ধ`);
+                                        }
+                                      }
+                                      
+                                      let bottomText = null;
+                                      if (pkg.service_type === 'generic') {
+                                        let durText = '';
+                                        if (pkg.cooldown_type === 'ONCE') durText = t('One-time', 'एक बार', 'এককালীন');
+                                        else if (pkg.cooldown_type === 'DAYS') durText = t('Repeat after', 'के बाद दोहराएं', 'পরে পুনরাবৃত্তি করুন') + ' ' + durationLabel(pkg.cooldown_days);
+                                        
+                                        let untilText = '';
+                                        if (pkg.valid_until) {
+                                          untilText = t('Until', 'तक', 'পর্যন্ত') + ' ' + new Date(pkg.valid_until).toLocaleDateString();
+                                        }
+                                        
+                                        if (durText || untilText) {
+                                          bottomText = (
+                                            <span style={{ fontSize: '0.65rem', color: 'var(--accent)' }}>
+                                              &middot; {[durText, untilText].filter(Boolean).join(' • ')}
+                                            </span>
+                                          );
+                                        }
+                                      } else {
+                                        bottomText = (
+                                          <span style={{ fontSize: '0.65rem', color: 'var(--accent)' }}>
+                                            &middot; {durationLabel(pkg.duration_days || 30)}
+                                          </span>
+                                        );
+                                      }
 
                                       return (
                                         <div
@@ -8739,17 +8793,13 @@ export default function App() {
                                             <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginTop: '0.2rem' }}>
                                               <span style={{ fontSize: '0.7rem', fontWeight: 'bold', color }}>{formatPoints(pkg.point_cost)}</span>
                                               <span style={{ fontSize: '0.6rem', color: 'var(--text-muted)' }}>
-                                                {t(`worth ₹${pkg.face_value_rupees}`, `मूल्य ₹${pkg.face_value_rupees}`, `मूल्य ₹${pkg.face_value_rupees}`)}
+                                                {t(`worth ₹${pkg.face_value_rupees}`, `मूल्य ₹${pkg.face_value_rupees}`, `মূল्य ₹${pkg.face_value_rupees}`)}
                                               </span>
-                                              <span style={{ fontSize: '0.65rem', color: 'var(--accent)' }}>
-                                                &middot; {durationLabel(pkg.duration_days || 30)}
-                                              </span>
+                                              {bottomText}
                                             </div>
                                             {isLocked && (
                                               <div style={{ fontSize: '0.65rem', color: '#f59e0b', marginTop: '0.2rem' }}>
-                                                {t(`Available again in ${Math.ceil((new Date(activeLock.next_redemption_allowed_at) - new Date()) / (1000 * 60 * 60 * 24))} days`, 
-                                                   `${Math.ceil((new Date(activeLock.next_redemption_allowed_at) - new Date()) / (1000 * 60 * 60 * 24))} दिनों में फिर से उपलब्ध`, 
-                                                   `আবার ${Math.ceil((new Date(activeLock.next_redemption_allowed_at) - new Date()) / (1000 * 60 * 60 * 24))} দিনের মধ্যে উপলব্ধ`)}
+                                                {lockMessage}
                                               </div>
                                             )}
                                           </div>
@@ -8901,9 +8951,11 @@ export default function App() {
                                           <div>
                                             <div style={{ fontSize: '0.8rem', fontWeight: 'bold', color: 'white', display: 'flex', alignItems: 'center', gap: '0.35rem', flexWrap: 'wrap' }}>
                                               <span>{item.package_name || 'Package'}</span>
-                                              <span className="badge badge-primary" style={{ fontSize: '0.55rem', padding: '0.05rem 0.35rem' }}>
-                                                ⏱ {durationLabel(item.package_duration_days || 30)}
-                                              </span>
+                                              {item.partner_id !== 'GENERIC' && (
+                                                <span className="badge badge-primary" style={{ fontSize: '0.55rem', padding: '0.05rem 0.35rem' }}>
+                                                  ⏱ {durationLabel(item.package_duration_days || 30)}
+                                                </span>
+                                              )}
                                               <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 'normal' }}>• {partnerDisplayName}</span>
                                             </div>
                                             <div style={{ fontSize: '0.7rem', color: statusColor, marginTop: '0.2rem', fontWeight: '600' }}>
@@ -14028,6 +14080,9 @@ export default function App() {
                     <button className="btn btn-primary" onClick={() => { 
                       setEditingGenericReward(null); 
                       setGenericRewardActive(true);
+                      setGenericRewardCooldownMode('');
+                      setGenericRewardCooldownDays('');
+                      setGenericRewardValidUntil('');
                       setGenericRewardErrors({});
                       setShowGenericRewardModal(true); 
                     }}>+ Add Reward</button>
@@ -14040,30 +14095,53 @@ export default function App() {
                           <th>Description</th>
                           <th>Point Cost</th>
                           <th>Value (₹)</th>
+                          <th>Repeat</th>
+                          <th>Until</th>
                           <th>Status</th>
                           <th>Actions</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {adminGenericRewards.map(r => (
+                        {adminGenericRewards.map(r => {
+                          let repeatText = 'Anytime';
+                          if (r.cooldown_type === 'ONCE') repeatText = 'One-time';
+                          else if (r.cooldown_type === 'DAYS') repeatText = `Every ${r.cooldown_days} days`;
+
+                          let untilText = 'No end date';
+                          let isExpired = false;
+                          if (r.valid_until) {
+                            untilText = new Date(r.valid_until).toLocaleDateString();
+                            if (new Date() > new Date(r.valid_until)) isExpired = true;
+                          }
+
+                          return (
                           <tr key={r.id}>
                             <td style={{ fontWeight: 'bold' }}>{r.name}</td>
                             <td style={{ fontSize: '0.7rem' }}>{r.description || '—'}</td>
                             <td>{r.point_cost}</td>
                             <td>₹{r.value_rupees}</td>
+                            <td>{repeatText}</td>
+                            <td>
+                              {untilText}
+                              {isExpired && <span className="badge badge-secondary" style={{ marginLeft: '0.35rem' }}>Expired</span>}
+                            </td>
                             <td>{r.is_active ? <span className="badge badge-primary">Active</span> : <span className="badge badge-secondary">Inactive</span>}</td>
                             <td>
                               <button className="btn btn-secondary" style={{ padding: '0.2rem 0.5rem', fontSize: '0.7rem' }} onClick={() => { 
                                 setEditingGenericReward(r); 
                                 setGenericRewardActive(r.is_active !== false);
+                                setGenericRewardCooldownMode(r.cooldown_type === 'ONCE' ? 'ONCE' : (r.cooldown_type === 'DAYS' ? (['30','90','180','365'].includes(String(r.cooldown_days)) ? String(r.cooldown_days) : 'custom') : 'NONE'));
+                                setGenericRewardCooldownDays(r.cooldown_type === 'DAYS' ? String(r.cooldown_days) : '');
+                                setGenericRewardValidUntil(r.valid_until ? new Date(r.valid_until).toISOString().split('T')[0] : '');
                                 setGenericRewardErrors({});
                                 setShowGenericRewardModal(true); 
                               }}>Edit</button>
                             </td>
                           </tr>
-                        ))}
+                          );
+                        })}
                         {adminGenericRewards.length === 0 && (
-                          <tr><td colSpan="6" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>No generic rewards found.</td></tr>
+                          <tr><td colSpan="8" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>No generic rewards found.</td></tr>
                         )}
                       </tbody>
                     </table>
@@ -14828,6 +14906,31 @@ export default function App() {
                 if (value < 0) newErrors.value_rupees = "Value can't be negative.";
               }
 
+              let finalCooldownType = 'NONE';
+              let finalCooldownDays = null;
+              if (!genericRewardCooldownMode) {
+                newErrors.cooldown_mode = "Select when this reward can be redeemed again.";
+              } else if (genericRewardCooldownMode === 'ONCE') {
+                finalCooldownType = 'ONCE';
+              } else if (genericRewardCooldownMode === 'NONE') {
+                finalCooldownType = 'NONE';
+              } else {
+                finalCooldownType = 'DAYS';
+                finalCooldownDays = genericRewardCooldownMode === 'custom' ? parseInt(genericRewardCooldownDays, 10) : parseInt(genericRewardCooldownMode, 10);
+                if (isNaN(finalCooldownDays) || finalCooldownDays < 1 || finalCooldownDays > 3650) {
+                  newErrors.cooldown_days = "Enter a valid number of days (1-3650).";
+                }
+              }
+
+              if (genericRewardValidUntil) {
+                const today = new Date();
+                today.setHours(0,0,0,0);
+                const selDate = new Date(genericRewardValidUntil);
+                if (selDate < today && !editingGenericReward) {
+                  newErrors.valid_until = "Date cannot be in the past.";
+                }
+              }
+
               if (Object.keys(newErrors).length > 0) {
                 setGenericRewardErrors(newErrors);
                 const firstInvalid = Object.keys(newErrors)[0];
@@ -14840,6 +14943,9 @@ export default function App() {
               try {
                 const payload = Object.fromEntries(formData);
                 payload.is_active = formData.get('is_active') === 'true';
+                payload.cooldown_type = finalCooldownType;
+                payload.cooldown_days = finalCooldownDays;
+                payload.valid_until = genericRewardValidUntil || null;
 
                 const url = editingGenericReward 
                   ? `${API_BASE}/admin/generic-rewards/${editingGenericReward.id}`
@@ -14944,6 +15050,77 @@ export default function App() {
                       />
                     </div>
                     {genericRewardErrors.value_rupees && <div id="reward_value_rupees_error" style={{ fontSize: '0.78rem', color: 'var(--danger)', marginTop: '0.25rem' }}>{genericRewardErrors.value_rupees}</div>}
+                  </div>
+                </div>
+
+                <div className="reward-modal-grid">
+                  <div className="input-group">
+                    <label className="input-label" htmlFor="reward_cooldown_mode">Redeem again after</label>
+                    <select
+                      id="reward_cooldown_mode"
+                      className="text-input"
+                      value={genericRewardCooldownMode}
+                      onChange={e => {
+                        const val = e.target.value;
+                        setGenericRewardCooldownMode(val);
+                        setGenericRewardErrors(prev => ({...prev, cooldown_mode: null, cooldown_days: null}));
+                      }}
+                      aria-invalid={!!genericRewardErrors.cooldown_mode}
+                      aria-describedby={genericRewardErrors.cooldown_mode ? "reward_cooldown_mode_error" : undefined}
+                    >
+                      <option value="" disabled>Choose…</option>
+                      <option value="30">1 month (30 days)</option>
+                      <option value="90">3 months (90 days)</option>
+                      <option value="180">6 months (180 days)</option>
+                      <option value="365">1 year (365 days)</option>
+                      <option value="custom">Custom…</option>
+                      <option value="NONE">Anytime (no waiting)</option>
+                      <option value="ONCE">One-time only</option>
+                    </select>
+                    {genericRewardCooldownMode === 'custom' && (
+                      <div style={{ marginTop: '0.4rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                        <input
+                          type="number"
+                          className="text-input"
+                          style={{ width: '90px' }}
+                          min="1" max="3650"
+                          placeholder="Days"
+                          value={genericRewardCooldownDays}
+                          onChange={e => {
+                            setGenericRewardCooldownDays(e.target.value);
+                            setGenericRewardErrors(prev => ({...prev, cooldown_days: null}));
+                          }}
+                          aria-invalid={!!genericRewardErrors.cooldown_days}
+                        />
+                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>days</span>
+                      </div>
+                    )}
+                    {genericRewardErrors.cooldown_mode && <div id="reward_cooldown_mode_error" style={{ fontSize: '0.78rem', color: 'var(--danger)', marginTop: '0.25rem' }}>{genericRewardErrors.cooldown_mode}</div>}
+                    {genericRewardErrors.cooldown_days && <div style={{ fontSize: '0.78rem', color: 'var(--danger)', marginTop: '0.25rem' }}>{genericRewardErrors.cooldown_days}</div>}
+                  </div>
+
+                  <div className="input-group">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <label className="input-label" htmlFor="reward_valid_until">Available until</label>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>optional</span>
+                    </div>
+                    <input
+                      type="date"
+                      id="reward_valid_until"
+                      className="text-input"
+                      value={genericRewardValidUntil}
+                      min={!editingGenericReward ? new Date().toISOString().split('T')[0] : undefined}
+                      onChange={e => {
+                        setGenericRewardValidUntil(e.target.value);
+                        setGenericRewardErrors(prev => ({...prev, valid_until: null}));
+                      }}
+                      aria-invalid={!!genericRewardErrors.valid_until}
+                      aria-describedby={genericRewardErrors.valid_until ? "reward_valid_until_error" : "reward_valid_until_desc"}
+                    />
+                    <div id="reward_valid_until_desc" style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
+                      Customers can't redeem after this date. Leave empty for no end date.
+                    </div>
+                    {genericRewardErrors.valid_until && <div id="reward_valid_until_error" style={{ fontSize: '0.78rem', color: 'var(--danger)', marginTop: '0.25rem' }}>{genericRewardErrors.valid_until}</div>}
                   </div>
                 </div>
 

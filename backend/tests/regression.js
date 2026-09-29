@@ -4840,7 +4840,7 @@ async function main() {
   const appJsxBfGr = appJsxBfTxn; // reuse
   
   const grModalIdx = appJsxBfGr.indexOf('{showGenericRewardModal && (');
-  const grModalChunk = appJsxBfGr.slice(grModalIdx, grModalIdx + 15000);
+  const grModalChunk = appJsxBfGr.slice(grModalIdx, grModalIdx + 25000);
   
   assert(grModalChunk.includes('reward-modal'), 'Modal contains className reward-modal');
   assert(!grModalChunk.includes('className="input"'), 'Modal does NOT contain className="input"');
