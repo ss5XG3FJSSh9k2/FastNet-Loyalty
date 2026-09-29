@@ -1074,7 +1074,18 @@ export default function App() {
   const [profileName, setProfileName] = useState('');
   const [profileAddress, setProfileAddress] = useState('');
   const [deliveryAddress, setDeliveryAddress] = useState('');
-  const [selectedCouponId, setSelectedCouponId] = useState(null);
+  const [appliedCouponId, setAppliedCouponId] = useState(null);
+  const [couponsExpanded, setCouponsExpanded] = useState(false);
+
+  useEffect(() => {
+    if (appliedCouponId) {
+      const storeCount = new Set(currentCart.map(i => i.stockistId)).size;
+      if (cartFulfillment === 'DELIVERY' || storeCount > 1) {
+        setAppliedCouponId(null);
+      }
+    }
+  }, [cartFulfillment, currentCart, appliedCouponId]);
+
   const [profileCablePartnerId, setProfileCablePartnerId] = useState('');
   const [profileNoCable, setProfileNoCable] = useState(false);
   const [profileHasBroadband, setProfileHasBroadband] = useState(false);
@@ -3203,8 +3214,8 @@ export default function App() {
   
   let appliedCoupon = null;
   let couponDiscount = 0;
-  if (selectedCouponId && availableRewards?.generic) {
-    appliedCoupon = availableRewards.generic.find(g => g.id === selectedCouponId);
+  if (appliedCouponId && availableRewards?.generic) {
+    appliedCoupon = availableRewards.generic.find(g => g.id === appliedCouponId);
     if (appliedCoupon) {
       couponDiscount = Math.min(parseFloat(appliedCoupon.value_rupees), cartSubtotal);
       couponDiscount = Math.round(couponDiscount * 100) / 100;
@@ -3267,7 +3278,7 @@ export default function App() {
         fulfillmentType: cartFulfillment,
         deliveryAddress: (deliveryAddress !== undefined && deliveryAddress !== '' ? deliveryAddress : (profileAddress || currentUser?.address || '')).trim(),
         paymentMethod: cartFulfillment === 'PICKUP' ? 'UPI' : 'COD',
-        coupon_reward_id: selectedCouponId || undefined
+        coupon_reward_id: appliedCouponId || undefined
       };
 
       const res = await fetch(`${API_BASE}/orders`, {
@@ -3292,7 +3303,7 @@ export default function App() {
           return next;
         });
         setCartPickupSlots({});
-        setSelectedCouponId(null);
+        setAppliedCouponId(null);
         loadCustomerData();
         const msg = cartFulfillment === 'PICKUP'
           ? t('Order placed! Payment held securely until pickup.', 'ऑर्डर दिया! पिकअप तक भुगतान सुरक्षित।', 'অর্ডার দেওয়া হয়েছে! পিকআপ পর্যন্ত পেমেন্ট নিরাপদ।')
@@ -8557,100 +8568,208 @@ export default function App() {
                           )}
 
                           {/* Coupons Section */}
-                          {availableRewards?.generic?.length > 0 && (
-                            <div className="glass-card" style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                              <h3 style={{ fontSize: '0.95rem', marginBottom: '0.5rem', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                                <Gift size={16} color="var(--primary)" />
-                                {t('Available Coupons', 'उपलब्ध कूपन', 'উপলব্ধ কুপন')}
-                              </h3>
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                                {availableRewards.generic.filter(c => c.is_active !== false).map(coupon => {
-                                  const latestMatch = (customerOrders || []).filter(o => o.status !== 'CANCELLED' && o.coupon_reward_id === coupon.id).sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
-                                  
-                                  let isLocked = false;
-                                  let lockMessage = null;
-                                  
-                                  if (latestMatch) {
-                                    if (coupon.cooldown_type === 'ONCE') {
+                          {(() => {
+                            const storeCount = new Set(currentCart.map(i => i.stockistId)).size;
+                            const isSectionDisabled = cartFulfillment === 'DELIVERY' || storeCount > 1;
+                            const genericCoupons = availableRewards?.generic || [];
+                            
+                            if (genericCoupons.length === 0) {
+                              return (
+                                <div className="glass-card" style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.6rem', marginBottom: '0.5rem', border: '1px dashed rgba(255,255,255,0.2)' }}>
+                                  <h3 style={{ fontSize: '0.95rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: 0 }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                      <Gift size={16} color="var(--primary)" />
+                                      {t('Coupons', 'कूपन', 'কুপন')}
+                                    </div>
+                                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 'normal' }}>
+                                      {formatPoints(customerBalance)} {t('available', 'उपलब्ध', 'উপলব্ধ')}
+                                    </span>
+                                  </h3>
+                                  <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', textAlign: 'center', padding: '1rem' }}>
+                                    {t('No coupons available right now.', 'अभी कोई कूपन उपलब्ध नहीं है।', 'এই মুহূর্তে কোনো কুপন উপলব্ধ নেই।')}
+                                  </div>
+                                </div>
+                              );
+                            }
+
+                            const sortedCoupons = [...genericCoupons].sort((a, b) => {
+                              const isLocked = (coupon) => {
+                                if (coupon.is_active === false) return true;
+                                if (customerBalance < coupon.point_cost) return true;
+                                if (coupon.min_order_value && cartSubtotal < coupon.min_order_value) return true;
+                                
+                                const latestMatch = (customerOrders || []).filter(o => o.status !== 'CANCELLED' && o.coupon_reward_id === coupon.id).sort((x, y) => new Date(y.created_at) - new Date(x.created_at))[0];
+                                if (latestMatch) {
+                                  if (coupon.cooldown_type === 'ONCE') return true;
+                                  if (coupon.cooldown_type === 'DAYS') {
+                                    const cd = parseInt(coupon.cooldown_days, 10);
+                                    if (cd > 0 && new Date() < new Date(new Date(latestMatch.created_at).getTime() + cd * 24 * 60 * 60 * 1000)) return true;
+                                  }
+                                }
+                                return false;
+                              };
+                              const aUsable = !isLocked(a);
+                              const bUsable = !isLocked(b);
+                              if (aUsable !== bUsable) return aUsable ? -1 : 1;
+                              return b.value_rupees - a.value_rupees;
+                            });
+
+                            const displayCoupons = couponsExpanded ? sortedCoupons : sortedCoupons.slice(0, 3);
+                            const appliedDisc = appliedCouponId && genericCoupons.find(c => c.id === appliedCouponId)
+                              ? Math.min(genericCoupons.find(c => c.id === appliedCouponId).value_rupees, cartSubtotal)
+                              : 0;
+
+                            return (
+                              <div className="glass-card" style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.6rem', marginBottom: '0.5rem' }}>
+                                <h3 style={{ fontSize: '0.95rem', margin: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                    <Gift size={16} color="var(--primary)" />
+                                    {t('Coupons', 'कूपन', 'কুপন')}
+                                  </div>
+                                  <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 'normal' }}>
+                                    {formatPoints(customerBalance)} {t('available', 'उपलब्ध', 'উপলব্ধ')}
+                                  </span>
+                                </h3>
+                                
+                                {isSectionDisabled && (
+                                  <div style={{ fontSize: '0.75rem', color: 'var(--warning)' }}>
+                                    {t('Coupons work on single-shop Store Pickup orders.', 'कूपन सिंगल-शॉप स्टोर पिकअप ऑर्डर पर काम करते हैं।', 'কুপন সিঙ্গেল-শপ স্টোর পিকআপ অর্ডারে কাজ করে।')}
+                                  </div>
+                                )}
+
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', opacity: isSectionDisabled ? 0.55 : 1 }}>
+                                  {displayCoupons.map(coupon => {
+                                    let isLocked = false;
+                                    let lockMessage = null;
+
+                                    if (customerBalance < coupon.point_cost) {
                                       isLocked = true;
-                                      lockMessage = t('Already used', 'पहले ही उपयोग किया जा चुका है', 'ইতিমধ্যেই ব্যবহৃত');
-                                    } else if (coupon.cooldown_type === 'DAYS') {
-                                      const cd = parseInt(coupon.cooldown_days, 10);
-                                      if (cd > 0) {
-                                        const nextAllowed = new Date(new Date(latestMatch.created_at).getTime() + cd * 24 * 60 * 60 * 1000);
-                                        if (new Date() < nextAllowed) {
+                                      lockMessage = t('Need', 'जरूरत है', 'প্রয়োজন') + ' ' + formatPoints(coupon.point_cost) + t('. You have ', '. आपके पास है ', '. আপনার আছে ') + formatPoints(customerBalance) + '.';
+                                    } else if (coupon.min_order_value && cartSubtotal < coupon.min_order_value) {
+                                      isLocked = true;
+                                      const diff = (coupon.min_order_value - cartSubtotal);
+                                      lockMessage = t('Add ₹', '₹', '₹') + diff + t(' more to use this coupon', ' और जोड़ें इस कूपन का उपयोग करने के लिए', ' আরও যোগ করুন এই কুপনটি ব্যবহার করতে');
+                                    } else {
+                                      const latestMatch = (customerOrders || []).filter(o => o.status !== 'CANCELLED' && o.coupon_reward_id === coupon.id).sort((x, y) => new Date(y.created_at) - new Date(x.created_at))[0];
+                                      if (latestMatch) {
+                                        if (coupon.cooldown_type === 'ONCE') {
                                           isLocked = true;
-                                          lockMessage = t(`Available again in ${cd} days`, `${cd} दिनों में फिर से उपलब्ध`, `${cd} দিনের মধ্যে আবার উপলব্ধ`);
+                                          lockMessage = t('Already used', 'पहले ही उपयोग किया जा चुका है', 'ইতিমধ্যেই ব্যবহৃত');
+                                        } else if (coupon.cooldown_type === 'DAYS') {
+                                          const cd = parseInt(coupon.cooldown_days, 10);
+                                          if (cd > 0) {
+                                            const nextAllowed = new Date(new Date(latestMatch.created_at).getTime() + cd * 24 * 60 * 60 * 1000);
+                                            if (new Date() < nextAllowed) {
+                                              isLocked = true;
+                                              lockMessage = t('Available again in', 'फिर से उपलब्ध', 'আবার উপলব্ধ') + ' ' + cd + ' ' + t('days', 'दिनों में', 'দিনে');
+                                            }
+                                          }
                                         }
                                       }
                                     }
-                                  }
-                                  
-                                  if (!isLocked && coupon.valid_until && new Date() > new Date(coupon.valid_until)) {
-                                    isLocked = true;
-                                    lockMessage = t('Expired', 'समाप्त', 'মেয়াদ উত্তীর্ণ');
-                                  }
-                                  
-                                  if (!isLocked && customerBalance < coupon.point_cost) {
-                                    isLocked = true;
-                                    lockMessage = t('Not enough points', 'पर्याप्त अंक नहीं', 'যথেষ্ট পয়েন্ট নেই');
-                                  }
-                                  
-                                  if (!isLocked && coupon.min_order_value && cartSubtotal < coupon.min_order_value) {
-                                    isLocked = true;
-                                    const diff = (coupon.min_order_value - cartSubtotal);
-                                    lockMessage = t(`Add ₹${diff} more`, `₹${diff} और जोड़ें`, `আরও ₹${diff} যোগ করুন`);
-                                  }
-                                  
-                                  if (!isLocked && Object.keys(cartGroups).length > 1) {
-                                    isLocked = true;
-                                    lockMessage = t('Not valid for multi-store', 'मल्टी-स्टोर के लिए मान्य नहीं', 'মাল্টি-স্টোরের জন্য বৈধ নয়');
-                                  }
-                                  
-                                  if (!isLocked && cartFulfillment === 'DELIVERY') {
-                                    isLocked = true;
-                                    lockMessage = t('Prepaid only (Pickup)', 'केवल प्रीपेड (पिकअप)', 'শুধুমাত্র প্রিপেইড (পিকআপ)');
-                                  }
+                                    
+                                    if (coupon.is_active === false) {
+                                      isLocked = true;
+                                    }
 
-                                  const isSelected = selectedCouponId === coupon.id;
-                                  
-                                  return (
-                                    <div 
-                                      key={coupon.id} 
-                                      style={{ 
-                                        display: 'flex', justifyContent: 'space-between', alignItems: 'center', 
-                                        padding: '0.75rem', borderRadius: '8px', 
-                                        background: isSelected ? 'rgba(99, 102, 241, 0.15)' : 'rgba(255,255,255,0.03)',
-                                        border: isSelected ? '1px solid var(--primary)' : '1px solid rgba(255,255,255,0.08)',
-                                        opacity: isLocked && !isSelected ? 0.6 : 1,
-                                        cursor: isLocked ? 'not-allowed' : 'pointer'
-                                      }}
-                                      onClick={() => {
-                                        if (!isLocked) {
-                                          setSelectedCouponId(isSelected ? null : coupon.id);
-                                        }
-                                      }}
-                                    >
-                                      <div>
-                                        <div style={{ fontWeight: 'bold', fontSize: '0.85rem' }}>{coupon.name}</div>
-                                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                                          {coupon.description ? coupon.description + ' · ' : ''}₹{coupon.value_rupees} off for {coupon.point_cost} pts
-                                        </div>
-                                        {isLocked && lockMessage && <div style={{ fontSize: '0.65rem', color: 'var(--danger)', marginTop: '0.2rem' }}>{lockMessage}</div>}
-                                      </div>
-                                      <div>
+                                    const isApplied = appliedCouponId === coupon.id;
+                                    
+                                    let terms = [];
+                                    if (coupon.min_order_value) terms.push(t('Min order ₹', 'न्यूनतम ऑर्डर ₹', 'ন্যূনতম অর্ডার ₹') + coupon.min_order_value);
+                                    if (coupon.valid_until) terms.push(t('Until ', 'तक ', 'পর্যন্ত ') + new Date(coupon.valid_until).toLocaleDateString());
+                                    const termsString = terms.join(' · ');
+
+                                    return (
+                                      <div 
+                                        key={coupon.id}
+                                        role="group"
+                                        aria-label={coupon.name}
+                                        tabIndex={0}
+                                        style={{
+                                          display: 'flex', 
+                                          alignItems: 'stretch',
+                                          borderRadius: '8px',
+                                          background: isApplied ? 'rgba(16,185,129,0.08)' : 'rgba(255,255,255,0.03)',
+                                          border: isApplied ? '1px solid var(--accent)' : '1px solid rgba(255,255,255,0.08)',
+                                          opacity: (isLocked && !isApplied) || coupon.is_active === false ? 0.55 : 1,
+                                          overflow: 'hidden'
+                                        }}
+                                      >
                                         <div style={{ 
-                                          width: '20px', height: '20px', borderRadius: '50%', 
-                                          border: isSelected ? '5px solid var(--primary)' : '2px solid rgba(255,255,255,0.3)',
-                                          background: 'transparent'
-                                        }} />
+                                          minWidth: '64px', 
+                                          background: 'rgba(16,185,129,0.10)', 
+                                          display: 'flex', 
+                                          alignItems: 'center', 
+                                          justifyContent: 'center', 
+                                          padding: '0.5rem',
+                                          borderRight: '1px dashed rgba(255,255,255,0.2)'
+                                        }}>
+                                          <span style={{ color: 'var(--accent)', fontWeight: 'bold', fontSize: '1.05rem' }}>−₹{coupon.value_rupees}</span>
+                                        </div>
+                                        <div style={{ flex: 1, padding: '0.6rem', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                                          <div style={{ fontSize: '0.85rem', fontWeight: 'bold', color: 'white' }}>{coupon.name}</div>
+                                          <div style={{ fontSize: '0.7rem', color: 'var(--accent)' }}>
+                                            {t('Uses ', 'उपयोग ', 'ব্যবহার ')}{formatPoints(coupon.point_cost)}
+                                          </div>
+                                          {termsString && (
+                                            <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: '0.1rem' }}>
+                                              {termsString}
+                                            </div>
+                                          )}
+                                          {isLocked && lockMessage && !isApplied && (
+                                            <div style={{ fontSize: '0.65rem', color: 'var(--warning)', marginTop: '0.2rem' }}>
+                                              {lockMessage}
+                                            </div>
+                                          )}
+                                        </div>
+                                        <div style={{ padding: '0.6rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                          {isApplied ? (
+                                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.2rem' }}>
+                                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.2rem', color: 'var(--accent)', fontSize: '0.75rem', fontWeight: 'bold' }}>
+                                                <Check size={14} /> {t('Applied', 'लागू', 'প্রয়োগ করা হয়েছে')}
+                                              </div>
+                                              {!isSectionDisabled && (
+                                                <button 
+                                                  onClick={() => setAppliedCouponId(null)}
+                                                  style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '0.7rem', cursor: 'pointer', textDecoration: 'underline' }}
+                                                >
+                                                  {t('Remove', 'हटाएं', 'সরান')}
+                                                </button>
+                                              )}
+                                            </div>
+                                          ) : (
+                                            <button 
+                                              className="btn btn-primary"
+                                              style={{ padding: '0.3rem 0.6rem', fontSize: '0.75rem' }}
+                                              disabled={isLocked || isSectionDisabled}
+                                              onClick={() => setAppliedCouponId(coupon.id)}
+                                            >
+                                              {t('Apply', 'लागू करें', 'প্রয়োগ করুন')}
+                                            </button>
+                                          )}
+                                        </div>
                                       </div>
-                                    </div>
-                                  );
-                                })}
+                                    );
+                                  })}
+                                </div>
+                                
+                                {sortedCoupons.length > 3 && (
+                                  <button 
+                                    onClick={() => setCouponsExpanded(!couponsExpanded)}
+                                    style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '0.8rem', cursor: 'pointer', padding: '0.2rem', marginTop: '0.2rem' }}
+                                  >
+                                    {couponsExpanded ? t('Show less', 'कम दिखाएं', 'কম দেখান') : t('Show all (', 'सभी दिखाएं (', 'সব দেখান (') + sortedCoupons.length + ')'}
+                                  </button>
+                                )}
+                                
+                                {appliedDisc > 0 && (
+                                  <div style={{ fontSize: '0.75rem', color: 'var(--accent)', textAlign: 'center', marginTop: '0.2rem' }}>
+                                    {t('You save ₹', 'आप बचाते हैं ₹', 'আপনি সংরক্ষণ করেন ₹')}{appliedDisc}{t(' with this coupon', ' इस कूपन के साथ', ' এই কুপনের সাথে')}
+                                  </div>
+                                )}
                               </div>
-                            </div>
-                          )}
+                            );
+                          })()}
 
                           {/* Bill Summary */}
                           <div className="glass-card" style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
