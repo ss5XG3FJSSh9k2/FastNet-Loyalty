@@ -10686,7 +10686,7 @@ export default function App() {
                             </div>
                           )}
                           <p style={{ fontSize: '0.65rem', color: 'var(--text-muted)', margin: '0.35rem 0 0 0' }}>
-                            Upload a photo of the wholesaler's bill or invoice showing you paid the cost price for this stock. This helps us verify prices are honest. Bills are visible to admin and customers.
+                            Upload a photo of the wholesaler's bill or invoice showing you paid the cost price for this stock. This helps us verify prices are honest. Bills are only visible to FastNet admin.
                           </p>
                         </div>
                         
