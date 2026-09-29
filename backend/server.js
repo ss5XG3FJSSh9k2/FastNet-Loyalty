@@ -21,6 +21,53 @@ webpush.setVapidDetails(
 require('express-async-errors');
 const cors = require('cors');
 const db = require('./db');
+
+// BF-SEC-3 Helpers
+function assertSelfOrAdmin(req, res, userId) {
+  if (!req.user || !req.user.userId) {
+    res.status(401).json({ error: 'Authentication required' });
+    return false;
+  }
+  if (req.user.role === 'ADMIN' || req.user.userId === userId) {
+    return true;
+  }
+  res.status(403).json({ error: 'Forbidden' });
+  return false;
+}
+
+async function getCallerStockist(req) {
+  if (!req.user || !req.user.userId) return null;
+  const stockists = await db.getTable('stockists');
+  return stockists.find(s => s.user_id === req.user.userId) || null;
+}
+
+async function assertOwnsStockist(req, res, stockistId) {
+  if (!req.user || !req.user.userId) {
+    res.status(401).json({ error: 'Authentication required' });
+    return false;
+  }
+  if (req.user.role === 'ADMIN') return true;
+  const callerStockist = await getCallerStockist(req);
+  if (callerStockist && callerStockist.id === stockistId) return true;
+  res.status(403).json({ error: 'Forbidden' });
+  return false;
+}
+
+async function assertOrderAccess(req, res, order) {
+  if (!req.user || !req.user.userId) {
+    res.status(401).json({ error: 'Authentication required' });
+    return false;
+  }
+  if (req.user.role === 'ADMIN') return true;
+  if (req.user.role === 'CUSTOMER' && req.user.userId === order.customer_id) return true;
+  if (req.user.role === 'STOCKIST') {
+    const callerStockist = await getCallerStockist(req);
+    if (callerStockist && callerStockist.id === order.stockist_id) return true;
+  }
+  res.status(403).json({ error: 'Forbidden' });
+  return false;
+}
+
 const cfg = require('./config');
 const jwt = require('jsonwebtoken');
 
@@ -2088,12 +2135,12 @@ app.get('/api/stockists/:id/stats', async (req, res) => {
   const todayOrders = orders.filter(o => getISTDateString(new Date(o.created_at)) === todayStr);
   const todayDelivered = todayOrders.filter(o => o.status === 'DELIVERED');
 
-  let today_earnings = 0; for (const o of todayDelivered) { const enriched = await enrichOrder(o); today_earnings += (enriched.stockist_amount || 0); }
+  let today_earnings = 0; for (const o of todayDelivered) { const enriched = await enrichOrder(o, req); today_earnings += (enriched.stockist_amount || 0); }
 
   const today_order_count = todayDelivered.length;
 
   const deliveredOrders = orders.filter(o => o.status === 'DELIVERED');
-  let totalDeliveredValue = 0; for (const o of deliveredOrders) { const enriched = await enrichOrder(o); totalDeliveredValue += (enriched.stockist_amount || 0); }
+  let totalDeliveredValue = 0; for (const o of deliveredOrders) { const enriched = await enrichOrder(o, req); totalDeliveredValue += (enriched.stockist_amount || 0); }
   const avg_order_value = deliveredOrders.length > 0 ? (totalDeliveredValue / deliveredOrders.length) : 0;
 
   const total_fulfilled = deliveredOrders.length;
@@ -2119,7 +2166,7 @@ app.get('/api/stockists/:id/stats', async (req, res) => {
     const istStr = getISTDateString(d);
     const dayName = d.toLocaleDateString('en-US', { weekday: 'short', timeZone: 'Asia/Kolkata' });
     const dayOrders = orders.filter(o => o.status === 'DELIVERED' && getISTDateString(new Date(o.created_at)) === istStr);
-    const dayEarnings = dayOrders.reduce((sum, o) => sum + (enrichOrder(o).stockist_amount || 0), 0);
+    const dayEarnings = dayOrders.reduce((sum, o) => sum + (enrichOrder(o, req).stockist_amount || 0), 0);
     weekly_data.push({ day: dayName, earnings: Math.round(dayEarnings * 100) / 100 });
   }
 
@@ -2132,7 +2179,7 @@ app.get('/api/stockists/:id/stats', async (req, res) => {
       const d = new Date(Date.now() - dayOffset * 24 * 60 * 60 * 1000);
       const istStr = getISTDateString(d);
       const dayOrders = orders.filter(o => o.status === 'DELIVERED' && getISTDateString(new Date(o.created_at)) === istStr);
-      weekEarnings += dayOrders.reduce((sum, o) => sum + (enrichOrder(o).stockist_amount || 0), 0);
+      weekEarnings += dayOrders.reduce((sum, o) => sum + (enrichOrder(o, req).stockist_amount || 0), 0);
     }
     monthly_data.push({ day: `Wk -${i}`, earnings: Math.round(weekEarnings * 100) / 100 });
   }
@@ -2378,7 +2425,7 @@ async function processOrderCancellation(order, cancelledBy = 'system') {
 }
 
 // Helper: Enrich Order
-async function enrichOrder(o) {
+async function enrichOrder(o, req = null) {
   if (!o) return null;
   const orderItems = await db.getTable('order_items');
   const users = await db.getTable('users');
@@ -2853,7 +2900,7 @@ const handleCreateOrderRoute = async (req, res) => {
     // Fraud detection
     await runFraudDetection(order, customer);
 
-    createdOrders.push(await enrichOrder(order));
+    createdOrders.push(await enrichOrder(order, req));
     await _sendOrderConfirmedSms(order);
   }
 
@@ -2952,7 +2999,7 @@ app.post('/api/orders/:id/cancel', async (req, res) => {
   // Reverse any points that may have been credited (safety guard — should be 0 per regulatory constraint)
   await reverseOrderPoints(id);
 
-  return res.json({ success: true, order: await enrichOrder(order) });
+  return res.json({ success: true, order: await enrichOrder(order, req) });
 });
 
 // No-show action: RESCHEDULE or CANCEL
@@ -2979,7 +3026,7 @@ app.post('/api/orders/:id/noshw-action', async (req, res) => {
     order.reschedule_used = true;
     order.status = 'READY_FOR_PICKUP'; // Reset to allow new pickup window
     await db.saveTable('orders', orders);
-    return res.json({ success: true, order: await enrichOrder(order) });
+    return res.json({ success: true, order: await enrichOrder(order, req) });
   }
 
   if (action === 'CANCEL') {
@@ -2998,7 +3045,7 @@ app.post('/api/orders/:id/noshw-action', async (req, res) => {
 
     await db.saveTable('orders', orders);
     await reverseOrderPoints(id);
-    return res.json({ success: true, order: await enrichOrder(order) });
+    return res.json({ success: true, order: await enrichOrder(order, req) });
   }
 });
 
@@ -3050,7 +3097,7 @@ app.post('/api/orders/:id/verify-pickup', async (req, res) => {
     await db.saveTable('split_payouts', splitPayouts);
   }
 
-  return res.json({ success: true, order: await enrichOrder(order) });
+  return res.json({ success: true, order: await enrichOrder(order, req) });
 });
 
 // Internal: process referral bonus on first delivered order
@@ -3296,7 +3343,7 @@ app.get('/api/orders', async (req, res) => {
     if (changed) await db.saveTable('orders', allOrders);
   }
 
-  const enriched = (await Promise.all(filtered.map(o => enrichOrder(o)))).reverse();
+  const enriched = (await Promise.all(filtered.map(o => enrichOrder(o, req)))).reverse();
   return res.json(enriched);
 });
 
@@ -3433,7 +3480,7 @@ app.patch('/api/orders/:id/status', requireAuth, async (req, res) => {
     }
   }
 
-  return res.json({ success: true, order: await enrichOrder(order) });
+  return res.json({ success: true, order: await enrichOrder(order, req) });
 });
 
 // PATCH fulfillment — slot change enforced, one-way delivery switch
@@ -3497,7 +3544,7 @@ app.patch('/api/orders/:id/fulfillment', async (req, res) => {
   }
 
   await db.saveTable('orders', orders);
-  return res.json({ success: true, order: await enrichOrder(order) });
+  return res.json({ success: true, order: await enrichOrder(order, req) });
 });
 
 // Offline sync
@@ -3563,7 +3610,7 @@ app.post('/api/admin/release-split/:orderId', async (req, res) => {
 
 
 
-  return res.json({ success: true, order: await enrichOrder(order) });
+  return res.json({ success: true, order: await enrichOrder(order, req) });
 });
 
 app.post('/api/admin/orders/:id/refund', async (req, res) => {
@@ -3573,7 +3620,7 @@ app.post('/api/admin/orders/:id/refund', async (req, res) => {
   if (!order) return res.status(404).json({ error: 'Order not found' });
 
   if (order.payment_status === 'REFUNDED') {
-    return res.json({ success: true, order: await enrichOrder(order) });
+    return res.json({ success: true, order: await enrichOrder(order, req) });
   }
 
   if (order.payment_status !== 'REFUND_DUE') {
@@ -3592,13 +3639,13 @@ app.post('/api/admin/orders/:id/refund', async (req, res) => {
 
   appendPaymentEvent(id, 'REFUNDED', refundAmount, { net_refund: refundAmount });
 
-  return res.json({ success: true, order: await enrichOrder(order) });
+  return res.json({ success: true, order: await enrichOrder(order, req) });
 });
 
 // GET /api/admin/transactions — enriched with payment state
 app.get('/api/admin/transactions', async (req, res) => {
   const orders = await db.getTable('orders');
-  const enriched = (await Promise.all(orders.map(o => enrichOrder(o)))).reverse();
+  const enriched = (await Promise.all(orders.map(o => enrichOrder(o, req)))).reverse();
   return res.json(enriched);
 });
 
@@ -4513,12 +4560,25 @@ app.get('/api/admin/kyc/:userId/document', async (req, res) => {
 
   await appendAudit(req, 'VIEW_KYC_DOCUMENT', 'user', userId, null, { id_number_accessed: true });
 
+  let finalUrl = docUrl;
+  if (docUrl) {
+    const crypto = require('crypto');
+    const ttl = (cfg.KYC_DOC_URL_TTL_SECONDS || 300) * 1000;
+    const expires = Date.now() + ttl;
+    const secret = process.env.JWT_SECRET || 'secret';
+    let pathPart = docUrl;
+    try { const u = new URL(docUrl, 'http://localhost'); pathPart = u.pathname; } catch(e) {}
+    const sig = crypto.createHmac('sha256', secret).update(pathPart + ':' + expires).digest('hex');
+    const joiner = docUrl.includes('?') ? '&' : '?';
+    finalUrl = `${docUrl}${joiner}expires=${expires}&sig=${sig}`;
+  }
+
   return res.json({
     success: true,
     user_id: userId,
     id_number: idNumber,
     id_type: idType,
-    document_photo_url: docUrl
+    document_photo_url: finalUrl
   });
 });
 
@@ -5697,7 +5757,7 @@ app.get('/api/admin/customers/:id', async (req, res) => {
   const pointsLedger = (await db.getTable('points_ledger')).filter(l => l.customer_id === id);
   const balance = pointsLedger.filter(l => l.type !== 'EARN_HELD').reduce((sum, l) => sum + (parseFloat(l.amount) || 0), 0);
   const rawOrders1 = (await db.getTable('orders')).filter(o => o.customer_id === id);
-  const orders = await Promise.all(rawOrders1.map(o => enrichOrder(o)));
+  const orders = await Promise.all(rawOrders1.map(o => enrichOrder(o, req)));
   const fraudReports = (await db.getTable('fraud_reports')).filter(f => f.reporter_customer_id === id);
   
   return res.json({
@@ -5950,7 +6010,7 @@ app.get('/api/admin/stockists/:id', async (req, res) => {
   }
 
   const rawOrders2 = (await db.getTable('orders')).filter(o => o.stockist_id === id);
-  const orders = await Promise.all(rawOrders2.map(o => enrichOrder(o)));
+  const orders = await Promise.all(rawOrders2.map(o => enrichOrder(o, req)));
   const rates = (await db.getTable('stockist_commission_rates')).filter(r => r.stockist_id === id);
   const latestRate = rates.length > 0 ? rates[rates.length - 1].rate_percent : 10.0;
 

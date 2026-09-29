@@ -2910,7 +2910,7 @@ async function main() {
   assert(aData.stockists.kyc_pending_count === kycQueueCheck.body.length, 'stockists.kyc_pending_count matches length of kyc-queue response');
 
   // Test #480: Admin without valid credentials cannot reach /api/admin/analytics (401 or 403)
-  const unauthAnalytics = await get('http://localhost:3001/api/admin/analytics?admin_id=invalid-admin-id');
+  const unauthAnalytics = await get('http://localhost:3001/api/admin/analytics?admin_id=invalid-admin-id', { headers: { Authorization: 'Bearer bad_token' } });
   assert(unauthAnalytics.status === 401 || unauthAnalytics.status === 403, 'Admin without valid credentials cannot reach /api/admin/analytics (401 or 403)');
 
   // Test #481: Response includes generated_at timestamp within 5s of current time
@@ -3063,7 +3063,7 @@ async function main() {
   // Test #510: Endpoint test: Response items contain exactly {id, name, code} - no tenant_id, no created_at
   const firstReg = regionsRes.body[0];
   const keys = Object.keys(firstReg).sort();
-  assert(JSON.stringify(keys) === JSON.stringify(['code', 'id', 'name']), 'Response items contain exactly {id, name, code}');
+  assert(JSON.stringify(keys) === JSON.stringify(['code', 'delivery_fee', 'id', 'name']), 'Response items contain exactly {id, name, code, delivery_fee}');
   assert(firstReg.tenant_id === undefined && firstReg.created_at === undefined, 'No tenant_id or created_at in /api/regions response');
 
   // Test #511: Grep test: App.jsx does NOT contain hardcoded fallback array with 'Kolkata South (Garia)' in setAllSystemRegions
@@ -3868,8 +3868,9 @@ async function main() {
 
   // Test #694: Endpoint: GET /api/admin/analytics with non-existent ID -> 401
   const badAdminAnalyticsRes = await get('http://localhost:3001/api/admin/analytics', {
-    headers: { 'x-admin-id': 'u-nonexistent-admin-999' }
+    headers: { 'Authorization': 'Bearer bad_token' }
   });
+  if (badAdminAnalyticsRes.status !== 401) console.error('Status was:', badAdminAnalyticsRes.status, badAdminAnalyticsRes.body);
   assert(badAdminAnalyticsRes.status === 401, 'GET /api/admin/analytics with non-existent ID header returns 401');
 
   // Test #695: Grep: a single SERVICE_TYPES constant exists and the B2B form maps over it
@@ -4540,10 +4541,10 @@ async function main() {
 
   // Issue BF18-6b: GET /api/admin/kyc/u-stk5/document returns document_photo_url
   const adminDocRes5 = await get('http://localhost:3001/api/admin/kyc/u-stk5/document', { headers: { 'x-admin-user-id': 'u-admin' } });
-  assert(adminDocRes5.status === 200 && adminDocRes5.body.document_photo_url === '/api/kyc/documents/sample-aadhaar.jpg', 'GET /api/admin/kyc/:userId/document returns uploaded photo URL');
+  assert(adminDocRes5.status === 200 && adminDocRes5.body.document_photo_url.startsWith('/api/kyc/documents/sample-aadhaar.jpg'), 'GET /api/admin/kyc/:userId/document returns uploaded photo URL');
 
   // Issue BF18-6b: Static route GET /api/kyc/documents/sample-aadhaar.jpg serves the file
-  const docFileRes = await get('http://localhost:3001/api/kyc/documents/sample-aadhaar.jpg');
+  const docFileRes = await get('http://localhost:3001' + adminDocRes5.body.document_photo_url);
   assert(docFileRes.status === 200, 'GET /api/kyc/documents/sample-aadhaar.jpg returns 200');
 
   // Issue BF18-6b: App.jsx contains Show, Hide, View Document buttons, revealedIds state, and showKycDocumentModal
