@@ -1782,6 +1782,8 @@ export default function App() {
     return `${formatted} pts`;
   };
 
+  const pointsToRupees = (points) => Number(points) || 0;
+
   const formatOrderStatusDisplay = (status, fulfillmentType) => {
     const isPickup = fulfillmentType === 'PICKUP';
     if (status === 'CONFIRMING') {
@@ -13807,9 +13809,9 @@ export default function App() {
                             <td>₹{o.delivery_fee.toFixed(2)}</td>
                             <td style={{ color: 'var(--accent)' }}>₹{(o.stockist_amount || 0).toFixed(2)}</td>
                             <td style={{ color: 'var(--primary)' }}>
-                              ₹{((o.platform_amount || 0) + (o.points_credited || 0)).toFixed(2)}
+                              ₹{((Number(o.platform_amount) || 0) + pointsToRupees(o.points_credited)).toFixed(2)}
                               <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)' }}>
-                                {t('Margin','मार्जिन','মার্জিন')} ₹{(o.platform_amount || 0).toFixed(2)} &middot; {t('Points held','अंक धारित','পয়েন্ট ধৃত')} ₹{(o.points_credited || 0).toFixed(2)}
+                                {t('Margin','मार्जिन','মার্জিন')} ₹{(Number(o.platform_amount) || 0).toFixed(2)} &middot; {t('Points held','अंक धारित','পয়েন্ট ধৃত')} ₹{pointsToRupees(o.points_credited).toFixed(2)}
                               </div>
                             </td>
                             <td>{formatPoints(o.points_credited || 0)}</td>
