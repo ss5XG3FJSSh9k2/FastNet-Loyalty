@@ -1,0 +1,7 @@
+ALTER TABLE generic_rewards ADD COLUMN min_order_value REAL DEFAULT NULL;
+ALTER TABLE orders ADD COLUMN coupon_reward_id TEXT DEFAULT NULL;
+ALTER TABLE orders ADD COLUMN coupon_name TEXT DEFAULT NULL;
+ALTER TABLE orders ADD COLUMN coupon_discount REAL DEFAULT 0;
+ALTER TABLE orders ADD COLUMN coupon_points_spent REAL DEFAULT 0;
+ALTER TABLE orders ADD COLUMN amount_paid REAL DEFAULT NULL;
+ALTER TABLE split_payouts ADD COLUMN coupon_cost REAL DEFAULT 0;

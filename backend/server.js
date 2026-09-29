@@ -2210,6 +2210,8 @@ async function calculateSettlement(subtotal, totalProfitMargin, stockistId, regi
 // Helper: Reverse points if order is cancelled (only if points were already credited)
 async function reverseOrderPoints(orderId) {
   const ledger = await db.getTable('points_ledger');
+  let changed = false;
+
   const existingEarn = ledger.find(l => l.order_id === orderId && l.type === 'EARN');
   if (existingEarn) {
     const alreadyReversed = ledger.some(l => l.order_id === orderId && l.type === 'REVERSAL');
@@ -2226,8 +2228,31 @@ async function reverseOrderPoints(orderId) {
         created_at: new Date().toISOString(),
         billing_sync_status: 'PENDING'
       });
+      changed = true;
     }
   }
+
+  const existingCoupon = ledger.find(l => l.order_id === orderId && l.type === 'REDEEM' && l.redemption_type === 'COUPON');
+  if (existingCoupon) {
+    const alreadyCouponReversed = ledger.some(l => l.order_id === orderId && l.type === 'COUPON_REVERSAL');
+    if (!alreadyCouponReversed) {
+      await db.insertRow('points_ledger', {
+        id: 'l-' + generateId(),
+        tenant_id: existingCoupon.tenant_id || 't1',
+        region_id: existingCoupon.region_id || 'r1',
+        customer_id: existingCoupon.customer_id,
+        amount: Math.abs(existingCoupon.amount),
+        type: 'COUPON_REVERSAL',
+        order_id: orderId,
+        description: `Coupon points returned: cancelled order #${orderId.substring(2).toUpperCase()}`,
+        created_at: new Date().toISOString(),
+        billing_sync_status: 'PENDING'
+      });
+      changed = true;
+    }
+  }
+
+  // db.saveTable('points_ledger') is strictly forbidden
 }
 
 async function processOrderCancellation(order, cancelledBy = 'system') {
@@ -2269,7 +2294,9 @@ async function processOrderCancellation(order, cancelledBy = 'system') {
     const splitPayouts = await db.getTable('split_payouts');
     const payout = splitPayouts.find(sp => sp.order_id === order.id);
     const platformCommission = payout ? parseFloat(payout.platform_amount) : 0;
-    const refundAmount = order.total_price - platformCommission;
+    
+    let orderAmountPaid = order.amount_paid !== undefined && order.amount_paid !== null ? order.amount_paid : order.total_price;
+    const refundAmount = Math.max(0, orderAmountPaid - platformCommission);
 
     order.payment_status = 'REFUND_DUE';
     appendPaymentEvent(order.id, 'REFUND_DUE', refundAmount, {
@@ -2332,6 +2359,7 @@ async function enrichOrder(o) {
     stockist_amount: stockistPayout,
     platform_amount: platformPayout,
     stockist_reviewed: !!stockistFeedback,
+    amount_paid: o.amount_paid !== undefined && o.amount_paid !== null ? o.amount_paid : o.total_price,
     points_status: (await db.getTable('points_ledger')).some(l => l.order_id === o.id && l.type === 'EARN_HELD' && l.billing_sync_status === 'HELD') ? 'HELD' : 'CREDITED'
   };
 }
@@ -2480,6 +2508,62 @@ const handleCreateOrderRoute = async (req, res) => {
     return res.status(400).json({ error: 'Prepaid pickup is restricted due to excessive no-shows. Please choose Home Delivery (COD).' });
   }
 
+  const reqPaymentMethod = paymentMethod || (reqFulfillment === 'PICKUP' ? 'UPI' : 'COD');
+  
+  const couponRewardId = req.body.coupon_reward_id;
+  let reward = null;
+  if (couponRewardId) {
+    if (stores.length > 1) {
+      return res.status(400).json({ error: 'coupon_single_store_only' });
+    }
+    if (reqPaymentMethod.includes('COD')) {
+      return res.status(400).json({ error: 'coupon_prepaid_only' });
+    }
+    const genericRewards = await db.getTable('generic_rewards');
+    reward = genericRewards.find(r => r.id === couponRewardId);
+    if (!reward || reward.is_active === false) {
+      return res.status(404).json({ error: 'reward_missing' });
+    }
+    if (reward.valid_until && new Date() > new Date(reward.valid_until)) {
+      return res.status(400).json({ error: 'reward_expired' });
+    }
+
+    const ledgers = await db.getTable('points_ledger');
+    const customerPointsBalance = ledgers
+      .filter(row => row.customer_id === customerId && row.type !== 'EARN_HELD')
+      .reduce((sum, row) => sum + parseFloat(row.amount), 0);
+
+    if (customerPointsBalance < reward.point_cost) {
+      return res.status(400).json({ error: 'Insufficient points balance', code: 'INSUFFICIENT_POINTS' });
+    }
+
+    const ct = reward.cooldown_type || 'NONE';
+    if (ct !== 'NONE') {
+      const allOrders = await db.getTable('orders');
+      const latestMatch = allOrders
+        .filter(o => o.customer_id === customerId && o.status !== 'CANCELLED' && o.coupon_reward_id === reward.id)
+        .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
+
+      if (latestMatch) {
+        if (ct === 'ONCE') {
+          return res.status(400).json({ error: 'already_redeemed', message: 'Already used' });
+        } else if (ct === 'DAYS') {
+          const cd = parseInt(reward.cooldown_days, 10);
+          if (cd > 0) {
+            const nextAllowedIso = new Date(new Date(latestMatch.created_at).getTime() + (cd * 24 * 60 * 60 * 1000)).toISOString();
+            if (new Date() < new Date(nextAllowedIso)) {
+              return res.status(400).json({
+                error: 'Already redeemed',
+                message: 'Available again in N days',
+                available_at: nextAllowedIso
+              });
+            }
+          }
+        }
+      }
+    }
+  }
+
   const stockistsTable = await db.getTable('stockists');
   const products = await db.getTable('products');
   const inventory = await db.getTable('stockist_inventory');
@@ -2534,7 +2618,20 @@ const handleCreateOrderRoute = async (req, res) => {
     }
 
     const deliveryFee = reqFulfillment === 'DELIVERY' ? (cfg.DELIVERY_FEE_BY_REGION[stockist.region_id] || 40.00) : 0.00;
+    
+    let couponDiscount = 0;
+    let couponPointsSpent = 0;
+    if (reward) {
+      if (reward.min_order_value && subtotal < reward.min_order_value) {
+        return res.status(400).json({ error: 'below_min_order', min_order_value: reward.min_order_value });
+      }
+      couponDiscount = Math.min(parseFloat(reward.value_rupees), subtotal);
+      couponDiscount = Math.round(couponDiscount * 100) / 100;
+      couponPointsSpent = reward.point_cost;
+    }
+
     const totalPrice = subtotal + deliveryFee;
+    const amountPaid = totalPrice - couponDiscount;
 
     const reqModel = req.body.commission_model || (!req.body.stores ? 'gross_v1' : 'profit_v2');
     let settlement;
@@ -2579,7 +2676,7 @@ const handleCreateOrderRoute = async (req, res) => {
 
     // Determine payment status
     // Pickup = UPI → HELD. Delivery COD = COD. Delivery UPI = HELD.
-    const effectivePaymentMethod = paymentMethod || (reqFulfillment === 'PICKUP' ? 'UPI' : 'COD');
+    const effectivePaymentMethod = reqPaymentMethod;
     const paymentStatus = effectivePaymentMethod?.includes('COD') ? 'COD' : 'HELD';
 
     // Stock deduction removed here. It now happens when the order is marked READY.
@@ -2619,6 +2716,11 @@ const handleCreateOrderRoute = async (req, res) => {
       razorpay_order_id: 'rzp_order_' + generateId(),
       razorpay_payment_id: 'rzp_pay_' + generateId(),
       split_released: false,
+      coupon_reward_id: couponRewardId || null,
+      coupon_name: reward ? reward.name : null,
+      coupon_discount: couponDiscount,
+      coupon_points_spent: couponPointsSpent,
+      amount_paid: amountPaid,
       created_at: now.toISOString()
     };
 
@@ -2641,16 +2743,34 @@ const handleCreateOrderRoute = async (req, res) => {
       earn_rate_used: settlement.earnRateUsed,
       is_cod: effectivePaymentMethod?.includes('COD'),
       status: paymentStatus === 'HELD' ? 'HELD' : 'PENDING_COD',
+      coupon_cost: couponDiscount,
       created_at: now.toISOString()
     });
     await db.saveTable('split_payouts', splitPayouts);
 
     // Payment ledger event
-    appendPaymentEvent(orderId, paymentStatus === 'COD' ? 'COD_ORDER_CREATED' : 'HELD', totalPrice, {
+    appendPaymentEvent(orderId, paymentStatus === 'COD' ? 'COD_ORDER_CREATED' : 'HELD', amountPaid, {
       method: effectivePaymentMethod,
       stockist_share: stockistPayout,
-      platform_share: platformPayout
+      platform_share: platformPayout - couponDiscount,
+      coupon_discount: couponDiscount
     });
+
+    if (couponRewardId && couponPointsSpent > 0) {
+      const ledgers = await db.getTable('points_ledger');
+      ledgers.push({
+        id: 'pl-' + generateId(),
+        customer_id: customerId,
+        type: 'REDEEM',
+        redemption_type: 'COUPON',
+        amount: -couponPointsSpent,
+        order_id: orderId,
+        description: `Coupon: ${reward.name}`,
+        billing_sync_status: 'PENDING',
+        created_at: now.toISOString()
+      });
+      await db.saveTable('points_ledger', ledgers);
+    }
 
     // Fraud detection
     await runFraudDetection(order, customer);
@@ -3368,7 +3488,9 @@ app.post('/api/admin/orders/:id/refund', async (req, res) => {
   const splitPayouts = await db.getTable('split_payouts');
   const payout = splitPayouts.find(sp => sp.order_id === id);
   const platformCommission = payout ? parseFloat(payout.platform_amount) : 0;
-  const refundAmount = order.total_price - platformCommission;
+  
+  let orderAmountPaid = order.amount_paid !== undefined && order.amount_paid !== null ? order.amount_paid : order.total_price;
+  const refundAmount = Math.max(0, orderAmountPaid - platformCommission);
 
   order.payment_status = 'REFUNDED';
   await db.saveTable('orders', orders);
@@ -3749,60 +3871,7 @@ app.post('/api/ledger/redeem', async (req, res) => {
   let pkg = null;
 
   if (generic_reward_id) {
-    const genericRewards = await db.getTable('generic_rewards');
-    const generic = genericRewards.find(g => g.id === generic_reward_id);
-    if (!generic || generic.is_active === false) {
-      return res.status(404).json({ error: 'Generic reward missing or inactive' });
-    }
-    if (generic.valid_until && new Date() > new Date(generic.valid_until)) {
-      return res.status(400).json({ error: 'reward_expired', message: 'This reward is no longer available' });
-    }
-
-    const ct = generic.cooldown_type || 'NONE';
-    if (ct !== 'NONE') {
-      const activeStatuses = ['PENDING_ADMIN_APPROVAL', 'APPROVED', 'APPROVED_AWAITING_PARTNER', 'DISPUTED', 'FULFILLED'];
-      const redemptions = await db.getTable('redemption_approvals');
-      const lastRedemption = redemptions
-        .filter(r => (r.customer_user_id === customerId || r.customer_id === customerId) && r.partner_package_id === generic.id)
-        .filter(r => activeStatuses.includes(r.status))
-        .sort((a, b) => new Date(b.redeemed_at || b.created_at) - new Date(a.redeemed_at || a.created_at))[0];
-
-      if (lastRedemption) {
-        if (ct === 'ONCE') {
-          return res.status(400).json({ error: 'already_redeemed', message: 'Already redeemed' });
-        } else if (ct === 'DAYS') {
-          const cd = parseInt(generic.cooldown_days, 10);
-          if (cd > 0) {
-            const nextAllowedIso = lastRedemption.next_redemption_allowed_at || new Date(new Date(lastRedemption.redeemed_at || lastRedemption.created_at).getTime() + (cd * 24 * 60 * 60 * 1000)).toISOString();
-            const now = new Date();
-            if (now < new Date(nextAllowedIso)) {
-              const daysLeft = Math.ceil((new Date(nextAllowedIso) - now) / (1000 * 60 * 60 * 24));
-              return res.status(400).json({
-                error: 'Already redeemed',
-                message: `Available again in ${daysLeft} days`,
-                available_at: nextAllowedIso
-              });
-            }
-          }
-        }
-      }
-    }
-
-    // Amount match check
-    if (amount && parseFloat(amount) !== parseFloat(generic.point_cost)) {
-      return res.status(400).json({ error: 'amount_mismatch' });
-    }
-    // Map generic reward to pkg structure for downstream logic
-    pkg = {
-      id: generic.id,
-      partner_id: 'GENERIC',
-      name: generic.name,
-      point_cost: generic.point_cost,
-      face_value_rupees: generic.value_rupees,
-      service_type: 'generic',
-      cooldown_type: ct,
-      cooldown_days: generic.cooldown_days
-    };
+    return res.status(400).json({ error: 'use_checkout_coupon', message: 'Generic rewards are applied as coupons at checkout.' });
   } else if (partner_package_id) {
     pkg = partnerPackages.find(p => p.id === partner_package_id);
     if (!pkg || pkg.status === 'INACTIVE' || pkg.is_active === false) {
@@ -7396,7 +7465,7 @@ app.get('/api/admin/generic-rewards', async (req, res) => {
 });
 
 app.post('/api/admin/generic-rewards', async (req, res) => {
-  const { name, description, point_cost, value_rupees, cooldown_type, cooldown_days, valid_until } = req.body;
+  const { name, description, point_cost, value_rupees, cooldown_type, cooldown_days, valid_until, min_order_value } = req.body;
   if (!name || !point_cost) return res.status(400).json({ error: 'Missing fields' });
   if (!['NONE', 'DAYS', 'ONCE'].includes(cooldown_type)) return res.status(400).json({ error: 'Invalid cooldown_type' });
   
@@ -7418,6 +7487,12 @@ app.post('/api/admin/generic-rewards', async (req, res) => {
     finalValidUntil = isoString;
   }
 
+  let finalMinOrderValue = null;
+  if (min_order_value !== undefined && min_order_value !== null && min_order_value !== '') {
+    finalMinOrderValue = parseFloat(min_order_value);
+    if (isNaN(finalMinOrderValue) || finalMinOrderValue < 0) return res.status(400).json({ error: 'Invalid min_order_value' });
+  }
+
   const rewards = await db.getTable('generic_rewards');
   const newReward = {
     id: 'gr-' + generateId(),
@@ -7429,6 +7504,7 @@ app.post('/api/admin/generic-rewards', async (req, res) => {
     cooldown_type,
     cooldown_days: finalCooldownDays,
     valid_until: finalValidUntil,
+    min_order_value: finalMinOrderValue,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString()
   };
@@ -7439,7 +7515,7 @@ app.post('/api/admin/generic-rewards', async (req, res) => {
 
 app.patch('/api/admin/generic-rewards/:id', async (req, res) => {
   const { id } = req.params;
-  const { name, description, point_cost, value_rupees, is_active, cooldown_type, cooldown_days, valid_until } = req.body;
+  const { name, description, point_cost, value_rupees, is_active, cooldown_type, cooldown_days, valid_until, min_order_value } = req.body;
   const rewards = await db.getTable('generic_rewards');
   const reward = rewards.find(r => r.id === id);
   if (!reward) return res.status(404).json({ error: 'Not found' });
@@ -7475,6 +7551,16 @@ app.patch('/api/admin/generic-rewards/:id', async (req, res) => {
       const d = new Date(isoString);
       if (isNaN(d.getTime())) return res.status(400).json({ error: 'Invalid valid_until date' });
       reward.valid_until = isoString;
+    }
+  }
+
+  if (min_order_value !== undefined) {
+    if (min_order_value === null || min_order_value === '') {
+      reward.min_order_value = null;
+    } else {
+      const parsed = parseFloat(min_order_value);
+      if (isNaN(parsed) || parsed < 0) return res.status(400).json({ error: 'Invalid min_order_value' });
+      reward.min_order_value = parsed;
     }
   }
 

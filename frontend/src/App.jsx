@@ -934,6 +934,7 @@ export default function App() {
   const [genericRewardCooldownMode, setGenericRewardCooldownMode] = useState('');
   const [genericRewardCooldownDays, setGenericRewardCooldownDays] = useState('');
   const [genericRewardValidUntil, setGenericRewardValidUntil] = useState('');
+  const [genericRewardMinOrder, setGenericRewardMinOrder] = useState('');
   const [adminPartnerPayouts, setAdminPartnerPayouts] = useState([]);
 
   const fetchAdminPartnerPayouts = () => {
@@ -1073,6 +1074,7 @@ export default function App() {
   const [profileName, setProfileName] = useState('');
   const [profileAddress, setProfileAddress] = useState('');
   const [deliveryAddress, setDeliveryAddress] = useState('');
+  const [selectedCouponId, setSelectedCouponId] = useState(null);
   const [profileCablePartnerId, setProfileCablePartnerId] = useState('');
   const [profileNoCable, setProfileNoCable] = useState(false);
   const [profileHasBroadband, setProfileHasBroadband] = useState(false);
@@ -3190,9 +3192,26 @@ export default function App() {
   };
 
   // Calculated checkout metrics
+  const cartGroups = {};
+  currentCart.forEach(item => {
+    if (!cartGroups[item.stockistId]) cartGroups[item.stockistId] = [];
+    cartGroups[item.stockistId].push(item);
+  });
+  
   const cartSubtotal = currentCart.reduce((sum, item) => sum + (item.product.price * item.quantity), 0);
   const cartDeliveryFee = cartFulfillment === 'DELIVERY' ? (selectedStockist?.region_id === 'r2' ? 30.00 : 40.00) : 0.00;
-  const cartTotal = cartSubtotal + cartDeliveryFee;
+  
+  let appliedCoupon = null;
+  let couponDiscount = 0;
+  if (selectedCouponId && availableRewards?.generic) {
+    appliedCoupon = availableRewards.generic.find(g => g.id === selectedCouponId);
+    if (appliedCoupon) {
+      couponDiscount = Math.min(parseFloat(appliedCoupon.value_rupees), cartSubtotal);
+      couponDiscount = Math.round(couponDiscount * 100) / 100;
+    }
+  }
+  
+  const cartTotal = cartSubtotal + cartDeliveryFee - couponDiscount;
   const estimatedEarnPoints = Math.round(
     currentCart.reduce((sum, item) => {
       const itemPts = item.product.estimated_points || 0;
@@ -3247,7 +3266,8 @@ export default function App() {
         stores,
         fulfillmentType: cartFulfillment,
         deliveryAddress: (deliveryAddress !== undefined && deliveryAddress !== '' ? deliveryAddress : (profileAddress || currentUser?.address || '')).trim(),
-        paymentMethod: cartFulfillment === 'PICKUP' ? 'UPI' : 'COD'
+        paymentMethod: cartFulfillment === 'PICKUP' ? 'UPI' : 'COD',
+        coupon_reward_id: selectedCouponId || undefined
       };
 
       const res = await fetch(`${API_BASE}/orders`, {
@@ -3272,6 +3292,7 @@ export default function App() {
           return next;
         });
         setCartPickupSlots({});
+        setSelectedCouponId(null);
         loadCustomerData();
         const msg = cartFulfillment === 'PICKUP'
           ? t('Order placed! Payment held securely until pickup.', 'ऑर्डर दिया! पिकअप तक भुगतान सुरक्षित।', 'অর্ডার দেওয়া হয়েছে! পিকআপ পর্যন্ত পেমেন্ট নিরাপদ।')
@@ -7901,6 +7922,13 @@ export default function App() {
                               <span>{o.stockist_name}</span>
                               <span style={{ color: 'var(--accent)' }}>#{o.id.substring(2).toUpperCase()}</span>
                             </div>
+                            <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginBottom: '0.2rem' }}>
+                              {t('Subtotal', 'उप-योग', 'উপ-মোট')}: ₹{parseFloat(o.subtotal).toFixed(2)} 
+                              {parseFloat(o.delivery_fee) > 0 && ` | ${t('Delivery', 'डिलिवरी', 'ডেলিভারি')}: ₹${parseFloat(o.delivery_fee).toFixed(2)}`}
+                              {parseFloat(o.coupon_discount || 0) > 0 && ` | ${t('Coupon', 'कूपन', 'কুপন')}: -₹${parseFloat(o.coupon_discount).toFixed(2)}`}
+                              <br />
+                              <strong style={{ color: 'white' }}>{t('Paid', 'भुगतान किया', 'পরিশোধিত')}: ₹{parseFloat(o.amount_paid !== undefined && o.amount_paid !== null ? o.amount_paid : o.total_price).toFixed(2)}</strong>
+                            </div>
                             
                             {o.fulfillment_type === 'PICKUP' ? (
                               <div>
@@ -8528,6 +8556,101 @@ export default function App() {
                             </div>
                           )}
 
+                          {/* Coupons Section */}
+                          {availableRewards?.generic?.length > 0 && (
+                            <div className="glass-card" style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                              <h3 style={{ fontSize: '0.95rem', marginBottom: '0.5rem', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                <Gift size={16} color="var(--primary)" />
+                                {t('Available Coupons', 'उपलब्ध कूपन', 'উপলব্ধ কুপন')}
+                              </h3>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                {availableRewards.generic.filter(c => c.is_active !== false).map(coupon => {
+                                  const latestMatch = (customerOrders || []).filter(o => o.status !== 'CANCELLED' && o.coupon_reward_id === coupon.id).sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
+                                  
+                                  let isLocked = false;
+                                  let lockMessage = null;
+                                  
+                                  if (latestMatch) {
+                                    if (coupon.cooldown_type === 'ONCE') {
+                                      isLocked = true;
+                                      lockMessage = t('Already used', 'पहले ही उपयोग किया जा चुका है', 'ইতিমধ্যেই ব্যবহৃত');
+                                    } else if (coupon.cooldown_type === 'DAYS') {
+                                      const cd = parseInt(coupon.cooldown_days, 10);
+                                      if (cd > 0) {
+                                        const nextAllowed = new Date(new Date(latestMatch.created_at).getTime() + cd * 24 * 60 * 60 * 1000);
+                                        if (new Date() < nextAllowed) {
+                                          isLocked = true;
+                                          lockMessage = t(`Available again in ${cd} days`, `${cd} दिनों में फिर से उपलब्ध`, `${cd} দিনের মধ্যে আবার উপলব্ধ`);
+                                        }
+                                      }
+                                    }
+                                  }
+                                  
+                                  if (!isLocked && coupon.valid_until && new Date() > new Date(coupon.valid_until)) {
+                                    isLocked = true;
+                                    lockMessage = t('Expired', 'समाप्त', 'মেয়াদ উত্তীর্ণ');
+                                  }
+                                  
+                                  if (!isLocked && customerBalance < coupon.point_cost) {
+                                    isLocked = true;
+                                    lockMessage = t('Not enough points', 'पर्याप्त अंक नहीं', 'যথেষ্ট পয়েন্ট নেই');
+                                  }
+                                  
+                                  if (!isLocked && coupon.min_order_value && cartSubtotal < coupon.min_order_value) {
+                                    isLocked = true;
+                                    lockMessage = t(`Min order ₹${coupon.min_order_value}`, `न्यूनतम ऑर्डर ₹${coupon.min_order_value}`, `সর্বনিম্ন অর্ডার ₹${coupon.min_order_value}`);
+                                  }
+                                  
+                                  if (!isLocked && Object.keys(cartGroups).length > 1) {
+                                    isLocked = true;
+                                    lockMessage = t('Not valid for multi-store', 'मल्टी-स्टोर के लिए मान्य नहीं', 'মাল্টি-স্টোরের জন্য বৈধ নয়');
+                                  }
+                                  
+                                  if (!isLocked && cartFulfillment === 'DELIVERY') {
+                                    isLocked = true;
+                                    lockMessage = t('Prepaid only (Pickup)', 'केवल प्रीपेड (पिकअप)', 'শুধুমাত্র প্রিপেইড (পিকআপ)');
+                                  }
+
+                                  const isSelected = selectedCouponId === coupon.id;
+                                  
+                                  return (
+                                    <div 
+                                      key={coupon.id} 
+                                      style={{ 
+                                        display: 'flex', justifyContent: 'space-between', alignItems: 'center', 
+                                        padding: '0.75rem', borderRadius: '8px', 
+                                        background: isSelected ? 'rgba(99, 102, 241, 0.15)' : 'rgba(255,255,255,0.03)',
+                                        border: isSelected ? '1px solid var(--primary)' : '1px solid rgba(255,255,255,0.08)',
+                                        opacity: isLocked && !isSelected ? 0.6 : 1,
+                                        cursor: isLocked ? 'not-allowed' : 'pointer'
+                                      }}
+                                      onClick={() => {
+                                        if (!isLocked) {
+                                          setSelectedCouponId(isSelected ? null : coupon.id);
+                                        }
+                                      }}
+                                    >
+                                      <div>
+                                        <div style={{ fontWeight: 'bold', fontSize: '0.85rem' }}>{coupon.name}</div>
+                                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                                          {coupon.description ? coupon.description + ' · ' : ''}₹{coupon.value_rupees} off for {coupon.point_cost} pts
+                                        </div>
+                                        {isLocked && lockMessage && <div style={{ fontSize: '0.65rem', color: 'var(--danger)', marginTop: '0.2rem' }}>{lockMessage}</div>}
+                                      </div>
+                                      <div>
+                                        <div style={{ 
+                                          width: '20px', height: '20px', borderRadius: '50%', 
+                                          border: isSelected ? '5px solid var(--primary)' : '2px solid rgba(255,255,255,0.3)',
+                                          background: 'transparent'
+                                        }} />
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+
                           {/* Bill Summary */}
                           <div className="glass-card" style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                             {isDevMode && (<div style={{color:'cyan',fontSize:'0.6rem'}}>dev: fulfilment={cartFulfillment} · shops={Object.keys(cartPickupSlots).length}</div>)}
@@ -8540,6 +8663,12 @@ export default function App() {
                               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
                                 <span>{t('Delivery Fee', 'डिलिवरी शुल्क', 'ডেলিভারি চার্জ')}</span>
                                 <span>₹{cartDeliveryFee.toFixed(2)}</span>
+                              </div>
+                            )}
+                            {couponDiscount > 0 && (
+                              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', color: 'var(--accent)' }}>
+                                <span>{t('Coupon Discount', 'कूपन छूट', 'কুপন ডিসকাউন্ট')}</span>
+                                <span>-₹{couponDiscount.toFixed(2)}</span>
                               </div>
                             )}
                             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
@@ -8896,17 +9025,6 @@ export default function App() {
                                 bindingsObj.broadband_partner_name,
                                 'broadband'
                               )}
-
-                              {/* Generic Rewards Section */}
-                              {genericItems.length > 0 && renderRewardSection(
-                                t('Other Rewards', 'अन्य पुरस्कार', 'অন্যান্য পুরস্কার'),
-                                '#10b981',
-                                genericItems,
-                                null,
-                                'FastNet',
-                                'generic'
-                              )}
-
                               {/* My Redemptions Section */}
                               <div style={{ marginTop: '0.5rem', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '1rem' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.75rem' }}>
@@ -14083,6 +14201,7 @@ export default function App() {
                       setGenericRewardCooldownMode('');
                       setGenericRewardCooldownDays('');
                       setGenericRewardValidUntil('');
+                      setGenericRewardMinOrder('');
                       setGenericRewardErrors({});
                       setShowGenericRewardModal(true); 
                     }}>+ Add Reward</button>
@@ -14095,6 +14214,7 @@ export default function App() {
                           <th>Description</th>
                           <th>Point Cost</th>
                           <th>Value (₹)</th>
+                          <th>Min Order (₹)</th>
                           <th>Repeat</th>
                           <th>Until</th>
                           <th>Status</th>
@@ -14120,6 +14240,7 @@ export default function App() {
                             <td style={{ fontSize: '0.7rem' }}>{r.description || '—'}</td>
                             <td>{r.point_cost}</td>
                             <td>₹{r.value_rupees}</td>
+                            <td>{r.min_order_value ? `₹${r.min_order_value}` : '—'}</td>
                             <td>{repeatText}</td>
                             <td>
                               {untilText}
@@ -14133,6 +14254,7 @@ export default function App() {
                                 setGenericRewardCooldownMode(r.cooldown_type === 'ONCE' ? 'ONCE' : (r.cooldown_type === 'DAYS' ? (['30','90','180','365'].includes(String(r.cooldown_days)) ? String(r.cooldown_days) : 'custom') : 'NONE'));
                                 setGenericRewardCooldownDays(r.cooldown_type === 'DAYS' ? String(r.cooldown_days) : '');
                                 setGenericRewardValidUntil(r.valid_until ? new Date(r.valid_until).toISOString().split('T')[0] : '');
+                                setGenericRewardMinOrder(r.min_order_value || '');
                                 setGenericRewardErrors({});
                                 setShowGenericRewardModal(true); 
                               }}>Edit</button>
@@ -14272,7 +14394,8 @@ export default function App() {
                       {dbState?.orders?.map(o => {
                         const isRefundDue = o.payment_status === 'REFUND_DUE';
                         const platformCommission = o.platform_amount || 0;
-                        const netRefundAmount = o.total_price - platformCommission;
+                        const orderAmountPaid = o.amount_paid !== undefined && o.amount_paid !== null ? o.amount_paid : o.total_price;
+                        const netRefundAmount = orderAmountPaid - platformCommission;
                         
                         const isCod = o.payment_method?.includes('COD');
                         const correspondingPayout = isCod 
@@ -14287,7 +14410,17 @@ export default function App() {
                             <td>{o.stockist_name}</td>
                             <td><span className="badge badge-primary" style={{ fontSize: '0.65rem' }}>{formatOrderStatusDisplay(o.status, o.fulfillment_type)}</span></td>
                             <td style={{ fontSize: '0.75rem' }}>{o.fulfillment_type || 'N/A'} - {o.payment_method || 'N/A'}</td>
-                            <td style={{ fontWeight: 'bold' }}>₹{o.total_price.toFixed(2)}</td>
+                            <td style={{ fontWeight: 'bold' }}>
+                              {o.coupon_discount ? (
+                                <>
+                                  <div style={{ color: 'var(--text-muted)', textDecoration: 'line-through', fontSize: '0.8em' }}>₹{o.total_price.toFixed(2)}</div>
+                                  <div style={{ color: 'var(--primary)' }}>Paid ₹{orderAmountPaid.toFixed(2)}</div>
+                                  <div style={{ color: 'var(--accent)', fontSize: '0.7em' }}>Coupon -₹{o.coupon_discount.toFixed(2)}</div>
+                                </>
+                              ) : (
+                                `₹${o.total_price.toFixed(2)}`
+                              )}
+                            </td>
                             <td>₹{o.subtotal.toFixed(2)}</td>
                             <td>₹{o.delivery_fee.toFixed(2)}</td>
                             <td style={{ color: 'var(--accent)' }}>₹{(o.stockist_amount || 0).toFixed(2)}</td>
@@ -14295,6 +14428,7 @@ export default function App() {
                               ₹{((Number(o.platform_amount) || 0) + pointsToRupees(o.points_credited)).toFixed(2)}
                               <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)' }}>
                                 {t('Margin','मार्जिन','মার্জিন')} ₹{(Number(o.platform_amount) || 0).toFixed(2)} &middot; {t('Points held','अंक धारित','পয়েন্ট ধৃত')} ₹{pointsToRupees(o.points_credited).toFixed(2)}
+                                {o.coupon_discount > 0 && <span> &middot; Coupon cost -₹{o.coupon_discount.toFixed(2)}</span>}
                               </div>
                             </td>
                             <td>{formatPoints(o.points_credited || 0)}</td>
@@ -14311,7 +14445,13 @@ export default function App() {
                                   <button 
                                     className="btn btn-danger" 
                                     style={{ padding: '0.15rem 0.35rem', fontSize: '0.6rem', display: 'flex', alignItems: 'center', gap: '0.15rem', marginTop: '0.25rem' }} 
-                                    onClick={() => handleAdminRefund(o.id)}
+                                    onClick={() => {
+                                      triggerConfirmModal(
+                                        'Confirm Refund',
+                                        `Process refund of ₹${netRefundAmount.toFixed(2)} to customer?`,
+                                        () => handleAdminRefund(o.id)
+                                      );
+                                    }}
                                   >
                                     Refund Customer (₹{netRefundAmount.toFixed(2)})
                                   </button>
@@ -14905,6 +15045,12 @@ export default function App() {
                 const value = parseFloat(value_rupees_str);
                 if (value < 0) newErrors.value_rupees = "Value can't be negative.";
               }
+              const minOrderStr = formData.get('min_order_value');
+              let minOrderVal = null;
+              if (minOrderStr) {
+                minOrderVal = parseFloat(minOrderStr);
+                if (minOrderVal < 0) newErrors.min_order_value = "Value can't be negative.";
+              }
 
               let finalCooldownType = 'NONE';
               let finalCooldownDays = null;
@@ -14946,6 +15092,7 @@ export default function App() {
                 payload.cooldown_type = finalCooldownType;
                 payload.cooldown_days = finalCooldownDays;
                 payload.valid_until = genericRewardValidUntil || null;
+                payload.min_order_value = minOrderVal !== null && !isNaN(minOrderVal) ? minOrderVal : null;
 
                 const url = editingGenericReward 
                   ? `${API_BASE}/admin/generic-rewards/${editingGenericReward.id}`
@@ -15050,6 +15197,29 @@ export default function App() {
                       />
                     </div>
                     {genericRewardErrors.value_rupees && <div id="reward_value_rupees_error" style={{ fontSize: '0.78rem', color: 'var(--danger)', marginTop: '0.25rem' }}>{genericRewardErrors.value_rupees}</div>}
+                  </div>
+
+                  <div className="input-group">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <label className="input-label" htmlFor="reward_min_order_value">Minimum Order (₹)</label>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>optional</span>
+                    </div>
+                    <div style={{ position: 'relative' }}>
+                      <span style={{ position: 'absolute', left: '0.8rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }}>₹</span>
+                      <input 
+                        type="number" 
+                        id="reward_min_order_value"
+                        name="min_order_value"
+                        className="text-input"
+                        style={{ paddingLeft: '1.8rem' }}
+                        defaultValue={editingGenericReward ? editingGenericReward.min_order_value : ''}
+                        step="1"
+                        min="0"
+                        placeholder="e.g. 500"
+                        aria-invalid={!!genericRewardErrors.min_order_value}
+                      />
+                    </div>
+                    {genericRewardErrors.min_order_value && <div style={{ fontSize: '0.78rem', color: 'var(--danger)', marginTop: '0.25rem' }}>{genericRewardErrors.min_order_value}</div>}
                   </div>
                 </div>
 
