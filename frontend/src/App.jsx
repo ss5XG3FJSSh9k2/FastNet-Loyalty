@@ -1165,6 +1165,7 @@ export default function App() {
   const [analyticsRange, setAnalyticsRange] = useState('weekly'); // weekly, monthly
   const [showAddProductModal, setShowAddProductModal] = useState(false);
   const [newProdName, setNewProdName] = useState('');
+  const [newProdDescription, setNewProdDescription] = useState('');
   const [newProdPrice, setNewProdPrice] = useState('');
   const [newProdCostPrice, setNewProdCostPrice] = useState('');
   const [newProdCategory, setNewProdCategory] = useState('groceries');
@@ -1172,6 +1173,7 @@ export default function App() {
   const [lowStockThreshold, setLowStockThreshold] = useState('15');
   const [editingProduct, setEditingProduct] = useState(null);
   const [editProdName, setEditProdName] = useState('');
+  const [editProdDescription, setEditProdDescription] = useState('');
   const [editProdPrice, setEditProdPrice] = useState('');
   const [editProdCostPrice, setEditProdCostPrice] = useState('');
 
@@ -5013,6 +5015,7 @@ export default function App() {
         formData.append('imageFile', newProdImageFile);
       }
       formData.append('name', newProdName);
+      formData.append('description', newProdDescription || '');
       formData.append('price', parseFloat(newProdPrice));
       formData.append('costPrice', newProdCostPrice ? parseFloat(newProdCostPrice) : parseFloat(newProdPrice) * 0.75);
       formData.append('category', newProdCategory);
@@ -5032,6 +5035,7 @@ export default function App() {
         }
         setShowAddProductModal(false);
         setNewProdName('');
+        setNewProdDescription('');
         setNewProdPrice('');
         setNewProdCostPrice('');
         setNewProdCategory('groceries');
@@ -5052,6 +5056,7 @@ export default function App() {
   const handleStartEditProduct = (prod) => {
     setEditingProduct(prod);
     setEditProdName(prod.name);
+    setEditProdDescription(prod.description || '');
     setEditProdPrice(prod.price.toString());
     setEditProdCostPrice((prod.cost_price !== undefined && prod.cost_price !== null ? prod.cost_price : prod.price * 0.75).toString());
     setEditProdBillFile(null);
@@ -5087,6 +5092,7 @@ export default function App() {
       const formData = new FormData();
       if (editProdBillFile) formData.append('bill_photo', editProdBillFile);
       formData.append('name', editProdName);
+      formData.append('description', editProdDescription || '');
       formData.append('price', priceNum);
       formData.append('costPrice', costNum);
       formData.append('stockistId', stockistProfile.id);
@@ -8231,6 +8237,7 @@ export default function App() {
                                       <h4 style={{ fontSize: '0.75rem', color: 'white', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
                                           {p.name}
                                         </h4>
+                                      {p.description && <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>{p.description}</div>}
                                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.2rem' }}>
                                         <span style={{ fontWeight: 'bold', fontSize: '0.85rem' }}>₹{p.price}</span>
                                         {hasCostPrice ? (
@@ -8398,6 +8405,7 @@ export default function App() {
                                         <img src={p.image_url ? (p.image_url.startsWith('http') || p.image_url.startsWith('data:') ? p.image_url : `${API_BASE}${p.image_url}`) : "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200' viewBox='0 0 200 200'%3E%3Crect width='200' height='200' fill='%231e293b'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' fill='%2394a3b8' font-family='sans-serif' font-size='16'%3EProduct Image%3C/text%3E%3C/svg%3E"} alt={p.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={(e) => { e.target.src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200' viewBox='0 0 200 200'%3E%3Crect width='200' height='200' fill='%231e293b'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' fill='%2394a3b8' font-family='sans-serif' font-size='16'%3EProduct Image%3C/text%3E%3C/svg%3E"; }} />
                                       </div>
                                       <div style={{ fontSize: '0.75rem', fontWeight: 600, marginTop: '0.25rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</div>
+                                      {p.description && <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.description}</div>}
                                       <div style={{ fontSize: '0.75rem', color: 'var(--accent)' }}>₹{p.price}</div>
                                       <button
                                         className="btn btn-secondary"
@@ -10243,6 +10251,13 @@ export default function App() {
                         </div>
                         
                         <div className="input-group">
+                          <label className="input-label">{t('Description (optional)', 'विवरण (वैकल्पिक)', 'বিবরণ (ঐচ্ছিক)')}</label>
+                          <textarea className="text-input" rows={2} maxLength={200}
+                            placeholder={t('Describe this product for customers…','ग्राहकों के लिए इस उत्पाद का वर्णन करें…','গ্রাহকদের জন্য এই পণ্যটি বর্ণনা করুন…')}
+                            value={newProdDescription} onChange={e => setNewProdDescription(e.target.value)} />
+                        </div>
+                        
+                        <div className="input-group">
                           <label className="input-label">{t('Selling Price (₹)', 'विक्रय मूल्य (₹)', 'বিক্রয় মূল্য (₹)')}</label>
                           <input type="number" inputMode="decimal" className="text-input" value={newProdPrice} onChange={e => setNewProdPrice(e.target.value)} />
                         </div>
@@ -10385,6 +10400,13 @@ export default function App() {
                         <div className="input-group">
                           <label className="input-label">{t('Product Name', 'उत्पाद का नाम', 'পণ্যের নাম')}</label>
                           <input type="text" className="text-input" value={editProdName} onChange={e => setEditProdName(e.target.value)} />
+                        </div>
+                        
+                        <div className="input-group">
+                          <label className="input-label">{t('Description (optional)', 'विवरण (वैकल्पिक)', 'বিবরণ (ঐচ্ছিক)')}</label>
+                          <textarea className="text-input" rows={2} maxLength={200}
+                            placeholder={t('Describe this product for customers…','ग्राहकों के लिए इस उत्पाद का वर्णन करें…','গ্রাহকদের জন্য এই পণ্যটি বর্ণনা করুন…')}
+                            value={editProdDescription} onChange={e => setEditProdDescription(e.target.value)} />
                         </div>
                         
                         <div className="input-group">
