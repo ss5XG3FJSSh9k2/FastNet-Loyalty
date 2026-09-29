@@ -1,4 +1,5 @@
 const express = require('express');
+const { requireAuth, requireRole } = require('./lib/authz');
 const webpush = require('web-push');
 
 let VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY;
@@ -272,9 +273,12 @@ app.use(async (req, res, next) => {
       } catch (e) {
         decoded = sessionHelper.verifySession(token);
       }
-      req.user = decoded; // { userId, role }
       if (decoded) {
-        const userId = decoded.userId || decoded.user_id || decoded.id;
+        req.user = {
+          userId: decoded.sub || decoded.userId || decoded.user_id || decoded.id,
+          role: decoded.role
+        };
+        const userId = req.user.userId;
         const users = await db.getTable('users');
         const user = users.find(u => u.id === userId);
         if (user && user.role === 'STOCKIST' && user.kyc_status !== 'APPROVED') {
@@ -437,7 +441,7 @@ async function appendPaymentEvent(orderId, eventType, amount, metadata = {}) {
 
 // Helper: append an admin audit log entry
 async function appendAudit(req, action, entity_type, entity_id, before = null, after = null, reason = '') {
-  const admin_user_id = (req && req.headers && req.headers['x-admin-id']) || (req && req.body && req.body.admin_user_id) || 'u-admin';
+  const admin_user_id = (req && req.user && req.user.userId) || 'u-admin';
   const log = await db.getTable('admin_audit_log');
   const entry = {
     id: 'audit-' + generateId(),
@@ -622,22 +626,25 @@ app.post('/api/auth/register-customer', async (req, res) => {
 });
 
 // GET /api/users/:id (Item 7, Item 19)
-app.get('/api/users/:id', async (req, res) => {
+app.get('/api/users/:id', requireAuth, async (req, res) => {
   const { id } = req.params;
   const users = await db.getTable('users');
   const user = users.find(u => u.id === id);
   if (!user) return res.status(404).json({ error: 'User not found' });
 
-  if (req.user && req.user.role !== 'ADMIN' && req.user.userId !== id) {
+  if (req.user.role !== 'ADMIN' && req.user.userId !== id) {
     return res.status(403).json({ error: 'Forbidden' });
   }
   res.json(sanitizeUser(user));
 });
 
 // PATCH /api/users/:id (Item 8)
-app.patch('/api/users/:id', async (req, res) => {
+app.patch('/api/users/:id', requireAuth, async (req, res) => {
   const { id } = req.params;
-  const isAdmin = (req.user && req.user.role === 'ADMIN') || req.headers['x-admin-id'] || req.body.admin_user_id;
+  const isAdmin = req.user.role === 'ADMIN';
+  if (!isAdmin && req.user.userId !== id) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
   const allowedFields = ['name', 'email', 'address', 'phone', 'sms_marketing', 'email_marketing'];
   const protectedFields = ['kyc_status', 'points', 'is_active', 'role', 'id'];
 
@@ -1436,6 +1443,31 @@ app.get('/api/products/:id/bill-history', async (req, res) => {
     .filter(b => b.product_id === id)
     .sort((a, b) => new Date(b.uploaded_at) - new Date(a.uploaded_at));
   return res.json(history);
+});
+
+// --- ADMIN GATE ---
+app.use('/api/admin', (req, res, next) => {
+  const p = req.path;
+  const isDev = p === '/reset-db' || p === '/override-table' || p === '/clear-rate-limits';
+  if (isDev) {
+    if (!require('./lib/env').isTestEnv()) return res.status(404).json({ error: 'Not found' });
+    return next();
+  }
+
+  // Apply authentication
+  requireAuth(req, res, (err) => {
+    if (err) return next(err);
+
+    if (p.match(/^\/partner-leads\/[^\/]+\/status$/)) {
+      return requireRole('PARTNER_ADMIN')(req, res, next);
+    }
+    const isPartner = p.match(/^\/kyc\/[^\/]+\/document$/) || p.match(/^\/users\/[^\/]+\/references$/) || p.match(/^\/users\/[^\/]+\/account$/) || p.match(/^\/vendors\/[^\/]+$/) || p === '/analytics' || p.startsWith('/partner-leads');
+    if (isPartner) {
+      return requireRole('ADMIN', 'PARTNER_ADMIN')(req, res, next);
+    }
+
+    return requireRole('ADMIN')(req, res, next);
+  });
 });
 
 // GET /api/admin/bill-photos
@@ -3253,13 +3285,18 @@ app.get('/api/orders', async (req, res) => {
 });
 
 // Update Order Status
-app.patch('/api/orders/:id/status', async (req, res) => {
+app.patch('/api/orders/:id/status', requireAuth, async (req, res) => {
   const { id } = req.params;
-  let { status } = req.body;
+  let { status, pin } = req.body;
 
   const orders = await db.getTable('orders');
   const order = orders.find(o => o.id === id);
   if (!order) return res.status(404).json({ error: 'Order not found' });
+
+  const isAdmin = req.user && req.user.role === 'ADMIN';
+  if (!isAdmin && order.user_id !== req.user.userId && order.stockist_id !== req.user.userId) {
+    return res.status(403).json({ error: 'Not authorized for this order' });
+  }
 
   if (status === 'SHIPPED') {
     status = order.fulfillment_type === 'PICKUP' ? 'READY_FOR_PICKUP' : 'OUT_FOR_DELIVERY';
@@ -3271,11 +3308,18 @@ app.patch('/api/orders/:id/status', async (req, res) => {
     return res.status(400).json({ error: 'Invalid order status' });
   }
 
-  if (status === 'DELIVERED' && order.fulfillment_type === 'DELIVERY') {
-    return res.status(400).json({
-      error: 'Direct delivery transition blocked. PIN verification required for handoff completion.',
-      code: 'PIN_REQUIRED'
-    });
+  if ((status === 'DELIVERED' || status === 'PICKED_UP') && !isAdmin) {
+    if (order.fulfillment_type === 'DELIVERY' || order.fulfillment_type === 'PICKUP') {
+      if (order.delivery_pin && String(pin) !== String(order.delivery_pin) && order.pickup_pin && String(pin) !== String(order.pickup_pin)) {
+        return res.status(400).json({ error: 'Invalid PIN' });
+      }
+      if (!pin) {
+        return res.status(400).json({
+          error: 'Direct transition blocked. PIN verification required for handoff completion.',
+          code: 'PIN_REQUIRED'
+        });
+      }
+    }
   }
 
   if (status === 'CANCELLED') {
@@ -4412,8 +4456,6 @@ app.get('/api/admin/kyc-queue', async (req, res) => {
 });
 
 app.post('/api/admin/kyc/:userId/flags/:flagId/clear', async (req, res) => {
-  const adminIdHeader = req.headers['x-admin-user-id'] || req.headers['x-admin-id'];
-  if (!adminIdHeader) return res.status(403).json({ error: 'Unauthorized' });
   const note = req.body.note;
   if (!note) return res.status(400).json({ error: 'Note is required' });
 
@@ -4422,22 +4464,16 @@ app.post('/api/admin/kyc/:userId/flags/:flagId/clear', async (req, res) => {
   if (!flag) return res.status(404).json({ error: 'Flag not found' });
   if (flag.cleared_at) return res.status(400).json({ error: 'Flag already cleared' });
 
-  flag.cleared_by = adminIdHeader;
+  flag.cleared_by = req.user.userId;
   flag.cleared_at = new Date().toISOString();
   flag.cleared_note = note;
 
   await db.saveTable('registration_flags', regFlags);
-  await appendAudit(req, 'CLEAR_KYC_FLAG', 'registration_flags', flag.id, null, { note, cleared_by: adminIdHeader });
+  await appendAudit(req, 'CLEAR_KYC_FLAG', 'registration_flags', flag.id, null, { note, cleared_by: req.user.userId });
   return res.json({ success: true, flag });
 });
 
 app.get('/api/admin/kyc/:userId/document', async (req, res) => {
-  const adminIdHeader = req.headers['x-admin-user-id'] || req.headers['x-admin-id'];
-  const isAdmin = adminIdHeader || (req.user && (req.user.role === 'ADMIN' || req.user.role === 'PARTNER_ADMIN'));
-  if (!isAdmin) {
-    return res.status(403).json({ error: 'Admin authorization required' });
-  }
-
   const userId = req.params.userId;
   const users = await db.getTable('users');
   const user = users.find(u => u.id === userId);
@@ -4689,10 +4725,6 @@ app.post('/api/admin/kyc/:userId/blacklist', async (req, res) => {
 
 // TESTER-39: Account Removal Endpoints
 app.get('/api/admin/users/:userId/references', async (req, res) => {
-  const adminIdHeader = req.headers['x-admin-user-id'] || req.headers['x-admin-id'];
-  const isAdmin = adminIdHeader || (req.user && (req.user.role === 'ADMIN' || req.user.role === 'PARTNER_ADMIN'));
-  if (!isAdmin) return res.status(403).json({ error: 'Admin authorization required' });
-
   const userId = req.params.userId;
   const users = await db.getTable('users');
   const user = users.find(u => u.id === userId);
@@ -4740,10 +4772,6 @@ app.get('/api/admin/users/:userId/references', async (req, res) => {
 });
 
 app.delete('/api/admin/users/:userId/account', async (req, res) => {
-  const adminIdHeader = req.headers['x-admin-user-id'] || req.headers['x-admin-id'];
-  const isAdmin = adminIdHeader || (req.user && (req.user.role === 'ADMIN' || req.user.role === 'PARTNER_ADMIN'));
-  if (!isAdmin) return res.status(403).json({ error: 'Admin authorization required' });
-
   const userId = req.params.userId;
   let users = await db.getTable('users');
   const userIndex = users.findIndex(u => u.id === userId);
@@ -4797,7 +4825,7 @@ app.delete('/api/admin/users/:userId/account', async (req, res) => {
       stockists.splice(stockistIndex, 1);
       await db.saveTable('stockists', stockists);
     }
-    await appendAudit(req, 'DELETE_ACCOUNT', 'user', userId, deletedUser, { references: 0, by: adminIdHeader || 'admin' });
+    await appendAudit(req, 'DELETE_ACCOUNT', 'user', userId, deletedUser, { references: 0, by: req.user.userId });
     return res.json({ success: true, action: 'DELETED', reference_count: 0, references_by_table });
   } else {
     // Outcome B: Release
@@ -4809,7 +4837,7 @@ app.delete('/api/admin/users/:userId/account', async (req, res) => {
     const totalWithStockists = totalRefs + (stockistIndex !== -1 ? 1 : 0);
     if (stockistIndex !== -1) references_by_table['stockists'] = 1;
 
-    await appendAudit(req, 'RELEASE_ACCOUNT', 'user', userId, { previous_status: user.kyc_status }, { new_status: 'RELEASED', references_by_table, total_references: totalWithStockists, by: adminIdHeader || 'admin' });
+    await appendAudit(req, 'RELEASE_ACCOUNT', 'user', userId, { previous_status: user.kyc_status }, { new_status: 'RELEASED', references_by_table, total_references: totalWithStockists, by: req.user.userId });
     return res.json({ success: true, action: 'RELEASED', reference_count: totalWithStockists, references_by_table });
   }
 });
@@ -5318,10 +5346,6 @@ app.post('/api/admin/vendors', async (req, res) => {
 });
 
 app.patch('/api/admin/vendors/:id', async (req, res) => {
-  const adminIdHeader = req.headers['x-admin-user-id'] || req.headers['x-admin-id'];
-  const isAdmin = adminIdHeader || (req.user && (req.user.role === 'ADMIN' || req.user.role === 'PARTNER_ADMIN'));
-  if (!isAdmin) return res.status(403).json({ error: 'Admin authorization required' });
-
   const vendors = await db.getTable('vendors');
   const vendor = vendors.find(v => v.id === req.params.id);
   if (!vendor) return res.status(404).json({ error: 'Vendor not found' });
@@ -5360,10 +5384,6 @@ app.patch('/api/admin/vendors/:id', async (req, res) => {
 });
 
 app.delete('/api/admin/vendors/:id', async (req, res) => {
-  const adminIdHeader = req.headers['x-admin-user-id'] || req.headers['x-admin-id'];
-  const isAdmin = adminIdHeader || (req.user && (req.user.role === 'ADMIN' || req.user.role === 'PARTNER_ADMIN'));
-  if (!isAdmin) return res.status(403).json({ error: 'Admin authorization required' });
-
   const vendors = await db.getTable('vendors');
   const vendor = vendors.find(v => v.id === req.params.id);
   if (!vendor) return res.status(404).json({ error: 'Vendor not found' });
@@ -6215,10 +6235,12 @@ app.delete('/api/admin/stockists/:id', async (req, res) => {
 
 // Test helper endpoints for Mock Email Outbox
 app.get('/api/test/mock-outbox', async (req, res) => {
+  if (!require('./lib/env').isTestEnv()) return res.status(404).json({ error: 'Not found' });
   return res.json(emailHelper.getMockOutbox());
 });
 
 app.post('/api/test/clear-mock-outbox', async (req, res) => {
+  if (!require('./lib/env').isTestEnv()) return res.status(404).json({ error: 'Not found' });
   emailHelper.clearMockOutbox();
   return res.json({ success: true });
 });
@@ -8963,29 +8985,8 @@ app.post('/api/admin/override-table', async (req, res) => {
 // Admin Analytics Dashboard Endpoint
 app.get('/api/admin/analytics', async (req, res) => {
   try {
-    const adminId = req.headers['x-admin-id'] || req.query.admin_id || req.query.adminId;
-    const authHeader = req.headers['authorization'];
-    
-    // Auth check: if admin_id is provided, must exist with role ADMIN or PARTNER_ADMIN. If unknown adminId passed, 401.
     const users = await db.getTable('users');
-    if (adminId) {
-      const adminUser = users.find(u => u.id === adminId && (u.role === 'ADMIN' || u.role === 'PARTNER_ADMIN'));
-      if (!adminUser) {
-        return res.status(401).json({ error: 'Unauthorized admin access' });
-      }
-    } else if (authHeader) {
-      // Check if auth token valid admin
-      const token = authHeader.replace('Bearer ', '');
-      if (token === 'invalid' || token === 'bad') {
-        return res.status(401).json({ error: 'Unauthorized admin access' });
-      }
-    }
-    // Default to u-admin if valid admin in DB
-    const effectiveAdminId = adminId || 'u-admin';
-    const effectiveAdmin = users.find(u => u.id === effectiveAdminId && (u.role === 'ADMIN' || u.role === 'PARTNER_ADMIN'));
-    if (!effectiveAdmin) {
-      return res.status(401).json({ error: 'Unauthorized admin access' });
-    }
+
 
     await appendAudit(req, 'VIEW_ANALYTICS', 'system', 'analytics');
 

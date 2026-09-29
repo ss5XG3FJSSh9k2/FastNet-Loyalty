@@ -4,6 +4,15 @@ const fs = require('fs');
 const path = require('path');
 const http = require('http');
 const dbModule = require('../db.js');
+const sessionHelper = require('../lib/session.js');
+
+let currentToken = null;
+function loginAs(userId, role) {
+  currentToken = sessionHelper.signSession(userId, role);
+}
+function clearLogin() {
+  currentToken = null;
+}
 
 function postMultipart(url, fields, fileObj = { fieldName: 'bill_photo', filename: 'bill.jpg', mime: 'image/jpeg', buffer: Buffer.from('mock jpeg data') }, method = 'POST', options = {}) {
   return new Promise((resolve, reject) => {
@@ -31,6 +40,7 @@ function postMultipart(url, fields, fileObj = { fieldName: 'bill_photo', filenam
       'Content-Type': `multipart/form-data; boundary=${boundary}`,
       'Content-Length': payload.length
     }, options.headers || {});
+    if (currentToken && !headers['Authorization']) headers['Authorization'] = 'Bearer ' + currentToken;
 
     const req = http.request({
       hostname: parsed.hostname,
@@ -63,6 +73,7 @@ function post(url, body, options = {}) {
       'Content-Type': 'application/json',
       'Content-Length': Buffer.byteLength(data)
     }, options.headers || {});
+    if (currentToken && !headers['Authorization']) headers['Authorization'] = 'Bearer ' + currentToken;
     const req = http.request({
       hostname: parsed.hostname,
       port: parsed.port,
@@ -94,6 +105,7 @@ function patch(url, body, options = {}) {
       'Content-Type': 'application/json',
       'Content-Length': Buffer.byteLength(data)
     }, options.headers || {});
+    if (currentToken && !headers['Authorization']) headers['Authorization'] = 'Bearer ' + currentToken;
     const req = http.request({
       hostname: parsed.hostname,
       port: parsed.port,
@@ -118,6 +130,8 @@ function get(url, options = {}) {
   return new Promise((resolve, reject) => {
     const parsed = new URL(url);
     const headers = Object.assign({}, options.headers || {});
+    if (currentToken && !headers['Authorization']) headers['Authorization'] = 'Bearer ' + currentToken;
+    if (currentToken && !headers['Authorization']) headers['Authorization'] = `Bearer ${currentToken}`;
     const req = http.request({
       hostname: parsed.hostname,
       port: parsed.port,
@@ -141,6 +155,8 @@ function del(url, options = {}) {
   return new Promise((resolve, reject) => {
     const parsed = new URL(url);
     const headers = Object.assign({}, options.headers || {});
+    if (currentToken && !headers['Authorization']) headers['Authorization'] = 'Bearer ' + currentToken;
+    if (currentToken && !headers['Authorization']) headers['Authorization'] = `Bearer ${currentToken}`;
     const req = http.request({
       hostname: parsed.hostname,
       port: parsed.port,
@@ -180,6 +196,7 @@ async function main() {
   const sMod = require('../server.js');
   await sMod.readyPromise;
 
+  loginAs('u-admin', 'ADMIN');
   // Reset database to starting state
   console.log('\nResetting database...');
   await post('http://localhost:3001/api/admin/reset-db');
@@ -776,7 +793,9 @@ async function main() {
   assert(delOrderOnline.status === 200, 'Online DELIVERY order created successfully');
   const delOnlineId = delOrderOnline.body.orderId;
 
+  loginAs('s1', 'STOCKIST');
   const directDelPatch = await patch(`http://localhost:3001/api/orders/${delOnlineId}/status`, { status: 'DELIVERED' });
+  loginAs('u-admin', 'ADMIN');
   assert(directDelPatch.status === 400, 'Direct PATCH to DELIVERED on DELIVERY order is blocked with 400');
   assert(directDelPatch.body.code === 'PIN_REQUIRED', 'Response contains PIN_REQUIRED code');
 
@@ -927,6 +946,7 @@ async function main() {
   assert(leadPostRes.status === 200, 'Partner lead created');
   const leadId = leadPostRes.body.lead.id;
 
+  loginAs('u-partner-admin', 'PARTNER_ADMIN');
   const leadStatusRes = await post(`http://localhost:3001/api/admin/partner-leads/${leadId}/status`, {
     status: 'CONTACTED'
   });
@@ -944,6 +964,7 @@ async function main() {
   });
   assert(leadRejectSuccessRes.status === 200, 'Lead status update to REJECTED succeeds with valid reason');
 
+  loginAs('u-admin', 'ADMIN');
   const auditLogRes = await get('http://localhost:3001/api/admin/audit-log');
   assert(auditLogRes.status === 200, 'GET /api/admin/audit-log succeeds');
   assert(auditLogRes.body.length >= 5, 'Audit log contains entries for admin actions');
@@ -4508,8 +4529,10 @@ async function main() {
   assert(pendingStockist && pendingStockist.kyc_details.id_number.startsWith('XXXX-XXXX-'), 'GET /api/admin/kyc-queue returns masked id_number');
 
   // Issue BF18-6b: GET /api/admin/kyc/:userId/document with non-admin token/header returns 403
+  clearLogin();
   const nonAdminDocRes = await get('http://localhost:3001/api/admin/kyc/u-stk3/document');
-  assert(nonAdminDocRes.status === 403, 'GET /api/admin/kyc/:userId/document without admin headers returns 403');
+  assert(nonAdminDocRes.status === 401 || nonAdminDocRes.status === 403, 'GET /api/admin/kyc/:userId/document without admin headers returns 401/403');
+  loginAs('u-admin', 'ADMIN');
 
   // Issue BF18-6b: GET /api/admin/kyc/:userId/document with valid admin header returns unmasked ID
   const adminDocRes = await get('http://localhost:3001/api/admin/kyc/u-stk3/document', { headers: { 'x-admin-user-id': 'u-admin' } });
@@ -4752,7 +4775,7 @@ async function main() {
 
   // Test: GET /api/admin/vendors returns all four with distinct region_id values
   const allVendorsRes = await new Promise((resolve) => {
-    http.get('http://localhost:3001/api/admin/vendors', (res) => {
+    http.get('http://localhost:3001/api/admin/vendors', { headers: { Authorization: 'Bearer ' + currentToken } }, (res) => {
       let raw = '';
       res.on('data', chunk => raw += chunk);
       res.on('end', () => resolve({ status: res.statusCode, body: JSON.parse(raw) }));
@@ -4774,7 +4797,7 @@ async function main() {
 
   // Test: GET /api/admin/stockists/:id returns user_phone and stockist.commission_rate
   const stockistDetailRes = await new Promise((resolve) => {
-    http.get('http://localhost:3001/api/admin/stockists/s1', (res) => {
+    http.get('http://localhost:3001/api/admin/stockists/s1', { headers: { Authorization: 'Bearer ' + currentToken } }, (res) => {
       let raw = '';
       res.on('data', chunk => raw += chunk);
       res.on('end', () => resolve({ status: res.statusCode, body: JSON.parse(raw) }));
@@ -5089,6 +5112,68 @@ async function main() {
   });
   assert(loginRes2.status === 200, 'existing login tests with 123456 still pass');
 
+
+  // 89. Auth Boundary Tests
+  console.log('\n--- 89. Auth Boundary Tests ---');
+
+  // We need an existing lead to update
+  const leadResAuth = await post('http://localhost:3001/api/partner-leads', {
+    name: 'Auth Test Lead',
+    phone: '8888888888',
+    pinCode: '700001',
+    address: 'test',
+    businessName: 'test',
+    city: 'test',
+    state: 'test',
+    panNumber: 'test',
+    gstNumber: 'test'
+  });
+  const authLeadId = leadResAuth.body.lead.id;
+
+  // a) Partner-admin CAN update partner_leads
+  loginAs('u-partner-admin', 'PARTNER_ADMIN');
+  const paLeadRes = await post(`http://localhost:3001/api/admin/partner-leads/${authLeadId}/status`, { status: 'REJECTED', reason: 'Not a fit' });
+  assert(paLeadRes.status === 200, 'Partner-admin CAN update partner_leads');
+
+  // b) Standard admin CANNOT update partner_leads
+  loginAs('u-admin', 'ADMIN');
+  const adminLeadRes = await post(`http://localhost:3001/api/admin/partner-leads/${authLeadId}/status`, { status: 'REJECTED', reason: 'Not a fit' });
+  assert(adminLeadRes.status === 403, 'Standard admin CANNOT update partner_leads');
+
+  // c) Customer CANNOT update partner_leads
+  loginAs('u-cust1', 'CUSTOMER');
+  const custLeadRes = await post(`http://localhost:3001/api/admin/partner-leads/${authLeadId}/status`, { status: 'REJECTED', reason: 'Not a fit' });
+  assert(custLeadRes.status === 403, 'Customer CANNOT update partner_leads');
+
+  // d) Admin CAN hit /api/admin/customers
+  loginAs('u-admin', 'ADMIN');
+  const adminCustAuth = await get('http://localhost:3001/api/admin/customers');
+  assert(adminCustAuth.status === 200, 'Admin CAN hit /api/admin/customers');
+
+  // e) Partner-admin CANNOT hit /api/admin/customers
+  loginAs('u-partner-admin', 'PARTNER_ADMIN');
+  const paCustAuth = await get('http://localhost:3001/api/admin/customers');
+  assert(paCustAuth.status === 403, 'Partner-admin CANNOT hit /api/admin/customers');
+
+  // f) Admin CAN hit /api/admin/redemptions
+  loginAs('u-admin', 'ADMIN');
+  const adminRedAuth = await get('http://localhost:3001/api/admin/redemptions');
+  assert(adminRedAuth.status === 200, 'Admin CAN hit /api/admin/redemptions');
+
+  // g) Customer CANNOT hit /api/admin/redemptions
+  loginAs('u-cust1', 'CUSTOMER');
+  const custRedAuth = await get('http://localhost:3001/api/admin/redemptions');
+  assert(custRedAuth.status === 403, 'Customer CANNOT hit /api/admin/redemptions');
+
+  // h) Test that /api/users/:id allows self-read (200) but blocks reading others (403)
+  loginAs('u-cust1', 'CUSTOMER');
+  const selfRead = await get('http://localhost:3001/api/users/u-cust1');
+  assert(selfRead.status === 200, '/api/users/:id allows self-read (200)');
+  const otherRead = await get('http://localhost:3001/api/users/u-admin');
+  assert(otherRead.status === 403, '/api/users/:id blocks reading others (403)');
+
+  // Restore admin for any future tests
+  loginAs('u-admin', 'ADMIN');
 
   console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);
