@@ -1247,3 +1247,93 @@ input[type="number"] { -moz-appearance: textfield; }
 input[type="number"]::-webkit-inner-spin-button,
 input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 input[type="number"] { -moz-appearance: textfield; }
+/* Generic Reward Modal additions */
+.reward-modal {
+  background: var(--bg-surface) !important;
+  border: 1px solid var(--border-color) !important;
+  border-radius: 1rem !important;
+  padding: 0 !important;
+  max-width: 480px !important;
+  overflow: hidden;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+}
+.reward-modal form {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  flex: 1;
+}
+.reward-modal-body {
+  padding: 0 1.5rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+  overflow-y: auto;
+}
+.reward-modal .text-input {
+  width: 100%;
+  box-sizing: border-box;
+}
+.reward-modal textarea.text-input {
+  resize: vertical;
+  min-height: 5.5rem;
+  font-family: inherit;
+}
+.reward-modal-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+@media (max-width: 480px) {
+  .reward-modal-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.reward-switch {
+  appearance: none;
+  width: 44px;
+  height: 24px;
+  background: var(--border-color);
+  border-radius: 999px;
+  position: relative;
+  cursor: pointer;
+  outline: none;
+  transition: var(--transition-fast);
+}
+.reward-switch:checked {
+  background: var(--accent);
+}
+.reward-switch::before {
+  content: " ";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  background: white;
+  border-radius: 50%;
+  transition: var(--transition-fast);
+}
+.reward-switch:checked::before {
+  transform: translateX(20px);
+}
+.reward-switch:focus-visible {
+  box-shadow: 0 0 0 2px var(--bg-surface), 0 0 0 4px var(--accent);
+}
+.reward-modal-footer {
+  border-top: 1px solid var(--border-color);
+  background: var(--bg-surface-elevated);
+  padding: 1rem 1.5rem;
+  display: flex;
+  gap: 0.75rem;
+  justify-content: flex-end;
+  flex-shrink: 0;
+}
+@media (max-width: 480px) {
+  .reward-modal-footer button {
+    flex: 1;
+  }
+}
+

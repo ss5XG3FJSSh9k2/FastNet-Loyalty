@@ -928,6 +928,9 @@ export default function App() {
   const [adminGenericRewards, setAdminGenericRewards] = useState([]);
   const [showGenericRewardModal, setShowGenericRewardModal] = useState(false);
   const [editingGenericReward, setEditingGenericReward] = useState(null);
+  const [savingGenericReward, setSavingGenericReward] = useState(false);
+  const [genericRewardErrors, setGenericRewardErrors] = useState({});
+  const [genericRewardActive, setGenericRewardActive] = useState(true);
   const [adminPartnerPayouts, setAdminPartnerPayouts] = useState([]);
 
   const fetchAdminPartnerPayouts = () => {
@@ -14022,7 +14025,12 @@ export default function App() {
                 <div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
                     <h2 style={{ fontSize: '1.4rem', margin: 0 }}>Generic Rewards</h2>
-                    <button className="btn btn-primary" onClick={() => { setEditingGenericReward(null); setShowGenericRewardModal(true); }}>+ Add Reward</button>
+                    <button className="btn btn-primary" onClick={() => { 
+                      setEditingGenericReward(null); 
+                      setGenericRewardActive(true);
+                      setGenericRewardErrors({});
+                      setShowGenericRewardModal(true); 
+                    }}>+ Add Reward</button>
                   </div>
                   <div className="glass-card" style={{ padding: '0.5rem' }}>
                     <table className="admin-table">
@@ -14045,7 +14053,12 @@ export default function App() {
                             <td>₹{r.value_rupees}</td>
                             <td>{r.is_active ? <span className="badge badge-primary">Active</span> : <span className="badge badge-secondary">Inactive</span>}</td>
                             <td>
-                              <button className="btn btn-secondary" style={{ padding: '0.2rem 0.5rem', fontSize: '0.7rem' }} onClick={() => { setEditingGenericReward(r); setShowGenericRewardModal(true); }}>Edit</button>
+                              <button className="btn btn-secondary" style={{ padding: '0.2rem 0.5rem', fontSize: '0.7rem' }} onClick={() => { 
+                                setEditingGenericReward(r); 
+                                setGenericRewardActive(r.is_active !== false);
+                                setGenericRewardErrors({});
+                                setShowGenericRewardModal(true); 
+                              }}>Edit</button>
                             </td>
                           </tr>
                         ))}
@@ -14762,16 +14775,72 @@ export default function App() {
 
       {/* Generic Reward Modal */}
       {showGenericRewardModal && (
-        <div className="modal-overlay">
-          <div className="modal-content glass-card" style={{ maxWidth: '400px' }}>
-            <h3 style={{ marginTop: 0 }}>{editingGenericReward ? 'Edit' : 'Add'} Generic Reward</h3>
-            <form onSubmit={async (e) => {
-              e.preventDefault();
-              const formData = new FormData(e.target);
-              const payload = Object.fromEntries(formData);
-              payload.is_active = formData.get('is_active') === 'true';
+        <div className="modal-overlay" onClick={(e) => {
+          if (e.target.className === 'modal-overlay') {
+            // Esc closes it, but clicking overlay does not
+          }
+        }}>
+          <div 
+            className="modal-content reward-modal glass-card" 
+            role="dialog" 
+            aria-modal="true" 
+            aria-labelledby="reward-modal-title"
+          >
+            <div style={{ padding: '1.5rem 1.5rem 1rem', position: 'relative' }}>
+              <div style={{ width: '40px', height: '40px', borderRadius: '0.75rem', background: 'var(--primary-glow)', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '1rem' }}>
+                <Gift size={20} />
+              </div>
+              <h3 id="reward-modal-title" style={{ fontFamily: 'var(--font-display)', fontSize: '1.15rem', fontWeight: 700, margin: 0 }}>
+                {editingGenericReward ? 'Edit Generic Reward' : 'Add Generic Reward'}
+              </h3>
+              <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', margin: '0.25rem 0 0 0' }}>
+                Create a reward customers can redeem with points.
+              </p>
+              <button 
+                type="button"
+                className="btn btn-secondary" 
+                style={{ position: 'absolute', top: '1.5rem', right: '1.5rem', padding: '0.4rem', border: 'none', background: 'transparent' }} 
+                onClick={() => !savingGenericReward && setShowGenericRewardModal(false)}
+                disabled={savingGenericReward}
+                aria-label={t('Close', 'बंद करें', 'বন্ধ করুন')}
+              >
+                <X size={18} />
+              </button>
+            </div>
 
+            <form noValidate style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }} onSubmit={async (e) => {
+              e.preventDefault();
+              if (savingGenericReward) return;
+
+              const formData = new FormData(e.target);
+              const name = formData.get('name')?.toString().trim();
+              const point_cost_str = formData.get('point_cost');
+              const point_cost = parseFloat(point_cost_str);
+              const value_rupees_str = formData.get('value_rupees');
+              
+              const newErrors = {};
+              if (!name) newErrors.name = "Enter a name.";
+              if (!point_cost_str || isNaN(point_cost) || point_cost < 1 || !Number.isInteger(point_cost)) {
+                newErrors.point_cost = "Enter a whole number of points, 1 or more.";
+              }
+              if (value_rupees_str) {
+                const value = parseFloat(value_rupees_str);
+                if (value < 0) newErrors.value_rupees = "Value can't be negative.";
+              }
+
+              if (Object.keys(newErrors).length > 0) {
+                setGenericRewardErrors(newErrors);
+                const firstInvalid = Object.keys(newErrors)[0];
+                const el = document.getElementById(`reward_${firstInvalid}`);
+                if (el) el.focus();
+                return;
+              }
+
+              setSavingGenericReward(true);
               try {
+                const payload = Object.fromEntries(formData);
+                payload.is_active = formData.get('is_active') === 'true';
+
                 const url = editingGenericReward 
                   ? `${API_BASE}/admin/generic-rewards/${editingGenericReward.id}`
                   : `${API_BASE}/admin/generic-rewards`;
@@ -14792,34 +14861,130 @@ export default function App() {
                 }
               } catch (err) {
                 showToast('Network error', 'error');
+              } finally {
+                setSavingGenericReward(false);
               }
             }}>
-              <div className="form-group">
-                <label>Name</label>
-                <input type="text" className="input" name="name" defaultValue={editingGenericReward?.name} required />
+              
+              <div className="reward-modal-body">
+                <div className="input-group">
+                  <label className="input-label" htmlFor="reward_name">{t('Name', 'नाम', 'নাম')}</label>
+                  <input 
+                    type="text" 
+                    id="reward_name"
+                    className="text-input" 
+                    name="name" 
+                    maxLength={80}
+                    placeholder="e.g. Free Router Check-up"
+                    defaultValue={editingGenericReward?.name} 
+                    aria-invalid={!!genericRewardErrors.name}
+                    aria-describedby={genericRewardErrors.name ? "reward_name_error" : undefined}
+                    onChange={() => setGenericRewardErrors(prev => ({...prev, name: null}))}
+                    autoFocus
+                  />
+                  {genericRewardErrors.name && <div id="reward_name_error" style={{ fontSize: '0.78rem', color: 'var(--danger)', marginTop: '0.25rem' }}>{genericRewardErrors.name}</div>}
+                </div>
+
+                <div className="input-group">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <label className="input-label" htmlFor="reward_description">{t('Description', 'विवरण', 'বিবরণ')}</label>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{t('optional', 'वैकल्पिक', 'ঐচ্ছিক')}</span>
+                  </div>
+                  <textarea 
+                    id="reward_description"
+                    className="text-input" 
+                    name="description" 
+                    defaultValue={editingGenericReward?.description} 
+                  />
+                </div>
+
+                <div className="reward-modal-grid">
+                  <div className="input-group">
+                    <label className="input-label" htmlFor="reward_point_cost">{t('Point Cost', 'अंक लागत', 'পয়েন্ট খরচ')}</label>
+                    <div style={{ position: 'relative' }}>
+                      <input 
+                        type="number" 
+                        id="reward_point_cost"
+                        className="text-input" 
+                        name="point_cost" 
+                        inputMode="numeric"
+                        min="1"
+                        step="1"
+                        defaultValue={editingGenericReward?.point_cost} 
+                        style={{ paddingRight: '2.5rem' }}
+                        aria-invalid={!!genericRewardErrors.point_cost}
+                        aria-describedby={genericRewardErrors.point_cost ? "reward_point_cost_error" : undefined}
+                        onChange={() => setGenericRewardErrors(prev => ({...prev, point_cost: null}))}
+                      />
+                      <span style={{ position: 'absolute', right: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', fontSize: '0.9rem', pointerEvents: 'none' }}>pts</span>
+                    </div>
+                    {genericRewardErrors.point_cost && <div id="reward_point_cost_error" style={{ fontSize: '0.78rem', color: 'var(--danger)', marginTop: '0.25rem' }}>{genericRewardErrors.point_cost}</div>}
+                  </div>
+                  
+                  <div className="input-group">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <label className="input-label" htmlFor="reward_value_rupees">Value (₹)</label>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{t('optional', 'वैकल्पिक', 'ঐচ্ছিক')}</span>
+                    </div>
+                    <div style={{ position: 'relative' }}>
+                      <span style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', fontSize: '0.9rem', pointerEvents: 'none' }}>₹</span>
+                      <input 
+                        type="number" 
+                        id="reward_value_rupees"
+                        className="text-input" 
+                        name="value_rupees" 
+                        inputMode="decimal"
+                        min="0"
+                        step="0.01"
+                        defaultValue={editingGenericReward?.value_rupees} 
+                        style={{ paddingLeft: '1.5rem' }}
+                        aria-invalid={!!genericRewardErrors.value_rupees}
+                        aria-describedby={genericRewardErrors.value_rupees ? "reward_value_rupees_error" : undefined}
+                        onChange={() => setGenericRewardErrors(prev => ({...prev, value_rupees: null}))}
+                      />
+                    </div>
+                    {genericRewardErrors.value_rupees && <div id="reward_value_rupees_error" style={{ fontSize: '0.78rem', color: 'var(--danger)', marginTop: '0.25rem' }}>{genericRewardErrors.value_rupees}</div>}
+                  </div>
+                </div>
+
+                {editingGenericReward ? (
+                  <div className="input-group" style={{ marginTop: '0.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <label className="input-label" htmlFor="reward_is_active" style={{ marginBottom: 0 }}>{t('Active', 'सक्रिय', 'সক্রিয়')}</label>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.15rem' }}>Visible to customers when on.</div>
+                    </div>
+                    <input type="hidden" name="is_active" value={genericRewardActive ? 'true' : 'false'} />
+                    <input 
+                      type="checkbox" 
+                      id="reward_is_active"
+                      role="switch"
+                      className="reward-switch"
+                      checked={genericRewardActive}
+                      onChange={(e) => setGenericRewardActive(e.target.checked)}
+                      aria-label={t('Active', 'सक्रिय', 'সক্রিয়')}
+                    />
+                  </div>
+                ) : (
+                  <input type="hidden" name="is_active" value="true" />
+                )}
               </div>
-              <div className="form-group">
-                <label>Description</label>
-                <textarea className="input" name="description" defaultValue={editingGenericReward?.description} style={{ minHeight: '60px' }}></textarea>
-              </div>
-              <div className="form-group">
-                <label>Point Cost</label>
-                <input type="number" className="input" name="point_cost" defaultValue={editingGenericReward?.point_cost} required />
-              </div>
-              <div className="form-group">
-                <label>Value (₹)</label>
-                <input type="number" className="input" name="value_rupees" defaultValue={editingGenericReward?.value_rupees} />
-              </div>
-              <div className="form-group">
-                <label>Status</label>
-                <select className="input" name="is_active" defaultValue={editingGenericReward ? (editingGenericReward.is_active ? 'true' : 'false') : 'true'}>
-                  <option value="true">Active</option>
-                  <option value="false">Inactive</option>
-                </select>
-              </div>
-              <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', marginTop: '1.5rem' }}>
-                <button type="button" className="btn btn-secondary" onClick={() => setShowGenericRewardModal(false)}>Cancel</button>
-                <button type="submit" className="btn btn-primary">Save</button>
+
+              <div className="reward-modal-footer">
+                <button 
+                  type="button" 
+                  className="btn btn-secondary" 
+                  onClick={() => setShowGenericRewardModal(false)}
+                  disabled={savingGenericReward}
+                >
+                  {t('Cancel', 'रद्द करें', 'বাতিল')}
+                </button>
+                <button 
+                  type="submit" 
+                  className="btn btn-primary"
+                  disabled={savingGenericReward}
+                >
+                  {savingGenericReward ? 'Saving…' : (editingGenericReward ? t('Save Changes', 'परिवर्तन सहेजें', 'পরিবর্তন সংরক্ষণ করুন') : 'Add Reward')}
+                </button>
               </div>
             </form>
           </div>

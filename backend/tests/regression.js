@@ -4835,6 +4835,24 @@ async function main() {
   const appJsxBfTxn = fs.readFileSync(path.join(__dirname, '../../frontend/src/App.jsx'), 'utf8');
   assert(appJsxBfTxn.includes("overflowX: 'auto'") && appJsxBfTxn.includes("minWidth: '1100px'"), 'Transactions section in App.jsx contains the overflowX wrapper and minWidth on stockist table');
 
+  // Test #935: BF-GR-UI Generic Reward Modal Redesign
+  console.log('\n--- BF-GR-UI: Generic Reward Modal Redesign ---');
+  const appJsxBfGr = appJsxBfTxn; // reuse
+  
+  const grModalIdx = appJsxBfGr.indexOf('{showGenericRewardModal && (');
+  const grModalChunk = appJsxBfGr.slice(grModalIdx, grModalIdx + 15000);
+  
+  assert(grModalChunk.includes('reward-modal'), 'Modal contains className reward-modal');
+  assert(!grModalChunk.includes('className="input"'), 'Modal does NOT contain className="input"');
+  
+  const indexCssBfGr = fs.readFileSync(path.join(__dirname, '../../frontend/src/index.css'), 'utf8');
+  assert(indexCssBfGr.includes('.reward-modal'), 'index.css contains .reward-modal rule');
+  
+  const countAdminTabGR = (appJsxBfGr.match(/adminTab === 'generic_rewards' && \(/g) || []).length;
+  assert(countAdminTabGR === 1, "adminTab === 'generic_rewards' && ( appears exactly once in App.jsx");
+  
+  assert((grModalChunk.match(/name="is_active"/g) || []).length >= 2, 'Modal contains name="is_active" for both add and edit modes');
+
   console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);
 
