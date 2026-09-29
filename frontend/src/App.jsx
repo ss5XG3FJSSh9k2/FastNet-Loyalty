@@ -763,9 +763,7 @@ export default function App() {
 
   const handleSetAdminTab = (tab) => {
     setAdminTab(tab);
-    if (ADVANCED_TABS.includes(tab)) {
-      markTabSeen(tab);
-    }
+    markTabSeen(tab);
   };
 
   const newestTs = (rows, field = 'created_at') =>
