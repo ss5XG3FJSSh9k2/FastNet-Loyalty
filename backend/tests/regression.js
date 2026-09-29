@@ -4827,6 +4827,14 @@ async function main() {
   const auditLogAfterLookup = await get('http://localhost:3001/api/admin/audit-log');
   assert(auditLogAfterLookup.body.some(a => a.action === 'SEARCH_KYC_ID' && a.before && a.before.query === '999999999999'), 'Audit log contains SEARCH_KYC_ID entry for the lookup');
 
+  // Test #933: Admin Transactions table overflow fix (BF-TXN-ALIGN)
+  console.log('\n--- BF-TXN-ALIGN: Admin Transactions table overflow fix ---');
+  const indexCssBfTxn = fs.readFileSync(path.join(__dirname, '../../frontend/src/index.css'), 'utf8');
+  assert(indexCssBfTxn.includes('minmax(0, 1fr)'), 'index.css contains minmax(0, 1fr) for admin-grid');
+  
+  const appJsxBfTxn = fs.readFileSync(path.join(__dirname, '../../frontend/src/App.jsx'), 'utf8');
+  assert(appJsxBfTxn.includes("overflowX: 'auto'") && appJsxBfTxn.includes("minWidth: '1100px'"), 'Transactions section in App.jsx contains the overflowX wrapper and minWidth on stockist table');
+
   console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);
 

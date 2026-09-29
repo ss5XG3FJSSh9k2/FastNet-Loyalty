@@ -556,7 +556,7 @@ select option:disabled {
 
 .admin-grid {
   display: grid;
-  grid-template-columns: 240px 1fr;
+  grid-template-columns: 240px minmax(0, 1fr);
   gap: 2rem;
 }
 
@@ -593,6 +593,7 @@ select option:disabled {
 }
 
 .admin-content {
+  min-width: 0;
   background: var(--bg-surface);
   border: 1px solid var(--border-color);
   border-radius: 1rem;

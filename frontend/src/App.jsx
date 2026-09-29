@@ -14087,7 +14087,7 @@ export default function App() {
                     </div>
                   )}
 
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '1rem' }}>
                     <h2 style={{ fontSize: '1.4rem', margin: 0 }}>{t('Transactions & Payouts', 'लेन-देन और भुगतान', 'লেনদেন ও পেমেন্ট')}</h2>
                     <div style={{ display: 'flex', gap: '0.5rem' }}>
                       <button className={`btn ${transactionsSubTab === 'stockist' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setTransactionsSubTab('stockist')}>
@@ -14104,6 +14104,7 @@ export default function App() {
                     Outstanding payouts owed to partners for fulfilled redemptions.
                   </p>
                   
+                  <div style={{ overflowX: 'auto' }}>
                   <table className="admin-table" style={{ marginBottom: '3rem' }}>
                     <thead>
                       <tr>
@@ -14145,6 +14146,7 @@ export default function App() {
                       ))}
                     </tbody>
                   </table>
+                  </div>
 
                     </>
                   )}
@@ -14156,7 +14158,8 @@ export default function App() {
 
 
 
-                  <table className="admin-table">
+                  <div style={{ overflowX: 'auto' }}>
+                  <table className="admin-table" style={{ minWidth: '1100px' }}>
                     <thead>
                       <tr>
                         <th>Order ID</th>
@@ -14279,6 +14282,7 @@ export default function App() {
                       )}
                     </tbody>
                   </table>
+                  </div>
                   </>
                   )}
                 </div>
