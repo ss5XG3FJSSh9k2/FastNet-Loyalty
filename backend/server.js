@@ -1849,6 +1849,13 @@ const isCustomerVisible = (stockist, users) => {
   return owner.kyc_status === 'APPROVED';
 };
 
+function getRegionDeliveryFee(regionRow) {
+  if (!regionRow || regionRow.delivery_fee === null || regionRow.delivery_fee === undefined) return null;
+  const val = parseFloat(regionRow.delivery_fee);
+  if (isNaN(val) || !isFinite(val) || val < 0) return null;
+  return val;
+}
+
 
 // PATCH /api/stockist/profile - Stockist self-editable settings (TESTER-47)
 async function resolveStockistRate(stockistId) {
@@ -2631,6 +2638,7 @@ const handleCreateOrderRoute = async (req, res) => {
   const stockistsTable = await db.getTable('stockists');
   const products = await db.getTable('products');
   const inventory = await db.getTable('stockist_inventory');
+  const regionsTable = await db.getTable('regions');
   const now = new Date();
   const cancelDeadline = new Date(now.getTime() + cfg.CANCEL_WINDOW_MINUTES * 60 * 1000).toISOString();
   const cartId = 'cart-' + generateId();
@@ -2681,7 +2689,15 @@ const handleCreateOrderRoute = async (req, res) => {
       });
     }
 
-    const deliveryFee = reqFulfillment === 'DELIVERY' ? (cfg.DELIVERY_FEE_BY_REGION[stockist.region_id] || 40.00) : 0.00;
+    let deliveryFee = 0.00;
+    if (reqFulfillment === 'DELIVERY' || reqFulfillment === 'HOME_DELIVERY') {
+      const regionRow = regionsTable.find(r => r.id === stockist.region_id);
+      const fee = getRegionDeliveryFee(regionRow);
+      if (fee === null) {
+        return res.status(400).json({ error: 'delivery_unavailable', message: 'Home delivery is not available for this shop yet.' });
+      }
+      deliveryFee = fee;
+    }
     
     let couponDiscount = 0;
     let couponPointsSpent = 0;
@@ -3440,7 +3456,12 @@ app.patch('/api/orders/:id/fulfillment', async (req, res) => {
         order.fulfillment_type = 'DELIVERY';
         const stockistsTable = await db.getTable('stockists');
         const stockist = stockistsTable.find(s => s.id === order.stockist_id);
-        const deliveryFee = cfg.DELIVERY_FEE_BY_REGION[(stockist || {}).region_id] || 40.00;
+        const regionsTable = await db.getTable('regions');
+        const regionRow = regionsTable.find(r => r.id === (stockist || {}).region_id);
+        const deliveryFee = getRegionDeliveryFee(regionRow);
+        if (deliveryFee === null) {
+          return res.status(400).json({ error: 'delivery_unavailable', message: 'Home delivery is not available for this shop yet.' });
+        }
 
         order.delivery_fee = deliveryFee;
         order.total_price = order.subtotal + deliveryFee + (order.low_order_fee || 0);
@@ -8311,6 +8332,7 @@ app.get('/api/admin/regions', async (req, res) => {
     id: r.id,
     name: r.name,
     code: r.code,
+    delivery_fee: r.delivery_fee,
     tenant_id: r.tenant_id || 't1',
     created_at: r.created_at || null,
     counts: {
@@ -8326,7 +8348,7 @@ app.get('/api/admin/regions', async (req, res) => {
 });
 
 app.post('/api/admin/regions', async (req, res) => {
-  const { name, code, admin_id } = req.body || {};
+  const { name, code, admin_id, delivery_fee } = req.body || {};
 
   if (!name || typeof name !== 'string' || !name.trim() || name.trim().length > 120) {
     return res.status(400).json({ error: 'Name is required and must be between 1 and 120 characters.' });
@@ -8335,6 +8357,19 @@ app.post('/api/admin/regions', async (req, res) => {
   const cleanCode = code ? String(code).trim() : '';
   if (!cleanCode || cleanCode.length > 40 || !/^[a-z0-9-]+$/.test(cleanCode)) {
     return res.status(400).json({ error: 'Code is required and must contain only lowercase letters, numbers, and hyphens (max 40 chars).' });
+  }
+
+  let finalDeliveryFee = null;
+  if (delivery_fee !== undefined && delivery_fee !== null && delivery_fee !== '') {
+    const feeVal = parseFloat(delivery_fee);
+    if (isNaN(feeVal) || !isFinite(feeVal) || feeVal < 0 || feeVal > cfg.DELIVERY_FEE_MAX_RUPEES) {
+      return res.status(400).json({
+        error: 'validation_failed',
+        message: 'Invalid delivery fee',
+        fields: { delivery_fee: `Must be a number between 0 and ${cfg.DELIVERY_FEE_MAX_RUPEES}` }
+      });
+    }
+    finalDeliveryFee = Math.round(feeVal * 100) / 100;
   }
 
   const regions = await db.getTable('regions');
@@ -8347,6 +8382,7 @@ app.post('/api/admin/regions', async (req, res) => {
     tenant_id: 't1',
     name: name.trim(),
     code: cleanCode,
+    delivery_fee: finalDeliveryFee,
     created_at: new Date().toISOString()
   };
 
@@ -8361,7 +8397,7 @@ app.post('/api/admin/regions', async (req, res) => {
     entity_id: newRegion.id,
     user_id: admin_id || 'u-admin1',
     before: null,
-    after: { id: newRegion.id, name: newRegion.name, code: newRegion.code },
+    after: { id: newRegion.id, name: newRegion.name, code: newRegion.code, delivery_fee: newRegion.delivery_fee },
     created_at: new Date().toISOString()
   });
   await db.saveTable('admin_audit_log', auditLogs);
@@ -8371,7 +8407,7 @@ app.post('/api/admin/regions', async (req, res) => {
 
 app.patch('/api/admin/regions/:id', async (req, res) => {
   const { id } = req.params;
-  const { name, code, admin_id } = req.body || {};
+  const { name, code, admin_id, delivery_fee } = req.body || {};
 
   const regions = await db.getTable('regions');
   const region = regions.find(r => r.id === id);
@@ -8379,7 +8415,7 @@ app.patch('/api/admin/regions/:id', async (req, res) => {
     return res.status(404).json({ error: 'Region not found.' });
   }
 
-  const beforeObj = { name: region.name, code: region.code };
+  const beforeObj = { name: region.name, code: region.code, delivery_fee: region.delivery_fee };
 
   if (name !== undefined) {
     if (typeof name !== 'string' || !name.trim() || name.trim().length > 120) {
@@ -8399,6 +8435,22 @@ app.patch('/api/admin/regions/:id', async (req, res) => {
     region.code = cleanCode;
   }
 
+  if (delivery_fee !== undefined) {
+    if (delivery_fee === null || delivery_fee === '') {
+      region.delivery_fee = null;
+    } else {
+      const feeVal = parseFloat(delivery_fee);
+      if (isNaN(feeVal) || !isFinite(feeVal) || feeVal < 0 || feeVal > cfg.DELIVERY_FEE_MAX_RUPEES) {
+        return res.status(400).json({
+          error: 'validation_failed',
+          message: 'Invalid delivery fee',
+          fields: { delivery_fee: `Must be a number between 0 and ${cfg.DELIVERY_FEE_MAX_RUPEES}` }
+        });
+      }
+      region.delivery_fee = Math.round(feeVal * 100) / 100;
+    }
+  }
+
   await db.saveTable('regions', regions);
 
   const auditLogs = await db.getTable('admin_audit_log');
@@ -8409,7 +8461,7 @@ app.patch('/api/admin/regions/:id', async (req, res) => {
     entity_id: region.id,
     user_id: admin_id || 'u-admin1',
     before: beforeObj,
-    after: { name: region.name, code: region.code },
+    after: { name: region.name, code: region.code, delivery_fee: region.delivery_fee },
     created_at: new Date().toISOString()
   });
   await db.saveTable('admin_audit_log', auditLogs);
@@ -8480,7 +8532,7 @@ app.get('/api/regions', async (req, res) => {
   const regions = await db.getTable('regions');
   const clean = regions
     .filter(r => !r.tenant_id || r.tenant_id === 't1')
-    .map(r => ({ id: r.id, name: r.name, code: r.code }));
+    .map(r => ({ id: r.id, name: r.name, code: r.code, delivery_fee: r.delivery_fee }));
   res.json(clean);
 });
 

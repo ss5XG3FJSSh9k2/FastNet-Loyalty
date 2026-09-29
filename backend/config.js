@@ -33,11 +33,8 @@ module.exports = {
   // §I — Repeat-pair multiplier vs region average (e.g. 3× the average)
   REPEAT_PAIR_MULTIPLIER: 3,
 
-  // Delivery fee by region (region_id → fee in rupees)
-  DELIVERY_FEE_BY_REGION: {
-    r1: 40.00,
-    r2: 30.00,
-  },
+  // Max delivery fee limit for admin configuration
+  DELIVERY_FEE_MAX_RUPEES: 500,
 
   // Named pickup slot options offered to customers at checkout
   SLOT_OPTIONS: [

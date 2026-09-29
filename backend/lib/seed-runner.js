@@ -5,9 +5,9 @@ const DEFAULT_DB = {
     { id: 't1', name: 'FastNet Cable & Broadband', code: 'fastnet', created_at: new Date().toISOString() }
   ],
   regions: [
-    { id: 'r1', tenant_id: 't1', name: 'Kolkata South (Garia)', code: 'kolkata-garia', created_at: new Date().toISOString() },
-    { id: 'r2', tenant_id: 't1', name: 'Rural West Bengal (Bishnupur)', code: 'rural-bishnupur', created_at: new Date().toISOString() },
-    { id: 'r3', tenant_id: 't1', name: 'Kolkata North (Salt Lake)', code: 'kolkata-saltlake', created_at: new Date().toISOString() }
+    { id: 'r1', tenant_id: 't1', name: 'Kolkata South (Garia)', code: 'kolkata-garia', delivery_fee: 40.0, created_at: new Date().toISOString() },
+    { id: 'r2', tenant_id: 't1', name: 'Rural West Bengal (Bishnupur)', code: 'rural-bishnupur', delivery_fee: 30.0, created_at: new Date().toISOString() },
+    { id: 'r3', tenant_id: 't1', name: 'Kolkata North (Salt Lake)', code: 'kolkata-saltlake', delivery_fee: null, created_at: new Date().toISOString() }
   ],
   users: [
     { id: 'u-admin', tenant_id: 't1', region_id: 'r1', phone: '9999999999', name: 'Super Admin', role: 'ADMIN', kyc_status: 'APPROVED', no_show_count: 0, address: '', created_at: new Date().toISOString(), is_active: true },

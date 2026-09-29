@@ -13,6 +13,7 @@ CREATE TABLE regions (
     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
     name VARCHAR(255) NOT NULL,
     code VARCHAR(50) NOT NULL,
+    delivery_fee NUMERIC(10,2) NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(tenant_id, code)
 );

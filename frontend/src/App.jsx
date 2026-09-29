@@ -885,6 +885,7 @@ export default function App() {
   const [editingRegion, setEditingRegion] = useState(null);
   const [regionName, setRegionName] = useState('');
   const [regionCode, setRegionCode] = useState('');
+  const [regionDeliveryFee, setRegionDeliveryFee] = useState('');
   const [regionCodeUserEdited, setRegionCodeUserEdited] = useState(false);
   const [regionModalError, setRegionModalError] = useState('');
   const [shopSearchQuery, setShopSearchQuery] = useState('');
@@ -2442,7 +2443,7 @@ export default function App() {
       const res = await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: regionName.trim(), code: regionCode.trim(), admin_id: currentUser?.id })
+        body: JSON.stringify({ name: regionName.trim(), code: regionCode.trim(), delivery_fee: regionDeliveryFee !== '' && regionDeliveryFee !== null ? Number(regionDeliveryFee) : null, admin_id: currentUser?.id })
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -3239,7 +3240,14 @@ export default function App() {
   });
   
   const cartSubtotal = currentCart.reduce((sum, item) => sum + (item.product.price * item.quantity), 0);
-  const cartDeliveryFee = cartFulfillment === 'DELIVERY' ? (selectedStockist?.region_id === 'r2' ? 30.00 : 40.00) : 0.00;
+    let calculatedDeliveryFee = 0.00;
+  if (cartFulfillment === 'DELIVERY') {
+    const stockistId = currentCart.length > 0 ? currentCart[0].stockistId : null;
+    const stockist = stockistId ? customerStockists.find(s => s.id === stockistId) : null;
+    const region = stockist ? regions.find(r => r.id === stockist.region_id) : null;
+    calculatedDeliveryFee = region && region.delivery_fee !== undefined && region.delivery_fee !== null ? parseFloat(region.delivery_fee) : 0.00;
+  }
+  const cartDeliveryFee = calculatedDeliveryFee;
   
   let appliedCoupon = null;
   let couponDiscount = 0;
@@ -7984,20 +7992,27 @@ export default function App() {
                                   <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: 'var(--primary)', letterSpacing: '0.15em' }}>{o.pickup_pin || '1234'}</div>
                                 </div>
 
-                                                                  <button 
-                                    className="btn" 
-                                    style={{ width: '100%', padding: '0.3rem', fontSize: '0.65rem', marginTop: '0.5rem', background: 'rgba(236,72,153,0.1)', color: 'var(--secondary)', border: '1px solid var(--secondary)' }}
-                                    onClick={() => triggerConfirmModal(
-                                      t('Switch to Delivery', 'डिलिवरी पर स्विच करें', 'ডেলিভারিতে পরিবর্তন করুন'),
-                                      t('Are you sure you want to switch to delivery? A delivery fee of ₹40 (or ₹30 for Rural) will be added to your order.', 'क्या आप डिलीवरी पर स्विच करना चाहते हैं? आपके ऑर्डर में ₹40 (ग्रामीण के लिए ₹30) का डिलीवरी शुल्क जोड़ा जाएगा।', 'আপনি কি নিশ্চিত যে আপনি ডেলিভারিতে পরিবর্তন করতে চান? আপনার অর্ডারে ₹৪০ (গ্রামীণ এলাকার জন্য ₹৩০) ডেলিভারি ফি যোগ করা হবে।'),
-                                      () => handleSwitchToDelivery(o.id),
-                                      false,
-                                      t('Yes, Switch', 'हाँ, स्विच करें', 'হ্যাঁ, পরিবর্তন করুন'),
-                                      t('No', 'नहीं', 'না')
-                                    )}
-                                  >
-                                    {t('Switch to Delivery', 'डिलिवरी पर स्विच करें', 'ডেলিভারি মোডে যান')} (+₹{o.region_id === 'r2' ? 30 : 40})
-                                  </button>
+{(() => {
+                                    const region = regions.find(r => r.id === o.region_id);
+                                    const deliveryFeeVal = region && region.delivery_fee !== undefined && region.delivery_fee !== null ? parseFloat(region.delivery_fee) : null;
+                                    if (deliveryFeeVal === null) return null;
+                                    return (
+                                      <button 
+                                        className="btn" 
+                                        style={{ width: '100%', padding: '0.3rem', fontSize: '0.65rem', marginTop: '0.5rem', background: 'rgba(236,72,153,0.1)', color: 'var(--secondary)', border: '1px solid var(--secondary)' }}
+                                        onClick={() => triggerConfirmModal(
+                                          t('Switch to Delivery', 'डिलिवरी पर स्विच करें', 'ডেলিভারিতে পরিবর্তন করুন'),
+                                          t('Are you sure you want to switch to delivery? A delivery fee of ₹', 'क्या आप डिलीवरी पर स्विच करना चाहते हैं? आपके ऑर्डर में ₹', 'আপনি কি নিশ্চিত যে আপনি ডেলিভারিতে পরিবর্তন করতে চান? আপনার অর্ডারে ₹') + deliveryFeeVal + t(' will be added to your order.', ' का डिलीवरी शुल्क जोड़ा जाएगा।', ' ডেলিভারি ফি যোগ করা হবে।'),
+                                          () => handleSwitchToDelivery(o.id),
+                                          false,
+                                          t('Yes, Switch', 'हाँ, स्विच करें', 'হ্যাঁ, পরিবর্তন করুন'),
+                                          t('No', 'नहीं', 'না')
+                                        )}
+                                      >
+                                        {t('Switch to Delivery', 'डिलिवरी पर स्विच करें', 'ডেলিভারি মোডে যান')} (+₹{deliveryFeeVal})
+                                      </button>
+                                    );
+                                  })()}
                               </div>
                             ) : (
                               <div>
@@ -9425,20 +9440,27 @@ export default function App() {
                               {/* §H: One-way delivery switch */}
                               {o.fulfillment_type === 'PICKUP' && o.status !== 'DELIVERED' && o.status !== 'CANCELLED' && o.status !== 'CONFIRMING' ? (
                                 <div>
-                                                                      <button 
-                                      className="btn btn-secondary" 
-                                      style={{ width: '100%', padding: '0.35rem', fontSize: '0.65rem', marginTop: '0.35rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.25rem' }}
-                                      onClick={() => triggerConfirmModal(
-                                        t('Switch to Delivery', 'डिलिवरी पर स्विच करें', 'ডেলিভারিতে পরিবর্তন করুন'),
-                                        t('Are you sure you want to switch to delivery? A delivery fee of ₹40 (or ₹30 for Rural) will be added to your order.', 'क्या आप डिलीवरी पर स्विच करना चाहते हैं? आपके ऑर्डर में ₹40 (ग्रामीण के लिए ₹30) का डिलीवरी शुल्क जोड़ा जाएगा।', 'আপনি কি নিশ্চিত যে আপনি ডেলিভারিতে পরিবর্তন করতে চান? আপনার অর্ডারে ₹৪০ (গ্রামীণ এলাকার জন্য ₹৩০) ডেলিভারি ফি যোগ করা হবে।'),
-                                        () => handleSwitchToDeliveryConfirmed(o.id),
-                                        false,
-                                        t('Yes, Switch', 'हाँ, स्विच करें', 'হ্যাঁ, পরিবর্তন করুন'),
-                                        t('No', 'नहीं', 'না')
-                                      )}
-                                    >
-                                      <Truck size={12} /> {t('Switch to Delivery (One-way)', 'ডिलिवरी पर स्विच (एकतरफा)', 'ডেলিভারিতে পরিবর্তন (একমুখী)')}
-                                    </button>
+{(() => {
+                                    const region = regions.find(r => r.id === o.region_id);
+                                    const deliveryFeeVal = region && region.delivery_fee !== undefined && region.delivery_fee !== null ? parseFloat(region.delivery_fee) : null;
+                                    if (deliveryFeeVal === null) return null;
+                                    return (
+                                      <button 
+                                        className="btn" 
+                                        style={{ width: '100%', padding: '0.3rem', fontSize: '0.65rem', marginTop: '0.5rem', background: 'rgba(236,72,153,0.1)', color: 'var(--secondary)', border: '1px solid var(--secondary)' }}
+                                        onClick={() => triggerConfirmModal(
+                                          t('Switch to Delivery', 'डिलिवरी पर स्विच करें', 'ডেলিভারিতে পরিবর্তন করুন'),
+                                          t('Are you sure you want to switch to delivery? A delivery fee of ₹', 'क्या आप डिलीवरी पर स्विच करना चाहते हैं? आपके ऑर्डर में ₹', 'আপনি কি নিশ্চিত যে আপনি ডেলিভারিতে পরিবর্তন করতে চান? আপনার অর্ডারে ₹') + deliveryFeeVal + t(' will be added to your order.', ' का डिलीवरी शुल्क जोड़ा जाएगा।', ' ডেলিভারি ফি যোগ করা হবে।'),
+                                          () => handleSwitchToDelivery(o.id),
+                                          false,
+                                          t('Yes, Switch', 'हाँ, स्विच करें', 'হ্যাঁ, পরিবর্তন করুন'),
+                                          t('No', 'नहीं', 'না')
+                                        )}
+                                      >
+                                        {t('Switch to Delivery', 'डिलिवरी पर स्विच करें', 'ডেলিভারি মোডে যান')} (+₹{deliveryFeeVal})
+                                      </button>
+                                    );
+                                  })()}
                                 </div>
                               ) : o.fulfillment_type === 'DELIVERY' ? (
                                 <div>
@@ -14127,9 +14149,10 @@ export default function App() {
                       className="btn btn-primary"
                       onClick={() => {
                         setEditingRegion(null);
-                        setRegionName('');
-                        setRegionCode('');
-                        setRegionCodeUserEdited(false);
+                            setRegionName('');
+                            setRegionCode('');
+                            setRegionDeliveryFee('');
+                            setRegionCodeUserEdited(false);
                         setRegionModalError('');
                         setShowRegionModal(true);
                       }}
@@ -14144,6 +14167,7 @@ export default function App() {
                         <tr style={{ borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)' }}>
                           <th style={{ padding: '0.75rem 0.5rem' }}>Name</th>
                           <th style={{ padding: '0.75rem 0.5rem' }}>Code</th>
+<th style={{ padding: '0.75rem 0.5rem' }}>Del. Fee</th>
                           <th style={{ padding: '0.75rem 0.5rem' }}>Users</th>
                           <th style={{ padding: '0.75rem 0.5rem' }}>Stockists</th>
                           <th style={{ padding: '0.75rem 0.5rem' }}>Partners</th>
@@ -14164,6 +14188,7 @@ export default function App() {
                             <tr key={r.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
                               <td style={{ padding: '0.75rem 0.5rem', fontWeight: 'bold' }}>{r.name}</td>
                               <td style={{ padding: '0.75rem 0.5rem' }}><code>{r.code}</code></td>
+<td style={{ padding: '0.75rem 0.5rem' }}>{r.delivery_fee !== null ? '₹' + r.delivery_fee : 'N/A'}</td>
                               <td style={{ padding: '0.75rem 0.5rem' }}>{r.counts?.users || 0}</td>
                               <td style={{ padding: '0.75rem 0.5rem' }}>{r.counts?.stockists || 0}</td>
                               <td style={{ padding: '0.75rem 0.5rem' }}>{r.counts?.partners || 0}</td>
@@ -14178,6 +14203,7 @@ export default function App() {
                                       setEditingRegion(r);
                                       setRegionName(r.name);
                                       setRegionCode(r.code);
+                                      setRegionDeliveryFee(r.delivery_fee !== null && r.delivery_fee !== undefined ? r.delivery_fee : '');
                                       setRegionCodeUserEdited(true);
                                       setRegionModalError('');
                                       setShowRegionModal(true);
@@ -15689,6 +15715,16 @@ export default function App() {
                       setRegionCode(val.toLowerCase().replace(/[^a-z0-9\s-]/g, '').trim().replace(/\s+/g, '-'));
                     }
                   }}
+                />
+              </div>
+<div className="input-group">
+                <label className="input-label" style={{ fontWeight: 'bold' }}>Delivery Fee (₹)</label>
+                <input
+                  type="number"
+                  className="text-input"
+                  placeholder="e.g. 40, leave empty if disabled"
+                  value={regionDeliveryFee}
+                  onChange={(e) => setRegionDeliveryFee(e.target.value)}
                 />
               </div>
               <div className="input-group">
