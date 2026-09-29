@@ -449,6 +449,9 @@ CREATE TABLE IF NOT EXISTS redemption_approvals (
   refund_ledger_id TEXT,
   redeemed_at TIMESTAMPTZ,
   next_redemption_allowed_at TIMESTAMPTZ,
+  partner_paid BOOLEAN DEFAULT false,
+  partner_payout_ref TEXT,
+  partner_payout_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ,
   updated_at TIMESTAMPTZ
 );

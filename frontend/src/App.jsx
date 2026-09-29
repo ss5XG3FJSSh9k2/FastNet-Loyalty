@@ -691,7 +691,37 @@ export default function App() {
     }
   }, [customerStockists, previousStockistId]);
   const [customerProducts, setCustomerProducts] = useState([]);
-  const [customerCart, setCustomerCart] = useState([]);
+  const [customerCarts, setCustomerCarts] = useState(() => {
+    try {
+      const stored = localStorage.getItem('fastnet_carts');
+      return stored ? JSON.parse(stored) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  useEffect(() => {
+    localStorage.setItem('fastnet_carts', JSON.stringify(customerCarts));
+  }, [customerCarts]);
+
+  const currentCart = selectedStockist ? (customerCarts[selectedStockist.id]?.items || []) : [];
+  const [showCartsSheet, setShowCartsSheet] = useState(false);
+  const [swipeStartY, setSwipeStartY] = useState(0);
+  const [trackingOrder, setTrackingOrder] = useState(null);
+
+  const enforceCartLimit = (carts, justAddedSid) => {
+    const keys = Object.keys(carts);
+    if (keys.length <= 5) return carts;
+    const oldest = Object.values(carts)
+      .filter(c => c.stockistId !== justAddedSid)
+      .sort((a,b) => a.createdAt - b.createdAt)[0];
+    if (oldest) {
+      const n = {...carts};
+      delete n[oldest.stockistId];
+      return n;
+    }
+    return carts;
+  };
   const [cartFulfillment, setCartFulfillment] = useState('PICKUP');
   const [simulatedWaMessage, setSimulatedWaMessage] = useState(null);
   const [customerLedger, setCustomerLedger] = useState([]);
@@ -1901,11 +1931,19 @@ export default function App() {
             const pOnion = pData.find(p => p.id === 'p2') || pData[1] || pData[0];
             const pDal = pData.find(p => p.id === 'p3') || pData[2] || pData[0];
             
-            setCustomerCart([
-              { product: pPotato, quantity: 3, stockistId: sData[0].id, stockistName: sData[0].name },
-              { product: pOnion, quantity: 2, stockistId: sData[0].id, stockistName: sData[0].name },
-              { product: pDal, quantity: 2, stockistId: sData[0].id, stockistName: sData[0].name }
-            ]);
+            setCustomerCarts(prev => ({
+              ...prev,
+              [sData[0].id]: {
+                stockistId: sData[0].id,
+                stockistName: sData[0].name,
+                createdAt: Date.now(),
+                items: [
+                  { product: pPotato, quantity: 3, stockistId: sData[0].id, stockistName: sData[0].name },
+                  { product: pOnion, quantity: 2, stockistId: sData[0].id, stockistName: sData[0].name },
+                  { product: pDal, quantity: 2, stockistId: sData[0].id, stockistName: sData[0].name }
+                ]
+              }
+            }));
             showToast("Demo basket filled! Press 'Place Order (অর্ডার করুন)' on the phone.", "info");
           }
         }
@@ -2024,7 +2062,7 @@ export default function App() {
       const res = await fetch(`${API_BASE}/admin/reset-db`, { method: 'POST' });
       if (res.ok) {
         clearSession();
-        setCustomerCart([]);
+        setCustomerCarts({});
         setRedeemAmount('');
         setDiscountApplied(0);
         setTourStep(1);
@@ -3052,7 +3090,7 @@ export default function App() {
     setSelectedStockist(null);
     setPreviousStockistId(null);
     setCustomerProducts([]);
-    setCustomerCart([]);
+    setCustomerCarts({});
     setStockistProfile(null);
     setStockistOrders([]);
     showToast('Logged out successfully.');
@@ -3111,54 +3149,59 @@ export default function App() {
 
   const addToCart = (product) => {
     if (!selectedStockist) return;
-    setCustomerCart(prev => {
-
-      const existing = prev.find(item => item.product.id === product.id && item.stockistId === selectedStockist.id);
-      if (existing) {
-        return prev.map(item => 
-          (item.product.id === product.id && item.stockistId === selectedStockist.id)
-            ? { ...item, quantity: item.quantity + 1 } 
-            : item
-        );
-      }
-      return [...prev, { product, quantity: 1, stockistId: selectedStockist.id, stockistName: selectedStockist.name }];
+    const sid = selectedStockist.id;
+    setCustomerCarts(prev => {
+      const cart = prev[sid] || { stockistId: sid, stockistName: selectedStockist.name, items: [], createdAt: Date.now() };
+      const existing = cart.items.find(i => i.product.id === product.id);
+      const items = existing
+        ? cart.items.map(i => i.product.id === product.id ? { ...i, quantity: i.quantity + 1 } : i)
+        : [...cart.items, { product, quantity: 1, stockistId: sid, stockistName: selectedStockist.name }];
+      const next = { ...prev, [sid]: { ...cart, items } };
+      return enforceCartLimit(next, sid);
     });
     showToast(`Added ${product.name} to cart`);
   };
 
   const updateCartQty = (productId, stockistId, change) => {
-    setCustomerCart(prev => {
-      const nextCart = prev.map(item => {
-        if (item.product.id === productId && item.stockistId === stockistId) {
+    setCustomerCarts(prev => {
+      const cart = prev[stockistId];
+      if (!cart) return prev;
+      
+      const nextItems = cart.items.map(item => {
+        if (item.product.id === productId) {
           const newQty = item.quantity + change;
           return newQty > 0 ? { ...item, quantity: newQty } : null;
         }
         return item;
       }).filter(Boolean);
-      if (nextCart.length === 0) {
+
+      if (nextItems.length === 0) {
         setTimeout(() => setCustomerAppTab(current => current === 'cart' ? 'store' : current), 0);
+        const next = { ...prev };
+        delete next[stockistId];
+        return next;
       }
-      return nextCart;
+      return { ...prev, [stockistId]: { ...cart, items: nextItems } };
     });
   };
 
   // Calculated checkout metrics
-  const cartSubtotal = customerCart.reduce((sum, item) => sum + (item.product.price * item.quantity), 0);
+  const cartSubtotal = currentCart.reduce((sum, item) => sum + (item.product.price * item.quantity), 0);
   const cartDeliveryFee = cartFulfillment === 'DELIVERY' ? (selectedStockist?.region_id === 'r2' ? 30.00 : 40.00) : 0.00;
   const cartTotal = cartSubtotal + cartDeliveryFee;
   const estimatedEarnPoints = Math.round(
-    customerCart.reduce((sum, item) => {
+    currentCart.reduce((sum, item) => {
       const itemPts = item.product.estimated_points || 0;
       return sum + (itemPts * item.quantity);
     }, 0) * 100
   ) / 100;
 
   const handleCheckout = async () => {
-    if (customerCart.length === 0) return;
+    if (currentCart.length === 0) return;
 
     // Group items by stockistId
     const groups = {};
-    customerCart.forEach(item => {
+    currentCart.forEach(item => {
       if (!groups[item.stockistId]) {
         groups[item.stockistId] = [];
       }
@@ -3219,7 +3262,11 @@ export default function App() {
           orders: ordersPlaced,
           totalPointsCredited: totalPoints
         });
-        setCustomerCart([]);
+        setCustomerCarts(prev => {
+          const next = { ...prev };
+          if (selectedStockist?.id) delete next[selectedStockist.id];
+          return next;
+        });
         setCartPickupSlots({});
         loadCustomerData();
         const msg = cartFulfillment === 'PICKUP'
@@ -4990,7 +5037,12 @@ export default function App() {
         return;
       }
       
-      setCustomerCart(newCart);
+      setCustomerCarts(prev => {
+        const sid = targetStockist.id;
+        const cart = prev[sid] || { stockistId: sid, stockistName: targetStockist.name, items: [], createdAt: Date.now() };
+        const next = { ...prev, [sid]: { ...cart, items: newCart } };
+        return enforceCartLimit(next, sid);
+      });
       setCustomerAppTab('store');
       if (omittedCount > 0) {
         showToast(`Cart refilled! Omitted ${omittedCount} out-of-stock items.`, 'warning');
@@ -5906,7 +5958,7 @@ export default function App() {
       if (res.ok) {
         localStorage.setItem('fastnet_partner_session', data.session_token);
         setPartnerSessionToken(data.session_token);
-        persistSession(data.user, data.token);
+        persistSession(data.user, data.session_token);
         setPartnerData(data.partner);
         setActiveRole('partner');
         setPartnerAppTab('dashboard');
@@ -5988,7 +6040,7 @@ export default function App() {
           localStorage.setItem('fastnet_partner_setup_completed', 'true');
           setPartnerSetupCompleted(true);
           setPartnerSessionToken(sToken);
-          if (data.user) persistSession(data.user, data.token);
+          if (data.user) persistSession(data.user, sToken);
           if (data.partner) setPartnerData(data.partner);
           setActiveRole('partner');
           setPartnerAppTab('dashboard');
@@ -6038,7 +6090,7 @@ export default function App() {
           localStorage.setItem('fastnet_partner_setup_completed', 'true');
           setPartnerSetupCompleted(true);
           setPartnerSessionToken(sToken);
-          if (data.user) persistSession(data.user, data.token);
+          if (data.user) persistSession(data.user, sToken);
           if (data.partner) setPartnerData(data.partner);
           setShowFirstTimeSetupFlow(false);
           setActiveRole('partner');
@@ -7700,7 +7752,13 @@ export default function App() {
       
       const targetProd = currentProds.find(p => p.name.toLowerCase().includes(productName.toLowerCase()));
       if (targetProd && targetProd.stock_qty > 0) {
-        setCustomerCart([{ product: targetProd, quantity: 1, stockistId: targetStockist.id, stockistName: targetStockist.name }]);
+        setCustomerCarts(prev => {
+          const sid = targetStockist.id;
+          const cart = prev[sid] || { stockistId: sid, stockistName: targetStockist.name, items: [], createdAt: Date.now() };
+          const items = [{ product: targetProd, quantity: 1, stockistId: sid, stockistName: targetStockist.name }];
+          const next = { ...prev, [sid]: { ...cart, items } };
+          return enforceCartLimit(next, sid);
+        });
         showToast(`Started new order at ${targetStockist.name} with ${targetProd.name}!`, 'success');
       } else {
         showToast(`Item is currently out of stock at ${targetStockist.name}`, 'warning');
@@ -7748,6 +7806,19 @@ export default function App() {
   const renderCustomerView = () => {
     const isLoggedOut = !currentUser || currentUser.role !== 'CUSTOMER';
     const activeRegionName = currentUser ? (regions.find(r => r.id === currentUser.region_id)?.name || 'Kolkata South (Garia)') : 'Kolkata South (Garia)';
+
+    const computeEta = (order) => {
+      const prep = parseInt(order.prep_time) || 15;
+      switch (order.status) {
+        case 'CONFIRMING':
+        case 'PENDING': return prep + 10;
+        case 'RECEIVED': return prep;
+        case 'READY': return 10;
+        default: return '--';
+      }
+    };
+    const activeOrderList = (customerOrders || []).filter(o => !['DELIVERED', 'CANCELLED', 'NO_SHOW'].includes(o.status));
+    const activeOrder = activeOrderList.length > 0 ? activeOrderList.sort((a,b) => new Date(b.created_at) - new Date(a.created_at))[0] : null;
 
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.75rem', width: '100%' }}>
@@ -8237,7 +8308,7 @@ export default function App() {
 
                           {/* Catalog List */}
                           <h3 style={{ fontSize: '0.95rem', marginTop: '0.25rem' }}>{t('Popular Staples', 'लोकप्रिय स्टेपल्स', 'রোজকার বাজার')}</h3>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', paddingBottom: customerCart.length > 0 ? '80px' : '0' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', paddingBottom: currentCart.length > 0 ? '80px' : '0' }}>
                             {customerProducts.filter(p => p.name.toLowerCase().includes(customerSearch.toLowerCase())).map(p => {
                               const hasCostPrice = p.cost_price !== undefined && p.cost_price !== null;
                               const isOutOfStock = p.stock_qty <= 0;
@@ -8298,7 +8369,7 @@ export default function App() {
                         <h2 style={{ fontSize: '1.1rem', margin: 0 }}>{t('Your Cart', 'आपका कार्ट', 'আপনার কার্ট')}</h2>
                       </div>
 
-                      {customerCart.length === 0 ? (
+                      {currentCart.length === 0 ? (
                         <div style={{ textAlign: 'center', padding: '2rem 1rem', color: 'var(--text-muted)' }}>
                           <p>{t('Your cart is empty.', 'आपका कार्ट खाली है।', 'আপনার কার্ট খালি।')}</p>
                           <button className="btn btn-primary" style={{ marginTop: '1rem' }} onClick={() => setCustomerAppTab('store')}>
@@ -8321,7 +8392,7 @@ export default function App() {
                               {t('Store Pickup', 'स्टोर पिकअप', 'দোকান থেকে পিকআপ')}
                             </button>
                             {(() => {
-                              const storeCount = new Set(customerCart.map(i => i.stockistId)).size;
+                              const storeCount = new Set(currentCart.map(i => i.stockistId)).size;
                               const multiStore = storeCount > 1;
                               return (
                                 <button
@@ -8343,7 +8414,7 @@ export default function App() {
 
                           {/* Items List */}
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                            {customerCart.map(item => (
+                            {currentCart.map(item => (
                               <div key={`${item.product.id}-${item.stockistId}`} className="glass-card" style={{ padding: '0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', flex: 1, paddingRight: '0.5rem' }}>
                                   <span style={{ fontWeight: 'bold', fontSize: '0.85rem' }}>{item.product.name}</span>
@@ -8363,7 +8434,7 @@ export default function App() {
                           {(() => {
                             if (cartFulfillment !== 'PICKUP') return null;
                             const groups = {};
-                            customerCart.forEach(item => { if (!groups[item.stockistId]) groups[item.stockistId] = item.stockistName; });
+                            currentCart.forEach(item => { if (!groups[item.stockistId]) groups[item.stockistId] = item.stockistName; });
                             const groupEntries = Object.entries(groups);
                             return (
                               <div className="pickup-slot-picker-block" style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', border: slotError ? '1px solid var(--danger)' : '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', padding: '1rem', backgroundColor: 'rgba(255,255,255,0.03)' }}>
@@ -8397,7 +8468,7 @@ export default function App() {
 
                           {/* Complete your order with... Suggestions */}
                           {(() => {
-                            const cartProductIds = new Set(customerCart.map(i => i.product.id));
+                            const cartProductIds = new Set(currentCart.map(i => i.product.id));
                             const suggestions = customerProducts
                               .filter(p => !cartProductIds.has(p.id))
                               .filter(p => p.is_active !== false && p.is_sellable !== false)
@@ -8483,7 +8554,7 @@ export default function App() {
                       )}
                       
                       {/* Fixed Place Order Button */}
-                      {customerCart.length > 0 && (
+                      {currentCart.length > 0 && (
                         <div style={{ position: 'sticky', bottom: '-1rem', margin: '1rem -1rem -1rem -1rem', background: 'var(--bg-surface-elevated)', padding: '1rem', borderTop: '1px solid rgba(255,255,255,0.1)', zIndex: 100 }}>
                           {(() => {
                             const activeDeliveryAddr = (deliveryAddress !== undefined && deliveryAddress !== '' ? deliveryAddress : (profileAddress || currentUser?.address || '')).trim();
@@ -9429,22 +9500,179 @@ export default function App() {
                     </div>
                   )}
 
+                  {customerAppTab === 'track' && trackingOrder && (() => {
+                    const steps = [
+                      { key: 'CONFIRMING', label: t('Order Placed', 'ऑर्डर दिया गया', 'অর্ডার দেওয়া হয়েছে') },
+                      { key: 'RECEIVED', label: t('Received', 'प्राप्त', 'গৃহীত') },
+                      { key: 'READY', label: trackingOrder.fulfillment_type === 'PICKUP' ? t('Ready for Pickup', 'पिकअप के लिए तैयार', 'পিকআপের জন্য প্রস্তুত') : t('Ready for Delivery', 'वितरण के लिए तैयार', 'ডেলিভারির জন্য প্রস্তুত') },
+                      { key: 'DELIVERED', label: trackingOrder.fulfillment_type === 'PICKUP' ? t('Picked Up', 'पिकअप किया गया', 'পিকআপ সম্পন্ন') : t('Delivered', 'वितरित', 'ডেলিভারি সম্পন্ন') }
+                    ];
+
+                    const orderedStatuses = ['CONFIRMING', 'PENDING', 'RECEIVED', 'READY', 'DELIVERED'];
+                    
+                    const subtotal = (trackingOrder.items || []).reduce((sum, item) => sum + (item.price * item.quantity), 0);
+                    const deliveryFee = trackingOrder.fulfillment_type === 'DELIVERY' ? (trackingOrder.region_id === 'r2' ? 30.00 : 40.00) : 0;
+                    const total = subtotal + deliveryFee;
+
+                    return (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', paddingBottom: '2rem' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', paddingBottom: '0.5rem', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                          <button onClick={() => setCustomerAppTab('orders')} style={{ background: 'none', border: 'none', color: 'white', padding: '0.25rem', cursor: 'pointer' }}>
+                            <ArrowLeft size={20} />
+                          </button>
+                          <div>
+                            <h3 style={{ margin: 0, fontSize: '1rem' }}>{trackingOrder.stockist_name}</h3>
+                            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{t('Order', 'ऑर्डर', 'অর্ডার')} #{trackingOrder.id.substring(0,6).toUpperCase()}</div>
+                          </div>
+                        </div>
+
+                        {/* TODO: Google Maps here once API key is configured — pass stockist lat/long */}
+                        <div style={{ height: '180px', borderRadius: '10px', background: 'rgba(255,255,255,0.03)', border: '1px dashed var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '0.25rem' }}>
+                          <MapPin size={24} style={{ color: 'var(--text-muted)' }} />
+                          <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{t('Live map coming soon','लाइव मैप जल्द','লাইভ ম্যাপ শীঘ্রই')}</span>
+                        </div>
+
+                        {/* Status Timeline */}
+                        <div className="glass-card" style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                            <strong style={{ fontSize: '0.9rem' }}>{t('Order Status', 'ऑर्डर स्थिति', 'অর্ডারের অবস্থা')}</strong>
+                            {trackingOrder.status !== 'DELIVERED' && trackingOrder.status !== 'CANCELLED' && (
+                              <span style={{ fontSize: '0.75rem', color: 'var(--accent)', fontWeight: 'bold' }}>
+                                {t('Arriving in', 'आने में', 'আসছে')} {computeEta(trackingOrder)} {t('mins', 'मिनट', 'মিনিট')}
+                              </span>
+                            )}
+                          </div>
+                          
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginLeft: '0.5rem', borderLeft: '2px solid rgba(255,255,255,0.1)', paddingLeft: '1.25rem', position: 'relative' }}>
+                            {steps.map((step, idx) => {
+                              const stepIdx = orderedStatuses.indexOf(step.key);
+                              const currentIdx = orderedStatuses.indexOf(trackingOrder.status);
+                              const isCompleted = currentIdx >= stepIdx;
+                              const isActive = currentIdx === stepIdx || (trackingOrder.status === 'PENDING' && step.key === 'CONFIRMING');
+                              
+                              let dotColor = 'rgba(255,255,255,0.2)';
+                              if (isActive) dotColor = 'var(--accent)';
+                              else if (isCompleted) dotColor = 'var(--success)';
+
+                              return (
+                                <div key={step.key} style={{ position: 'relative' }}>
+                                  <div style={{ position: 'absolute', left: '-1.6rem', top: '0.25rem', width: '10px', height: '10px', borderRadius: '50%', background: dotColor, boxShadow: isActive ? '0 0 8px var(--accent)' : 'none' }}></div>
+                                  <div style={{ color: isActive ? 'white' : (isCompleted ? 'var(--text)' : 'var(--text-muted)'), fontWeight: isActive ? 'bold' : 'normal', fontSize: '0.85rem' }}>
+                                    {step.label}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        {/* Order Info */}
+                        <div className="glass-card" style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                          <strong style={{ fontSize: '0.9rem', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '0.5rem' }}>{t('Order Details', 'ऑर्डर विवरण', 'অর্ডারের বিবরণ')}</strong>
+                          
+                          {trackingOrder.fulfillment_type === 'PICKUP' ? (
+                            <div style={{ fontSize: '0.8rem' }}>
+                              <span style={{ color: 'var(--text-muted)' }}>{t('Pickup PIN:', 'पिकअप पिन:', 'পিকআপ পিন:')}</span>
+                              <strong style={{ marginLeft: '0.5rem', letterSpacing: '2px', color: 'var(--accent)' }}>{trackingOrder.pickup_pin || '1234'}</strong>
+                            </div>
+                          ) : (
+                            <div style={{ fontSize: '0.8rem' }}>
+                              <span style={{ color: 'var(--text-muted)', display: 'block', marginBottom: '0.2rem' }}>{t('Delivery Address:', 'डिलीवरी का पता:', 'ডেলিভারির ঠিকানা:')}</span>
+                              <span>{trackingOrder.delivery_address || currentUser.address}</span>
+                            </div>
+                          )}
+
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', marginTop: '0.5rem' }}>
+                            {(trackingOrder.items || []).map((item, idx) => (
+                              <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem' }}>
+                                <span>{item.quantity}x {item.product_name || item.name}</span>
+                                <span>₹{(item.price * item.quantity).toFixed(2)}</span>
+                              </div>
+                            ))}
+                          </div>
+
+                          <div style={{ borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '0.75rem', marginTop: '0.25rem', display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.85rem' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-muted)' }}>
+                              <span>{t('Subtotal', 'उप-कुल', 'সাবটোটাল')}</span>
+                              <span>₹{subtotal.toFixed(2)}</span>
+                            </div>
+                            {trackingOrder.fulfillment_type === 'DELIVERY' && (
+                              <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-muted)' }}>
+                                <span>{t('Delivery Fee', 'वितरण शुल्क', 'ডেলিভারি চার্জ')}</span>
+                                <span>₹{deliveryFee.toFixed(2)}</span>
+                              </div>
+                            )}
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', marginTop: '0.25rem' }}>
+                              <span>{t('Total', 'कुल', 'মোট')}</span>
+                              <span>₹{total.toFixed(2)}</span>
+                            </div>
+                          </div>
+
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'rgba(255,153,0,0.1)', padding: '0.75rem', borderRadius: '8px', border: '1px solid rgba(255,153,0,0.2)', marginTop: '0.5rem' }}>
+                            <Sparkles size={16} style={{ color: 'var(--warning)' }} />
+                            <div style={{ fontSize: '0.75rem' }}>
+                              <strong style={{ color: 'var(--warning)' }}>+{formatPoints(trackingOrder.points_credited || trackingOrder.estimated_points_credit || 0)} pts</strong>
+                              <span style={{ color: 'var(--text-muted)', marginLeft: '0.25rem' }}>{t('with this order', 'इस ऑर्डर के साथ', 'এই অর্ডারের সাথে')}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                      </div>
+                    );
+                  })()}
+
                 </div>
 
-                {/* Cart bar — sits directly above the bottom nav */}
-                {customerCart.length > 0 && customerAppTab === 'store' && (
-                  <div style={{
-                    position: 'absolute', left: 0, right: 0, bottom: '60px',
-                    margin: '0 0.5rem',
-                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                    background: 'var(--accent)', color: 'white', padding: '0.75rem 1rem',
-                    borderRadius: '10px', cursor: 'pointer', boxShadow: '0 -4px 12px rgba(0,0,0,0.4)', zIndex: 60
-                  }} onClick={() => setCustomerAppTab('cart')}>
-                    <div>
-                      <div style={{ fontWeight: 700 }}>{customerCart.reduce((n,i)=>n+i.quantity,0)} {t('items','आइटम','আইটেম')} · ₹{cartSubtotal.toFixed(2)}</div>
-                      <div style={{ fontSize: '0.6rem', opacity: 0.9 }}>{t('Est. rewards','अनुमानित','সম্ভাব্য')}: +{formatPoints(estimatedEarnPoints)} pts</div>
+                {/* Carts affordance & Cart bar */}
+                {(currentCart.length > 0 || Object.keys(customerCarts).length > 0) && customerAppTab === 'store' && (
+                  <div style={{ position: 'absolute', left: 0, right: 0, bottom: activeOrder ? '110px' : '60px', padding: '0 0.5rem', display: 'flex', flexDirection: 'column', gap: '0.35rem', zIndex: 60, transition: 'bottom 0.3s' }}>
+                    {Object.keys(customerCarts).length > 0 && (
+                      <div style={{ alignSelf: 'center', background: 'var(--bg-surface-elevated)', color: 'var(--text)', padding: '0.35rem 0.75rem', borderRadius: '16px', fontSize: '0.75rem', fontWeight: 'bold', boxShadow: '0 2px 8px rgba(0,0,0,0.5)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.25rem', border: '1px solid rgba(255,255,255,0.1)' }} onClick={() => setShowCartsSheet(true)}>
+                        <ShoppingBag size={12} />
+                        {Object.keys(customerCarts).length} {t('Carts', 'कार्ट', 'কার্ট')}
+                      </div>
+                    )}
+                    {currentCart.length > 0 && (
+                      <div style={{
+                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                        background: 'var(--accent)', color: 'white', padding: '0.75rem 1rem',
+                        borderRadius: '10px', cursor: 'pointer', boxShadow: '0 -4px 12px rgba(0,0,0,0.4)'
+                      }} onClick={() => setCustomerAppTab('cart')}>
+                        <div>
+                          <div style={{ fontWeight: 700 }}>{currentCart.reduce((n,i)=>n+i.quantity,0)} {t('items','आइटम','আইটেম')} · ₹{cartSubtotal.toFixed(2)}</div>
+                          <div style={{ fontSize: '0.6rem', opacity: 0.9 }}>{t('Est. rewards','अनुमानित','সম্ভাব্য')}: +{formatPoints(estimatedEarnPoints)} pts</div>
+                        </div>
+                        <div style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.25rem' }}>{t('View Cart','कार्ट देखें','কার্ট দেখুন')} <ArrowRight size={16} /></div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Active Order Strip */}
+                {activeOrder && (
+                  <div 
+                    style={{
+                      position: 'absolute', left: 0, right: 0, bottom: '60px',
+                      margin: '0 0.5rem',
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                      background: 'var(--bg-surface-elevated)', color: 'var(--text)', padding: '0.75rem 1rem',
+                      borderRadius: '10px', cursor: 'pointer', boxShadow: '0 -4px 12px rgba(0,0,0,0.4)', zIndex: 59,
+                      border: '1px solid rgba(255,255,255,0.1)'
+                    }} 
+                    onClick={() => { setTrackingOrder(activeOrder); setCustomerAppTab('track'); }}
+                    onTouchStart={e => setSwipeStartY(e.touches[0].clientY)}
+                    onTouchEnd={e => {
+                      const dy = swipeStartY - e.changedTouches[0].clientY;
+                      if (dy > 40) setShowCartsSheet(true);
+                    }}
+                  >
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
+                      <strong style={{ fontSize: '0.85rem' }}>{activeOrder.stockist_name}</strong>
+                      <span style={{ fontSize: '0.7rem', color: 'var(--accent)', fontWeight: 'bold' }}>{formatOrderStatusDisplay(activeOrder.status, activeOrder.fulfillment_type)} ›</span>
                     </div>
-                    <div style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.25rem' }}>{t('View Cart','कार्ट देखें','কার্ট দেখুন')} <ArrowRight size={16} /></div>
+                    <div className="badge badge-success" style={{ fontSize: '0.75rem', padding: '0.3rem 0.5rem' }}>
+                      {t('arriving in','आने में','আসছে')} {computeEta(activeOrder)} {t('mins','मिनट','মিনিট')}
+                    </div>
                   </div>
                 )}
 
@@ -9473,6 +9701,74 @@ export default function App() {
                 </div>
               </>
             )}
+
+            {/* Carts Sheet (Zomato-style) */}
+            {showCartsSheet && (
+              <div 
+                style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', zIndex: 1000, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}
+                onClick={() => setShowCartsSheet(false)}
+              >
+                <div 
+                  style={{ background: 'var(--bg-surface-elevated)', borderTopLeftRadius: '16px', borderTopRightRadius: '16px', padding: '1.25rem', paddingBottom: '2rem', animation: 'slideUp 0.3s ease-out' }}
+                  onClick={e => e.stopPropagation()}
+                  onTouchStart={e => setSwipeStartY(e.touches[0].clientY)}
+                  onTouchEnd={e => {
+                    const dy = e.changedTouches[0].clientY - swipeStartY;
+                    if (dy > 40) setShowCartsSheet(false);
+                  }}
+                >
+                  <div style={{ width: '40px', height: '4px', background: 'rgba(255,255,255,0.2)', borderRadius: '2px', margin: '0 auto 1rem' }}></div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                    <strong style={{ fontSize: '1.1rem' }}>{t('Your Carts', 'आपके कार्ट', 'আপনার কার্ট')} ({Object.keys(customerCarts).length})</strong>
+                    {Object.keys(customerCarts).length > 0 && (
+                      <button onClick={() => setCustomerCarts({})} style={{ background: 'none', border: 'none', color: 'var(--danger)', fontSize: '0.85rem', cursor: 'pointer', padding: 0 }}>
+                        {t('Clear all', 'सभी हटाएं', 'সব মুছুন')}
+                      </button>
+                    )}
+                  </div>
+                  
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '50vh', overflowY: 'auto' }}>
+                    {Object.values(customerCarts).sort((a,b)=>b.createdAt-a.createdAt).map(cart => (
+                      <div key={cart.stockistId} className="glass-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '8px' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
+                          <span style={{ fontWeight: 'bold', fontSize: '0.9rem' }}>{cart.stockistName}</span>
+                          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{cart.items.reduce((n,i)=>n+i.quantity,0)} {t('items', 'आइटम', 'আইটেম')}</span>
+                        </div>
+                        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                          <button 
+                            className="btn btn-sm btn-primary" 
+                            style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}
+                            onClick={() => { 
+                              const s = customerStockists.find(s=>s.id===cart.stockistId); 
+                              if (s) {
+                                setSelectedStockist(s); 
+                                setCustomerAppTab('cart'); 
+                                setShowCartsSheet(false); 
+                              }
+                            }}
+                          >
+                            {t('View Cart', 'कार्ट देखें', 'কার্ট দেখুন')}
+                          </button>
+                          <button 
+                            onClick={() => setCustomerCarts(prev => { const n={...prev}; delete n[cart.stockistId]; return n; })}
+                            style={{ background: 'rgba(255,100,100,0.1)', border: 'none', color: 'var(--danger)', width: '24px', height: '24px', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+                          >✕</button>
+                        </div>
+                      </div>
+                    ))}
+                    {Object.keys(customerCarts).length === 0 && (
+                      <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '1rem 0' }}>
+                        {t('No active carts', 'कोई सक्रिय कार्ट नहीं', 'কোনো সক্রিয় কার্ট নেই')}
+                      </div>
+                    )}
+                  </div>
+                  <button className="btn btn-secondary" style={{ width: '100%', marginTop: '1rem' }} onClick={() => setShowCartsSheet(false)}>
+                    {t('Close', 'बंद करें', 'বন্ধ করুন')}
+                  </button>
+                </div>
+              </div>
+            )}
+
           </div>
         </div>
       </div>

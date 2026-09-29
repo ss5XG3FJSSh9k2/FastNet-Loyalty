@@ -6132,6 +6132,7 @@ app.post('/api/partner/auth/login-password', async (req, res) => {
     const token = sessionHelper.signSession(user.id, user.role);
     return res.json({
       session_token: token,
+      token: token,
       user: sanitizeUser(user),
       partner: partner || null
     });
