@@ -897,6 +897,9 @@ export default function App() {
   const [promoteRegionId, setPromoteRegionId] = useState('');
 
   const [adminRedemptionApprovals, setAdminRedemptionApprovals] = useState([]);
+  const [adminGenericRewards, setAdminGenericRewards] = useState([]);
+  const [showGenericRewardModal, setShowGenericRewardModal] = useState(false);
+  const [editingGenericReward, setEditingGenericReward] = useState(null);
   const [adminPartnerPayouts, setAdminPartnerPayouts] = useState([]);
 
   const fetchAdminPartnerPayouts = () => {
@@ -2329,6 +2332,15 @@ export default function App() {
     try {
       const res = await fetch(`${API_BASE}/admin/redemption-approvals`);
       if (res.ok) setAdminRedemptionApprovals(await res.json().catch(() => ({})));
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const fetchAdminGenericRewards = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/generic-rewards`);
+      if (res.ok) setAdminGenericRewards(await res.json().catch(() => ({})));
     } catch (e) {
       console.error(e);
     }
@@ -8498,6 +8510,7 @@ export default function App() {
                   {(customerAppTab === 'pointshop' || customerAppTab === 'rewards') && (() => {
                           const cableItems = availableRewards?.cable || [];
                           const broadbandItems = availableRewards?.broadband || [];
+                          const genericItems = availableRewards?.generic || [];
                           const emptyReasons = availableRewards?.empty_reasons || {};
                           const bindingsObj = availableRewards?.bindings || {};
 
@@ -8523,7 +8536,8 @@ export default function App() {
                                       customerId: currentUser.id,
                                       amount: pkg.point_cost,
                                       redemptionType: pkg.service_type,
-                                      partner_package_id: pkg.id
+                                      partner_package_id: pkg.service_type === 'generic' ? undefined : pkg.id,
+                                      generic_reward_id: pkg.service_type === 'generic' ? pkg.id : undefined
                                     })
                                   });
 
@@ -8571,13 +8585,13 @@ export default function App() {
                                 </div>
 
                                 {emptyReason ? (
-                                  <div style={{ padding: '0.85rem', borderRadius: '10px', background: 'rgba(255,255,255,0.02)', border: '1px dashed rgba(255,255,255,0.08)', fontSize: '0.7rem', color: 'var(--text-muted)', lineHeight: 1.4 }}>
+                                  <div style={{ padding: '0.85rem', borderRadius: '10px', background: 'rgba(255,255,255,0.02)', border: '1px dashed rgba(255,255,255,0.08)', fontSize: '0.7rem', color: 'var(--text-muted)', lineHeight: 1.4, marginBottom: items.length > 0 ? '0.75rem' : '0' }}>
                                     {emptyReason === 'no_binding' && (
                                       <span>
                                         {t(
-                                          `You haven't selected a ${typeLabelEn} provider yet. Go to Profile > Partners to choose one, or check back later when your local provider joins FastNet.`,
-                                          `आपने अभी तक कोई ${typeLabelHi} प्रदाता नहीं चुना है। एक चुनने के लिए प्रोफाइल > पार्टनर्स पर जाएं, या बाद में जांचें जब आपका स्थानीय प्रदाता फास्टनेट में शामिल हो जाए।`,
-                                          `আপনি এখনও কোনো ${typeLabelBn} প্রদানকারী নির্বাচন করেননি। একটি নির্বাচন করতে প্রোফাইল > পার্টনার্সে যান, অথবা আপনার স্থানীয় প্রদানকারী ফাস্টনেটে যোগ দিলে পরে দেখুন।`
+                                          `Link a ${typeLabelEn} partner in My Profile to redeem your points for bill discounts.`,
+                                          `बिल छूट के लिए अपने पॉइंट्स रिडीम करने के लिए 'मेरी प्रोफ़ाइल' में एक ${typeLabelHi} पार्टनर लिंक करें।`,
+                                          `বিল ডিসকাউন্টের জন্য আপনার পয়েন্ট রিডিম করতে 'আমার প্রোফাইল'-এ একটি ${typeLabelBn} পার্টনার লিঙ্ক করুন।`
                                         )}
                                       </span>
                                     )}
@@ -8600,7 +8614,8 @@ export default function App() {
                                       </span>
                                     )}
                                   </div>
-                                ) : (
+                                ) : null}
+                                {items.length > 0 && (
                                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                                     {items.map(entry => {
                                       const pkg = entry.package;
@@ -8668,8 +8683,9 @@ export default function App() {
                                           </div>
                                           <button
                                             id={`redeem-${pkg.id}`}
-                                            disabled={!canAfford || isLocked}
+                                            disabled={!canAfford || isLocked || emptyReason === 'no_binding'}
                                             onClick={() => handleRedeemPackage(pkg, partner)}
+                                            title={emptyReason === 'no_binding' ? t('Requires a linked partner', 'लिंक किया गया पार्टनर आवश्यक है', 'একটি লিঙ্ক করা পার্টনার প্রয়োজন') : undefined}
                                             style={{
                                               flexShrink: 0,
                                               padding: '0.35rem 0.6rem',
@@ -8677,9 +8693,9 @@ export default function App() {
                                               fontWeight: 'bold',
                                               borderRadius: '8px',
                                               border: 'none',
-                                              cursor: canAfford ? 'pointer' : 'not-allowed',
-                                              background: canAfford ? color : 'rgba(255,255,255,0.1)',
-                                              color: canAfford ? 'white' : 'var(--text-muted)',
+                                              cursor: (!canAfford || isLocked || emptyReason === 'no_binding') ? 'not-allowed' : 'pointer',
+                                              background: (!canAfford || isLocked || emptyReason === 'no_binding') ? 'rgba(255,255,255,0.1)' : color,
+                                              color: (!canAfford || isLocked || emptyReason === 'no_binding') ? 'var(--text-muted)' : 'white',
                                               transition: 'all 0.2s'
                                             }}
                                           >
@@ -8757,6 +8773,16 @@ export default function App() {
                                 emptyReasons.broadband,
                                 bindingsObj.broadband_partner_name,
                                 'broadband'
+                              )}
+
+                              {/* Generic Rewards Section */}
+                              {genericItems.length > 0 && renderRewardSection(
+                                t('Other Rewards', 'अन्य पुरस्कार', 'অন্যান্য পুরস্কার'),
+                                '#10b981',
+                                genericItems,
+                                null,
+                                'FastNet',
+                                'generic'
                               )}
 
                               {/* My Redemptions Section */}
@@ -10927,6 +10953,9 @@ export default function App() {
                 <ArrowRightLeft size={16} /> Transactions 
                 {refundDueCount > 0 && <span className="badge badge-danger" style={{ marginLeft: '0.25rem', fontSize: '0.65rem' }} title="Refunds Due">{refundDueCount}</span>}
                 {UNPAID > 0 && <span className="badge badge-warning" style={{ marginLeft: '0.25rem', fontSize: '0.65rem', background: 'var(--warning)', color: 'black' }} title="Unpaid Payouts">{UNPAID}</span>}
+              </button>
+              <button className={`admin-nav-item ${adminTab === 'generic_rewards' ? 'active' : ''}`} onClick={() => { setAdminTab('generic_rewards'); fetchAdminGenericRewards(); }}>
+                <Gift size={16} /> Generic Rewards
               </button>
               <button 
                 className={`admin-nav-item ${adminTab === 'redemptions' || adminTab === 'bills' ? 'active' : ''}`} 
@@ -13693,6 +13722,86 @@ export default function App() {
                 </div>
               )}
 
+              {adminTab === 'generic_rewards' && (
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                    <h2 style={{ fontSize: '1.4rem', margin: 0 }}>Generic Rewards</h2>
+                    <button className="btn btn-primary" onClick={() => { setEditingGenericReward(null); setShowGenericRewardModal(true); }}>+ Add Reward</button>
+                  </div>
+                  <div className="glass-card" style={{ padding: '0.5rem' }}>
+                    <table className="admin-table">
+                      <thead>
+                        <tr>
+                          <th>Name</th>
+                          <th>Description</th>
+                          <th>Point Cost</th>
+                          <th>Value (₹)</th>
+                          <th>Status</th>
+                          <th>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {adminGenericRewards.map(r => (
+                          <tr key={r.id}>
+                            <td style={{ fontWeight: 'bold' }}>{r.name}</td>
+                            <td style={{ fontSize: '0.7rem' }}>{r.description || '—'}</td>
+                            <td>{r.point_cost}</td>
+                            <td>₹{r.value_rupees}</td>
+                            <td>{r.is_active ? <span className="badge badge-primary">Active</span> : <span className="badge badge-secondary">Inactive</span>}</td>
+                            <td>
+                              <button className="btn btn-secondary" style={{ padding: '0.2rem 0.5rem', fontSize: '0.7rem' }} onClick={() => { setEditingGenericReward(r); setShowGenericRewardModal(true); }}>Edit</button>
+                            </td>
+                          </tr>
+                        ))}
+                        {adminGenericRewards.length === 0 && (
+                          <tr><td colSpan="6" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>No generic rewards found.</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {adminTab === 'generic_rewards' && (
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                    <h2 style={{ fontSize: '1.4rem', margin: 0 }}>Generic Rewards</h2>
+                    <button className="btn btn-primary" onClick={() => { setEditingGenericReward(null); setShowGenericRewardModal(true); }}>+ Add Reward</button>
+                  </div>
+                  <div className="glass-card" style={{ padding: '0.5rem' }}>
+                    <table className="admin-table">
+                      <thead>
+                        <tr>
+                          <th>Name</th>
+                          <th>Description</th>
+                          <th>Point Cost</th>
+                          <th>Value (₹)</th>
+                          <th>Status</th>
+                          <th>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {adminGenericRewards.map(r => (
+                          <tr key={r.id}>
+                            <td style={{ fontWeight: 'bold' }}>{r.name}</td>
+                            <td style={{ fontSize: '0.7rem' }}>{r.description || '—'}</td>
+                            <td>{r.point_cost}</td>
+                            <td>₹{r.value_rupees}</td>
+                            <td>{r.is_active ? <span className="badge badge-primary">Active</span> : <span className="badge badge-secondary">Inactive</span>}</td>
+                            <td>
+                              <button className="btn btn-secondary" style={{ padding: '0.2rem 0.5rem', fontSize: '0.7rem' }} onClick={() => { setEditingGenericReward(r); setShowGenericRewardModal(true); }}>Edit</button>
+                            </td>
+                          </tr>
+                        ))}
+                        {adminGenericRewards.length === 0 && (
+                          <tr><td colSpan="6" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>No generic rewards found.</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
               {adminTab === 'transactions' && (
                 <div>
                   {(paymentRefModalOpen || markingPartnerId) && (
@@ -14388,6 +14497,73 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* Generic Reward Modal */}
+      {showGenericRewardModal && (
+        <div className="modal-overlay">
+          <div className="modal-content glass-card" style={{ maxWidth: '400px' }}>
+            <h3 style={{ marginTop: 0 }}>{editingGenericReward ? 'Edit' : 'Add'} Generic Reward</h3>
+            <form onSubmit={async (e) => {
+              e.preventDefault();
+              const formData = new FormData(e.target);
+              const payload = Object.fromEntries(formData);
+              payload.is_active = formData.get('is_active') === 'true';
+
+              try {
+                const url = editingGenericReward 
+                  ? `${API_BASE}/admin/generic-rewards/${editingGenericReward.id}`
+                  : `${API_BASE}/admin/generic-rewards`;
+                const method = editingGenericReward ? 'PATCH' : 'POST';
+
+                const res = await fetch(url, {
+                  method,
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(payload)
+                });
+                
+                if (res.ok) {
+                  showToast('Generic reward saved');
+                  setShowGenericRewardModal(false);
+                  fetchAdminGenericRewards();
+                } else {
+                  showToast('Error saving reward', 'error');
+                }
+              } catch (err) {
+                showToast('Network error', 'error');
+              }
+            }}>
+              <div className="form-group">
+                <label>Name</label>
+                <input type="text" className="input" name="name" defaultValue={editingGenericReward?.name} required />
+              </div>
+              <div className="form-group">
+                <label>Description</label>
+                <textarea className="input" name="description" defaultValue={editingGenericReward?.description} style={{ minHeight: '60px' }}></textarea>
+              </div>
+              <div className="form-group">
+                <label>Point Cost</label>
+                <input type="number" className="input" name="point_cost" defaultValue={editingGenericReward?.point_cost} required />
+              </div>
+              <div className="form-group">
+                <label>Value (₹)</label>
+                <input type="number" className="input" name="value_rupees" defaultValue={editingGenericReward?.value_rupees} />
+              </div>
+              <div className="form-group">
+                <label>Status</label>
+                <select className="input" name="is_active" defaultValue={editingGenericReward ? (editingGenericReward.is_active ? 'true' : 'false') : 'true'}>
+                  <option value="true">Active</option>
+                  <option value="false">Inactive</option>
+                </select>
+              </div>
+              <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', marginTop: '1.5rem' }}>
+                <button type="button" className="btn btn-secondary" onClick={() => setShowGenericRewardModal(false)}>Cancel</button>
+                <button type="submit" className="btn btn-primary">Save</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
 
       {/* R3 Success Modal */}
       {redeemSuccessModal && (

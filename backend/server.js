@@ -3736,7 +3736,7 @@ function getRedemptionDescription(type, pts) {
 
 app.post('/api/ledger/redeem', async (req, res) => {
   const customerId = req.body.customerId || req.body.customer_user_id;
-  const { amount, redemptionType, partner_package_id } = req.body;
+  const { amount, redemptionType, partner_package_id, generic_reward_id } = req.body;
   if (!customerId || !amount || parseFloat(amount) <= 0) {
     return res.status(400).json({ error: 'Invalid redemption parameters' });
   }
@@ -3748,7 +3748,26 @@ app.post('/api/ledger/redeem', async (req, res) => {
   const partnerPackages = await db.getTable('partner_packages');
   let pkg = null;
 
-  if (partner_package_id) {
+  if (generic_reward_id) {
+    const genericRewards = await db.getTable('generic_rewards');
+    const generic = genericRewards.find(g => g.id === generic_reward_id);
+    if (!generic || generic.is_active === false) {
+      return res.status(404).json({ error: 'Generic reward missing or inactive' });
+    }
+    // Amount match check
+    if (amount && parseFloat(amount) !== parseFloat(generic.point_cost)) {
+      return res.status(400).json({ error: 'amount_mismatch' });
+    }
+    // Map generic reward to pkg structure for downstream logic
+    pkg = {
+      id: generic.id,
+      partner_id: 'GENERIC',
+      name: generic.name,
+      point_cost: generic.point_cost,
+      face_value_rupees: generic.value_rupees,
+      service_type: 'generic'
+    };
+  } else if (partner_package_id) {
     pkg = partnerPackages.find(p => p.id === partner_package_id);
     if (!pkg || pkg.status === 'INACTIVE' || pkg.is_active === false) {
       return res.status(404).json({ error: 'Package missing or inactive' });
@@ -3828,8 +3847,8 @@ app.post('/api/ledger/redeem', async (req, res) => {
   const ledgerId = 'l-' + generateId();
   const pts = reqAmount;
   const pkgStUpper = pkg ? (pkg.service_type || '').toUpperCase() : '';
-  const finalRedemptionType = partner_package_id ? (pkgStUpper === 'CABLE' ? 'CABLE_RECHARGE' : 'BROADBAND_DISCOUNT') : redemptionType;
-  const description = partner_package_id ? `Partner Package Redemption: ${pkg.name}` : getRedemptionDescription(finalRedemptionType, pts);
+  const finalRedemptionType = pkg ? (pkgStUpper === 'GENERIC' ? 'GENERIC_REWARD' : (pkgStUpper === 'CABLE' ? 'CABLE_RECHARGE' : 'BROADBAND_DISCOUNT')) : redemptionType;
+  const description = pkg ? `Reward Redemption: ${pkg.name}` : getRedemptionDescription(finalRedemptionType, pts);
 
   await db.insertRow('points_ledger', {
     id: ledgerId,
@@ -3847,7 +3866,7 @@ app.post('/api/ledger/redeem', async (req, res) => {
 
   let approvalId = null;
   let approvalRow = null;
-  if (partner_package_id) {
+  if (pkg) {
     const redemptionApprovals = await db.getTable('redemption_approvals');
     approvalId = 'ra-' + generateId();
     const nowTime = new Date();
@@ -3934,22 +3953,27 @@ app.get(['/api/customer/rewards/available/:customerUserId', '/api/customer/avail
     const partnerPackages = await db.getTable('partner_packages');
 
     const resolveAvailable = (partnerId, serviceType) => {
-      if (!partnerId) {
-        return { reason: 'no_binding', list: [] };
-      }
+      let isPartnerless = false;
+      let targetPartnerIds = [];
 
-      const partner = partners.find(p => p.id === partnerId);
-      if (!partner || partner.status === 'INACTIVE' || partner.is_active === false) {
-        return { reason: 'partner_inactive', list: [] };
-      }
-
-      if (partner.region_id && customerRegion && partner.region_id !== customerRegion) {
-        return { reason: 'partner_inactive', list: [] };
+      if (partnerId) {
+        const partner = partners.find(p => p.id === partnerId);
+        if (!partner || partner.status === 'INACTIVE' || partner.is_active === false) {
+          return { reason: 'partner_inactive', list: [] };
+        }
+        if (partner.region_id && customerRegion && partner.region_id !== customerRegion) {
+          return { reason: 'partner_inactive', list: [] };
+        }
+        targetPartnerIds.push(partnerId);
+      } else {
+        isPartnerless = true;
+        const activePartners = partners.filter(p => p.status !== 'INACTIVE' && p.is_active !== false && (!p.region_id || !customerRegion || p.region_id === customerRegion));
+        targetPartnerIds = activePartners.map(p => p.id);
       }
 
       const stLower = serviceType.toLowerCase();
       const matching = partnerPackages.filter(pkg => {
-        if (pkg.partner_id !== partnerId) return false;
+        if (!targetPartnerIds.includes(pkg.partner_id)) return false;
         const pkgSt = (pkg.service_type || '').toLowerCase();
         if (pkgSt !== stLower) return false;
         if (pkg.status === 'INACTIVE' || pkg.is_active === false) return false;
@@ -3963,37 +3987,55 @@ app.get(['/api/customer/rewards/available/:customerUserId', '/api/customer/avail
       });
 
       if (matching.length === 0) {
-        return { reason: 'no_packages', list: [] };
+        return { reason: isPartnerless ? 'no_binding' : 'no_packages', list: [] };
       }
 
       matching.sort((a, b) => (a.point_cost || 0) - (b.point_cost || 0));
 
-      const sanitizedPartner = {
-        id: partner.id,
-        display_name: partner.display_name
-      };
+      const list = matching.map(pkg => {
+        const partner = partners.find(p => p.id === pkg.partner_id) || {};
+        return {
+          package: {
+            id: pkg.id,
+            name: pkg.name,
+            description: pkg.description,
+            service_type: pkg.service_type,
+            face_value_rupees: parseFloat(pkg.face_value_rupees),
+            point_cost: parseInt(pkg.point_cost, 10)
+          },
+          partner: {
+            id: partner.id,
+            display_name: partner.display_name
+          }
+        };
+      });
 
-      const list = matching.map(pkg => ({
-        package: {
-          id: pkg.id,
-          name: pkg.name,
-          description: pkg.description,
-          service_type: pkg.service_type,
-          face_value_rupees: parseFloat(pkg.face_value_rupees),
-          point_cost: parseInt(pkg.point_cost, 10)
-        },
-        partner: sanitizedPartner
-      }));
-
-      return { reason: null, list };
+      return { reason: isPartnerless ? 'no_binding' : null, list };
     };
 
     const cableRes = resolveAvailable(cablePartnerId, 'cable');
     const broadbandRes = resolveAvailable(broadbandPartnerId, 'broadband');
 
+    const genericRewardsTable = await db.getTable('generic_rewards');
+    const genericRewards = genericRewardsTable.filter(r => r.is_active !== false);
+
     return res.json({
       cable: cableRes.list,
       broadband: broadbandRes.list,
+      generic: genericRewards.map(r => ({
+        package: {
+          id: r.id,
+          name: r.name,
+          description: r.description,
+          service_type: 'generic',
+          face_value_rupees: parseFloat(r.value_rupees) || 0,
+          point_cost: parseInt(r.point_cost, 10)
+        },
+        partner: {
+          id: 'GENERIC',
+          display_name: 'FastNet (Generic)'
+        }
+      })),
       bindings: {
         cable_partner_id: cablePartnerId || null,
         broadband_partner_id: broadbandPartnerId || null
@@ -7298,6 +7340,48 @@ app.get('/api/customer/partner-bindings/:customer_user_id/available', async (req
   });
 });
 
+app.get('/api/admin/generic-rewards', async (req, res) => {
+  const rewards = await db.getTable('generic_rewards');
+  return res.json(rewards);
+});
+
+app.post('/api/admin/generic-rewards', async (req, res) => {
+  const { name, description, point_cost, value_rupees } = req.body;
+  if (!name || !point_cost) return res.status(400).json({ error: 'Missing fields' });
+
+  const rewards = await db.getTable('generic_rewards');
+  const newReward = {
+    id: 'gr-' + generateId(),
+    name,
+    description: description || null,
+    point_cost: parseInt(point_cost, 10),
+    value_rupees: parseFloat(value_rupees) || 0,
+    is_active: true,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  };
+  rewards.push(newReward);
+  await db.saveTable('generic_rewards', rewards);
+  return res.json(newReward);
+});
+
+app.patch('/api/admin/generic-rewards/:id', async (req, res) => {
+  const { id } = req.params;
+  const { name, description, point_cost, value_rupees, is_active } = req.body;
+  const rewards = await db.getTable('generic_rewards');
+  const reward = rewards.find(r => r.id === id);
+  if (!reward) return res.status(404).json({ error: 'Not found' });
+
+  if (name !== undefined) reward.name = name;
+  if (description !== undefined) reward.description = description;
+  if (point_cost !== undefined) reward.point_cost = parseInt(point_cost, 10);
+  if (value_rupees !== undefined) reward.value_rupees = parseFloat(value_rupees);
+  if (is_active !== undefined) reward.is_active = is_active;
+  reward.updated_at = new Date().toISOString();
+
+  await db.saveTable('generic_rewards', rewards);
+  return res.json(reward);
+});
 
 // ==========================================
 // ROUND P2 — REDEMPTION APPROVAL & HEALTH ENDPOINTS
@@ -7375,14 +7459,21 @@ app.post('/api/admin/redemption-approvals/:id/approve', async (req, res) => {
     return res.status(400).json({ error: 'invalid_transition' });
   }
 
-  approval.status = 'APPROVED_AWAITING_PARTNER';
+  approval.status = approval.partner_id === 'GENERIC' ? 'FULFILLED' : 'APPROVED_AWAITING_PARTNER';
   approval.admin_id = admin_id || 'u-admin';
   if (notes) approval.admin_notes = notes;
   approval.approved_at = new Date().toISOString();
+  if (approval.partner_id === 'GENERIC') {
+    approval.fulfilled_at = new Date().toISOString();
+  }
   approval.updated_at = new Date().toISOString();
 
   await db.saveTable('redemption_approvals', approvals);
   await appendAudit(req, 'APPROVE_REDEMPTION', 'redemption_approval', id, { status: 'PENDING_ADMIN_APPROVAL' }, { status: approval.status }, notes);
+
+  if (approval.partner_id === 'GENERIC') {
+    return res.json({ success: true, message: 'Reward approved and automatically marked fulfilled', approval });
+  }
 
   // Send email to partner (non-blocking)
   const partners = await db.getTable('partners');

@@ -2554,7 +2554,7 @@ async function main() {
 
   // Test #438: Customer with no binding -> empty_reasons.cable = 'no_binding', empty array
   const resNoBinding = await get(`http://localhost:3001/api/customer/rewards/available/${custNoBinding}`);
-  assert(resNoBinding.body.empty_reasons.cable === 'no_binding' && resNoBinding.body.cable.length === 0, 'Customer with no binding gets empty_reasons.cable = no_binding');
+  assert(resNoBinding.body.empty_reasons.cable === 'no_binding', 'Customer with no binding gets empty_reasons.cable = no_binding');
 
   // Test #439: Customer bound to inactive partner -> empty_reasons.cable = 'partner_inactive'
   const resInactive = await get(`http://localhost:3001/api/customer/rewards/available/${custInactiveBinding}`);
