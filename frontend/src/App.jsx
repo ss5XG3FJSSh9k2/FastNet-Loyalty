@@ -9748,13 +9748,36 @@ export default function App() {
                         <div className="glass-card" style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                           <strong style={{ fontSize: '0.9rem', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '0.5rem' }}>{t('Order Details', 'ऑर्डर विवरण', 'অর্ডারের বিবরণ')}</strong>
                           
-                          {liveOrder.fulfillment_type === 'PICKUP' ? (
-                            <div style={{ fontSize: '0.8rem' }}>
-                              <span style={{ color: 'var(--text-muted)' }}>{t('Pickup PIN:', 'पिकअप पिन:', 'পিকআপ পিন:')}</span>
-                              <strong style={{ marginLeft: '0.5rem', letterSpacing: '2px', color: 'var(--accent)' }}>{liveOrder.pickup_pin || '1234'}</strong>
+                          {liveOrder.status !== 'DELIVERED' && liveOrder.status !== 'CANCELLED' && liveOrder.pickup_pin && (
+                            <div style={{ marginBottom: '1rem' }}>
+                              <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginBottom: '0.25rem' }}>
+                                {liveOrder.fulfillment_type === 'PICKUP' 
+                                  ? t('Pickup PIN', 'पिकअप पिन', 'পিকআপ পিন')
+                                  : t('Delivery PIN', 'डिलीवरी पिन', 'ডেলিভারি পিন')}
+                              </div>
+                              <div style={{ 
+                                padding: '0.75rem 1rem', 
+                                background: 'rgba(16,185,129,0.08)', 
+                                border: '1px solid rgba(16,185,129,0.25)', 
+                                borderRadius: '10px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '0.5rem'
+                              }}>
+                                <Key size={20} style={{ color: 'var(--accent)' }} />
+                                <span style={{ fontSize: '1.5rem', fontWeight: 'bold', letterSpacing: '0.3em', color: 'var(--accent)' }}>
+                                  {liveOrder.pickup_pin}
+                                </span>
+                              </div>
+                              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.35rem' }}>
+                                {liveOrder.fulfillment_type === 'PICKUP'
+                                  ? t('Share this PIN with the shopkeeper when you pick up your order.', 'जब आप अपना ऑर्डर लेने जाएँ, तो इस पिन को दुकानदार के साथ साझा करें।', 'আপনি যখন আপনার অর্ডার পিক আপ করবেন তখন এই পিনটি দোকানদারের সাথে শেয়ার করুন।')
+                                  : t('Share this PIN with the delivery person only when you receive your order.', 'अपना ऑर्डर प्राप्त होने पर ही इस पिन को डिलीवरी व्यक्ति के साथ साझा करें।', 'আপনার অর্ডার পাওয়ার পরই কেবল ডেলিভারি ব্যক্তির সাথে এই পিনটি শেয়ার করুন।')}
+                              </div>
                             </div>
-                          ) : (
-                            <div style={{ fontSize: '0.8rem' }}>
+                          )}
+                          {liveOrder.fulfillment_type === 'DELIVERY' && (
+                            <div style={{ fontSize: '0.8rem', marginBottom: '0.75rem' }}>
                               <span style={{ color: 'var(--text-muted)', display: 'block', marginBottom: '0.2rem' }}>{t('Delivery Address:', 'डिलीवरी का पता:', 'ডেলিভারির ঠিকানা:')}</span>
                               <span>{liveOrder.delivery_address || currentUser.address}</span>
                             </div>
@@ -9789,7 +9812,7 @@ export default function App() {
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'rgba(255,153,0,0.1)', padding: '0.75rem', borderRadius: '8px', border: '1px solid rgba(255,153,0,0.2)', marginTop: '0.5rem' }}>
                             <Sparkles size={16} style={{ color: 'var(--warning)' }} />
                             <div style={{ fontSize: '0.75rem' }}>
-                              <strong style={{ color: 'var(--warning)' }}>+{formatPoints(liveOrder.points_credited || liveOrder.estimated_points_credit || 0)} pts</strong>
+                              <strong style={{ color: 'var(--warning)' }}>+{formatPoints(liveOrder.points_credited || liveOrder.estimated_points_credit || 0)}</strong>
                               <span style={{ color: 'var(--text-muted)', marginLeft: '0.25rem' }}>{t('with this order', 'इस ऑर्डर के साथ', 'এই অর্ডারের সাথে')}</span>
                             </div>
                           </div>

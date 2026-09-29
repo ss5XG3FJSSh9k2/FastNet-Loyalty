@@ -4959,6 +4959,37 @@ async function main() {
   assert(!appJsxBfGr.includes('Redeemable against FastNet services only'), 'App.jsx no longer contains "Redeemable against FastNet services only"');
   assert(appJsxBfGr.includes('Redeemable on FastNet services and as coupons at checkout'), 'App.jsx contains the new footer text');
 
+  console.log('\\n--- BF-TRACK-PIN Tests ---');
+  const bfTrackPinCartId = 'cart-' + Math.random().toString(36).substring(2,11);
+  
+  const trkOrderRes = await post('http://localhost:3001/api/orders', {
+    cartId: bfTrackPinCartId,
+    customerId: 'u-cust1',
+    stockistId: 's1',
+    items: [{ productId: 'p1', quantity: 5 }], // 150 subtotal
+    fulfillmentMode: 'DELIVERY',
+    deliveryAddress: '123 Main St',
+    pickupSlot: 'Morning (8AM-12PM)'
+  });
+  if(trkOrderRes.status !== 200) console.log(trkOrderRes.body);
+  assert(trkOrderRes.status === 200, 'DELIVERY order created');
+  const trkOrderId = trkOrderRes.body.orders[0].id;
+  
+  const trkCustOrdersRes = await get('http://localhost:3001/api/orders?tenant_id=t1&customer_id=u-cust1');
+  const trkOrder = trkCustOrdersRes.body.find(o => o.id === trkOrderId);
+  assert(trkOrder && typeof trkOrder.pickup_pin === 'string' && trkOrder.pickup_pin.length === 4, 'Delivery order has a 4-digit pickup_pin string');
+
+  const appJsxBfTrackPin = appJsxBfGr;
+  const trackIdx = appJsxBfTrackPin.indexOf("customerAppTab === 'track'");
+  const trackChunkEnd = appJsxBfTrackPin.indexOf("customerAppTab === '", trackIdx + 10);
+  const trackChunk = appJsxBfTrackPin.slice(trackIdx, trackChunkEnd > -1 ? trackChunkEnd : undefined);
+
+  assert(trackChunk.includes('Delivery PIN'), "tracking block contains 'Delivery PIN'");
+  assert(trackChunk.includes('pickup_pin'), "tracking block contains 'pickup_pin'");
+  assert(!trackChunk.includes("|| '1234'"), "tracking block does NOT contain || '1234'");
+  assert(!trackChunk.includes("} pts</strong>"), "tracking block does NOT contain } pts</strong> after formatPoints");
+  assert(!trackChunk.includes("liveOrder.fulfillment_type === 'PICKUP' ? ("), "PIN block is not conditioned on fulfillment_type === 'PICKUP' alone");
+
   console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);
 
