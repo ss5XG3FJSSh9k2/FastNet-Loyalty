@@ -4853,6 +4853,112 @@ async function main() {
   
   assert((grModalChunk.match(/name="is_active"/g) || []).length >= 2, 'Modal contains name="is_active" for both add and edit modes');
 
+  // --- BF-CPN-b Tests ---
+  console.log('\n--- BF-CPN-b: Coupon follow-ups ---');
+  
+  // Create a reward with min_order_value = 150
+  const bfcb_rewardRes = await post('http://localhost:3001/api/admin/generic-rewards', {
+    name: 'BFCPNb Reward',
+    description: 'Test',
+    point_cost: 50,
+    value_rupees: 50,
+    cooldown_type: 'NONE',
+    min_order_value: 150
+  });
+  const bfcb_rewardId = bfcb_rewardRes.body.id;
+
+  // Add points to customer directly via DB
+  await dbModule.insertRow('points_ledger', {
+    id: 'l-bfcpnb-test',
+    customer_id: 'u-cust1',
+    tenant_id: 't1',
+    region_id: 'r1',
+    amount: 50,
+    type: 'MANUAL_CREDIT',
+    description: 'test points',
+    created_at: new Date().toISOString()
+  });
+
+  // Ensure s1 is active
+  await dbModule.updateRow('stockists', 's1', {
+    is_active: true
+  });
+  await dbModule.updateRow('users', 'u-stk1', {
+    kyc_status: 'APPROVED'
+  });
+
+  // Order with exactly 150 subtotal
+  const bfcb_orderRes = await post('http://localhost:3001/api/orders', {
+    customerId: 'u-cust1',
+    stockistId: 's1', // Prepaid stockist
+    items: [ { productId: 'p1', quantity: 5 } ], // 150 subtotal (p1 is 30 each)
+    fulfillmentMode: 'PICKUP',
+    pickupSlot: 'Morning (8AM–12PM)',
+    coupon_reward_id: bfcb_rewardId
+  });
+
+  assert(bfcb_orderRes.status === 200, 'Inclusive min_order_value order succeeds');
+
+  assert(bfcb_orderRes.body.order.total_price === 150, 'total_price is 150');
+  assert(bfcb_orderRes.body.order.coupon_discount === 50, 'coupon_discount is 50');
+  assert(bfcb_orderRes.body.order.amount_paid === 100, 'amount_paid is 100');
+  
+  const bfcb_ledgerRes = await get('http://localhost:3001/api/ledger/history/u-cust1');
+  const bfcb_spent = bfcb_ledgerRes.body.filter(l => l.order_id === bfcb_orderRes.body.orderId);
+  assert(bfcb_spent.length === 1 && bfcb_spent[0].amount === -50, 'exactly one ledger row -50 for order');
+
+  // Verify stockist_payout identical
+  const bfcb_orderNoCouponRes = await post('http://localhost:3001/api/orders', {
+    customerId: 'u-cust1',
+    stockistId: 's1',
+    items: [ { productId: 'p1', quantity: 5 } ],
+    fulfillmentMode: 'PICKUP',
+    pickupSlot: 'Morning (8AM–12PM)'
+  });
+  assert(bfcb_orderNoCouponRes.body.order.stockist_payout === bfcb_orderRes.body.order.stockist_payout, 'stockist_payout is identical to the same order without the coupon');
+
+  // Subtotal 149.99
+  const bfcb_orderLowRes = await post('http://localhost:3001/api/orders', {
+    customerId: 'u-cust1',
+    stockistId: 's1',
+    items: [ { productId: 'p1', quantity: 4 } ], // subtotal 120
+    fulfillmentMode: 'PICKUP',
+    pickupSlot: 'Morning (8AM–12PM)',
+    coupon_reward_id: bfcb_rewardId
+  });
+  assert(bfcb_orderLowRes.status === 400 && bfcb_orderLowRes.body.error === 'below_min_order', 'below_min_order returns 400 when subtotal < min_order_value');
+
+  // Migration test
+  await dbModule.insertRow('redemption_approvals', {
+    id: 'legacy-ra-1',
+    customer_user_id: 'u-cust1',
+    package_id: 'gr-legacy',
+    status: 'PENDING_ADMIN_APPROVAL',
+    points_deducted: 100,
+    created_at: new Date().toISOString()
+  });
+  
+  const migrationScript = require('../lib/migrations/027-clean-legacy-generic-redemptions.js');
+  await migrationScript.up(dbModule);
+  
+  const raRows = await dbModule.getTable('redemption_approvals');
+  const migratedRa = raRows.find(r => r.id === 'legacy-ra-1');
+  assert(migratedRa.status === 'REJECTED', 'Migration sets status to REJECTED');
+  
+  const plRows = await dbModule.getTable('points_ledger');
+  const migratedRefund = plRows.find(l => l.id === migratedRa.refund_ledger_id);
+  assert(migratedRefund && migratedRefund.amount === 100, 'Migration restores balance by exactly points_deducted');
+  
+  // Run it again -> idempotent
+  await migrationScript.up(dbModule);
+  const plRows2 = await dbModule.getTable('points_ledger');
+  const refunds = plRows2.filter(l => l.customer_id === 'u-cust1' && l.description === 'Reward redemption refunded: coupon change' && l.amount === 100);
+  assert(refunds.length === 1, 'Migration is idempotent (no duplicate refund rows)');
+  
+  // Static App.jsx text check
+  assert(!appJsxBfGr.includes('Redeemable against FastNet services only'), 'App.jsx no longer contains "Redeemable against FastNet services only"');
+  assert(appJsxBfGr.includes('Redeemable on FastNet services and as coupons at checkout'), 'App.jsx contains the new footer text');
+
   console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);
 

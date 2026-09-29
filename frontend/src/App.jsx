@@ -8598,7 +8598,8 @@ export default function App() {
                                   
                                   if (!isLocked && coupon.min_order_value && cartSubtotal < coupon.min_order_value) {
                                     isLocked = true;
-                                    lockMessage = t(`Min order ₹${coupon.min_order_value}`, `न्यूनतम ऑर्डर ₹${coupon.min_order_value}`, `সর্বনিম্ন অর্ডার ₹${coupon.min_order_value}`);
+                                    const diff = (coupon.min_order_value - cartSubtotal);
+                                    lockMessage = t(`Add ₹${diff} more`, `₹${diff} और जोड़ें`, `আরও ₹${diff} যোগ করুন`);
                                   }
                                   
                                   if (!isLocked && Object.keys(cartGroups).length > 1) {
@@ -9098,7 +9099,11 @@ export default function App() {
                               </div>
 
                               <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', textAlign: 'center', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '0.75rem' }}>
-                                Points earned from FastNet grocery orders · Redeemable against FastNet services only · Non-transferable
+                                {t(
+                                  'Points earned from FastNet grocery orders · Redeemable on FastNet services and as coupons at checkout · Non-transferable',
+                                  'फास्टनेट ग्रोसरी ऑर्डर से अर्जित पॉइंट्स · फास्टनेट सेवाओं पर और चेकआउट के समय कूपन के रूप में रिडीम करने योग्य · अहस्तांतरणीय',
+                                  'ফাস্টনেট মুদিখানা অর্ডার থেকে অর্জিত পয়েন্ট · ফাস্টনেট পরিষেবা এবং চেকআউটের সময় কুপন হিসেবে রিডিম করার যোগ্য · হস্তান্তরযোগ্য নয়'
+                                )}
                               </div>
                             </div>
                           );
@@ -15220,6 +15225,9 @@ export default function App() {
                       />
                     </div>
                     {genericRewardErrors.min_order_value && <div style={{ fontSize: '0.78rem', color: 'var(--danger)', marginTop: '0.25rem' }}>{genericRewardErrors.min_order_value}</div>}
+                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
+                      Orders of exactly this amount or more qualify. Leave empty for no minimum.
+                    </div>
                   </div>
                 </div>
 

@@ -2757,8 +2757,7 @@ const handleCreateOrderRoute = async (req, res) => {
     });
 
     if (couponRewardId && couponPointsSpent > 0) {
-      const ledgers = await db.getTable('points_ledger');
-      ledgers.push({
+      await db.insertRow('points_ledger', {
         id: 'pl-' + generateId(),
         customer_id: customerId,
         type: 'REDEEM',
@@ -2769,7 +2768,6 @@ const handleCreateOrderRoute = async (req, res) => {
         billing_sync_status: 'PENDING',
         created_at: now.toISOString()
       });
-      await db.saveTable('points_ledger', ledgers);
     }
 
     // Fraud detection
