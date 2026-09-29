@@ -14058,45 +14058,7 @@ export default function App() {
                 </div>
               )}
 
-              {adminTab === 'generic_rewards' && (
-                <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                    <h2 style={{ fontSize: '1.4rem', margin: 0 }}>Generic Rewards</h2>
-                    <button className="btn btn-primary" onClick={() => { setEditingGenericReward(null); setShowGenericRewardModal(true); }}>+ Add Reward</button>
-                  </div>
-                  <div className="glass-card" style={{ padding: '0.5rem' }}>
-                    <table className="admin-table">
-                      <thead>
-                        <tr>
-                          <th>Name</th>
-                          <th>Description</th>
-                          <th>Point Cost</th>
-                          <th>Value (₹)</th>
-                          <th>Status</th>
-                          <th>Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {adminGenericRewards.map(r => (
-                          <tr key={r.id}>
-                            <td style={{ fontWeight: 'bold' }}>{r.name}</td>
-                            <td style={{ fontSize: '0.7rem' }}>{r.description || '—'}</td>
-                            <td>{r.point_cost}</td>
-                            <td>₹{r.value_rupees}</td>
-                            <td>{r.is_active ? <span className="badge badge-primary">Active</span> : <span className="badge badge-secondary">Inactive</span>}</td>
-                            <td>
-                              <button className="btn btn-secondary" style={{ padding: '0.2rem 0.5rem', fontSize: '0.7rem' }} onClick={() => { setEditingGenericReward(r); setShowGenericRewardModal(true); }}>Edit</button>
-                            </td>
-                          </tr>
-                        ))}
-                        {adminGenericRewards.length === 0 && (
-                          <tr><td colSpan="6" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>No generic rewards found.</td></tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
+
 
               {adminTab === 'transactions' && (
                 <div>
