@@ -29,10 +29,20 @@ const path = require('path');
 const multer = require('multer');
 const r2 = require('./lib/r2');
 const { evaluateRegistrationFlags } = require('./lib/kyc-flags');
+const { issueOtp, verifyOtp } = require('./lib/otp');
 
 const app = express();
-app.use(cors());
+if (process.env.NODE_ENV === 'production') {
+  const allowed = (process.env.CORS_ORIGINS || '').split(',').map(s => s.trim());
+  app.use(cors({ origin: (origin, cb) => {
+    if (!origin || allowed.includes(origin)) cb(null, true);
+    else cb(new Error('Not allowed by CORS'));
+  }}));
+} else {
+  app.use(cors());
+}
 app.use(express.json());
+app.set('trust proxy', parseInt(process.env.TRUST_PROXY_HOPS || '0', 10));
 
 // Security Headers & HTTPS Redirect Middleware (Item 20)
 app.use((req, res, next) => {
@@ -121,7 +131,7 @@ app.use('/api/', async (req, res, next) => {
     } catch (e) {}
   }
 
-  const key = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'ip-client';
+  const key = req.ip || 'ip-client';
   const now = Date.now();
   const record = apiRateLimitMap.get(key) || { count: 0, resetAt: now + 60000 };
   if (now > record.resetAt) {
@@ -399,7 +409,7 @@ function sanitizeUser(user) {
 }
 
 // In-memory OTP storage
-const otpStore = new Map();
+
 
 // Helper to generate IDs
 const generateId = () => Math.random().toString(36).substr(2, 9);
@@ -452,13 +462,29 @@ async function appendAudit(req, action, entity_type, entity_id, before = null, a
 // POST /api/auth/verify-captcha (Item 12)
 app.post('/api/auth/verify-captcha', async (req, res) => {
   const { captchaToken } = req.body || {};
-  if (process.env.NODE_ENV === 'test' || captchaToken === 'test_captcha_token') {
+  if (!captchaToken) {
+    return res.status(400).json({ error: 'invalid_captcha', message: 'CAPTCHA token is missing.' });
+  }
+  if (isTestEnv()) {
     return res.json({ success: true, score: 0.9 });
   }
-  if (!captchaToken) {
-    return res.status(400).json({ error: 'Please verify you are human' });
+  if (process.env.CAPTCHA_SECRET) {
+    try {
+      const resp = await fetch('https://www.google.com/recaptcha/api/siteverify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ secret: process.env.CAPTCHA_SECRET, response: captchaToken })
+      });
+      const data = await resp.json();
+      if (data.success && data.score >= cfg.CAPTCHA_MIN_SCORE) {
+        return res.json({ success: true, score: data.score });
+      }
+      return res.status(400).json({ error: 'invalid_captcha', message: 'CAPTCHA verification failed or score too low.' });
+    } catch (e) {
+      return res.status(503).json({ error: 'captcha_unavailable' });
+    }
   }
-  return res.json({ success: true, score: 0.8 });
+  return res.status(503).json({ error: 'captcha_unavailable' });
 });
 
 // POST /api/auth/send-otp & /api/stockist/auth/send-otp (Item 11, Item 13, BF16 KYC Gate)
@@ -487,10 +513,16 @@ const handleSendOtpRoute = async (req, res) => {
     return res.status(429).json({ error: 'Too many login attempts. Try again in 15 minutes.' });
   }
 
-  const otp = '123456';
-  otpStore.set(phone, { otp, expiresAt: Date.now() + 5 * 60 * 1000 });
-  await smsHelper.sendSms(phone, `Your FastNet OTP is ${otp}`);
-  res.json({ success: true, message: 'OTP sent' });
+    const code = issueOtp('login:' + phone);
+  try {
+    await smsHelper.sendSms(phone, `Your FastNet OTP is ${code}`);
+    res.json({ success: true, message: 'OTP sent' });
+  } catch (err) {
+    if (err.code === 'SMS_NOT_CONFIGURED') {
+      return res.status(503).json({ error: 'sms_unavailable' });
+    }
+    return res.status(500).json({ error: 'sms_error' });
+  }
 };
 
 app.post('/api/auth/send-otp', handleSendOtpRoute);
@@ -716,8 +748,9 @@ const handleVerifyOtpRoute = async (req, res) => {
     return res.status(400).json({ error: 'Invalid expected_role parameter' });
   }
 
-  const record = otpStore.get(phone);
-  if (otp !== '123456' && (!record || record.otp !== otp || record.expiresAt < Date.now())) {
+  const vRes = verifyOtp('login:' + phone, otp);
+  if (!vRes.ok) {
+    if (vRes.reason === 'locked') return res.status(429).json({ error: 'Too many failed attempts. Try again later.' });
     return res.status(400).json({ error: 'Invalid or expired OTP' });
   }
 
@@ -762,7 +795,6 @@ const handleVerifyOtpRoute = async (req, res) => {
     return res.status(403).json({ error: 'Account is deactivated. Contact admin.' });
   }
 
-  otpStore.delete(phone);
   clearOtpRateLimit(phone);
   const token = sessionHelper.signSession(user.id, user.role);
   return res.json({ success: true, token, user: sanitizeUser(user) });
@@ -4991,16 +5023,33 @@ app.post('/api/customer/phone-change/request', async (req, res) => {
   if (existing) {
     return res.status(409).json({ error: 'Phone number already registered' });
   }
-  return res.json({ success: true, message: 'OTP sent to new phone number' });
+  const currentCode = issueOtp('customer-phone-change-current:' + user_id);
+  const newCode = issueOtp('customer-phone-change-new:' + user_id);
+  const user = users.find(u => u.id === user_id);
+  const smsHelper = require('./lib/sms.js');
+  try {
+    if (user && user.phone) await smsHelper.sendSms(user.phone, `Your FastNet code for changing phone number is ${currentCode}.`);
+    await smsHelper.sendSms(cleanPhone, `Your FastNet code to confirm new phone number is ${newCode}.`);
+    return res.json({ success: true, message: 'OTP sent to both phone numbers' });
+  } catch (err) {
+    if (err.code === 'SMS_NOT_CONFIGURED') return res.status(503).json({ error: 'sms_unavailable' });
+    return res.status(500).json({ error: 'sms_error' });
+  }
 });
 
 app.post('/api/customer/phone-change/verify', async (req, res) => {
-  let { user_id, new_phone, otp } = req.body;
-  if (!user_id || !new_phone || !otp) {
-    return res.status(400).json({ error: 'User ID, new phone, and OTP are required' });
+  let { user_id, new_phone, current_otp, new_otp, otp } = req.body;
+  if (!user_id || !new_phone) {
+    return res.status(400).json({ error: 'User ID and new phone are required' });
   }
-  if (otp !== '123456') {
-    return res.status(400).json({ error: 'Invalid OTP' });
+  const checkCurrent = current_otp || otp;
+  const checkNew = new_otp || otp;
+  if (!checkCurrent || !checkNew) return res.status(400).json({ error: 'Both OTPs are required' });
+  const vCurrent = verifyOtp('customer-phone-change-current:' + user_id, checkCurrent);
+  const vNew = verifyOtp('customer-phone-change-new:' + user_id, checkNew);
+  if (!vCurrent.ok || !vNew.ok) {
+    if (vCurrent.reason === 'locked' || vNew.reason === 'locked') return res.status(429).json({ error: 'Too many attempts.' });
+    return res.status(400).json({ error: 'Invalid or expired OTP' });
   }
   const validPhone = checkPhone(new_phone, res);
   if (!validPhone) return;
@@ -5643,6 +5692,26 @@ app.post('/api/admin/customers/:id', async (req, res) => {
   return res.json({ success: true, customer: sanitizeUser(user) });
 });
 
+app.post('/api/admin/customers/:id/phone-change-request', async (req, res) => {
+  const { id } = req.params;
+  const { newPhone } = req.body;
+  if (!newPhone) return res.status(400).json({ error: 'New phone is required' });
+  const validPhone = checkPhone(newPhone, res);
+  if (!validPhone) return;
+  const cleanPhone = validPhone;
+  
+  const users = await db.getTable('users');
+  const user = users.find(u => u.id === id && u.role === 'CUSTOMER');
+  if (!user) return res.status(404).json({ error: 'Customer not found' });
+  
+  const currentCode = issueOtp('admin-phone-change-current:' + id);
+  const newCode = issueOtp('admin-phone-change-new:' + id);
+  if (user.phone) await sms.sendSms(user.phone, `Your FastNet admin change code is ${currentCode}.`);
+  await sms.sendSms(cleanPhone, `Your FastNet admin change code is ${newCode}.`);
+  
+  return res.json({ success: true });
+});
+
 app.post('/api/admin/customers/:id/phone-change', async (req, res) => {
   const { id } = req.params;
   let { currentPhoneOtp, newPhone, newPhoneOtp } = req.body;
@@ -5653,11 +5722,13 @@ app.post('/api/admin/customers/:id/phone-change', async (req, res) => {
   const validPhone = checkPhone(newPhone, res);
   if (!validPhone) return;
   newPhone = validPhone;
-  if (currentPhoneOtp && currentPhoneOtp !== '123456') {
-    return res.status(400).json({ error: 'Invalid OTP for current phone' });
+  if (currentPhoneOtp) {
+    const vC = verifyOtp('admin-phone-change-current:' + id, currentPhoneOtp);
+    if (!vC.ok) return res.status(400).json({ error: 'Invalid OTP for current phone' });
   }
-  if (newPhoneOtp && newPhoneOtp !== '123456') {
-    return res.status(400).json({ error: 'Invalid OTP for new phone' });
+  if (newPhoneOtp) {
+    const vN = verifyOtp('admin-phone-change-new:' + id, newPhoneOtp);
+    if (!vN.ok) return res.status(400).json({ error: 'Invalid OTP for new phone' });
   }
   const oldPhone = user.phone;
   user.phone = newPhone.trim();
@@ -6282,7 +6353,13 @@ app.post('/api/partner/auth/login-otp-request', async (req, res) => {
   const user = users.find(u => u.role === 'PARTNER_ADMIN' && u.phone === phone && u.is_active !== false);
 
   if (user) {
-    otpStore.set(phone, { otp: '123456', expiresAt: Date.now() + 10 * 60 * 1000 });
+    const code = issueOtp('login:' + phone);
+    try {
+      await require('./lib/sms.js').sendSms(phone, `Your FastNet OTP is ${code}`);
+    } catch (e) {
+      if (e.code === 'SMS_NOT_CONFIGURED') return res.status(503).json({ error: 'sms_unavailable' });
+      return res.status(500).json({ error: 'sms_error' });
+    }
   }
 
   return res.json({ success: true, message: 'OTP sent successfully if phone is registered.' });
@@ -6296,7 +6373,10 @@ const handlePartnerOtpVerify = async (req, res) => {
   const users = await db.getTable('users');
   const user = users.find(u => u.role === 'PARTNER_ADMIN' && u.phone === phone && u.is_active !== false);
 
-  if (!user || otp !== '123456') {
+  if (!user) return res.status(401).json({ error: 'Invalid credentials or OTP' });
+  const vRes = verifyOtp('login:' + phone, otp);
+  if (!vRes.ok) {
+    if (vRes.reason === 'locked') return res.status(429).json({ error: 'Too many failed attempts.' });
     return res.status(401).json({ error: 'Invalid credentials or OTP' });
   }
 
@@ -9296,10 +9376,32 @@ process.on('uncaughtException', (err) => {
   console.error('[uncaughtException]', err);
 });
 
+app.get('/api/config/otp-mode', (req, res) => {
+  res.json({ demo: require('./lib/env').isDemoOtpMode() });
+});
+
+function assertProductionConfig() {
+  if (process.env.NODE_ENV !== 'production') return;
+  const errors = [];
+  if (require('./lib/env').isTestEnv() || process.env.SEED_MODE === 'test') errors.push('SEED_MODE is test');
+  if (process.env.SMS_MOCK === 'true') errors.push('SMS_MOCK is true');
+  if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) errors.push('JWT_SECRET missing or too short');
+  if (!process.env.DATABASE_URL) errors.push('DATABASE_URL missing');
+  if (!process.env.MSG91_AUTH_KEY) errors.push('MSG91_AUTH_KEY missing');
+  if (!process.env.CAPTCHA_SECRET) errors.push('CAPTCHA_SECRET missing');
+  if (!process.env.CORS_ORIGINS) errors.push('CORS_ORIGINS missing');
+  
+  if (errors.length > 0) {
+    errors.forEach(e => console.error(e));
+    process.exit(1);
+  }
+}
+
 // Start Server
 const PORT = process.env.PORT || 3001;
 let serverInstance = null;
 const readyPromise = db.init().then(() => {
+  assertProductionConfig();
   checkConfigWarnings();
   assertNoDuplicateRoutes(app);
   reportMalformedPhones();

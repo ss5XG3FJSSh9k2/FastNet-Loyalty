@@ -532,6 +532,7 @@ export default function App() {
   const [dbState, setDbState] = useState(null);
   const [regions, setRegions] = useState([]);
   const [selectedRegionId, setSelectedRegionId] = useState('');
+  const [demoOtpMode, setDemoOtpMode] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
   const [showPersonalDetails, setShowPersonalDetails] = useState(false);
   const [rejectOrderModal, setRejectOrderModal] = useState(null);
@@ -838,6 +839,7 @@ export default function App() {
   const [showSelfServicePhoneModal, setShowSelfServicePhoneModal] = useState(false);
   const [selfServiceNewPhone, setSelfServiceNewPhone] = useState('');
   const [selfServiceOtp, setSelfServiceOtp] = useState('');
+  const [selfServiceNewOtp, setSelfServiceNewOtp] = useState('');
   const [selfServiceOtpSent, setSelfServiceOtpSent] = useState(false);
   const [selfServiceLoading, setSelfServiceLoading] = useState(false);
   const [newProdImageFile, setNewProdImageFile] = useState(null);
@@ -2972,6 +2974,33 @@ export default function App() {
   // AUTH LOGIC
   // ----------------------------------------------------
 
+
+  const verifyCaptchaAndGetToken = async () => {
+    let token = 'dummy_token_for_test_env';
+    if (window.grecaptcha && window.grecaptcha.execute) {
+      try {
+        token = await window.grecaptcha.execute('6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI', {action: 'login'});
+      } catch (e) {
+        console.warn('reCAPTCHA execute failed', e);
+      }
+    }
+    
+    try {
+      const res = await fetch(`${API_BASE}/auth/verify-captcha`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ captchaToken: token })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.success) {
+        return { success: true };
+      }
+      return { success: false, message: data.message || 'CAPTCHA verification failed' };
+    } catch (err) {
+      return { success: false, message: 'Network error verifying CAPTCHA' };
+    }
+  };
+
   const handleSendOtp = async () => {
     if (!loginPhone) {
       showToast('Please enter a phone number', 'error');
@@ -2988,7 +3017,7 @@ export default function App() {
       if (res.ok) {
         setOtpSent(true);
         setLoginErrorMessage('');
-        showToast('OTP sent successfully! Enter 123456');
+        showToast(demoOtpMode ? 'OTP sent successfully! Enter 123456' : t('OTP sent to ' + loginPhone, loginPhone + ' ?? OTP ???? ???', loginPhone + ' ???? OTP ?????? ???'));
       } else {
         setOtpSent(false);
         const errText = data.message || data.error || 'Failed to send OTP';
@@ -3821,7 +3850,7 @@ export default function App() {
       const res = await fetch(`${API_BASE}/admin/customers/${selectedCustomerDetail.id}/phone-change`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ currentPhoneOtp: changePhoneCurrentOtp || '123456', newPhone: changePhoneNewNumber, newPhoneOtp: changePhoneNewOtp || '123456' })
+        body: (!changePhoneCurrentOtp || !changePhoneNewOtp || !changePhoneNewNumber) ? null : JSON.stringify({ currentPhoneOtp: changePhoneCurrentOtp, newPhone: changePhoneNewNumber, newPhoneOtp: changePhoneNewOtp })
       });
       if (res.ok) {
         showToast('Phone number updated successfully', 'success');
@@ -5748,13 +5777,13 @@ export default function App() {
         ) : (
           <>
             <div className="input-group" style={{ background: 'rgba(99, 102, 241, 0.05)', padding: '0.75rem', borderRadius: '6px', border: '1px solid rgba(99, 102, 241, 0.2)', fontSize: '0.75rem', textAlign: 'center' }}>
-              OTP sent to <strong>{loginPhone}</strong>. Demo code: <strong>123456</strong>
+              OTP sent to <strong>{loginPhone}</strong>.{demoOtpMode && <span> Demo code: <strong>123456</strong></span>}
             </div>
             <div className="input-group">
               <label className="input-label">Enter 6-Digit OTP</label>
               <input 
                 type="text" 
-                placeholder="Enter 123456" 
+                placeholder={demoOtpMode ? "Enter 123456" : "Enter 6-digit OTP"} 
                 maxLength={6}
                 className="text-input" 
                 value={loginOtp}
@@ -6040,7 +6069,7 @@ export default function App() {
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
         setPartnerOtpSent(true);
-        showToast('OTP sent (demo code 123456)', 'info');
+        showToast(demoOtpMode ? 'OTP sent (demo code 123456)' : t('OTP sent to ' + partnerLoginPhone, partnerLoginPhone + ' ?? OTP ???? ???', partnerLoginPhone + ' ???? OTP ?????? ???'), 'info');
       } else {
         showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
@@ -6644,7 +6673,7 @@ export default function App() {
             ) : (
               <>
                 <div className="input-group">
-                  <label className="input-label">Enter OTP (Demo: 123456)</label>
+                  <label className="input-label">{demoOtpMode ? 'Enter OTP (Demo: 123456)' : 'Enter OTP'}</label>
                   <input type="tel" inputMode="numeric" maxLength={6} placeholder="6-digit OTP" className="text-input" value={partnerLoginOtp} onChange={e => setPartnerLoginOtp(e.target.value.replace(/\D/g, '').slice(0, 6))} />
                 </div>
                 <button className="btn btn-primary" style={{ width: '100%', marginTop: '1rem' }} onClick={handlePartnerVerifyOtp}>
@@ -9599,7 +9628,7 @@ export default function App() {
                               type="button"
                               className="btn btn-secondary"
                               style={{ padding: '0.15rem 0.4rem', fontSize: '0.65rem' }}
-                              onClick={() => { setSelfServiceNewPhone(''); setSelfServiceOtp(''); setSelfServiceOtpSent(false); setShowSelfServicePhoneModal(true); }}
+                              onClick={() => { setSelfServiceNewPhone(''); setSelfServiceOtp(''); setSelfServiceNewOtp(''); setSelfServiceOtpSent(false); setShowSelfServicePhoneModal(true); }}
                             >
                               {t('Change Phone Number', 'फ़ोन नंबर बदलें', 'फोन नंबर परिवर्तन')}
                             </button>
@@ -11355,7 +11384,7 @@ export default function App() {
 
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                           <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{t('Phone Number','फ़ोन नंबर','ফোন নম্বর')}</span>
-                          <button type="button" className="btn btn-secondary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.7rem' }} onClick={() => { setSelfServiceNewPhone(''); setSelfServiceOtp(''); setSelfServiceOtpSent(false); setShowSelfServicePhoneModal(true); }}>
+                          <button type="button" className="btn btn-secondary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.7rem' }} onClick={() => { setSelfServiceNewPhone(''); setSelfServiceOtp(''); setSelfServiceNewOtp(''); setSelfServiceOtpSent(false); setShowSelfServicePhoneModal(true); }}>
                             {t('Change','बदलें','পরিবর্তন')}
                           </button>
                         </div>
@@ -14726,7 +14755,7 @@ export default function App() {
                 </h2>
                 <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>
                   {t(
-                    `Administrator account created for phone ${setupSuccessAdmin.phone}. You can now log in with OTP 123456.`,
+                    `Administrator account created for phone ${setupSuccessAdmin.phone}. You can now log in.`,
                     `फ़ोन ${setupSuccessAdmin.phone} के लिए प्रशासक खाता बनाया गया। अब आप ओटीपी 123456 के साथ लॉग इन कर सकते हैं।`,
                     `ফোন ${setupSuccessAdmin.phone} এর জন্য অ্যাডমিনিস্ট্রেটর অ্যাকাউন্ট তৈরি করা হয়েছে। আপনি এখন ওটিপি 123456 দিয়ে লগ ইন করতে পারেন।`
                   )}
@@ -15608,7 +15637,7 @@ export default function App() {
             <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Current Phone: {selectedCustomerDetail.phone}</p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', margin: '1rem 0' }}>
               <div className="input-group">
-                <label className="input-label">Current Phone OTP (Demo: 123456)</label>
+                <label className="input-label">{demoOtpMode ? 'Current Phone OTP (Demo: 123456)' : 'Current Phone OTP'}</label>
                 <input type="tel" inputMode="numeric" maxLength={6} className="text-input" placeholder="123456" value={changePhoneCurrentOtp} onChange={e => setChangePhoneCurrentOtp(e.target.value.replace(/\D/g, '').slice(0, 6))} />
               </div>
               <div className="input-group">
@@ -15616,7 +15645,7 @@ export default function App() {
                 <input type="tel" inputMode="numeric" maxLength={15} className="text-input" placeholder="9830099999" value={changePhoneNewNumber} onChange={e => setChangePhoneNewNumber(normalizeFrontendPhone(e.target.value))} />
               </div>
               <div className="input-group">
-                <label className="input-label">New Phone OTP (Demo: 123456)</label>
+                <label className="input-label">{demoOtpMode ? 'New Phone OTP (Demo: 123456)' : 'New Phone OTP'}</label>
                 <input type="tel" inputMode="numeric" maxLength={6} className="text-input" placeholder="123456" value={changePhoneNewOtp} onChange={e => setChangePhoneNewOtp(e.target.value.replace(/\D/g, '').slice(0, 6))} />
               </div>
             </div>
@@ -16697,7 +16726,7 @@ export default function App() {
                         const data = await res.json().catch(() => ({}));
                         if (res.ok) {
                           setSelfServiceOtpSent(true);
-                          showToast('OTP sent to new phone number (Mock OTP: 123456)', 'info');
+                          showToast(demoOtpMode ? 'OTP sent to new phone number (Mock OTP: 123456)' : 'OTP sent to both phone numbers', 'info');
                         } else {
                           showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
                         }
@@ -16715,7 +16744,7 @@ export default function App() {
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
                 <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                  A 6-digit code was sent to <strong>{selfServiceNewPhone}</strong>. (Mock OTP: 123456)
+                  6-digit codes were sent to <strong>{currentUser?.phone}</strong> and <strong>{selfServiceNewPhone}</strong>.{demoOtpMode && ' (Mock OTP: 123456)'}
                 </p>
                 <div className="input-group">
                   <label className="input-label">Verification Code (OTP)</label>
@@ -16731,14 +16760,14 @@ export default function App() {
                   <button className="btn btn-secondary" onClick={() => setSelfServiceOtpSent(false)}>Back</button>
                   <button
                     className="btn btn-accent"
-                    disabled={selfServiceLoading || !selfServiceOtp}
+                    disabled={selfServiceLoading || !selfServiceOtp || !selfServiceNewOtp}
                     onClick={async () => {
                       setSelfServiceLoading(true);
                       try {
                         const res = await fetch(`${API_BASE}/customer/phone-change/verify`, {
                           method: 'POST',
                           headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ user_id: currentUser.id, new_phone: selfServiceNewPhone, otp: selfServiceOtp })
+                          body: JSON.stringify({ user_id: currentUser.id, new_phone: selfServiceNewPhone, current_otp: selfServiceOtp, new_otp: selfServiceNewOtp })
                         });
                         const data = await res.json().catch(() => ({}));
                         if (res.ok) {

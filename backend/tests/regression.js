@@ -4990,6 +4990,106 @@ async function main() {
   assert(!trackChunk.includes("} pts</strong>"), "tracking block does NOT contain } pts</strong> after formatPoints");
   assert(!trackChunk.includes("liveOrder.fulfillment_type === 'PICKUP' ? ("), "PIN block is not conditioned on fulfillment_type === 'PICKUP' alone");
 
+
+  console.log('\n--- BF-SEC-1 Tests ---');
+  // (a) non-demo: issueOtp returns /^\d{6}$/; 50 consecutive codes are not all '123456'.
+  const { issueOtp, verifyOtp, otpStore } = require('../lib/otp.js');
+  const envMod = require('../lib/env.js');
+  
+  const origIsDemo = envMod.isDemoOtpMode;
+  envMod.isDemoOtpMode = () => false;
+  
+  let all123456 = true;
+  for (let i=0; i<50; i++) {
+    const code = issueOtp('test-purpose-key-a:' + i);
+    assert(/^\d{6}$/.test(code), 'issueOtp returns 6-digit string in non-demo mode');
+    if (code !== '123456') all123456 = false;
+  }
+  assert(!all123456, '50 consecutive codes are not all 123456 in non-demo mode');
+  
+  // (b) non-demo: verifyOtp with '123456' fails; with the issued code succeeds once and a second use fails (single use).
+  const singleUseCode = issueOtp('test-purpose-key-b');
+  const verifyWrong = verifyOtp('test-purpose-key-b', '123456');
+  if (singleUseCode !== '123456') {
+    assert(verifyWrong.ok === false, 'verifyOtp with 123456 fails in non-demo mode');
+  }
+  const verifyRight = verifyOtp('test-purpose-key-b', singleUseCode);
+  assert(verifyRight.ok === true, 'verifyOtp with the issued code succeeds');
+  const verifySecondUse = verifyOtp('test-purpose-key-b', singleUseCode);
+  assert(verifySecondUse.ok === false, 'second use of verifyOtp fails');
+  
+  // (c) non-demo: OTP_MAX_ATTEMPTS wrong tries -> 'locked', then even the right code fails.
+  const cfgLocal = require('../config');
+  const lockedCode = issueOtp('test-purpose-key-c');
+  for (let i = 0; i < cfgLocal.OTP_MAX_ATTEMPTS - 1; i++) {
+    const v = verifyOtp('test-purpose-key-c', '000000');
+    assert(v.ok === false && v.reason === 'invalid', 'Wrong try gives invalid');
+  }
+  const vLocked = verifyOtp('test-purpose-key-c', '000000');
+  assert(vLocked.ok === false && vLocked.reason === 'locked', 'Max attempts gives locked');
+  const vAfterLocked = verifyOtp('test-purpose-key-c', lockedCode);
+  assert(vAfterLocked.ok === false, 'Even the right code fails after locked');
+  
+  // (d) non-demo: expired code fails
+  const expiredCode = issueOtp('test-purpose-key-d');
+  otpStore.get('test-purpose-key-d').expiresAt = Date.now() - 1000;
+  const vExpired = verifyOtp('test-purpose-key-d', expiredCode);
+  assert(vExpired.ok === false && vExpired.reason === 'expired', 'expired code fails');
+  
+  // (e) demo mode: '123456' accepted.
+  envMod.isDemoOtpMode = () => true;
+  issueOtp('test-purpose-key-e');
+  const vDemo = verifyOtp('test-purpose-key-e', '123456');
+  assert(vDemo.ok === true, '123456 accepted in demo mode');
+  envMod.isDemoOtpMode = origIsDemo;
+  
+  // (f) server.js contains no "'123456'" literal and no "test_captcha_token".
+  const serverCode = fs.readFileSync(require('path').join(__dirname, '../server.js'), 'utf8');
+  assert(!serverCode.includes("'123456'"), 'server.js contains no \'123456\' literal');
+  assert(!serverCode.includes("test_captcha_token"), 'server.js contains no test_captcha_token');
+  
+  // (g) sms.js mock condition no longer treats an unset SMS_MOCK as mock.
+  const smsMod = require('../lib/sms.js');
+  const myOrigSmsMock = process.env.SMS_MOCK;
+  const origTestEnv = envMod.isTestEnv;
+  envMod.isTestEnv = () => false;
+  delete process.env.SMS_MOCK;
+  const oldMsg91 = process.env.MSG91_AUTH_KEY;
+  delete process.env.MSG91_AUTH_KEY;
+  assert(smsMod.isSmsConfigured() === false, 'unset SMS_MOCK does not default to mock if not test env');
+  process.env.SMS_MOCK = myOrigSmsMock;
+  process.env.MSG91_AUTH_KEY = oldMsg91;
+  envMod.isTestEnv = origTestEnv;
+  
+  // (h) spawnSync process test
+  const { spawnSync } = require('child_process');
+  const spawnRes = spawnSync('node', [require('path').join(__dirname, '../server.js')], {
+    env: Object.assign({}, process.env, {
+      NODE_ENV: 'production',
+      SEED_MODE: 'test',
+      SMS_MOCK: 'true',
+      JWT_SECRET: '' // empty or short
+    })
+  });
+  assert(spawnRes.status !== 0, 'Production guard exits with non-zero code when invalid config');
+  const spawnOut = spawnRes.stderr.toString() + spawnRes.stdout.toString();
+  assert(spawnOut.includes('SEED_MODE is test'), 'guard output names SEED_MODE');
+  assert(spawnOut.includes('SMS_MOCK is true'), 'guard output names SMS_MOCK');
+  
+  // (i) API test /api/config/otp-mode
+  const otpModeRes = await get('http://localhost:3001/api/config/otp-mode');
+  assert(otpModeRes.status === 200, '/api/config/otp-mode status 200');
+  assert(otpModeRes.body.demo === true, '/api/config/otp-mode demo: true');
+  
+  // (j) existing login tests with 123456 still pass
+  await post('http://localhost:3001/api/auth/send-otp', { phone: '9830012345' });
+  const loginRes2 = await post('http://localhost:3001/api/auth/verify-otp', {
+    phone: '9830012345',
+    otp: '123456'
+  });
+  assert(loginRes2.status === 200, 'existing login tests with 123456 still pass');
+
+
   console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);
 
