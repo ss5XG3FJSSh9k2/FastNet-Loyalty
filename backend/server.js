@@ -3357,7 +3357,8 @@ app.patch('/api/orders/:id/status', requireAuth, async (req, res) => {
   if (!order) return res.status(404).json({ error: 'Order not found' });
 
   const isAdmin = req.user && req.user.role === 'ADMIN';
-  if (!isAdmin && order.user_id !== req.user.userId && order.stockist_id !== req.user.userId) {
+  const callerStockist = await getCallerStockist(req);
+  if (!isAdmin && (!callerStockist || order.stockist_id !== callerStockist.id)) {
     return res.status(403).json({ error: 'Not authorized for this order' });
   }
 
@@ -3382,6 +3383,10 @@ app.patch('/api/orders/:id/status', requireAuth, async (req, res) => {
           code: 'PIN_REQUIRED'
         });
       }
+    }
+  } else if ((status === 'DELIVERED' || status === 'PICKED_UP') && isAdmin) {
+    if (order.fulfillment_type === 'PICKUP' || order.fulfillment_type === 'DELIVERY') {
+      await appendAudit(req, 'ADMIN_MANUAL_DELIVERY_OVERRIDE', 'orders', id, null, { note: `Admin overridden PIN for ${status}` });
     }
   }
 
