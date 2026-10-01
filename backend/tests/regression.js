@@ -4592,9 +4592,23 @@ async function main() {
   const adminDocRes5 = await get('http://localhost:3001/api/admin/kyc/u-stk5/document', { headers: { 'x-admin-user-id': 'u-admin' } });
   assert(adminDocRes5.status === 200 && adminDocRes5.body.document_photo_url.startsWith('/api/kyc/documents/sample-aadhaar.jpg'), 'GET /api/admin/kyc/:userId/document returns uploaded photo URL');
 
-  // Issue BF18-6b: Static route GET /api/kyc/documents/sample-aadhaar.jpg serves the file
-  const docFileRes = await get('http://localhost:3001' + adminDocRes5.body.document_photo_url);
-  assert(docFileRes.status === 200, 'GET /api/kyc/documents/sample-aadhaar.jpg returns 200');
+  // Test #810: Setup sample file and fetch with signed URL token
+  const testFilename = 'sample-aadhaar.jpg';
+  const testFilepath = path.join(__dirname, '../uploads/kyc', testFilename);
+  if (!fs.existsSync(path.dirname(testFilepath))) {
+    fs.mkdirSync(path.dirname(testFilepath), { recursive: true });
+  }
+  fs.writeFileSync(testFilepath, 'fake-image-content');
+  
+  const tokenForTest = currentToken;
+  const docFileRes = await get('http://localhost:3001' + adminDocRes5.body.document_photo_url + '?token=' + tokenForTest);
+  assert(docFileRes.status === 200, 'GET /api/kyc/documents/sample-aadhaar.jpg returns 200 with token (Test #810)');
+
+  clearLogin();
+  // Test #811: Fetch without signed token returns 401
+  const docFileRes401 = await get('http://localhost:3001' + adminDocRes5.body.document_photo_url);
+  assert(docFileRes401.status === 401, 'GET /api/kyc/documents/sample-aadhaar.jpg without token returns 401 (Test #811)');
+  loginAs('u-admin', 'ADMIN');
 
   // Issue BF18-6b: App.jsx contains Show, Hide, View Document buttons, revealedIds state, and showKycDocumentModal
   const appCodeFinal = fs.readFileSync(path.join(__dirname, '../../frontend/src/App.jsx'), 'utf8');

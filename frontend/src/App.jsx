@@ -4651,8 +4651,9 @@ export default function App() {
         }
         const apiOrigin = API_BASE.replace(/\/api\/?$/, '');
         const resolvedUrl = /^https?:\/\//i.test(docUrl) ? docUrl : `${apiOrigin}${docUrl}`;
+        const urlWithToken = resolvedUrl + '?token=' + (localStorage.getItem('token') || '');
         setSelectedKycDocument({
-          url: resolvedUrl,
+          url: urlWithToken,
           userName: u.name,
           idType: data.id_type || u.kyc_id_type || 'ID',
           idNumber: data.id_number || u.kyc_id_number || ''

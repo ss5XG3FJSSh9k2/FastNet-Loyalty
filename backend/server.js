@@ -980,8 +980,38 @@ app.post('/api/customer/register-with-referral', async (req, res) => {
 });
 
 // Serve KYC document photo
-app.get('/api/kyc/documents/:filename', (req, res) => {
+app.get('/api/kyc/documents/:filename', async (req, res, next) => {
+  if (req.query.token) {
+    req.headers.authorization = 'Bearer ' + req.query.token;
+  }
+  next();
+}, requireAuth, async (req, res) => {
   const filename = req.params.filename;
+  
+  // Verify ownership
+  let ownerId = null;
+  const match = filename.match(/^kyc_([^_]+)_/);
+  if (match) {
+    ownerId = match[1];
+  } else {
+    const users = await db.getTable('users');
+    const owner = users.find(u => {
+      if (u.kyc_details && typeof u.kyc_details === 'string') {
+        return u.kyc_details.includes(filename);
+      } else if (u.kyc_details && u.kyc_details.document_photo_url) {
+        return u.kyc_details.document_photo_url.includes(filename);
+      } else if (u.document_photo_url) {
+        return u.document_photo_url.includes(filename);
+      }
+      return false;
+    });
+    if (owner) ownerId = owner.id;
+  }
+
+  if (req.user.role !== 'ADMIN' && req.user.userId !== ownerId) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+
   const ext = path.extname(filename).toLowerCase();
   const mimeType = ext === '.png' ? 'image/png' : ext === '.gif' ? 'image/gif' : ext === '.webp' ? 'image/webp' : ext === '.pdf' ? 'application/pdf' : 'image/jpeg';
   const filepath = path.join(__dirname, 'uploads', 'kyc', filename);
@@ -1241,6 +1271,7 @@ const handleCreateProductRoute = async (req, res) => {
   const category = req.body.category || 'groceries';
   const initialStock = req.body.initialStock !== undefined ? req.body.initialStock : (req.body.stock_qty !== undefined ? req.body.stock_qty : req.body.initial_stock);
   const stockistId = req.body.stockistId || req.body.stockist_id || (req.user && req.user.id) || 's1';
+  if (!await assertOwnsStockist(req, res, stockistId)) return;
   const regionId = req.body.regionId || req.body.region_id || (req.user && req.user.region_id) || 'r1';
   const description = req.body.description;
   const imageUrl = req.body.image_url;
@@ -1349,16 +1380,18 @@ const handleCreateProductRoute = async (req, res) => {
   return res.json({ success: true, product_id: productId, product: newProduct, bill_photo: billPhotoRow });
 };
 
-app.post('/api/products', uploadBillMiddleware, handleCreateProductRoute);
-app.post('/api/stockist/products', uploadBillMiddleware, handleCreateProductRoute);
+app.post('/api/products', requireAuth, uploadBillMiddleware, handleCreateProductRoute);
+app.post('/api/stockist/products', requireAuth, uploadBillMiddleware, handleCreateProductRoute);
 
-app.patch('/api/products/:id', uploadBillMiddleware, async (req, res) => {
+app.patch('/api/products/:id', requireAuth, uploadBillMiddleware, async (req, res) => {
   const { id } = req.params;
   const stockistId = req.body.stockistId || req.body.stockist_id;
+  if (stockistId && !await assertOwnsStockist(req, res, stockistId)) return;
 
   if (!stockistId) {
     return res.status(400).json({ error: 'Missing stockistId' });
   }
+  if (!await assertOwnsStockist(req, res, stockistId)) return;
 
   // Ownership check
   const inventory = await db.getTable('stockist_inventory');
@@ -1483,8 +1516,12 @@ app.patch('/api/products/:id', uploadBillMiddleware, async (req, res) => {
 });
 
 // GET /api/products/:id/bill-history
-app.get('/api/products/:id/bill-history', async (req, res) => {
+app.get('/api/products/:id/bill-history', requireAuth, async (req, res) => {
   const { id } = req.params;
+  const products = await db.getTable('products');
+  const product = products.find(p => p.id === id);
+  if (!product) return res.status(404).json({ error: 'Product not found' });
+  if (!await assertOwnsStockist(req, res, product.stockist_id)) return;
   const billPhotos = await db.getTable('product_bill_photos');
   const history = billPhotos
     .filter(b => b.product_id === id)
@@ -1911,8 +1948,9 @@ async function resolveStockistRate(stockistId) {
   return stkRates.length > 0 ? stkRates[stkRates.length - 1].rate_percent : 10.0;
 }
 
-app.patch('/api/stockist/profile', async (req, res) => {
-  const stockistId = req.headers['x-user-id'];
+app.patch('/api/stockist/profile', requireAuth, async (req, res) => {
+  const stockistId = req.headers['x-user-id'] || req.body.stockistId || req.body.stockist_id;
+  if (!await assertOwnsStockist(req, res, stockistId)) return;
   try {
     if (!stockistId) return res.status(403).json({ error: 'Unauthorized' });
     // Check if they are trying to patch a specific ID that isn't theirs
@@ -2112,6 +2150,7 @@ app.get('/api/stockists/by-user/:userId', async (req, res) => {
 
 app.get('/api/stockists/:id', async (req, res) => {
   const { id } = req.params;
+  if (!await assertOwnsStockist(req, res, id)) return;
   const stockists = await db.getTable('stockists');
   const users = await db.getTable('users');
   const stockist = stockists.find(s => s.id === id);
@@ -2122,8 +2161,9 @@ app.get('/api/stockists/:id', async (req, res) => {
   });
 });
 
-app.get('/api/stockists/:id/stats', async (req, res) => {
+app.get('/api/stockists/:id/stats', requireAuth, async (req, res) => {
   const { id } = req.params;
+  if (!await assertOwnsStockist(req, res, id)) return;
   const stockists = await db.getTable('stockists');
   const users = await db.getTable('users');
   const stockist = stockists.find(s => s.id === id);
@@ -2204,8 +2244,9 @@ app.get('/api/stockists/:id/stats', async (req, res) => {
 });
 
 // Restock inventory
-app.post('/api/stockists/restock', async (req, res) => {
+app.post('/api/stockists/restock', requireAuth, async (req, res) => {
   const { stockistId, items, vendorId } = req.body;
+  if (!await assertOwnsStockist(req, res, stockistId)) return;
   if (!stockistId || !items || !Array.isArray(items)) {
     return res.status(400).json({ error: 'Invalid restock parameters' });
   }
@@ -2461,8 +2502,16 @@ async function enrichOrder(o, req = null) {
 
   const platformPayout = payout ? parseFloat(payout.platform_amount) : (platformCommission + (o.low_order_fee || 0));
 
+  let strippedPin = o.pickup_pin;
+  if (req && req.user && req.user.role !== 'ADMIN' && req.user.role !== 'CUSTOMER') {
+    strippedPin = undefined;
+  } else if (!req || !req.user) {
+    strippedPin = undefined;
+  }
+
   return {
     ...o,
+    pickup_pin: strippedPin,
     commission_model: o.commission_model || 'gross_v1',
     items,
     pointsCredited: o.points_credited !== undefined ? o.points_credited : 0,
@@ -2579,6 +2628,8 @@ async function runFraudDetection(order, customer) {
 // POST /api/orders & /api/orders/create — multi-store aware, slot-required, HELD payment, CONFIRMING state
 const handleCreateOrderRoute = async (req, res) => {
   // Supports both old format { customerId, stockistId, items, fulfillmentType }
+  if (req.user && req.user.role === 'CUSTOMER' && !assertSelfOrAdmin(req, res, req.body.customerId)) return;
+
   // and new format { customerId, stores: [{ stockistId, items, pickupSlot }], fulfillmentType, paymentMethod }
   const { customerId, fulfillmentType, paymentMethod } = req.body;
   let stores = req.body.stores;
@@ -2950,15 +3001,16 @@ const handleCreateOrderRoute = async (req, res) => {
     order: createdOrders[0]
   });
 };
-app.post('/api/orders', handleCreateOrderRoute);
-app.post('/api/orders/create', handleCreateOrderRoute);
+app.post('/api/orders', requireAuth, handleCreateOrderRoute);
+app.post('/api/orders/create', requireAuth, handleCreateOrderRoute);
 
 // Cancel an order — enforces cancel window
-app.post('/api/orders/:id/cancel', async (req, res) => {
+app.post('/api/orders/:id/cancel', requireAuth, async (req, res) => {
   const { id } = req.params;
   const orders = await db.getTable('orders');
   const order = orders.find(o => o.id === id);
   if (!order) return res.status(404).json({ error: 'Order not found' });
+  if (req.user.role !== 'ADMIN' && req.user.userId !== order.customer_id) return res.status(403).json({ error: 'Forbidden' });
 
   if (['CANCELLED', 'DELIVERED'].includes(order.status)) {
     return res.status(400).json({ error: 'Order is already completed or cancelled' });
@@ -3003,7 +3055,7 @@ app.post('/api/orders/:id/cancel', async (req, res) => {
 });
 
 // No-show action: RESCHEDULE or CANCEL
-app.post('/api/orders/:id/noshw-action', async (req, res) => {
+app.post('/api/orders/:id/noshw-action', requireAuth, async (req, res) => {
   const { id } = req.params;
   const { action, newSlot } = req.body;
 
@@ -3014,6 +3066,8 @@ app.post('/api/orders/:id/noshw-action', async (req, res) => {
   const orders = await db.getTable('orders');
   const order = orders.find(o => o.id === id);
   if (!order) return res.status(404).json({ error: 'Order not found' });
+  if (!await assertOrderAccess(req, res, order)) return;
+  if (req.user.role === 'STOCKIST') return res.status(403).json({ error: 'Forbidden' });
 
   if (action === 'RESCHEDULE') {
     if (order.reschedule_used) {
@@ -3050,13 +3104,17 @@ app.post('/api/orders/:id/noshw-action', async (req, res) => {
 });
 
 // Verify pickup PIN and complete order
-app.post('/api/orders/:id/verify-pickup', async (req, res) => {
+app.post('/api/orders/:id/verify-pickup', requireAuth, async (req, res) => {
   const { id } = req.params;
   const { pin } = req.body;
 
   const orders = await db.getTable('orders');
   const order = orders.find(o => o.id === id);
   if (!order) return res.status(404).json({ error: 'Order not found' });
+  if (req.user.role !== 'ADMIN') {
+    const callerStockist = await getCallerStockist(req);
+    if (!callerStockist || callerStockist.id !== order.stockist_id) return res.status(403).json({ error: 'Forbidden' });
+  }
 
   if (order.pickup_pin !== pin) {
     return res.status(400).json({ error: 'Incorrect pickup verification PIN.' });
@@ -3274,9 +3332,9 @@ app.get('/api/config/vapid', (req, res) => {
 });
 
 // Save Push Subscription
-app.post('/api/stockist/push-subscription', async (req, res) => {
-  const stockistId = req.headers['x-user-id'];
-  if (!stockistId) return res.status(403).json({ error: 'Unauthorized' });
+app.post('/api/stockist/push-subscription', requireAuth, async (req, res) => {
+  const stockistId = req.body.stockistId || req.headers['x-user-id'];
+  if (!await assertOwnsStockist(req, res, stockistId)) return;
   const { subscription } = req.body;
   if (!subscription || !subscription.endpoint) return res.status(400).json({ error: 'Invalid subscription' });
   
@@ -3302,7 +3360,7 @@ app.post('/api/stockist/push-subscription', async (req, res) => {
 });
 
 // Acknowledge Order
-app.patch('/api/orders/:id/acknowledge', async (req, res) => {
+app.patch('/api/orders/:id/acknowledge', requireAuth, async (req, res) => {
   const stockistId = req.headers['x-user-id'];
   if (!stockistId) return res.status(403).json({ error: 'Unauthorized' });
   
@@ -3320,8 +3378,17 @@ app.patch('/api/orders/:id/acknowledge', async (req, res) => {
 });
 
 
-app.get('/api/orders', async (req, res) => {
-  const { customerId, stockistId } = req.query;
+app.get('/api/orders', requireAuth, async (req, res) => {
+  let { customerId, stockistId } = req.query;
+  if (req.user.role === 'CUSTOMER') {
+    if (customerId && customerId !== req.user.userId) return res.status(403).json({ error: 'Forbidden' });
+    customerId = req.user.userId;
+  } else if (req.user.role === 'STOCKIST') {
+    const callerStockist = await getCallerStockist(req);
+    if (!callerStockist) return res.status(403).json({ error: 'Forbidden' });
+    if (stockistId && stockistId !== callerStockist.id) return res.status(403).json({ error: 'Forbidden' });
+    stockistId = callerStockist.id;
+  }
   const orders = await db.getTable('orders');
   let filtered = orders;
 
@@ -3489,13 +3556,15 @@ app.patch('/api/orders/:id/status', requireAuth, async (req, res) => {
 });
 
 // PATCH fulfillment — slot change enforced, one-way delivery switch
-app.patch('/api/orders/:id/fulfillment', async (req, res) => {
+app.patch('/api/orders/:id/fulfillment', requireAuth, async (req, res) => {
   const { id } = req.params;
   const { fulfillmentType, pickupSlot } = req.body;
 
   const orders = await db.getTable('orders');
   const order = orders.find(o => o.id === id);
   if (!order) return res.status(404).json({ error: 'Order not found' });
+  if (!await assertOrderAccess(req, res, order)) return;
+  if (req.user.role === 'STOCKIST') return res.status(403).json({ error: 'Forbidden' });
 
   if (fulfillmentType) {
     if (fulfillmentType === 'PICKUP') {
@@ -3553,7 +3622,7 @@ app.patch('/api/orders/:id/fulfillment', async (req, res) => {
 });
 
 // Offline sync
-app.post('/api/orders/sync', async (req, res) => {
+app.post('/api/orders/sync', requireAuth, async (req, res) => {
   const { updates } = req.body;
   if (!updates || !Array.isArray(updates)) {
     return res.status(400).json({ error: 'Invalid sync payload' });
@@ -3962,8 +4031,9 @@ app.post('/api/admin/payouts/mark-paid', async (req, res) => {
 // POINTS LEDGER & REDEMPTION ENDPOINTS
 // ----------------------------------------------------
 
-app.get('/api/ledger/balance/:customerId', async (req, res) => {
+app.get('/api/ledger/balance/:customerId', requireAuth, async (req, res) => {
   const { customerId } = req.params;
+  if (!assertSelfOrAdmin(req, res, customerId)) return;
   const ledger = await db.getTable('points_ledger');
   const customerLedger = ledger.filter(l => l.customer_id === customerId);
   
@@ -3981,8 +4051,9 @@ app.get('/api/ledger/balance/:customerId', async (req, res) => {
   });
 });
 
-app.get('/api/ledger/history/:customerId', async (req, res) => {
+app.get('/api/ledger/history/:customerId', requireAuth, async (req, res) => {
   const { customerId } = req.params;
+  if (!assertSelfOrAdmin(req, res, customerId)) return;
   const ledger = await db.getTable('points_ledger');
   const customerLedger = ledger.filter(l => l.customer_id === customerId).reverse();
   return res.json(customerLedger);
@@ -4003,8 +4074,9 @@ function getRedemptionDescription(type, pts) {
   return 'Redeemed points against Broadband Bill';
 }
 
-app.post('/api/ledger/redeem', async (req, res) => {
+app.post('/api/ledger/redeem', requireAuth, async (req, res) => {
   const customerId = req.body.customerId || req.body.customer_user_id;
+  if (!assertSelfOrAdmin(req, res, customerId)) return;
   const { amount, redemptionType, partner_package_id, generic_reward_id } = req.body;
   if (!customerId || !amount || parseFloat(amount) <= 0) {
     return res.status(400).json({ error: 'Invalid redemption parameters' });
@@ -4180,9 +4252,10 @@ app.post('/api/ledger/redeem', async (req, res) => {
   return res.json(responseObj);
 });
 
-app.get(['/api/customer/rewards/available/:customerUserId', '/api/customer/available-rewards'], async (req, res) => {
+app.get(['/api/customer/rewards/available/:customerUserId', '/api/customer/available-rewards'], requireAuth, async (req, res) => {
   try {
     const customerId = req.params.customerUserId || req.query.customerId;
+  if (!assertSelfOrAdmin(req, res, customerId)) return;
     if (!customerId) {
       return res.status(400).json({ error: 'customerId parameter or query is required' });
     }
@@ -4320,8 +4393,9 @@ app.get(['/api/customer/rewards/available/:customerUserId', '/api/customer/avail
 // FEEDBACK & REPORT ENDPOINTS
 // ----------------------------------------------------
 
-app.post('/api/feedback', async (req, res) => {
+app.post('/api/feedback', requireAuth, async (req, res) => {
   const { reporterId, reporterRole, targetId, targetRole, orderId, rating, reason, reportFlag } = req.body;
+  if (!assertSelfOrAdmin(req, res, reporterId)) return;
   if (!reporterId || !reporterRole || !targetId || !targetRole || !orderId || rating === undefined) {
     return res.status(400).json({ error: 'Reporter, target, order ID, and rating are required.' });
   }
@@ -5124,9 +5198,10 @@ app.post(['/api/admin/stockist/:id/cod-commission/mark-paid', '/api/admin/stocki
 });
 
 // Self-service Phone Change Requests & Verification
-app.post('/api/customer/phone-change/request', async (req, res) => {
+app.post('/api/customer/phone-change/request', requireAuth, async (req, res) => {
   let { user_id, new_phone } = req.body;
   if (!user_id || !new_phone) {
+  if (!assertSelfOrAdmin(req, res, user_id)) return;
     return res.status(400).json({ error: 'User ID and new phone number are required' });
   }
   const validPhone = checkPhone(new_phone, res);
@@ -5151,9 +5226,10 @@ app.post('/api/customer/phone-change/request', async (req, res) => {
   }
 });
 
-app.post('/api/customer/phone-change/verify', async (req, res) => {
+app.post('/api/customer/phone-change/verify', requireAuth, async (req, res) => {
   let { user_id, new_phone, current_otp, new_otp, otp } = req.body;
   if (!user_id || !new_phone) {
+  if (!assertSelfOrAdmin(req, res, user_id)) return;
     return res.status(400).json({ error: 'User ID and new phone are required' });
   }
   const checkCurrent = current_otp || otp;
@@ -5181,8 +5257,9 @@ app.post('/api/customer/phone-change/verify', async (req, res) => {
 });
 
 // Self-service Customer Region Change
-app.post('/api/customer/region-change', async (req, res) => {
+app.post('/api/customer/region-change', requireAuth, async (req, res) => {
   const { user_id, new_region_id } = req.body;
+  if (!assertSelfOrAdmin(req, res, user_id)) return;
   if (!user_id || !new_region_id) {
     return res.status(400).json({ error: 'User ID and new region ID are required' });
   }
@@ -5286,8 +5363,9 @@ app.post('/api/admin/stockist-vendors', async (req, res) => {
   return res.json({ success: true, stockistVendors });
 });
 
-app.get('/api/stockists/:stockistId/vendors', async (req, res) => {
+app.get('/api/stockists/:stockistId/vendors', requireAuth, async (req, res) => {
   const { stockistId } = req.params;
+  if (!await assertOwnsStockist(req, res, stockistId)) return;
   const stockistVendors = await db.getTable('stockist_vendors');
   const vendors = await db.getTable('vendors');
   const approvedIds = stockistVendors.filter(sv => sv.stockist_id === stockistId).map(sv => sv.vendor_id);
@@ -5645,8 +5723,9 @@ app.get('/api/admin/audit-log', async (req, res) => {
 });
 
 // Customer Fraud Report Submission
-app.post('/api/customer/fraud-reports', async (req, res) => {
+app.post('/api/customer/fraud-reports', requireAuth, async (req, res) => {
   const { customerId, subject, description, linkedEntityType, linkedEntityId } = req.body;
+  if (!assertSelfOrAdmin(req, res, customerId)) return;
   if (!subject || !subject.trim()) {
     return res.status(400).json({ error: 'Subject is required' });
   }
@@ -7322,7 +7401,7 @@ app.post('/api/admin/partners/:id/packages/:packageId/reactivate', async (req, r
 });
 
 // Partner-self Package Endpoints (/api/partner/packages)
-app.post('/api/partner/packages', async (req, res) => {
+app.post('/api/partner/packages', requireAuth, async (req, res) => {
   const session = await getPartnerSession(req);
   if (!session) return res.status(401).json({ error: 'Unauthorized' });
 
@@ -7391,7 +7470,7 @@ app.post('/api/partner/packages', async (req, res) => {
   return res.json(newPkg);
 });
 
-app.patch('/api/partner/packages/:packageId', async (req, res) => {
+app.patch('/api/partner/packages/:packageId', requireAuth, async (req, res) => {
   const session = await getPartnerSession(req);
   if (!session) return res.status(401).json({ error: 'Unauthorized' });
 
@@ -7432,7 +7511,7 @@ app.patch('/api/partner/packages/:packageId', async (req, res) => {
   return res.json(pkg);
 });
 
-app.post('/api/partner/packages/:packageId/deactivate', async (req, res) => {
+app.post('/api/partner/packages/:packageId/deactivate', requireAuth, async (req, res) => {
   const session = await getPartnerSession(req);
   if (!session) return res.status(401).json({ error: 'Unauthorized' });
 
@@ -7451,7 +7530,7 @@ app.post('/api/partner/packages/:packageId/deactivate', async (req, res) => {
   return res.json(pkg);
 });
 
-app.post('/api/partner/packages/:packageId/reactivate', async (req, res) => {
+app.post('/api/partner/packages/:packageId/reactivate', requireAuth, async (req, res) => {
   const session = await getPartnerSession(req);
   if (!session) return res.status(401).json({ error: 'Unauthorized' });
 
@@ -7471,8 +7550,9 @@ app.post('/api/partner/packages/:packageId/reactivate', async (req, res) => {
 });
 
 // Part 5 — Customer Partner Bindings
-app.post('/api/customer/partner-bindings', async (req, res) => {
+app.post('/api/customer/partner-bindings', requireAuth, async (req, res) => {
   const { customer_user_id, cable_partner_id, broadband_partner_id } = req.body;
+  if (!assertSelfOrAdmin(req, res, customer_user_id)) return;
   if (!customer_user_id) return res.status(400).json({ error: 'customer_user_id is required' });
 
   const users = await db.getTable('users');
@@ -7528,8 +7608,9 @@ app.post('/api/customer/partner-bindings', async (req, res) => {
   return res.json(binding);
 });
 
-app.get('/api/customer/partner-bindings/:customer_user_id', async (req, res) => {
+app.get('/api/customer/partner-bindings/:customer_user_id', requireAuth, async (req, res) => {
   const { customer_user_id } = req.params;
+  if (customer_user_id && !assertSelfOrAdmin(req, res, customer_user_id)) return;
   const bindings = await db.getTable('customer_partner_bindings');
   const binding = bindings.find(b => b.customer_user_id === customer_user_id);
   return res.json(binding || null);
@@ -7582,8 +7663,9 @@ app.get('/api/customer/available-partners', async (req, res) => {
   return res.json(await getAvailablePartnersForRegion(region_id));
 });
 
-app.get('/api/customer/:id/profile', async (req, res) => {
+app.get('/api/customer/:id/profile', requireAuth, async (req, res) => {
   const { id } = req.params;
+  if (!assertSelfOrAdmin(req, res, id)) return;
   const users = await db.getTable('users');
   const user = users.find(u => u.id === id && u.role === 'CUSTOMER');
   if (!user) return res.status(404).json({ error: 'Customer not found' });
@@ -7600,8 +7682,9 @@ app.get('/api/customer/:id/profile', async (req, res) => {
   });
 });
 
-app.post('/api/customer/:id/profile', async (req, res) => {
+app.post('/api/customer/:id/profile', requireAuth, async (req, res) => {
   const { id } = req.params;
+  if (!assertSelfOrAdmin(req, res, id)) return;
   const { name, address } = req.body;
   const users = await db.getTable('users');
   const user = users.find(u => u.id === id && u.role === 'CUSTOMER');
@@ -7617,8 +7700,9 @@ app.post('/api/customer/:id/profile', async (req, res) => {
   return res.json({ success: true, user: sanitizeUser(user) });
 });
 
-app.get('/api/customer/partner-bindings/:customer_user_id/available', async (req, res) => {
+app.get('/api/customer/partner-bindings/:customer_user_id/available', requireAuth, async (req, res) => {
   const { customer_user_id } = req.params;
+  if (!assertSelfOrAdmin(req, res, customer_user_id)) return;
   const users = await db.getTable('users');
   const customer = users.find(u => u.id === customer_user_id);
   if (!customer || !customer.region_id) {
@@ -8004,7 +8088,7 @@ app.post('/api/admin/redemption-approvals/:id/resolve-dispute', async (req, res)
 });
 
 // 1.4 Partner Endpoints (Session-authed)
-app.get('/api/partner/redemption-queue', async (req, res) => {
+app.get('/api/partner/redemption-queue', requireAuth, async (req, res) => {
   const session = await getPartnerSession(req);
   if (!session) return res.status(401).json({ error: 'Unauthorized' });
 
@@ -8031,7 +8115,7 @@ app.get('/api/partner/redemption-queue', async (req, res) => {
   return res.json(result);
 });
 
-app.get('/api/partner/redemption-history', async (req, res) => {
+app.get('/api/partner/redemption-history', requireAuth, async (req, res) => {
   const session = await getPartnerSession(req);
   if (!session) return res.status(401).json({ error: 'Unauthorized' });
 
@@ -8059,7 +8143,7 @@ app.get('/api/partner/redemption-history', async (req, res) => {
   return res.json(result);
 });
 
-app.post('/api/partner/redemption-approvals/:id/fulfill', async (req, res) => {
+app.post('/api/partner/redemption-approvals/:id/fulfill', requireAuth, async (req, res) => {
   const session = await getPartnerSession(req);
   if (!session) return res.status(401).json({ error: 'Unauthorized' });
 
@@ -8103,7 +8187,7 @@ app.post('/api/partner/redemption-approvals/:id/fulfill', async (req, res) => {
   return res.json(approval);
 });
 
-app.post('/api/partner/redemption-approvals/:id/dispute', async (req, res) => {
+app.post('/api/partner/redemption-approvals/:id/dispute', requireAuth, async (req, res) => {
   const session = await getPartnerSession(req);
   if (!session) return res.status(401).json({ error: 'Unauthorized' });
 
@@ -8151,13 +8235,14 @@ app.post('/api/partner/redemption-approvals/:id/dispute', async (req, res) => {
 });
 
 // 1.5 Customer Status Endpoint
-app.get('/api/customer/redemption-status/:approval_id', async (req, res) => {
+app.get('/api/customer/redemption-status/:approval_id', requireAuth, async (req, res) => {
   const { approval_id } = req.params;
   const { customer_user_id } = req.query;
 
   const approvals = await db.getTable('redemption_approvals');
   const approval = approvals.find(a => a.id === approval_id);
   if (!approval) return res.status(404).json({ error: 'Redemption approval not found' });
+  if (!assertSelfOrAdmin(req, res, approval.customer_user_id)) return;
 
   if (customer_user_id && approval.customer_user_id !== customer_user_id) {
     return res.status(403).json({ error: 'Forbidden' });
@@ -8176,8 +8261,9 @@ app.get('/api/customer/redemption-status/:approval_id', async (req, res) => {
   });
 });
 
-app.get('/api/customer/redemptions/:customerUserId', async (req, res) => {
+app.get('/api/customer/redemptions/:customerUserId', requireAuth, async (req, res) => {
   const { customerUserId } = req.params;
+  if (!assertSelfOrAdmin(req, res, customerUserId)) return;
   const approvals = await db.getTable('redemption_approvals');
   const partners = await db.getTable('partners');
   const packages = await db.getTable('partner_packages');
@@ -8320,7 +8406,7 @@ app.get('/api/admin/health', async (req, res) => {
 // --- Round P4a: Partner App Backend ---
 
 // Part 1: Partner Dashboard Summary
-app.get('/api/partner/dashboard', async (req, res) => {
+app.get('/api/partner/dashboard', requireAuth, async (req, res) => {
   const session = await getPartnerSession(req);
   if (!session) return res.status(401).json({ error: 'Unauthorized or invalid session' });
 
@@ -8602,7 +8688,7 @@ app.get('/api/regions', async (req, res) => {
 });
 
 // Part 2: Partner Region Self-Management
-app.get('/api/partner/regions', async (req, res) => {
+app.get('/api/partner/regions', requireAuth, async (req, res) => {
   const session = await getPartnerSession(req);
   if (!session) return res.status(401).json({ error: 'Unauthorized or invalid session' });
 
@@ -8621,7 +8707,7 @@ app.get('/api/partner/regions', async (req, res) => {
   return res.json(result);
 });
 
-app.post('/api/partner/regions', async (req, res) => {
+app.post('/api/partner/regions', requireAuth, async (req, res) => {
   const session = await getPartnerSession(req);
   if (!session) return res.status(401).json({ error: 'Unauthorized or invalid session' });
 
@@ -8665,7 +8751,7 @@ app.post('/api/partner/regions', async (req, res) => {
   return res.json(newRow);
 });
 
-app.post('/api/partner/regions/:regionRowId/deactivate', async (req, res) => {
+app.post('/api/partner/regions/:regionRowId/deactivate', requireAuth, async (req, res) => {
   const session = await getPartnerSession(req);
   if (!session) return res.status(401).json({ error: 'Unauthorized or invalid session' });
 
@@ -8703,7 +8789,7 @@ app.post('/api/partner/regions/:regionRowId/deactivate', async (req, res) => {
   return res.json(row);
 });
 
-app.post('/api/partner/regions/:regionRowId/reactivate', async (req, res) => {
+app.post('/api/partner/regions/:regionRowId/reactivate', requireAuth, async (req, res) => {
   const session = await getPartnerSession(req);
   if (!session) return res.status(401).json({ error: 'Unauthorized or invalid session' });
 
@@ -8723,7 +8809,7 @@ app.post('/api/partner/regions/:regionRowId/reactivate', async (req, res) => {
   return res.json(row);
 });
 
-app.delete('/api/partner/regions/:regionRowId', async (req, res) => {
+app.delete('/api/partner/regions/:regionRowId', requireAuth, async (req, res) => {
   const session = await getPartnerSession(req);
   if (!session) return res.status(401).json({ error: 'Unauthorized or invalid session' });
 
@@ -8756,7 +8842,7 @@ app.delete('/api/partner/regions/:regionRowId', async (req, res) => {
 });
 
 // Part 3: Partner Profile
-app.get('/api/partner/me', async (req, res) => {
+app.get('/api/partner/me', requireAuth, async (req, res) => {
   const session = await getPartnerSession(req);
   if (!session) return res.status(401).json({ error: 'Unauthorized or invalid session' });
 
@@ -8790,7 +8876,7 @@ app.get('/api/partner/me', async (req, res) => {
   });
 });
 
-app.patch('/api/partner/me', async (req, res) => {
+app.patch('/api/partner/me', requireAuth, async (req, res) => {
   const session = await getPartnerSession(req);
   if (!session) return res.status(401).json({ error: 'Unauthorized or invalid session' });
 
@@ -8876,7 +8962,7 @@ app.patch('/api/partner/me', async (req, res) => {
 });
 
 // Part 4: Partner Feedback
-app.post('/api/partner/feedback', async (req, res) => {
+app.post('/api/partner/feedback', requireAuth, async (req, res) => {
   const session = await getPartnerSession(req);
   if (!session) return res.status(401).json({ error: 'Unauthorized or invalid session' });
 
@@ -8918,7 +9004,7 @@ app.post('/api/partner/feedback', async (req, res) => {
   return res.json(newFeedback);
 });
 
-app.get('/api/partner/feedback', async (req, res) => {
+app.get('/api/partner/feedback', requireAuth, async (req, res) => {
   const session = await getPartnerSession(req);
   if (!session) return res.status(401).json({ error: 'Unauthorized or invalid session' });
 
@@ -9002,7 +9088,7 @@ app.post('/api/admin/partner-feedback/:id/status', async (req, res) => {
 });
 
 // Part 5: Partner Notifications
-app.get('/api/partner/notifications', async (req, res) => {
+app.get('/api/partner/notifications', requireAuth, async (req, res) => {
   const session = await getPartnerSession(req);
   if (!session) return res.status(401).json({ error: 'Unauthorized or invalid session' });
 
@@ -9019,7 +9105,7 @@ app.get('/api/partner/notifications', async (req, res) => {
   return res.json(result);
 });
 
-app.post('/api/partner/notifications/mark-read', async (req, res) => {
+app.post('/api/partner/notifications/mark-read', requireAuth, async (req, res) => {
   const session = await getPartnerSession(req);
   if (!session) return res.status(401).json({ error: 'Unauthorized or invalid session' });
 
