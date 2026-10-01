@@ -2910,8 +2910,14 @@ async function main() {
   assert(aData.stockists.kyc_pending_count === kycQueueCheck.body.length, 'stockists.kyc_pending_count matches length of kyc-queue response');
 
   // Test #480: Admin without valid credentials cannot reach /api/admin/analytics (401 or 403)
-  const unauthAnalytics = await get('http://localhost:3001/api/admin/analytics?admin_id=invalid-admin-id', { headers: { Authorization: 'Bearer bad_token' } });
+  clearLogin();
+  const unauthAnalytics = await get('http://localhost:3001/api/admin/analytics?admin_id=invalid-admin-id');
   assert(unauthAnalytics.status === 401 || unauthAnalytics.status === 403, 'Admin without valid credentials cannot reach /api/admin/analytics (401 or 403)');
+  
+  // Test #480b: Admin with bad token cannot reach /api/admin/analytics (401 or 403)
+  const unauthAnalyticsBadToken = await get('http://localhost:3001/api/admin/analytics?admin_id=invalid-admin-id', { headers: { Authorization: 'Bearer bad_token' } });
+  assert(unauthAnalyticsBadToken.status === 401 || unauthAnalyticsBadToken.status === 403, 'Admin with bad token cannot reach /api/admin/analytics (401 or 403)');
+  loginAs('u-admin', 'ADMIN');
 
   // Test #481: Response includes generated_at timestamp within 5s of current time
   const genTime = new Date(aData.generated_at).getTime();
@@ -3867,11 +3873,20 @@ async function main() {
   assert(realAdminAnalyticsRes.status === 200 && realAdminAnalyticsRes.body.orders, 'GET /api/admin/analytics with real setup admin ID header returns 200');
 
   // Test #694: Endpoint: GET /api/admin/analytics with non-existent ID -> 401
+  clearLogin();
   const badAdminAnalyticsRes = await get('http://localhost:3001/api/admin/analytics', {
-    headers: { 'Authorization': 'Bearer bad_token' }
+    headers: { 'x-admin-id': 'u-nonexistent-admin-999' }
   });
   if (badAdminAnalyticsRes.status !== 401) console.error('Status was:', badAdminAnalyticsRes.status, badAdminAnalyticsRes.body);
   assert(badAdminAnalyticsRes.status === 401, 'GET /api/admin/analytics with non-existent ID header returns 401');
+
+  // Test #694b: Endpoint: GET /api/admin/analytics with bad token -> 401
+  const badAdminAnalyticsResBadToken = await get('http://localhost:3001/api/admin/analytics', {
+    headers: { 'Authorization': 'Bearer bad_token' }
+  });
+  if (badAdminAnalyticsResBadToken.status !== 401) console.error('Status was:', badAdminAnalyticsResBadToken.status, badAdminAnalyticsResBadToken.body);
+  assert(badAdminAnalyticsResBadToken.status === 401, 'GET /api/admin/analytics with bad token returns 401');
+  loginAs('u-admin', 'ADMIN');
 
   // Test #695: Grep: a single SERVICE_TYPES constant exists and the B2B form maps over it
   const serviceTypesConstDef = appContent.includes('const SERVICE_TYPES = [') && appContent.includes("{ value: 'CABLE',");
