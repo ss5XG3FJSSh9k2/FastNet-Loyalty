@@ -539,7 +539,7 @@ select option:disabled {
 /* Custom Admin Dashboard Layout */
 .admin-container {
   width: 100%;
-  max-width: 1200px;
+  max-width: none;
   margin: 0 auto;
   display: flex;
   flex-direction: column;

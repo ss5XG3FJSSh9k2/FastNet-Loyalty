@@ -5363,7 +5363,10 @@ async function main() {
   assert(bfAppJsx.includes('<PanelErrorBoundary key={activeRole} t={t}>{renderStockistView()}</PanelErrorBoundary>'), 'renderStockistView is wrapped in PanelErrorBoundary');
   assert(bfAppJsx.includes("if (activeRole === 'admin' && currentUser?.role === 'ADMIN')"), 'admin startup calls have currentUser role guard');
 
-
+  // BF-ADMIN-FULLWIDTH Regression Tests
+  const bfIndexCss = fs.readFileSync(path.join(__dirname, '../../frontend/src/index.css'), 'utf8');
+  assert(!bfIndexCss.includes('.admin-container {\\n  width: 100%;\\n  max-width: 1200px;') && bfIndexCss.includes('max-width: none;'), '.admin-container does not contain max-width: 1200px and contains max-width: none');
+  assert(bfIndexCss.includes('grid-template-columns: 240px minmax(0, 1fr);'), '.admin-grid still contains minmax(0, 1fr)');
 
   console.log(`\\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);
