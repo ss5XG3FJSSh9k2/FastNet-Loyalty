@@ -136,6 +136,8 @@ const getServiceTypeLabel = (st) => {
   return item ? item.label : st;
 };
 
+const asList = (res, data, fallback = []) => (res && res.ok && Array.isArray(data) ? data : fallback);
+
 class PanelErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
@@ -149,15 +151,21 @@ class PanelErrorBoundary extends React.Component {
   }
   render() {
     if (this.state.hasError) {
+      const t = this.props.t || ((en, hi, bn) => en);
       return (
         <div style={{ padding: '2rem', background: 'rgba(239, 68, 68, 0.1)', border: '1px solid var(--danger)', borderRadius: '8px', color: 'var(--danger)', margin: '1rem 0' }}>
-          <h3 style={{ marginBottom: '0.5rem' }}>Unable to load panel</h3>
+          <h3 style={{ marginBottom: '0.5rem' }}>{t('Unable to load panel', 'पैनल लोड करने में असमर्थ', 'প্যানেল লোড করতে অক্ষম')}</h3>
           <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '1rem' }}>
-            An unexpected error occurred while rendering this view ({this.state.error?.message || 'Unknown error'}).
+            {t('An unexpected error occurred while rendering this view', 'यह दृश्य प्रस्तुत करते समय एक अप्रत्याशित त्रुटि हुई', 'এই ভিউ রেন্ডার করার সময় একটি অপ্রত্যাশিত ত্রুটি ঘটেছে')} ({this.state.error?.message || t('Unknown error', 'अज्ञात त्रुटि', 'অজানা ত্রুটি')}).
           </p>
-          <button className="btn btn-secondary" onClick={() => this.setState({ hasError: false, error: null })}>
-            Try Again
-          </button>
+          <div style={{ display: 'flex', gap: '1rem' }}>
+            <button className="btn btn-secondary" onClick={() => this.setState({ hasError: false, error: null })}>
+              {t('Try Again', 'पुनः प्रयास करें', 'আবার চেষ্টা করুন')}
+            </button>
+            <button className="btn btn-primary" onClick={() => window.location.reload()}>
+              {t('Reload', 'पुनः लोड करें', 'রিলোড করুন')}
+            </button>
+          </div>
         </div>
       );
     }
@@ -1376,7 +1384,7 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (!dbState?.orders || !currentUser?.id) return;
+    if (!Array.isArray(dbState?.orders) || !currentUser?.id) return;
     const myDelivered = dbState.orders.filter(
       o => o.customer_id === currentUser.id && o.status === 'DELIVERED'
     );
@@ -2355,19 +2363,20 @@ export default function App() {
         }
 
         // Mock state representation of tables for the inspector
-        setDbState({
+        setDbState(prev => ({
+          ...(prev || {}),
           users: [], // we will fetch user list or mock it
-          orders,
-          commission_rates: rates,
-          anomaly_logs: anomalies,
-          points_ledger: redemptions, // we will enrich this
-          products: productsList,
-          vendors: vendorsList,
-          stockist_commission_rates: stockistCommissionRates,
-          points_earn_config: pointsEarnConfigs,
-          feedback_reports: feedbackReports,
-          partner_leads: leads
-        });
+          orders: asList(ordersRes, orders, prev?.orders || []),
+          commission_rates: asList(ratesRes, rates, prev?.commission_rates || []),
+          anomaly_logs: asList(anomaliesRes, anomalies, prev?.anomaly_logs || []),
+          points_ledger: asList(redRes, redemptions, prev?.points_ledger || []),
+          products: asList(prodRes, productsList, prev?.products || []),
+          vendors: asList(vendorsRes, vendorsList, prev?.vendors || []),
+          stockist_commission_rates: asList(scrRes, stockistCommissionRates, prev?.stockist_commission_rates || []),
+          points_earn_config: asList(pecRes, pointsEarnConfigs, prev?.points_earn_config || []),
+          feedback_reports: asList(fbRes, feedbackReports, prev?.feedback_reports || []),
+          partner_leads: asList(leadsRes, leads, prev?.partner_leads || [])
+        }));
         if (activeRole === 'admin' || currentUser?.role === 'ADMIN') {
           fetchAnalytics();
         }
@@ -2823,6 +2832,7 @@ export default function App() {
   };
 
   const syncInspectorTable = async () => {
+    if (!currentUser) return;
     try {
       const ordersRes = await fetch(`${API_BASE}/orders`);
       const list = await ordersRes.json().catch(() => ({}));
@@ -2854,18 +2864,19 @@ export default function App() {
       const leadsRes = await fetch(`${API_BASE}/admin/partner-leads`);
       const leads = await leadsRes.json().catch(() => ({}));
 
-      setDbState({
-        orders: list,
-        commission_rates: rates,
-        anomaly_logs: anomalies,
-        points_ledger: red,
-        products: prods,
-        vendors: vens,
-        stockist_commission_rates: scrs,
-        points_earn_config: pecs,
-        feedback_reports: fbs,
-        partner_leads: leads
-      });
+      setDbState(prev => ({
+        ...(prev || {}),
+        orders: asList(ordersRes, list, prev?.orders || []),
+        commission_rates: asList(ratesRes, rates, prev?.commission_rates || []),
+        anomaly_logs: asList(anomaliesRes, anomalies, prev?.anomaly_logs || []),
+        points_ledger: asList(redRes, red, prev?.points_ledger || []),
+        products: asList(prodRes, prods, prev?.products || []),
+        vendors: asList(venRes, vens, prev?.vendors || []),
+        stockist_commission_rates: asList(scrRes, scrs, prev?.stockist_commission_rates || []),
+        points_earn_config: asList(pecRes, pecs, prev?.points_earn_config || []),
+        feedback_reports: asList(fbRes, fbs, prev?.feedback_reports || []),
+        partner_leads: asList(leadsRes, leads, prev?.partner_leads || [])
+      }));
     } catch (err) {
       console.log('Error syncing inspector:', err);
     }
@@ -2925,7 +2936,7 @@ export default function App() {
     } else if (currentUser && currentUser.role === 'PARTNER_ADMIN') {
       loadPartnerAppData();
     }
-    if (activeRole === 'admin') {
+    if (activeRole === 'admin' && currentUser?.role === 'ADMIN') {
       fetchAnalytics();
       fetchAdminRegions();
       fetchAdminPayouts();
@@ -11566,7 +11577,7 @@ export default function App() {
       );
     }
 
-    const refundDueCount = dbState?.orders?.filter(o => o.payment_status === 'REFUND_DUE').length || 0;
+    const refundDueCount = (Array.isArray(dbState?.orders) ? dbState.orders : []).filter(o => o.payment_status === 'REFUND_DUE').length || 0;
     const payoutsDue = (adminPayouts || []).filter(p => !p.is_paid && p.direction === 'OUTGOING');
     const commissionOwed = (adminPayouts || []).filter(p => !p.is_paid && p.source === 'cod_commission_ledger');
     const partnerPayoutsDue = adminPartnerPayouts.filter(p => p.amount_owed > 0);
@@ -14606,7 +14617,7 @@ export default function App() {
                       </tr>
                     </thead>
                     <tbody>
-                      {dbState?.orders?.map(o => {
+                      {(Array.isArray(dbState?.orders) ? dbState.orders : []).map(o => {
                         const isRefundDue = o.payment_status === 'REFUND_DUE';
                         const platformCommission = o.platform_amount || 0;
                         const orderAmountPaid = o.amount_paid !== undefined && o.amount_paid !== null ? o.amount_paid : o.total_price;
@@ -15125,12 +15136,12 @@ export default function App() {
       {/* Workspace Area */}
       <div className="workspace-content">
         <main className="main-viewport">
-          {activeRole === 'marketing' && renderMarketingView()}
-          {activeRole === 'customer' && renderCustomerView()}
-          {activeRole === 'stockist' && renderStockistView()}
-          {activeRole === 'partner' && renderPartnerView()}
-          {activeRole === 'admin' && renderAdminView()}
-          {activeRole === 'db' && renderDbInspector()}
+          {activeRole === 'marketing' && <PanelErrorBoundary key={activeRole} t={t}>{renderMarketingView()}</PanelErrorBoundary>}
+          {activeRole === 'customer' && <PanelErrorBoundary key={activeRole} t={t}>{renderCustomerView()}</PanelErrorBoundary>}
+          {activeRole === 'stockist' && <PanelErrorBoundary key={activeRole} t={t}>{renderStockistView()}</PanelErrorBoundary>}
+          {activeRole === 'partner' && <PanelErrorBoundary key={activeRole} t={t}>{renderPartnerView()}</PanelErrorBoundary>}
+          {activeRole === 'admin' && <PanelErrorBoundary key={activeRole} t={t}>{renderAdminView()}</PanelErrorBoundary>}
+          {activeRole === 'db' && <PanelErrorBoundary key={activeRole} t={t}>{renderDbInspector()}</PanelErrorBoundary>}
 
           {/* Redemption Detail Modal Overlay */}
           {selectedRedemptionDetail && (

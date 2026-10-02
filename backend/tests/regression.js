@@ -5352,6 +5352,18 @@ async function main() {
   loginAs('u-admin', 'ADMIN');
   await post('http://localhost:3001/api/admin/override-table', { table: 'stockists', id: 's1', patch: { region_id: 'r1' } });
 
+  // BF-LOGIN-BLANK Regression Tests
+  const bfAppJsx = fs.readFileSync(path.join(__dirname, '../../frontend/src/App.jsx'), 'utf8');
+  assert(bfAppJsx.includes('if (!currentUser) return;') && bfAppJsx.includes('syncInspectorTable'), 'syncInspectorTable has currentUser guard');
+  assert(!bfAppJsx.includes('dbState?.orders?.filter'), 'No raw dbState?.orders?.filter');
+  assert(!bfAppJsx.includes('dbState?.orders?.map'), 'No raw dbState?.orders?.map');
+  assert(bfAppJsx.includes('asList('), 'asList helper is used in setDbState');
+  assert(bfAppJsx.includes('<PanelErrorBoundary key={activeRole} t={t}>{renderAdminView()}</PanelErrorBoundary>'), 'renderAdminView is wrapped in PanelErrorBoundary');
+  assert(bfAppJsx.includes('<PanelErrorBoundary key={activeRole} t={t}>{renderCustomerView()}</PanelErrorBoundary>'), 'renderCustomerView is wrapped in PanelErrorBoundary');
+  assert(bfAppJsx.includes('<PanelErrorBoundary key={activeRole} t={t}>{renderStockistView()}</PanelErrorBoundary>'), 'renderStockistView is wrapped in PanelErrorBoundary');
+  assert(bfAppJsx.includes("if (activeRole === 'admin' && currentUser?.role === 'ADMIN')"), 'admin startup calls have currentUser role guard');
+
+
 
   console.log(`\\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);
