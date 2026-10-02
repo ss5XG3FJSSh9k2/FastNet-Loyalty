@@ -7405,7 +7405,6 @@ export default function App() {
           </p>
           <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', marginTop: '1rem' }}>
             <button className="btn" onClick={() => switchViewToRole('customer')}>Shop Groceries Now</button>
-            <button className="btn btn-secondary" onClick={() => switchViewToRole('admin')}>Open Admin Console</button>
           </div>
         </div>
 

@@ -5414,6 +5414,16 @@ async function main() {
   const bfKycAppJsx = fs.readFileSync(path.join(__dirname, '../../frontend/src/App.jsx'), 'utf8');
   assert(!bfKycAppJsx.includes('?token='), '(h) App.jsx contains no token URL param');
 
+  console.log('\\n--- BF-HERO-ADMIN ---');
+  const bfHeroAppJsx = fs.readFileSync(path.join(__dirname, '../../frontend/src/App.jsx'), 'utf8');
+  assert(!bfHeroAppJsx.includes('Open Admin Console'), 'App.jsx does not contain "Open Admin Console"');
+  const mktViewStart = bfHeroAppJsx.indexOf('const renderMarketingView =');
+  const custViewStart = bfHeroAppJsx.indexOf('const renderCustomerView =');
+  const renderMktBody = bfHeroAppJsx.substring(mktViewStart, custViewStart);
+  assert(renderMktBody.includes("Shop Groceries Now") && renderMktBody.includes("switchViewToRole('customer')"), "renderMarketingView body contains 'Shop Groceries Now' with switchViewToRole('customer')");
+  assert(!renderMktBody.includes("switchViewToRole('admin')"), "renderMarketingView body does NOT contain switchViewToRole('admin')");
+
+
   console.log(`\\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);
 
