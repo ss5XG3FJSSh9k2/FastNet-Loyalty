@@ -3246,6 +3246,9 @@ export default function App() {
     const stockist = stockistId ? customerStockists.find(s => s.id === stockistId) : null;
     const region = stockist ? regions.find(r => r.id === stockist.region_id) : null;
     calculatedDeliveryFee = region && region.delivery_fee !== undefined && region.delivery_fee !== null ? parseFloat(region.delivery_fee) : 0.00;
+    if (region && (region.delivery_fee === undefined || region.delivery_fee === null)) {
+      calculatedDeliveryFee = 0; // Handled by button disable logic, just safe fallback
+    }
   }
   const cartDeliveryFee = calculatedDeliveryFee;
   
@@ -7994,14 +7997,16 @@ export default function App() {
                                 </div>
 
 {(() => {
-                                    const region = regions.find(r => r.id === o.region_id);
+                                    const stockist = customerStockists.find(s => s.id === o.stockist_id);
+                                    const region = stockist ? regions.find(r => r.id === stockist.region_id) : null;
                                     const deliveryFeeVal = region && region.delivery_fee !== undefined && region.delivery_fee !== null ? parseFloat(region.delivery_fee) : null;
-                                    if (deliveryFeeVal === null) return null;
+                                    const isDisabled = deliveryFeeVal === null;
                                     return (
                                       <button 
                                         className="btn" 
-                                        style={{ width: '100%', padding: '0.3rem', fontSize: '0.65rem', marginTop: '0.5rem', background: 'rgba(236,72,153,0.1)', color: 'var(--secondary)', border: '1px solid var(--secondary)' }}
-                                        onClick={() => triggerConfirmModal(
+                                        disabled={isDisabled}
+                                        style={{ width: '100%', padding: '0.3rem', fontSize: '0.65rem', marginTop: '0.5rem', background: 'rgba(236,72,153,0.1)', color: 'var(--secondary)', border: '1px solid var(--secondary)', opacity: isDisabled ? 0.5 : 1, cursor: isDisabled ? 'not-allowed' : 'pointer' }}
+                                        onClick={() => !isDisabled && triggerConfirmModal(
                                           t('Switch to Delivery', 'डिलिवरी पर स्विच करें', 'ডেলিভারিতে পরিবর্তন করুন'),
                                           t('Are you sure you want to switch to delivery? A delivery fee of ₹', 'क्या आप डिलीवरी पर स्विच करना चाहते हैं? आपके ऑर्डर में ₹', 'আপনি কি নিশ্চিত যে আপনি ডেলিভারিতে পরিবর্তন করতে চান? আপনার অর্ডারে ₹') + deliveryFeeVal + t(' will be added to your order.', ' का डिलीवरी शुल्क जोड़ा जाएगा।', ' ডেলিভারি ফি যোগ করা হবে।'),
                                           () => handleSwitchToDelivery(o.id),
@@ -8010,7 +8015,7 @@ export default function App() {
                                           t('No', 'नहीं', 'না')
                                         )}
                                       >
-                                        {t('Switch to Delivery', 'डिलिवरी पर स्विच करें', 'ডেলিভারি মোডে যান')} (+₹{deliveryFeeVal})
+                                        {t('Switch to Delivery', 'डिलिवरी पर स्विच करें', 'ডেলিভারি মোডে যান')} {!isDisabled && `(+₹${deliveryFeeVal})`}
                                       </button>
                                     );
                                   })()}
@@ -8482,19 +8487,24 @@ export default function App() {
                             {(() => {
                               const storeCount = new Set(currentCart.map(i => i.stockistId)).size;
                               const multiStore = storeCount > 1;
+                              const stockist = customerStockists.find(s => s.id === (currentCart[0]?.stockistId));
+                              const region = stockist ? regions.find(r => r.id === stockist.region_id) : null;
+                              const feeKnown = region && region.delivery_fee !== undefined && region.delivery_fee !== null;
+                              const disabledReason = multiStore ? t('Multi-store orders: pickup only', 'मल्टी-स्टोर: केवल पिकअप', 'একাধিক দোকান: শুধুমাত্র পিকআপ') : (!feeKnown ? t('Home delivery is not available for this shop yet', 'इस दुकान के लिए होम डिलीवरी अभी उपलब्ध नहीं है', 'এই দোকানের জন্য এখনও হোম ডেলিভারি উপলব্ধ নয়') : '');
+                              const isDisabled = multiStore || !feeKnown;
                               return (
                                 <button
-                                  type="button" disabled={multiStore} onClick={() => !multiStore && setCartFulfillment('DELIVERY')}
-                                  title={multiStore ? t('Multi-store orders: pickup only', 'मल्टी-स्टोर: केवल पिकअप', 'একাধিক দোকান: শুধুমাত্র পিকআপ') : ''}
+                                  type="button" disabled={isDisabled} onClick={() => !isDisabled && setCartFulfillment('DELIVERY')}
+                                  title={disabledReason}
                                   style={{
                                     flex: 1, padding: '0.6rem', fontSize: '0.8rem', fontWeight: 'bold', borderRadius: '6px', border: 'none',
-                                    cursor: multiStore ? 'not-allowed' : 'pointer', opacity: multiStore ? 0.4 : 1,
+                                    cursor: isDisabled ? 'not-allowed' : 'pointer', opacity: isDisabled ? 0.4 : 1,
                                     background: cartFulfillment === 'DELIVERY' ? 'var(--primary)' : 'transparent', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.35rem'
                                   }}
                                 >
                                   <Truck size={16} />
                                   {t('Home Delivery', 'होम डिलीवरी', 'হোম ডেলিভারি')}
-                                  {multiStore && <span style={{ fontSize: '0.55rem', display: 'block' }}>(multi-store: pickup only)</span>}
+                                  {isDisabled && <span style={{ fontSize: '0.55rem', display: 'block' }}>({disabledReason})</span>}
                                 </button>
                               );
                             })()}
@@ -9442,14 +9452,16 @@ export default function App() {
                               {o.fulfillment_type === 'PICKUP' && o.status !== 'DELIVERED' && o.status !== 'CANCELLED' && o.status !== 'CONFIRMING' ? (
                                 <div>
 {(() => {
-                                    const region = regions.find(r => r.id === o.region_id);
+                                    const stockist = customerStockists.find(s => s.id === o.stockist_id);
+                                    const region = stockist ? regions.find(r => r.id === stockist.region_id) : null;
                                     const deliveryFeeVal = region && region.delivery_fee !== undefined && region.delivery_fee !== null ? parseFloat(region.delivery_fee) : null;
-                                    if (deliveryFeeVal === null) return null;
+                                    const isDisabled = deliveryFeeVal === null;
                                     return (
                                       <button 
                                         className="btn" 
-                                        style={{ width: '100%', padding: '0.3rem', fontSize: '0.65rem', marginTop: '0.5rem', background: 'rgba(236,72,153,0.1)', color: 'var(--secondary)', border: '1px solid var(--secondary)' }}
-                                        onClick={() => triggerConfirmModal(
+                                        disabled={isDisabled}
+                                        style={{ width: '100%', padding: '0.3rem', fontSize: '0.65rem', marginTop: '0.5rem', background: 'rgba(236,72,153,0.1)', color: 'var(--secondary)', border: '1px solid var(--secondary)', opacity: isDisabled ? 0.5 : 1, cursor: isDisabled ? 'not-allowed' : 'pointer' }}
+                                        onClick={() => !isDisabled && triggerConfirmModal(
                                           t('Switch to Delivery', 'डिलिवरी पर स्विच करें', 'ডেলিভারিতে পরিবর্তন করুন'),
                                           t('Are you sure you want to switch to delivery? A delivery fee of ₹', 'क्या आप डिलीवरी पर स्विच करना चाहते हैं? आपके ऑर्डर में ₹', 'আপনি কি নিশ্চিত যে আপনি ডেলিভারিতে পরিবর্তন করতে চান? আপনার অর্ডারে ₹') + deliveryFeeVal + t(' will be added to your order.', ' का डिलीवरी शुल्क जोड़ा जाएगा।', ' ডেলিভারি ফি যোগ করা হবে।'),
                                           () => handleSwitchToDelivery(o.id),
@@ -9458,7 +9470,7 @@ export default function App() {
                                           t('No', 'नहीं', 'না')
                                         )}
                                       >
-                                        {t('Switch to Delivery', 'डिलिवरी पर स्विच करें', 'ডেলিভারি মোডে যান')} (+₹{deliveryFeeVal})
+                                        {t('Switch to Delivery', 'डिलिवरी पर स्विच करें', 'ডেলিভারি মোডে যান')} {!isDisabled && `(+₹${deliveryFeeVal})`}
                                       </button>
                                     );
                                   })()}
@@ -9859,9 +9871,9 @@ export default function App() {
 
                     const orderedStatuses = ['CONFIRMING', 'PENDING', 'RECEIVED', 'READY', 'DELIVERED'];
                     
-                    const subtotal = (liveOrder.items || []).reduce((sum, item) => sum + (item.price * item.quantity), 0);
-                    const deliveryFee = liveOrder.fulfillment_type === 'DELIVERY' ? (liveOrder.region_id === 'r2' ? 30.00 : 40.00) : 0;
-                    const total = subtotal + deliveryFee;
+                    const subtotal = liveOrder.subtotal !== undefined ? parseFloat(liveOrder.subtotal) : null;
+                    const deliveryFee = liveOrder.delivery_fee !== undefined ? parseFloat(liveOrder.delivery_fee) : null;
+                    const total = liveOrder.total_price !== undefined ? parseFloat(liveOrder.total_price) : null;
 
                     return (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', paddingBottom: '2rem' }}>
@@ -14168,7 +14180,7 @@ export default function App() {
                         <tr style={{ borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)' }}>
                           <th style={{ padding: '0.75rem 0.5rem' }}>Name</th>
                           <th style={{ padding: '0.75rem 0.5rem' }}>Code</th>
-<th style={{ padding: '0.75rem 0.5rem' }}>Del. Fee</th>
+                          <th style={{ padding: '0.75rem 0.5rem' }}>Delivery fee</th>
                           <th style={{ padding: '0.75rem 0.5rem' }}>Users</th>
                           <th style={{ padding: '0.75rem 0.5rem' }}>Stockists</th>
                           <th style={{ padding: '0.75rem 0.5rem' }}>Partners</th>
@@ -14180,7 +14192,7 @@ export default function App() {
                       <tbody>
                         {adminRegionsList.length === 0 ? (
                           <tr>
-                            <td colSpan="8" style={{ padding: '1.5rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+                            <td colSpan="9" style={{ padding: '1.5rem', textAlign: 'center', color: 'var(--text-muted)' }}>
                               No regions configured yet. Click "+ Add Region" to create one.
                             </td>
                           </tr>
@@ -14189,7 +14201,7 @@ export default function App() {
                             <tr key={r.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
                               <td style={{ padding: '0.75rem 0.5rem', fontWeight: 'bold' }}>{r.name}</td>
                               <td style={{ padding: '0.75rem 0.5rem' }}><code>{r.code}</code></td>
-<td style={{ padding: '0.75rem 0.5rem' }}>{r.delivery_fee !== null ? '₹' + r.delivery_fee : 'N/A'}</td>
+<td style={{ padding: '0.75rem 0.5rem' }}>{r.delivery_fee !== null && r.delivery_fee !== undefined ? '₹' + parseFloat(r.delivery_fee).toFixed(2) : <span style={{color: 'var(--text-muted)'}}>Not set — delivery off</span>}</td>
                               <td style={{ padding: '0.75rem 0.5rem' }}>{r.counts?.users || 0}</td>
                               <td style={{ padding: '0.75rem 0.5rem' }}>{r.counts?.stockists || 0}</td>
                               <td style={{ padding: '0.75rem 0.5rem' }}>{r.counts?.partners || 0}</td>
@@ -15722,11 +15734,19 @@ export default function App() {
                 <label className="input-label" style={{ fontWeight: 'bold' }}>Delivery Fee (₹)</label>
                 <input
                   type="number"
+                  min="0"
+                  step="0.01"
+                  inputMode="decimal"
                   className="text-input"
                   placeholder="e.g. 40, leave empty if disabled"
                   value={regionDeliveryFee}
                   onChange={(e) => setRegionDeliveryFee(e.target.value)}
                 />
+                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.25rem', display: 'block' }}>
+                  {t('Charged to customers for Home Delivery from shops in this region. The full fee goes to the shop. Leave empty to turn Home Delivery off for this region.',
+                     'इस क्षेत्र की दुकानों से होम डिलीवरी के लिए ग्राहकों से शुल्क लिया जाता है। पूरा शुल्क दुकान को जाता है। इस क्षेत्र के लिए होम डिलीवरी बंद करने के लिए इसे खाली छोड़ दें।',
+                     'এই অঞ্চলের দোকান থেকে হোম ডেলিভারির জন্য গ্রাহকদের থেকে চার্জ নেওয়া হয়। সম্পূর্ণ ফি দোকানে যায়। এই অঞ্চলের জন্য হোম ডেলিভারি বন্ধ করতে এটি খালি ছেড়ে দিন।')}
+                </span>
               </div>
               <div className="input-group">
                 <label className="input-label" style={{ fontWeight: 'bold' }}>Region Code (URL slug)</label>
