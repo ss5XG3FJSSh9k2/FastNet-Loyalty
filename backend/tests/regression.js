@@ -4602,14 +4602,13 @@ async function main() {
   }
   fs.writeFileSync(testFilepath, 'fake-image-content');
   
-  const tokenForTest = currentToken;
-  const docFileRes = await get('http://localhost:3001' + adminDocRes5.body.document_photo_url + '?token=' + tokenForTest);
-  assert(docFileRes.status === 200, 'GET /api/kyc/documents/sample-aadhaar.jpg returns 200 with token (Test #810)');
+  const docFileRes = await get('http://localhost:3001' + adminDocRes5.body.document_photo_url);
+  assert(docFileRes.status === 200, 'GET /api/kyc/documents/sample-aadhaar.jpg returns 200 with sig (Test #810)');
 
   clearLogin();
-  // Test #811: Fetch without signed token returns 401
+  // Test #811: Fetch with valid sig returns 200 even when logged out
   const docFileRes401 = await get('http://localhost:3001' + adminDocRes5.body.document_photo_url);
-  assert(docFileRes401.status === 401, 'GET /api/kyc/documents/sample-aadhaar.jpg without token returns 401 (Test #811)');
+  assert(docFileRes401.status === 200, 'GET /api/kyc/documents/sample-aadhaar.jpg without token returns 200 (Test #811)');
   loginAs('u-admin', 'ADMIN');
 
   // Issue BF18-6b: App.jsx contains Show, Hide, View Document buttons, revealedIds state, and showKycDocumentModal
@@ -5367,6 +5366,53 @@ async function main() {
   const bfIndexCss = fs.readFileSync(path.join(__dirname, '../../frontend/src/index.css'), 'utf8');
   assert(!bfIndexCss.includes('.admin-container {\\n  width: 100%;\\n  max-width: 1200px;') && bfIndexCss.includes('max-width: none;'), '.admin-container does not contain max-width: 1200px and contains max-width: none');
   assert(bfIndexCss.includes('grid-template-columns: 240px minmax(0, 1fr);'), '.admin-grid still contains minmax(0, 1fr)');
+
+  // BF-KYC-IMG Regression Tests
+  loginAs('u-admin', 'ADMIN');
+  
+  const kycDocRes = await get('http://localhost:3001/api/admin/kyc/u-stk5/document');
+  const signedUrlPath = kycDocRes.body.document_photo_url;
+  assert(signedUrlPath, 'Admin endpoint must return a document_photo_url for u-stk5');
+
+  const kycTestFile = signedUrlPath.split('?')[0].split('/').pop();
+  const kycTestPath = path.join(__dirname, '../uploads/kyc', kycTestFile);
+  if (!fs.existsSync(path.dirname(kycTestPath))) fs.mkdirSync(path.dirname(kycTestPath), { recursive: true });
+  fs.writeFileSync(kycTestPath, 'dummy data');
+  
+  clearLogin();
+  const resA = await new Promise((resolve) => {
+    const targetUrl = signedUrlPath.startsWith('http') ? signedUrlPath : 'http://localhost:3001' + signedUrlPath;
+    http.get(targetUrl, (res) => resolve({ status: res.statusCode, type: res.headers['content-type'] }));
+  });
+  assert(resA.status === 200 && resA.type === 'image/jpeg', '(a) Valid signed URL returns 200 and image content-type');
+
+  const resB = await get('http://localhost:3001' + signedUrlPath.replace(/sig=[a-f0-9]+/, 'sig=0000000000000000000000000000000000000000000000000000000000000000'));
+  assert(resB.status === 401, '(b) Tampered sig returns 401');
+
+  const resC = await get('http://localhost:3001' + signedUrlPath.replace(/expires=\d+/, 'expires=1'));
+  assert(resC.status === 401, '(c) Tampered expires returns 401');
+
+  const plainPath = `/api/kyc/documents/${kycTestFile}`;
+  const resD = await get('http://localhost:3001' + plainPath);
+  assert(resD.status === 401, '(d) No auth/sig returns 401');
+
+  loginAs('u-admin', 'ADMIN');
+  const resE = await get('http://localhost:3001' + plainPath);
+  assert(resE.status === 200, '(e) Admin auth header returns 200');
+
+  loginAs('u-cust2', 'CUSTOMER');
+  const resF = await get('http://localhost:3001' + plainPath);
+  assert(resF.status === 403, '(f) Non-owner auth header returns 403');
+
+  clearLogin();
+  const adminToken = require('../lib/session').signSession('u-admin', 'ADMIN');
+  const resG = await get('http://localhost:3001' + plainPath + '?token=' + adminToken);
+  assert(resG.status === 401, '(g) Query token is ignored and returns 401');
+
+  const bfKycServerJs = fs.readFileSync(path.join(__dirname, '../../backend/server.js'), 'utf8');
+  assert(!bfKycServerJs.includes("|| 'secret'") && !bfKycServerJs.includes('req.query.token'), '(h) server.js contains no secret literal or req.query.token');
+  const bfKycAppJsx = fs.readFileSync(path.join(__dirname, '../../frontend/src/App.jsx'), 'utf8');
+  assert(!bfKycAppJsx.includes('?token='), '(h) App.jsx contains no token URL param');
 
   console.log(`\\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);

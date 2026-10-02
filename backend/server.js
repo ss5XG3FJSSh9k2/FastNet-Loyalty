@@ -979,50 +979,66 @@ app.post('/api/customer/register-with-referral', async (req, res) => {
   return res.json(resObj);
 });
 
+function hasValidKycSignature(req) {
+  const { expires, sig } = req.query;
+  if (!expires || !sig) return false;
+  if (!/^\d+$/.test(expires)) return false;
+  if (!/^[a-f0-9]{64}$/.test(sig)) return false;
+  if (Date.now() > Number(expires)) return false;
+  const crypto = require('crypto');
+  const sessionHelper = require('./lib/session');
+  const expected = crypto.createHmac('sha256', sessionHelper.getSecret()).update(req.path + ':' + expires).digest('hex');
+  const expectedBuf = Buffer.from(expected, 'utf8');
+  const actualBuf = Buffer.from(sig, 'utf8');
+  if (expectedBuf.length !== actualBuf.length) return false;
+  return crypto.timingSafeEqual(expectedBuf, actualBuf);
+}
+
 // Serve KYC document photo
 app.get('/api/kyc/documents/:filename', async (req, res, next) => {
-  if (req.query.token) {
-    req.headers.authorization = 'Bearer ' + req.query.token;
+  if (hasValidKycSignature(req)) {
+    req.kycSigned = true;
+    return next();
   }
-  next();
-}, requireAuth, async (req, res) => {
+  requireAuth(req, res, next);
+}, async (req, res) => {
   const filename = req.params.filename;
   
   // Verify ownership
-  let ownerId = null;
-  const match = filename.match(/^kyc_([^_]+)_/);
-  if (match) {
-    ownerId = match[1];
-  } else {
-    const users = await db.getTable('users');
-    const owner = users.find(u => {
-      if (u.kyc_details && typeof u.kyc_details === 'string') {
-        return u.kyc_details.includes(filename);
-      } else if (u.kyc_details && u.kyc_details.document_photo_url) {
-        return u.kyc_details.document_photo_url.includes(filename);
-      } else if (u.document_photo_url) {
-        return u.document_photo_url.includes(filename);
-      }
-      return false;
-    });
-    if (owner) ownerId = owner.id;
-  }
+  if (!req.kycSigned) {
+    let ownerId = null;
+    const match = filename.match(/^kyc_([^_]+)_/);
+    if (match) {
+      ownerId = match[1];
+    } else {
+      const users = await db.getTable('users');
+      const owner = users.find(u => {
+        if (u.kyc_details && typeof u.kyc_details === 'string') {
+          return u.kyc_details.includes(filename);
+        } else if (u.kyc_details && u.kyc_details.document_photo_url) {
+          return u.kyc_details.document_photo_url.includes(filename);
+        } else if (u.document_photo_url) {
+          return u.document_photo_url.includes(filename);
+        }
+        return false;
+      });
+      if (owner) ownerId = owner.id;
+    }
 
-  if (req.user.role !== 'ADMIN' && req.user.userId !== ownerId) {
-    return res.status(403).json({ error: 'Forbidden' });
+    if (req.user.role !== 'ADMIN' && req.user.userId !== ownerId) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
   }
 
   const ext = path.extname(filename).toLowerCase();
   const mimeType = ext === '.png' ? 'image/png' : ext === '.gif' ? 'image/gif' : ext === '.webp' ? 'image/webp' : ext === '.pdf' ? 'application/pdf' : 'image/jpeg';
   const filepath = path.join(__dirname, 'uploads', 'kyc', filename);
   if (fs.existsSync(filepath)) {
-    res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Content-Type', mimeType);
     return res.sendFile(filepath);
   }
   const tmpPath = path.join('/tmp/kyc-uploads', filename);
   if (fs.existsSync(tmpPath)) {
-    res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Content-Type', mimeType);
     return res.sendFile(tmpPath);
   }
@@ -4669,7 +4685,7 @@ app.get('/api/admin/kyc/:userId/document', async (req, res) => {
     const crypto = require('crypto');
     const ttl = (cfg.KYC_DOC_URL_TTL_SECONDS || 300) * 1000;
     const expires = Date.now() + ttl;
-    const secret = process.env.JWT_SECRET || 'secret';
+    const secret = require('./lib/session').getSecret();
     let pathPart = docUrl;
     try { const u = new URL(docUrl, 'http://localhost'); pathPart = u.pathname; } catch(e) {}
     const sig = crypto.createHmac('sha256', secret).update(pathPart + ':' + expires).digest('hex');

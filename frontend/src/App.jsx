@@ -4665,9 +4665,8 @@ export default function App() {
         }
         const apiOrigin = API_BASE.replace(/\/api\/?$/, '');
         const resolvedUrl = /^https?:\/\//i.test(docUrl) ? docUrl : `${apiOrigin}${docUrl}`;
-        const urlWithToken = resolvedUrl + '?token=' + (localStorage.getItem('token') || '');
         setSelectedKycDocument({
-          url: urlWithToken,
+          url: resolvedUrl,
           userName: u.name,
           idType: data.id_type || u.kyc_id_type || 'ID',
           idNumber: data.id_number || u.kyc_id_number || ''
@@ -17214,7 +17213,7 @@ export default function App() {
                   const msg = document.createElement('div');
                   msg.style.color = '#ef4444';
                   msg.style.padding = '2rem';
-                  msg.innerHTML = `Document could not be loaded<br/><small style="word-break:break-all">${selectedKycDocument.url}</small>`;
+                  msg.textContent = t('Document could not be loaded', 'दस्तावेज़ लोड नहीं किया जा सका', 'ডকুমেন্ট লোড করা যায়নি');
                   e.target.parentNode.appendChild(msg);
                 }}
               />
