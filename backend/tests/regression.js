@@ -1616,7 +1616,8 @@ async function main() {
   const p2_pkgCost = p2_targetPkg.point_cost;
 
   // Test 1: Customer redeems partner package with matching binding -> 200, status=PENDING_ADMIN_APPROVAL
-  await post('http://localhost:3001/api/admin/customers/u-cust1/points-credit', { amount: 2000, reason: 'Test setup' });
+  await post('http://localhost:3001/api/admin/customers/u-cust1/points-credit', { amount: 1000, reason: 'Test setup 1' });
+  await post('http://localhost:3001/api/admin/customers/u-cust1/points-credit', { amount: 1000, reason: 'Test setup 2' });
 
   await post('http://localhost:3001/api/customer/partner-bindings', {
     customer_user_id: 'u-cust1',
@@ -3099,7 +3100,8 @@ async function main() {
   assert(custRedemptionsRes.status === 200 && Array.isArray(custRedemptionsRes.body), 'GET /api/customer/redemptions/u-cust1 returns 200 array');
 
   // Test #514: Endpoint test: After u-cust1 redeems a package, the new redemption_approval appears with status PENDING_ADMIN_APPROVAL
-  await post('http://localhost:3001/api/admin/customers/u-cust1/points-credit', { amount: 2000, reason: 'Test setup' });
+  await post('http://localhost:3001/api/admin/customers/u-cust1/points-credit', { amount: 1000, reason: 'Test setup 1' });
+  await post('http://localhost:3001/api/admin/customers/u-cust1/points-credit', { amount: 1000, reason: 'Test setup 2' });
   await post('http://localhost:3001/api/customer/partner-bindings', {
     customer_user_id: 'u-cust1',
     cable_partner_id: 'ptr-adhya'
@@ -4408,7 +4410,7 @@ async function main() {
     region_id: 'r1',
     bill_invoice_url: 'http://example.com/bill.jpg'
   }, { rawJson: true });
-  assert(noNameProdRes.status === 400 && noNameProdRes.body.error === 'Product name is required', 'POST /api/products without product name returns 400 error');
+  assert(noNameProdRes.status === 400 && noNameProdRes.body.error === 'validation_failed', 'POST /api/products without product name returns 400 error');
 
   // Test 784: POST /api/stockist/products with product name returns 200
   const validProdRes = await post('http://localhost:3001/api/stockist/products', {
@@ -4483,7 +4485,7 @@ async function main() {
     region_id: 'r1',
     bill_invoice_url: 'http://example.com/bill.jpg'
   }, { rawJson: true });
-  assert(shortNameProdRes.status === 400 && (shortNameProdRes.body.error === 'Product name is required' || shortNameProdRes.body.error?.includes('name')), 'POST /api/products with name < 2 chars returns 400');
+  assert(shortNameProdRes.status === 400 && (shortNameProdRes.body.error === 'validation_failed' || shortNameProdRes.body.error === 'Product name is required' || shortNameProdRes.body.error?.includes('name')), 'POST /api/products with name < 2 chars returns 400');
 
   // Issue 4: Assigning vendor to stockist does not create duplicate stockist rows
   const stkUserToApprove = (await dbModule.getTable('users')).find(u => u.phone === bf17PendingPhone);

@@ -1233,8 +1233,8 @@ const handleCreateProductRoute = async (req, res) => {
   }
 
   const name = String(req.body.name || '').trim();
-  if (name.length < 2) {
-    return res.status(400).json({ error: 'Product name is required' });
+  if (name.length < 2 || name.length > cfg.PRODUCT_NAME_MAX_LENGTH) {
+    return res.status(400).json({ error: 'validation_failed', message: 'Invalid name', fields: { name: `non-empty max ${cfg.PRODUCT_NAME_MAX_LENGTH}` } });
   }
 
   const billUrl = req.body.bill_invoice_url || req.body.bill_photo_url || req.body.billPhotoUrl || req.body.bill_photo;
@@ -1280,14 +1280,17 @@ const handleCreateProductRoute = async (req, res) => {
     return res.status(400).json({ error: 'Missing product fields' });
   }
 
-  const parsedPrice = parseFloat(price);
-  const parsedCostPrice = costPrice !== undefined ? parseFloat(costPrice) : parsedPrice * 0.75;
-
-  if (parsedPrice <= 0) {
-    return res.status(400).json({ error: 'Price must be greater than 0' });
+  const parsedPrice = Number(price);
+  const parsedCostPrice = costPrice !== undefined ? Number(costPrice) : parsedPrice * 0.75;
+  if (!Number.isFinite(parsedPrice) || parsedPrice <= 0 || parsedPrice > cfg.PRODUCT_PRICE_MAX_RUPEES) {
+    return res.status(400).json({ error: 'validation_failed', message: 'Invalid price', fields: { price: `must be > 0 and <= ${cfg.PRODUCT_PRICE_MAX_RUPEES}` } });
   }
-  if (parsedCostPrice < 0 || parsedCostPrice > parsedPrice) {
-    return res.status(400).json({ error: 'Cost price must be between 0 and selling price' });
+  if (!Number.isFinite(parsedCostPrice) || parsedCostPrice < 0 || parsedCostPrice > parsedPrice) {
+    return res.status(400).json({ error: 'validation_failed', message: 'Invalid cost price', fields: { costPrice: 'must be >= 0 and <= price' } });
+  }
+  const initialStockNum = parseInt(initialStock, 10);
+  if (!Number.isInteger(initialStockNum) || initialStockNum < 0 || initialStockNum > cfg.PRODUCT_STOCK_MAX) {
+    return res.status(400).json({ error: 'validation_failed', message: 'Invalid stock', fields: { stock: `integer >= 0 and <= ${cfg.PRODUCT_STOCK_MAX}` } });
   }
 
   // Upload bill to R2
@@ -2748,6 +2751,25 @@ const handleCreateOrderRoute = async (req, res) => {
       return res.status(400).json({ error: 'Each store entry must have a stockistId and items' });
     }
 
+    // Group and aggregate items by productId
+    const aggregatedItemsMap = new Map();
+    for (const item of items) {
+      if (!item.productId) return res.status(400).json({ error: 'validation_failed', message: 'Missing productId', fields: { productId: 'required' } });
+      const qty = item.quantity;
+      if (typeof qty !== 'number' || !Number.isFinite(qty) || !Number.isInteger(qty) || qty < 1 || qty > cfg.MAX_ITEM_QUANTITY_PER_LINE) {
+        return res.status(400).json({ error: 'validation_failed', message: 'Invalid quantity', fields: { quantity: 'must be an integer >= 1 and <= MAX_ITEM_QUANTITY_PER_LINE' } });
+      }
+      if (aggregatedItemsMap.has(item.productId)) {
+        aggregatedItemsMap.get(item.productId).quantity += qty;
+      } else {
+        aggregatedItemsMap.set(item.productId, { ...item, quantity: qty });
+      }
+    }
+    const aggregatedItems = Array.from(aggregatedItemsMap.values());
+    if (!stockistId || !items || items.length === 0) {
+      return res.status(400).json({ error: 'Each store entry must have a stockistId and items' });
+    }
+
     const stockist = stockistsTable.find(s => s.id === stockistId);
     if (!stockist) return res.status(404).json({ error: `Stockist ${stockistId} not found` });
     if (!isCustomerVisible(stockist, users)) {
@@ -2761,7 +2783,7 @@ const handleCreateOrderRoute = async (req, res) => {
     let totalProfitMargin = 0;
     const orderItems = [];
 
-    for (const item of items) {
+    for (const item of aggregatedItems) {
       const product = products.find(p => p.id === item.productId);
       if (!product) return res.status(400).json({ error: `Product ${item.productId} not found` });
       if (product.is_sellable === false) {
@@ -2810,6 +2832,9 @@ const handleCreateOrderRoute = async (req, res) => {
 
     const totalPrice = subtotal + deliveryFee;
     const amountPaid = totalPrice - couponDiscount;
+    if (subtotal <= 0 || totalPrice <= 0) {
+      return res.status(400).json({ error: 'validation_failed', message: 'Order total must be positive', fields: { total_price: 'must be > 0' } });
+    }
 
     const reqModel = req.body.commission_model || (!req.body.stores ? 'gross_v1' : 'profit_v2');
     let settlement;
@@ -5925,12 +5950,12 @@ app.post('/api/admin/customers/:id/phone-change', async (req, res) => {
 app.post('/api/admin/customers/:id/points-credit', async (req, res) => {
   const { id } = req.params;
   const { amount, reason } = req.body;
-  const numAmount = parseFloat(amount);
-  if (isNaN(numAmount) || numAmount <= 0) {
-    return res.status(400).json({ error: 'Amount must be a positive number' });
+  const numAmount = Number(amount);
+  if (!Number.isFinite(numAmount) || numAmount <= 0 || numAmount > cfg.MANUAL_CREDIT_MAX_POINTS) {
+    return res.status(400).json({ error: 'validation_failed', message: 'Invalid amount', fields: { amount: `must be > 0 and <= ${cfg.MANUAL_CREDIT_MAX_POINTS}` } });
   }
-  if (!reason || !reason.trim()) {
-    return res.status(400).json({ error: 'Reason is required' });
+  if (typeof reason !== 'string' || !reason.trim() || reason.trim().length < 5) {
+    return res.status(400).json({ error: 'validation_failed', message: 'Invalid reason', fields: { reason: 'must be at least 5 characters' } });
   }
   const users = await db.getTable('users');
   const user = users.find(u => u.id === id && u.role === 'CUSTOMER');
@@ -7736,7 +7761,20 @@ app.get('/api/admin/generic-rewards', async (req, res) => {
 
 app.post('/api/admin/generic-rewards', async (req, res) => {
   const { name, description, point_cost, value_rupees, cooldown_type, cooldown_days, valid_until, min_order_value } = req.body;
-  if (!name || !point_cost) return res.status(400).json({ error: 'Missing fields' });
+  if (typeof name !== 'string' || !name.trim() || name.trim().length < 1 || name.trim().length > cfg.REWARD_NAME_MAX_LENGTH) {
+    return res.status(400).json({ error: 'validation_failed', message: 'Invalid name', fields: { name: 'required and max length' } });
+  }
+  if (description && typeof description === 'string' && description.length > cfg.REWARD_DESCRIPTION_MAX_LENGTH) {
+    return res.status(400).json({ error: 'validation_failed', message: 'Description too long', fields: { description: 'max length' } });
+  }
+  const ptCost = Number(point_cost);
+  if (!Number.isFinite(ptCost) || !Number.isInteger(ptCost) || ptCost < 1 || ptCost > cfg.REWARD_POINT_COST_MAX || (typeof point_cost !== 'number' && !/^\d+$/.test(String(point_cost).trim()))) {
+    return res.status(400).json({ error: 'validation_failed', message: 'Invalid point cost', fields: { point_cost: 'integer >= 1' } });
+  }
+  const valRs = Number(value_rupees);
+  if (!Number.isFinite(valRs) || valRs < 0 || valRs > cfg.REWARD_VALUE_MAX_RUPEES) {
+    return res.status(400).json({ error: 'validation_failed', message: 'Invalid value', fields: { value_rupees: 'number >= 0' } });
+  }
   if (!['NONE', 'DAYS', 'ONCE'].includes(cooldown_type)) return res.status(400).json({ error: 'Invalid cooldown_type' });
   
   let finalCooldownDays = null;
@@ -7790,11 +7828,32 @@ app.patch('/api/admin/generic-rewards/:id', async (req, res) => {
   const reward = rewards.find(r => r.id === id);
   if (!reward) return res.status(404).json({ error: 'Not found' });
 
-  if (name !== undefined) reward.name = name;
-  if (description !== undefined) reward.description = description;
-  if (point_cost !== undefined) reward.point_cost = parseInt(point_cost, 10);
-  if (value_rupees !== undefined) reward.value_rupees = parseFloat(value_rupees);
-  if (is_active !== undefined) reward.is_active = is_active;
+  if (name !== undefined) {
+    if (typeof name !== 'string' || !name.trim() || name.trim().length < 1 || name.trim().length > cfg.REWARD_NAME_MAX_LENGTH) return res.status(400).json({ error: 'validation_failed', message: 'Invalid name', fields: { name: 'required and max length' } });
+    reward.name = name.trim();
+  }
+  if (description !== undefined) {
+    if (description && typeof description === 'string' && description.length > cfg.REWARD_DESCRIPTION_MAX_LENGTH) return res.status(400).json({ error: 'validation_failed', message: 'Description too long', fields: { description: 'max length' } });
+    reward.description = description;
+  }
+  if (point_cost !== undefined) {
+    const ptCost = Number(point_cost);
+    if (!Number.isFinite(ptCost) || !Number.isInteger(ptCost) || ptCost < 1 || ptCost > cfg.REWARD_POINT_COST_MAX || (typeof point_cost !== 'number' && !/^\d+$/.test(String(point_cost).trim()))) {
+      return res.status(400).json({ error: 'validation_failed', message: 'Invalid point cost', fields: { point_cost: 'integer >= 1' } });
+    }
+    reward.point_cost = ptCost;
+  }
+  if (value_rupees !== undefined) {
+    const valRs = Number(value_rupees);
+    if (!Number.isFinite(valRs) || valRs < 0 || valRs > cfg.REWARD_VALUE_MAX_RUPEES) {
+      return res.status(400).json({ error: 'validation_failed', message: 'Invalid value', fields: { value_rupees: 'number >= 0' } });
+    }
+    reward.value_rupees = valRs;
+  }
+  if (is_active !== undefined) {
+    if (typeof is_active !== 'boolean') return res.status(400).json({ error: 'validation_failed', message: 'Invalid is_active', fields: { is_active: 'must be boolean' } });
+    reward.is_active = is_active;
+  }
   
   if (cooldown_type !== undefined) {
     if (!['NONE', 'DAYS', 'ONCE'].includes(cooldown_type)) return res.status(400).json({ error: 'Invalid cooldown_type' });
