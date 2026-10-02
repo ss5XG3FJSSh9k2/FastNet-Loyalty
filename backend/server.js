@@ -9659,6 +9659,24 @@ app.get('/api/config/otp-mode', (req, res) => {
   res.json({ demo: require('./lib/env').isDemoOtpMode() });
 });
 
+app.get('/api/config/calculator', async (req, res) => {
+  try {
+    const configs = await db.getTable('commission_config');
+    const globalConfig = (configs || []).find(c => c.scope === 'GLOBAL');
+    if (!globalConfig) {
+      return res.status(503).json({ error: 'calculator_unavailable' });
+    }
+    const rPct = Number(globalConfig.stockist_reinvest_pct);
+    const pPct = Number(globalConfig.points_from_pot_pct);
+    if (!Number.isFinite(rPct) || rPct < 0 || rPct > 100 || !Number.isFinite(pPct) || pPct < 0 || pPct > 100) {
+      return res.status(503).json({ error: 'calculator_unavailable' });
+    }
+    res.json({ stockist_reinvest_pct: rPct, points_from_pot_pct: pPct });
+  } catch (err) {
+    res.status(503).json({ error: 'calculator_unavailable' });
+  }
+});
+
 function assertProductionConfig() {
   if (process.env.NODE_ENV !== 'production') return;
   const errors = [];

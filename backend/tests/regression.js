@@ -5423,6 +5423,56 @@ async function main() {
   assert(renderMktBody.includes("Shop Groceries Now") && renderMktBody.includes("switchViewToRole('customer')"), "renderMarketingView body contains 'Shop Groceries Now' with switchViewToRole('customer')");
   assert(!renderMktBody.includes("switchViewToRole('admin')"), "renderMarketingView body does NOT contain switchViewToRole('admin')");
 
+  console.log('\\n--- BF-CALC-LIVE ---');
+  clearLogin();
+  const calcRes1 = await get('http://localhost:3001/api/config/calculator');
+  assert(calcRes1.status === 200, '(a) GET /api/config/calculator with NO token -> 200');
+  const calcData1 = calcRes1.body;
+  assert(calcData1 && Object.keys(calcData1).length === 2 && Number.isFinite(calcData1.stockist_reinvest_pct) && Number.isFinite(calcData1.points_from_pot_pct), '(a) Returns exactly two keys, both finite numbers');
+
+  loginAs('u-admin', 'ADMIN');
+  const calcRes2 = await post('http://localhost:3001/api/admin/commission-config', {
+    scope: 'GLOBAL', stockist_reinvest_pct: 60, points_from_pot_pct: 30, partner_redemption_cut_pct: 12
+  });
+  assert(calcRes2.status === 200, '(b) POST /api/admin/commission-config succeeds');
+  
+  clearLogin();
+  const calcRes3 = await get('http://localhost:3001/api/config/calculator');
+  assert(calcRes3.body.stockist_reinvest_pct === 60 && calcRes3.body.points_from_pot_pct === 30, '(b) GET /api/config/calculator returns 60 and 30');
+
+  loginAs('u-admin', 'ADMIN');
+  // Mutate directly bypassing validation
+  await post('http://localhost:3001/api/admin/override-table', {
+    table: 'commission_config', id: 'cc-default', patch: { stockist_reinvest_pct: -1 }
+  });
+  clearLogin();
+  const calcRes5 = await get('http://localhost:3001/api/config/calculator');
+  assert(calcRes5.status === 503 && calcRes5.body.error === 'calculator_unavailable', '(c) Invalid/missing config -> 503 calculator_unavailable');
+  
+  loginAs('u-admin', 'ADMIN');
+  await post('http://localhost:3001/api/admin/commission-config', {
+    scope: 'GLOBAL', stockist_reinvest_pct: 50, points_from_pot_pct: 40, partner_redemption_cut_pct: 12
+  });
+
+  const bfCalcAppJsx = fs.readFileSync(path.join(__dirname, '../../frontend/src/App.jsx'), 'utf8');
+  const calcSectionIdx = bfCalcAppJsx.indexOf('className="calc-section"');
+  const calcSectionStr = bfCalcAppJsx.substring(calcSectionIdx, bfCalcAppJsx.indexOf('Are you a cable/internet operator?'));
+  assert(!calcSectionStr.includes('0.45') && !calcSectionStr.includes('* 0.10'), '(d) App.jsx no longer contains "0.45" or "* 0.10" inside the calculator block');
+  assert(bfCalcAppJsx.includes('CALC_AVG_MARGIN_PCT') && bfCalcAppJsx.includes('/config/calculator'), '(d) App.jsx contains "CALC_AVG_MARGIN_PCT" and "/config/calculator"');
+  assert(!bfCalcAppJsx.includes('Commisions'), '(d) App.jsx does not contain the typo "Commisions"');
+
+  const cCustomers = 25000;
+  const cSpend = 1500;
+  const cMarginPct = 18;
+  const cReinvestPct = 50;
+  const cPointsPct = 40;
+  const cTotalSpend = cCustomers * cSpend;
+  const cMargin = cTotalSpend * cMarginPct / 100;
+  const cPot = cMargin * (1 - cReinvestPct / 100);
+  const cPoints = cPot * cPointsPct / 100;
+  const cComm = cPot - cPoints;
+  assert(cPoints === 1350000 && cComm === 2025000, '(e) Pure-arithmetic check matches points 1350000 and commission 2025000');
+
 
   console.log(`\\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);

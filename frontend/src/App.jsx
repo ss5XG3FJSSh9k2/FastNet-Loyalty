@@ -75,6 +75,7 @@ import {
 } from 'recharts';
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api';
+const CALC_AVG_MARGIN_PCT = 18;
 
 const isWithinOpeningHours = (profile) => {
   if (!profile.opening_time || !profile.closing_time) return true;
@@ -543,6 +544,21 @@ export default function App() {
   const [demoOtpMode, setDemoOtpMode] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
   const [showPersonalDetails, setShowPersonalDetails] = useState(false);
+  const [calcConfig, setCalcConfig] = useState(null); // { stockist_reinvest_pct, points_from_pot_pct }
+
+  useEffect(() => {
+    if (activeRole === 'marketing' && !calcConfig) {
+      fetch(`${API_BASE}/config/calculator`)
+        .then(res => res.ok ? res.json() : null)
+        .then(data => {
+          if (data && typeof data.stockist_reinvest_pct === 'number') {
+            setCalcConfig(data);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [activeRole, calcConfig]);
+  
   const [rejectOrderModal, setRejectOrderModal] = useState(null);
 
   const persistSession = (user, token) => {
@@ -7486,17 +7502,66 @@ export default function App() {
               </div>
 
               <div className="calc-outputs">
-                <div>
-                  <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Platform Commisions Retained</p>
-                  <div className="calc-val">₹{((calcCustomers * calcMarketplace * 0.10)).toLocaleString(undefined, {maximumFractionDigits: 0})}</div>
-                  <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>Per Month (Assuming 10% average commission rate)</p>
-                </div>
-                <hr style={{ borderColor: 'var(--border-color)' }} />
-                <div>
-                  <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Loyalty Points Credited</p>
-                  <div className="calc-val" style={{ color: 'var(--primary)' }}>{((calcCustomers * (calcMarketplace * 0.18) * 0.45)).toLocaleString(undefined, {maximumFractionDigits: 0})} pts</div>
-                  <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>Directly subsidizing customer broadband bills monthly</p>
-                </div>
+                {(() => {
+                  if (!calcConfig) {
+                    return (
+                      <>
+                        <div>
+                          <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{t('Platform Commissions Retained', 'प्लेटफ़ॉर्म कमीशन बरकरार', 'প্ল্যাটফর্ম কমিশন ধরে রাখা হয়েছে')}</p>
+                          <div className="calc-val">-</div>
+                          <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>{t('Per month, assuming {margin}% average product margin', 'प्रति माह, {margin}% औसत उत्पाद मार्जिन मानते हुए', 'প্রতি মাসে, {margin}% গড় পণ্য মার্জিন ধরে').replace('{margin}', CALC_AVG_MARGIN_PCT)}</p>
+                        </div>
+                        <hr style={{ borderColor: 'var(--border-color)' }} />
+                        <div>
+                          <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Loyalty Points Credited</p>
+                          <div className="calc-val" style={{ color: 'var(--primary)' }}>-</div>
+                          <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>Directly subsidizing customer broadband bills monthly</p>
+                        </div>
+                        <hr style={{ borderColor: 'var(--border-color)' }} />
+                        <div>
+                          <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{t('Avg. broadband discount per customer / month', 'प्रति ग्राहक / माह औसत ब्रॉडबैंड छूट', 'প্রতি গ্রাহক / মাসে গড় ব্রডব্যান্ড ডিসকাউন্ট')}</p>
+                          <div className="calc-val" style={{ color: 'var(--primary)' }}>-</div>
+                          <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>-</p>
+                        </div>
+                        <p style={{ color: 'var(--text-muted)', fontSize: '0.65rem', textAlign: 'center', marginTop: '1rem' }}>-</p>
+                      </>
+                    );
+                  }
+
+                  const totalSpend = calcCustomers * calcMarketplace;
+                  const margin = totalSpend * CALC_AVG_MARGIN_PCT / 100;
+                  const platformPot = margin * (1 - calcConfig.stockist_reinvest_pct / 100);
+                  const points = platformPot * calcConfig.points_from_pot_pct / 100;
+                  const commission = platformPot - points;
+                  
+                  const pointsPerCustomer = calcCustomers > 0 ? points / calcCustomers : 0;
+                  const pct = calcBill > 0 ? Math.round(100 * pointsPerCustomer / calcBill) : 0;
+
+                  return (
+                    <>
+                      <div>
+                        <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{t('Platform Commissions Retained', 'प्लेटफ़ॉर्म कमीशन बरकरार', 'প্ল্যাটফর্ম কমিশন ধরে রাখা হয়েছে')}</p>
+                        <div className="calc-val">₹{commission.toLocaleString(undefined, {maximumFractionDigits: 0})}</div>
+                        <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>{t('Per month, assuming {margin}% average product margin', 'प्रति माह, {margin}% औसत उत्पाद मार्जिन मानते हुए', 'প্রতি মাসে, {margin}% গড় পণ্য মার্জিন ধরে').replace('{margin}', CALC_AVG_MARGIN_PCT)}</p>
+                      </div>
+                      <hr style={{ borderColor: 'var(--border-color)' }} />
+                      <div>
+                        <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Loyalty Points Credited</p>
+                        <div className="calc-val" style={{ color: 'var(--primary)' }}>{points.toLocaleString(undefined, {maximumFractionDigits: 0})} pts</div>
+                        <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>Directly subsidizing customer broadband bills monthly</p>
+                      </div>
+                      <hr style={{ borderColor: 'var(--border-color)' }} />
+                      <div>
+                        <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{t('Avg. broadband discount per customer / month', 'प्रति ग्राहक / माह औसत ब्रॉडबैंड छूट', 'প্রতি গ্রাহক / মাসে গড় ব্রডব্যান্ড ডিসকাউন্ট')}</p>
+                        <div className="calc-val" style={{ color: 'var(--primary)' }}>₹{Math.round(pointsPerCustomer).toLocaleString(undefined, {maximumFractionDigits: 0})}</div>
+                        <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>{t('= {pct}% of the average monthly broadband bill', '= औसत मासिक ब्रॉडबैंड बिल का {pct}%', '= গড় মাসিক ব্রডব্যান্ড বিলের {pct}%').replace('{pct}', pct)}</p>
+                      </div>
+                      <p style={{ color: 'var(--text-muted)', fontSize: '0.65rem', textAlign: 'center', marginTop: '1rem' }}>
+                        {t('Based on {reinvest}% of product profit to the shop and {points}% of the platform share credited as points.', 'दुकान को उत्पाद लाभ के {reinvest}% और अंक के रूप में प्लेटफ़ॉर्म शेयर के {points}% पर आधारित।', 'দোকানের পণ্য লাভের {reinvest}% এবং পয়েন্ট হিসাবে প্ল্যাটফর্ম শেয়ারের {points}% এর উপর ভিত্তি করে।').replace('{reinvest}', calcConfig.stockist_reinvest_pct).replace('{points}', calcConfig.points_from_pot_pct)}
+                      </p>
+                    </>
+                  );
+                })()}
               </div>
             </div>
           )}
