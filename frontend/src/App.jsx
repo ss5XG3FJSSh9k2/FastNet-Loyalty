@@ -679,9 +679,7 @@ export default function App() {
     }, 3000);
   };
   
-  // Guided Walkthrough Tour State
-  const [tourStep, setTourStep] = useState(1);
-  const [tourCompleted, setTourCompleted] = useState(false);
+
   const [showDevSettings, setShowDevSettings] = useState(false);
   const [discountApplied, setDiscountApplied] = useState(0);
   const [calculatorCollapsed, setCalculatorCollapsed] = useState(true);
@@ -1926,165 +1924,6 @@ export default function App() {
     return null;
   };
 
-  // ----------------------------------------------------
-  // GUIDED WALKTHROUGH DEMO AUTOMATION
-  // ----------------------------------------------------
-  const handleAutoTourStep = async () => {
-    try {
-      if (tourStep === 1) {
-        // Step 1: Log in customer and fill cart
-        const res = await fetch(`${API_BASE}/auth/verify-otp`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ phone: '9876543210', otp: '123456' })
-        });
-        const data = await res.json().catch(() => ({}));
-        if (res.ok) {
-          persistSession(data.user, data.token);
-          setSelectedRegionId(data.user.region_id);
-          setCustomerAppTab('store');
-          setActiveRole('customer');
-          
-          const sRes = await fetch(`${API_BASE}/stockists?regionId=${data.user.region_id}`);
-          const sData = await sRes.json().catch(() => ({}));
-          setCustomerStockists(sData);
-          if (sData.length > 0) {
-            setSelectedStockist(sData[0]);
-            const pRes = await fetch(`${API_BASE}/products?regionId=${data.user.region_id}&stockistId=${sData[0].id}`);
-            const pData = await pRes.json().catch(() => ({}));
-            setCustomerProducts(pData);
-            
-            // Auto add Potato x3 (₹90) + Onion x2 (₹90) + Dal x2 (₹120) = ₹300 (exceeds ₹200 min order)
-            const pPotato = pData.find(p => p.id === 'p1') || pData[0];
-            const pOnion = pData.find(p => p.id === 'p2') || pData[1] || pData[0];
-            const pDal = pData.find(p => p.id === 'p3') || pData[2] || pData[0];
-            
-            setCustomerCarts(prev => ({
-              ...prev,
-              [sData[0].id]: {
-                stockistId: sData[0].id,
-                stockistName: sData[0].name,
-                createdAt: Date.now(),
-                items: [
-                  { product: pPotato, quantity: 3, stockistId: sData[0].id, stockistName: sData[0].name },
-                  { product: pOnion, quantity: 2, stockistId: sData[0].id, stockistName: sData[0].name },
-                  { product: pDal, quantity: 2, stockistId: sData[0].id, stockistName: sData[0].name }
-                ]
-              }
-            }));
-            showToast("Demo basket filled! Press 'Place Order (অর্ডার করুন)' on the phone.", "info");
-          }
-        }
-      } else if (tourStep === 2) {
-        // Step 2: Log in stockist, find the Amit Sen order, and deliver it
-        const res = await fetch(`${API_BASE}/auth/verify-otp`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ phone: '7654321098', otp: '123456' })
-        });
-        const data = await res.json().catch(() => ({}));
-        if (res.ok) {
-          persistSession(data.user, data.token);
-          setSelectedRegionId(data.user.region_id);
-          setActiveRole('stockist');
-          
-          const pRes = await fetch(`${API_BASE}/stockists/by-user/${data.user.id}`);
-          if (pRes.ok) {
-            const pData = await pRes.json().catch(() => ({}));
-            setStockistProfile({
-              ...pData,
-              prep_eta_minutes: pData.prep_eta_minutes ?? 15,
-              delivery_radius_km: pData.delivery_radius_km ?? 5.0,
-              opening_time: pData.opening_time || '09:00',
-              closing_time: pData.closing_time || '17:00'
-            });
-            const oRes = await fetch(`${API_BASE}/orders?stockistId=${pData.id}`);
-            const oData = await oRes.json().catch(() => ({}));
-      if (isFirstOrderLoad.current && Array.isArray(oData)) {
-        oData.filter(o => o.status === 'PENDING').forEach(o => alertedOrderIds.current.add(o.id));
-        isFirstOrderLoad.current = false;
-      }
-      setStockistOrders(oData);
-            
-            // Cycle latest order straight to DELIVERED
-            const pendingOrder = oData.find(o => ['CONFIRMING', 'RECEIVED', 'READY'].includes(o.status));
-            if (pendingOrder) {
-              await fetch(`${API_BASE}/orders/${pendingOrder.id}/status`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ status: 'DELIVERED' })
-              });
-              showToast("Accepted & delivered! Payment has been split.", "success");
-              // Reload
-              const oRes2 = await fetch(`${API_BASE}/orders?stockistId=${pData.id}`);
-              const oData2 = await oRes2.json().catch(() => ({}));
-              setStockistOrders(oData2);
-            }
-          }
-          setTourStep(3);
-        }
-      } else if (tourStep === 3) {
-        // Step 3: Switch to Customer Points tab, fill redemption
-        const res = await fetch(`${API_BASE}/auth/verify-otp`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ phone: '9876543210', otp: '123456' })
-        });
-        const data = await res.json().catch(() => ({}));
-        if (res.ok) {
-          persistSession(data.user, data.token);
-          setSelectedRegionId(data.user.region_id);
-          setCustomerAppTab('ledger');
-          setActiveRole('customer');
-          
-          const bRes = await fetch(`${API_BASE}/ledger/balance/${data.user.id}`);
-          const bData = await bRes.json().catch(() => ({}));
-          setCustomerBalance(bData.balance);
-          setCustomerHeldBalance(bData.held_balance || 0);
-          
-          const redeemValue = bData.balance > 0 ? bData.balance : 45.00;
-          setRedeemAmount(redeemValue.toString());
-          showToast(`Points ready: ₹${redeemValue}. Click 'Redeem Bill Discount (রিডিম করুন)' to drop the bill!`, "info");
-        }
-      } else if (tourStep === 4) {
-        // Step 4: Log in Admin, find redemption discount log, mark synced
-        const res = await fetch(`${API_BASE}/auth/verify-otp`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ phone: '9999999999', otp: '123456' })
-        });
-        const data = await res.json().catch(() => ({}));
-        if (res.ok) {
-          persistSession(data.user, data.token);
-          setSelectedRegionId(data.user.region_id);
-          setActiveRole('admin');
-          setAdminTab('redemptions');
-          
-          const redRes = await fetch(`${API_BASE}/admin/redemptions`);
-          const red = await redRes.json().catch(() => ({}));
-          setPendingRedemptions(red);
-          
-          const pendingRed = red.find(r => r.billing_sync_status !== 'SYNCED');
-          if (pendingRed) {
-            await fetch(`${API_BASE}/admin/complete-redemption`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ ledgerId: pendingRed.id })
-            });
-            showToast("Bill discount synchronized with CRM Billing System!", "success");
-            const redRes2 = await fetch(`${API_BASE}/admin/redemptions`);
-            const red2 = await redRes2.json().catch(() => ({}));
-            setPendingRedemptions(red2);
-          }
-          setTourCompleted(true);
-        }
-      }
-    } catch (e) {
-      console.error(e);
-      showToast("Verification sync issue. Is the backend running?", "error");
-    }
-  };
-
   const performReset = async (askConfirm = false) => {
     try {
       const res = await fetch(`${API_BASE}/admin/reset-db`, { method: 'POST' });
@@ -2093,8 +1932,6 @@ export default function App() {
         setCustomerCarts({});
         setRedeemAmount('');
         setDiscountApplied(0);
-        setTourStep(1);
-        setTourCompleted(false);
         setOfflineQueue([]);
         setOfflineMode(false);
         localStorage.removeItem('fastnet_offline_queue');
@@ -2109,8 +1946,6 @@ export default function App() {
       showToast('Reset failed. Check server status.', 'error');
     }
   };
-
-  const handleResetTour = () => performReset(false);
 
   const switchViewToRole = async (targetRole) => {
     setActiveRole(targetRole);
@@ -2176,86 +2011,6 @@ export default function App() {
     } catch (err) {
       console.error('Error switching view role session:', err);
     }
-  };
-
-  const renderTourBanner = () => {
-    const stepsInfo = {
-      1: {
-        title: "Step 1: Place Grocery Order (ক্রেতা বাজার করুন)",
-        desc: "Role: Customer App. Put fresh groceries in the cart, pick your pickup slot or delivery preference, and checkout. Loyalty points, based on item profit margins, credit when you collect your order.",
-        actionBtn: "Auto-Fill basket",
-        role: "customer"
-      },
-      2: {
-        title: "Step 2: Shopkeeper Delivery (দোকানদার ডেলিভারি)",
-        desc: "Role: Stockist App. Accept the order, verify fulfillment details, and mark it delivered. Check how the payment instantly splits: shopkeeper gets paid, platform keeps commission.",
-        actionBtn: "Auto-Deliver Order",
-        role: "stockist"
-      },
-      3: {
-        title: "Step 3: Redeem Broadband Discount (পয়েন্টস রিডিম করুন)",
-        desc: "Role: Customer App. Go to 'Points' tab, enter your points, and redeem them for WiFi booster packs or TV channel plans!",
-        actionBtn: "Auto-Load points",
-        role: "customer"
-      },
-      4: {
-        title: "Step 4: Finalize Discount Sync (অ্যাডমিন সিঙ্ক)",
-        desc: "Role: ISP Super Admin Portal. Under 'Broadband Discounts', approve and sync the discount log with the FastNet CRM billing software to close the loop.",
-        actionBtn: "Auto-Sync with CRM",
-        role: "admin"
-      }
-    };
-
-    const step = stepsInfo[tourStep];
-    if (tourCompleted) {
-      return (
-        <div className="walkthrough-banner" style={{ background: 'linear-gradient(90deg, rgba(16, 185, 129, 0.15) 0%, rgba(99, 102, 241, 0.15) 100%)', borderColor: 'var(--accent)' }}>
-          <div className="walkthrough-steps">
-            <div className="walkthrough-title" style={{ color: 'var(--accent)' }}>
-              <span className="pulsing-dot" style={{ backgroundColor: 'var(--accent)' }}></span>
-              <span>Closed-Loop Tour Completed! (সফলভাবে সম্পন্ন হয়েছে)</span>
-            </div>
-            <div className="walkthrough-desc">
-              You've proven the loop: Retail margins successfully subsidized the FastNet broadband bill. ISP churn falls, and stockist gets direct sales!
-            </div>
-          </div>
-          <div className="walkthrough-actions">
-            <button className="btn btn-accent" onClick={handleResetTour}>Restart Guided Tour</button>
-          </div>
-        </div>
-      );
-    }
-
-    return (
-      <div className="walkthrough-banner">
-        <div className="walkthrough-steps">
-          <div className="walkthrough-title">
-            <span className="pulsing-dot"></span>
-            <span>{step.title}</span>
-          </div>
-          <div className="walkthrough-desc">{step.desc}</div>
-        </div>
-        <div className="walkthrough-actions">
-          <button 
-            className="btn btn-secondary" 
-            style={{ fontSize: '0.75rem', padding: '0.45rem 0.8rem', height: '32px' }}
-            onClick={() => switchViewToRole(step.role)}
-          >
-            Switch View
-          </button>
-          <button className="btn" style={{ fontSize: '0.75rem', padding: '0.45rem 0.8rem', height: '32px' }} onClick={handleAutoTourStep}>
-            {step.actionBtn}
-          </button>
-          <button 
-            className="btn btn-secondary" 
-            style={{ fontSize: '0.75rem', padding: '0.45rem 0.8rem', height: '32px', border: '1px solid var(--danger)', color: 'var(--danger)' }} 
-            onClick={() => performReset(true)}
-          >
-            Reset Demo Data
-          </button>
-        </div>
-      </div>
-    );
   };
 
   // ----------------------------------------------------
@@ -3360,7 +3115,7 @@ export default function App() {
           ? t('Order placed! Payment held securely until pickup.', 'ऑर्डर दिया! पिकअप तक भुगतान सुरक्षित।', 'অর্ডার দেওয়া হয়েছে! পিকআপ পর্যন্ত পেমেন্ট নিরাপদ।')
           : t('Order placed! Cash on delivery.', 'ऑर्डर दिया! कैश ऑन डिलीवरी।', 'অর্ডার দেওয়া হয়েছে! ক্যাশ অন ডেলিভারি।');
         showToast(msg);
-        if (tourStep === 1) setTourStep(2);
+
       } else {
         showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
@@ -3796,9 +3551,7 @@ export default function App() {
         setDiscountApplied(prev => prev + parseFloat(redeemAmount));
         setRedeemAmount('');
         loadCustomerData();
-        if (tourStep === 3) {
-          setTourStep(4);
-        }
+
         setRedeemSuccessModal(true);
       } else {
         showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
@@ -4310,9 +4063,7 @@ export default function App() {
       if (res.ok) {
         showToast(`Order status updated to ${newStatus}`);
         loadStockistData();
-        if (newStatus === 'DELIVERED' && tourStep === 2) {
-          setTourStep(3);
-        }
+
       } else {
         showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
@@ -4337,9 +4088,7 @@ export default function App() {
         showToast(`Synced ${data.synced_count} offline actions successfully!`);
         setOfflineQueue([]);
         loadStockistData();
-        if (tourStep === 2) {
-          setTourStep(3);
-        }
+
       } else {
         showToast('Sync failed', 'error');
       }
@@ -4720,9 +4469,7 @@ export default function App() {
       if (res.ok) {
         showToast('Redemption sync logged in billing system successfully!');
         fetchDbState();
-        if (tourStep === 4) {
-          setTourCompleted(true);
-        }
+
       } else {
         showToast('Failed to complete', 'error');
       }
@@ -15089,8 +14836,6 @@ export default function App() {
           </div>
         </div>
       )}
-      {/* Guided Walkthrough Tour Banner */}
-      {renderTourBanner()}
 
       {/* Simulator Workspace Header */}
       <header className="simulator-header">
