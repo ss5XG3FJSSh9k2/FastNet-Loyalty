@@ -3,8 +3,10 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "concurrently --kill-others \"npm run backend\" \"npm run frontend\"",
-    "backend": "node backend/server.js",
+    "dev": "node scripts/start-test.js dev",
+    "dev:test": "npm run dev",
+    "dev:empty": "concurrently --kill-others \"node backend/server.js\" \"npm run frontend\"",
+    "backend": "node scripts/start-test.js backend",
     "frontend": "npm run dev --prefix frontend"
   },
   "dependencies": {

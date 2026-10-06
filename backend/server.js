@@ -9697,11 +9697,19 @@ function assertProductionConfig() {
 // Start Server
 const PORT = process.env.PORT || 3001;
 let serverInstance = null;
-const readyPromise = db.init().then(() => {
+const readyPromise = db.init().then(async () => {
   assertProductionConfig();
   checkConfigWarnings();
   assertNoDuplicateRoutes(app);
   reportMalformedPhones();
+
+  if (process.env.SEED_MODE === 'test') {
+    const users = await db.getTable('users');
+    if (!users || users.length === 0) {
+      console.error('\n[FATAL ERROR] SEED_MODE=test is set but the database is empty! The app must not run empty in test mode.\n');
+      process.exit(1);
+    }
+  }
   if (!serverInstance) {
     serverInstance = app.listen(PORT, '0.0.0.0', () => {
       console.log(`[Backend Server] ISP-Commerce Loyalty API listening on port ${PORT} (0.0.0.0)`);

@@ -5474,6 +5474,17 @@ async function main() {
   assert(cPoints === 1350000 && cComm === 2025000, '(e) Pure-arithmetic check matches points 1350000 and commission 2025000');
 
 
+  console.log('\\n--- BF-START-SEED ---');
+  assert(process.env.SEED_MODE === 'test', 'SEED_MODE is test in test environment');
+  
+  const allUsersForSeedCheck = await dbModule.getTable('users');
+  const seededAdmin = allUsersForSeedCheck.find(u => u.phone === '9999999999');
+  assert(seededAdmin !== undefined && seededAdmin.role === 'ADMIN', 'Seeded Admin (9999999999) exists in the test database');
+  
+  clearLogin();
+  const seedLoginRes = await post('http://localhost:3001/api/auth/send-otp', { phone: '9999999999' });
+  assert(seedLoginRes.status === 200, 'Can initiate login (send-otp) for seed admin 9999999999');
+
   console.log(`\\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);
 
