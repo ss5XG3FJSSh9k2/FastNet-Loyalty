@@ -645,7 +645,7 @@ export default function App() {
     try { 
       const parsed = JSON.parse(raw); 
       if (!parsed || !parsed.id || !parsed.role) throw new Error('invalid');
-      setCurrentUser(parsed); 
+      // Delaying setCurrentUser until /auth/me completes
     } catch { 
       clearSession(); 
       setIsVerifyingSession(false);
@@ -1758,7 +1758,8 @@ export default function App() {
         const oRes = await fetch(`${API_BASE}/orders?stockistId=${stockistProfile.id}`);
         if (!oRes.ok) return;
         const oData = await oRes.json();
-        setStockistOrders(oData);
+        if (Array.isArray(oData)) setStockistOrders(oData);
+        else return;
 
         // Only orders that are actionable count as "new" for the bell.
         // An order is newly-actionable when it is PENDING and we haven't already alerted on it.
@@ -3060,23 +3061,25 @@ export default function App() {
       // 1. Load stockists in customer region
       const sRes = await fetch(`${API_BASE}/stockists?regionId=${currentUser.region_id}`);
       const sData = await sRes.json().catch(() => ({}));
-      setCustomerStockists(sData);
+      if (sRes.ok && Array.isArray(sData)) setCustomerStockists(sData);
 
       // 2. Load points balance
       const bRes = await fetch(`${API_BASE}/ledger/balance/${currentUser.id}`);
       const bData = await bRes.json().catch(() => ({}));
-      setCustomerBalance(bData.balance);
-      setCustomerHeldBalance(bData.held_balance || 0);
+      if (bRes.ok) {
+        setCustomerBalance(bData.balance || 0);
+        setCustomerHeldBalance(bData.held_balance || 0);
+      }
 
       // 3. Load ledger history
       const lRes = await fetch(`${API_BASE}/ledger/history/${currentUser.id}`);
       const lData = await lRes.json().catch(() => ({}));
-      setCustomerLedger(lData);
+      if (lRes.ok && Array.isArray(lData)) setCustomerLedger(lData);
 
       // 4. Load order history
       const oRes = await fetch(`${API_BASE}/orders?customerId=${currentUser.id}`);
       const oData = await oRes.json().catch(() => ({}));
-      setCustomerOrders(oData);
+      if (oRes.ok && Array.isArray(oData)) setCustomerOrders(oData);
     } catch (err) {
       console.error('Error loading customer data:', err);
     }
@@ -4186,12 +4189,12 @@ export default function App() {
       // 2. Load stockist orders
       const oRes = await fetch(`${API_BASE}/orders?stockistId=${pData.id}`);
       const oData = await oRes.json().catch(() => ({}));
-      setStockistOrders(oData);
+      if (oRes.ok && Array.isArray(oData)) setStockistOrders(oData);
 
       // 3. Load stockist inventory products
       const prRes = await fetch(`${API_BASE}/products?stockistId=${pData.id}`);
       const prData = await prRes.json().catch(() => ({}));
-      setStockistProducts(prData);
+      if (prRes.ok && Array.isArray(prData)) setStockistProducts(prData);
 
       // 4. Load approved vendor list for this stockist (§12 many-to-many)
       const vRes = await fetch(`${API_BASE}/stockists/${pData.id}/vendors`);

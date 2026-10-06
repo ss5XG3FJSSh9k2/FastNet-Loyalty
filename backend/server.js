@@ -817,6 +817,20 @@ app.post('/api/setup/create-admin', async (req, res) => {
       });
     }
 
+    // Ensure global commission config exists
+    const commConfigs = await db.getTable('commission_config');
+    if (!commConfigs.some(c => c.scope === 'GLOBAL')) {
+      await db.insertRow('commission_config', {
+        id: `ccfg-global-${Date.now()}`,
+        scope: 'GLOBAL',
+        stockist_id: null,
+        stockist_reinvest_pct: 40.00,
+        points_from_pot_pct: 12.00,
+        partner_redemption_cut_pct: 50.00,
+        created_at: new Date().toISOString()
+      });
+    }
+
     const adminUser = {
       id: `u-${generateId()}`,
       tenant_id: 't1',

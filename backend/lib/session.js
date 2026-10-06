@@ -1,12 +1,26 @@
 const jwt = require('jsonwebtoken');
+const fs = require('fs');
+const path = require('path');
 
-const FALLBACK_SECRET = `fallback_secret_${Math.random().toString(36).substring(2)}_${Date.now()}`;
+let MEMORY_SECRET = null;
 
 function getSecret() {
   const secret = process.env.JWT_SECRET;
   if (!secret) {
-    console.warn('[Session] Warning: JWT_SECRET environment variable is missing. Using static-but-random-per-process fallback.');
-    return FALLBACK_SECRET;
+    if (MEMORY_SECRET) return MEMORY_SECRET;
+    
+    const secretPath = path.join(__dirname, '../data/dev-jwt-secret');
+    if (fs.existsSync(secretPath)) {
+      MEMORY_SECRET = fs.readFileSync(secretPath, 'utf8').trim();
+    } else {
+      MEMORY_SECRET = `dev_secret_${Math.random().toString(36).substring(2)}_${Date.now()}`;
+      try {
+        fs.writeFileSync(secretPath, MEMORY_SECRET, 'utf8');
+      } catch (e) {
+        // ignore if can't write, will just use memory
+      }
+    }
+    return MEMORY_SECRET;
   }
   return secret;
 }

@@ -36,9 +36,13 @@ if (mode === 'dev:seed') {
   console.log('- Partner: 9876500001 (jio@partners.example, password partner123)');
 } else {
   const dbFile = path.join(__dirname, '../backend/data/dev-db.json');
+  const secretFile = path.join(__dirname, '../backend/data/dev-jwt-secret');
   if (mode === 'dev:fresh') {
     if (fs.existsSync(dbFile)) {
       fs.unlinkSync(dbFile);
+    }
+    if (fs.existsSync(secretFile)) {
+      fs.unlinkSync(secretFile);
     }
     console.log('Empty start. Open the app and create the administrator.');
   } else {
