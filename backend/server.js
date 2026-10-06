@@ -1358,7 +1358,8 @@ const handleCreateProductRoute = async (req, res) => {
   const costPrice = req.body.costPrice !== undefined ? req.body.costPrice : req.body.cost_price;
   const category = req.body.category || 'groceries';
   const initialStock = req.body.initialStock !== undefined ? req.body.initialStock : (req.body.stock_qty !== undefined ? req.body.stock_qty : req.body.initial_stock);
-  const stockistId = req.body.stockistId || req.body.stockist_id || (req.user && req.user.id) || 's1';
+  const callerStockist = await getCallerStockist(req);
+  const stockistId = (callerStockist && callerStockist.id) || req.body.stockistId || req.body.stockist_id || (req.user && req.user.id) || 's1';
   if (!await assertOwnsStockist(req, res, stockistId)) return;
   const regionId = req.body.regionId || req.body.region_id || (req.user && req.user.region_id) || 'r1';
   const description = req.body.description;
@@ -1467,6 +1468,9 @@ const handleCreateProductRoute = async (req, res) => {
     created_at: new Date().toISOString()
   });
   await db.saveTable('stockist_inventory', inventory);
+  
+  newProduct.stock_qty = parseInt(initialStock, 10);
+  newProduct.is_available = parseInt(initialStock, 10) > 0;
 
   return res.json({ success: true, product_id: productId, product: newProduct, bill_photo: billPhotoRow });
 };

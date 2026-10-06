@@ -1799,6 +1799,7 @@ export default function App() {
   };
 
   const [stockistProducts, setStockistProducts] = useState([]);
+  const [highlightedProductId, setHighlightedProductId] = useState(null);
 
   const [vendors, setVendors] = useState([]);
   const [showInactiveVendors, setShowInactiveVendors] = useState(false);
@@ -1968,9 +1969,9 @@ export default function App() {
     ].slice(0, 50));
   };
 
-  const showToast = (message, type = 'success') => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 4000);
+  const showToast = (message, type = 'success', action = null) => {
+    setToast({ message, type, action });
+    setTimeout(() => setToast(null), action ? 6000 : 4000);
   };
 
   const formatPoints = (value) => {
@@ -4188,7 +4189,7 @@ export default function App() {
       setStockistOrders(oData);
 
       // 3. Load stockist inventory products
-      const prRes = await fetch(`${API_BASE}/products?regionId=${currentUser.region_id}&stockistId=${pData.id}`);
+      const prRes = await fetch(`${API_BASE}/products?stockistId=${pData.id}`);
       const prData = await prRes.json().catch(() => ({}));
       setStockistProducts(prData);
 
@@ -5114,10 +5115,14 @@ export default function App() {
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        showToast(`Product ${newProdName} added successfully with bill!`, 'success');
         if (data.bill_photo && data.bill_photo.public_url) {
           setUploadedBillPreviewUrl(data.bill_photo.public_url);
         }
+        if (data.product) {
+          setStockistProducts(prev => [data.product, ...prev]);
+        }
+        setStockistProductSearch('');
+        setStockistActiveTab('inventory');
         setShowAddProductModal(false);
         setNewProdName('');
         setNewProdDescription('');
@@ -5128,8 +5133,45 @@ export default function App() {
         setNewProdBillFile(null);
         setNewProdImageFile(null);
         setNewProdImagePreview(null);
-        loadStockistData();
-        fetchDbState();
+        
+        const newProductId = data.product ? data.product.id : null;
+        if (newProductId) {
+          setHighlightedProductId(newProductId);
+          setTimeout(() => setHighlightedProductId(null), 3000);
+        }
+        
+        const doRefresh = () => {
+          fetch(`${API_BASE}/products?stockistId=${stockistProfile.id}`)
+            .then(prRes => {
+              if (!prRes.ok) throw new Error('Refresh failed');
+              return prRes.json();
+            })
+            .then(prData => {
+              if (Array.isArray(prData)) {
+                setStockistProducts(prev => {
+                  const newMap = new Map(prData.map(p => [p.id, p]));
+                  const merged = [...prev];
+                  for (let i = 0; i < merged.length; i++) {
+                    if (newMap.has(merged[i].id)) {
+                      merged[i] = newMap.get(merged[i].id);
+                      newMap.delete(merged[i].id);
+                    }
+                  }
+                  return [...merged, ...Array.from(newMap.values())];
+                });
+                showToast(t('Added and live for customers', 'जोड़ा गया और ग्राहकों के लिए लाइव', 'যোগ করা হয়েছে এবং গ্রাহকদের জন্য লাইভ'), 'success');
+              } else {
+                throw new Error('Not an array');
+              }
+            })
+            .catch(err => {
+              showToast('Product saved, but the list could not refresh. Pull to refresh.', 'warning', {
+                label: 'Retry',
+                onClick: doRefresh
+              });
+            });
+        };
+        doRefresh();
       } else {
         showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
@@ -10728,10 +10770,25 @@ export default function App() {
                           .map(p => {
                             const isLowStock = p.stock_qty < parseInt(lowStockThreshold || '15', 10);
                             return (
-                              <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem', background: 'var(--bg-surface)', padding: '0.5rem 0.75rem', borderRadius: '6px', border: isLowStock ? '1px dashed var(--warning)' : '1px solid var(--border-color)', fontSize: '0.75rem', position: 'relative' }}>
+                              <div key={p.id} ref={el => { if (el && p.id === highlightedProductId) el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem', background: p.id === highlightedProductId ? 'rgba(76, 175, 80, 0.2)' : 'var(--bg-surface)', padding: '0.5rem 0.75rem', borderRadius: '6px', border: isLowStock ? '1px dashed var(--warning)' : '1px solid var(--border-color)', fontSize: '0.75rem', position: 'relative', transition: 'background-color 1s' }}>
                                 <div style={{ flex: 1 }}>
                                   <div style={{ fontWeight: '600', color: 'white', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
                                     {p.name}
+                                    {p.bill_status === 'PENDING' && (
+                                      <span style={{ fontSize: '0.65rem', background: 'var(--warning)', color: '#000', padding: '2px 6px', borderRadius: 10 }}>
+                                        {t('Awaiting bill check', 'बिल की जांच की प्रतीक्षा', 'বিলের চেকের অপেক্ষায়')}
+                                      </span>
+                                    )}
+                                    {p.bill_status === 'VERIFIED' && (
+                                      <span style={{ fontSize: '0.65rem', background: 'var(--accent)', color: '#fff', padding: '2px 6px', borderRadius: 10 }}>
+                                        {t('Verified', 'सत्यापित', 'যাচাইকৃত')}
+                                      </span>
+                                    )}
+                                    {p.bill_status === 'REJECTED' && (
+                                      <span style={{ fontSize: '0.65rem', background: 'var(--danger)', color: '#fff', padding: '2px 6px', borderRadius: 10 }} title={p.rejection_reason}>
+                                        {t('Rejected', 'अस्वीकृत', 'প্রত্যাখ্যাত')}{p.rejection_reason ? `: ${p.rejection_reason}` : ''}
+                                      </span>
+                                    )}
                                     {p.is_sellable === false && (
                                       <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid var(--danger)', padding: '0.2rem 0.5rem', borderRadius: '4px', marginTop: '0.25rem', color: 'var(--danger)', fontSize: '0.65rem', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
@@ -15013,6 +15070,15 @@ export default function App() {
         <div className="toast-msg" style={{ borderLeft: `4px solid ${toast.type === 'error' ? 'var(--danger)' : 'var(--accent)'}`, position: 'fixed', bottom: '20px', right: '20px', zIndex: 1000, width: 'auto', background: '#131722', backdropFilter: 'blur(10px)' }}>
           <CheckCircle2 size={16} style={{ color: toast.type === 'error' ? 'var(--danger)' : 'var(--accent)' }} />
           <span>{toast.message}</span>
+          {toast.action && (
+            <button 
+              onClick={(e) => { e.stopPropagation(); toast.action.onClick(); setToast(null); }} 
+              className="btn-accent" 
+              style={{ marginLeft: '10px', padding: '4px 8px', fontSize: '0.8em', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+            >
+              {toast.action.label}
+            </button>
+          )}
         </div>
       )}
       {/* Global Confirm Modal */}
