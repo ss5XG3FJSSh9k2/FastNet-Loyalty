@@ -899,12 +899,92 @@ async function main() {
   });
   assert(editCustRes.status === 200, 'Admin update customer contact succeeds');
 
-  const phoneChangeRes = await post('http://localhost:3001/api/admin/customers/u-cust1/phone-change', {
-    currentPhoneOtp: '123456',
-    newPhone: '9830099999',
-    newPhoneOtp: '123456'
-  });
-  assert(phoneChangeRes.status === 200, 'Admin phone change succeeds');
+  // Customer role calling returns 403
+  loginAs('u-cust1', 'CUSTOMER');
+  const custCallRes = await post('http://localhost:3001/api/admin/customers/u-cust1/phone-change/send-current', { via: 'phone', phone: '9876543210' });
+  assert(custCallRes.status === 403, 'Customer role calling any of these returns 403');
+  loginAs('u-admin', 'ADMIN');
+
+  // Hole check: Final change without verification returns 400
+  const holeCheckRes = await post('http://localhost:3001/api/admin/customers/u-cust1/phone-change', { newPhone: '9830099999' });
+  assert(holeCheckRes.status === 400, 'The final change without verification returns 400');
+  let unchangedCust = await get('http://localhost:3001/api/admin/customers/u-cust1');
+  assert(unchangedCust.body.phone === '9876543210', 'and the phone is unchanged. This is the hole that exists today.');
+
+  // Send-current with wrong typed number returns 400
+  const sendWrongRes = await post('http://localhost:3001/api/admin/customers/u-cust1/phone-change/send-current', { via: 'phone', phone: '9999999999' });
+  assert(sendWrongRes.status === 400, 'Send-current with the wrong typed number returns 400');
+
+  // Send-current with correct number returns 200
+  const sendRightRes = await post('http://localhost:3001/api/admin/customers/u-cust1/phone-change/send-current', { via: 'phone', phone: '9876543210' });
+  assert(sendRightRes.status === 200, 'With the correct number it returns 200');
+
+  // Verify-current with wrong OTP returns 400
+  const verifyWrongRes = await post('http://localhost:3001/api/admin/customers/u-cust1/phone-change/verify-current', { otp: '000000' });
+  assert(verifyWrongRes.status === 400, 'Verify-current with a wrong OTP returns 400');
+
+  // Verify-current with 123456 returns 200
+  const verifyRightRes = await post('http://localhost:3001/api/admin/customers/u-cust1/phone-change/verify-current', { otp: '123456' });
+  assert(verifyRightRes.status === 200, 'With 123456 in demo mode it returns 200');
+
+  // Send-new before current step is verified (test on u-cust2)
+  const sendNewBeforeVerify = await post('http://localhost:3001/api/admin/customers/u-cust2/phone-change/send-new', { newPhone: '9998887776' });
+  assert(sendNewBeforeVerify.status === 400, 'Send-new before the current step is verified returns 400');
+
+  // Send-new with already used number returns 400
+  const sendDupRes = await post('http://localhost:3001/api/admin/customers/u-cust1/phone-change/send-new', { newPhone: '8765432109' }); // u-cust2's phone
+  assert(sendDupRes.status === 400, 'Send-new with a number already used by another customer returns 400');
+
+  // Send-new twice inside 60 seconds returns 429
+  // Since we rate limit by customer id, let's use u-cust2 for this to not block u-cust1.
+  // First we need to verify current for u-cust2 to do send-new
+  await post('http://localhost:3001/api/admin/customers/u-cust2/phone-change/send-current', { via: 'phone', phone: '8765432109' });
+  await post('http://localhost:3001/api/admin/customers/u-cust2/phone-change/verify-current', { otp: '123456' });
+  const sendNewRes1 = await post('http://localhost:3001/api/admin/customers/u-cust2/phone-change/send-new', { newPhone: '9830099999' });
+  assert(sendNewRes1.status === 200, 'Send-new succeeds');
+  const sendNewRes2 = await post('http://localhost:3001/api/admin/customers/u-cust2/phone-change/send-new', { newPhone: '9830099998' });
+  assert(sendNewRes2.status === 429, 'Send-new twice inside 60 seconds returns 429 the second time');
+  
+  // Finish the flow for u-cust2 to reset rate limits (so we can test email flow later)
+  await post('http://localhost:3001/api/admin/customers/u-cust2/phone-change/verify-new', { otp: '123456', newPhone: '9830099999' });
+  await post('http://localhost:3001/api/admin/customers/u-cust2/phone-change', { newPhone: '9830099999' });
+  
+  // Full path by phone on u-cust1
+  await post('http://localhost:3001/api/admin/customers/u-cust1/phone-change/send-new', { newPhone: '9830099000' });
+  const verifyNewRes = await post('http://localhost:3001/api/admin/customers/u-cust1/phone-change/verify-new', { otp: '123456', newPhone: '9830099000' });
+  assert(verifyNewRes.status === 200, 'Verify-new succeeds');
+  
+  const phoneChangeRes = await post('http://localhost:3001/api/admin/customers/u-cust1/phone-change', { newPhone: '9830099000' });
+  assert(phoneChangeRes.status === 200, 'Full path by phone: change succeeds');
+  
+  const auditLogs = await dbModule.getTable('admin_audit_log');
+  const phoneAudit = auditLogs.find(a => a.entity_id === 'u-cust1' && a.action === 'CHANGE_PHONE');
+  assert(phoneAudit !== undefined && phoneAudit.after.method === 'phone', 'the audit row exists');
+  
+  let changedCust = await get('http://localhost:3001/api/admin/customers/u-cust1');
+  assert(changedCust.body.phone === '9830099000', 'and the customer can log in with the new number (verified in DB)');
+
+  // After verifying a new number, edit the number and try the final change. It returns 400.
+  // Test on u-cust1 again.
+  await post('http://localhost:3001/api/admin/customers/u-cust1/phone-change/send-current', { via: 'phone', phone: '9830099000' });
+  await post('http://localhost:3001/api/admin/customers/u-cust1/phone-change/verify-current', { otp: '123456' });
+  await post('http://localhost:3001/api/admin/customers/u-cust1/phone-change/send-new', { newPhone: '9830099001' });
+  await post('http://localhost:3001/api/admin/customers/u-cust1/phone-change/verify-new', { otp: '123456', newPhone: '9830099001' });
+  const editedFinalRes = await post('http://localhost:3001/api/admin/customers/u-cust1/phone-change', { newPhone: '9830099002' });
+  assert(editedFinalRes.status === 400, 'After verifying a new number, edit the number and try the final change. It returns 400.');
+  await post('http://localhost:3001/api/admin/customers/u-cust1/phone-change', { newPhone: '9830099001' });
+
+  // Full path by email on u-cust2
+  await post('http://localhost:3001/api/admin/customers/u-cust2/phone-change/send-current', { via: 'email' });
+  await post('http://localhost:3001/api/admin/customers/u-cust2/phone-change/verify-current', { otp: '123456' });
+  await post('http://localhost:3001/api/admin/customers/u-cust2/phone-change/send-new', { newPhone: '8765432000' });
+  await post('http://localhost:3001/api/admin/customers/u-cust2/phone-change/verify-new', { otp: '123456', newPhone: '8765432000' });
+  const emailChangeRes = await post('http://localhost:3001/api/admin/customers/u-cust2/phone-change', { newPhone: '8765432000' });
+  assert(emailChangeRes.status === 200, 'Full path by email: change succeeds');
+  
+  const auditLogs2 = await dbModule.getTable('admin_audit_log');
+  const emailAudit = auditLogs2.find(a => a.entity_id === 'u-cust2' && a.action === 'CHANGE_PHONE');
+  assert(emailAudit !== undefined && emailAudit.after.method === 'email', 'and the audit row records email.');
 
   const creditPtsRes = await post('http://localhost:3001/api/admin/customers/u-cust1/points-credit', {
     amount: 50,
@@ -915,7 +995,7 @@ async function main() {
   const deactCustRes = await post('http://localhost:3001/api/admin/customers/u-cust1/deactivate', {});
   assert(deactCustRes.status === 200, 'Admin customer deactivation succeeds');
 
-  const loginDeact = await post('http://localhost:3001/api/auth/verify-otp', { phone: '9830099999', email: 'test_9830099999@fastnet.test', otp: '123456' });
+  const loginDeact = await post('http://localhost:3001/api/auth/verify-otp', { phone: '9830099001', email: 'test_9830099001@fastnet.test', otp: '123456' });
   assert(loginDeact.status === 403, 'Deactivated user login attempt is blocked with 403');
 
   const reactCustRes = await post('http://localhost:3001/api/admin/customers/u-cust1/reactivate', {});
@@ -1446,7 +1526,7 @@ async function main() {
   const p1_duplicatePhoneRes = await post('http://localhost:3001/api/admin/partners', {
     legal_name: 'Dup Phone Partner',
     display_name: 'Dup Partner',
-    contact_phone: '9830099999', // u-cust1 current phone
+    contact_phone: '9830099001', // u-cust1 current phone
     contact_email: 'dupphone@partners.example',
     address: 'Some Address',
     service_types: ['CABLE'],

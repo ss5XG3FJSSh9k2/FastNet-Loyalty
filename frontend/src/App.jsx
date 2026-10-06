@@ -972,6 +972,8 @@ export default function App() {
   const [editCustomerName, setEditCustomerName] = useState('');
   const [editCustomerEmail, setEditCustomerEmail] = useState('');
   const [showChangePhoneModal, setShowChangePhoneModal] = useState(false);
+  const [changePhoneStep, setChangePhoneStep] = useState('current'); // 'current', 'new'
+  const [changePhoneMethod, setChangePhoneMethod] = useState('phone'); // 'phone', 'email'
   const [changePhoneCurrentOtp, setChangePhoneCurrentOtp] = useState('');
   const [changePhoneNewNumber, setChangePhoneNewNumber] = useState('');
   const [changePhoneNewOtp, setChangePhoneNewOtp] = useState('');
@@ -987,6 +989,8 @@ export default function App() {
     setSelectedCustomerDetail(null);
     setEditCustomerName('');
     setEditCustomerEmail('');
+    setChangePhoneStep('current');
+    setChangePhoneMethod('phone');
     setChangePhoneCurrentOtp('');
     setChangePhoneNewNumber('');
     setChangePhoneNewOtp('');
@@ -3799,13 +3803,81 @@ export default function App() {
     } catch (e) { showToast('Error updating customer', 'error'); }
   };
 
+  const handleSendCurrentPhoneOtp = async () => {
+    try {
+      const res = await adminFetch(`/admin/customers/${selectedCustomerDetail.id}/phone-change/send-current`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ via: changePhoneMethod, phone: selectedCustomerDetail.phone })
+      });
+      if (res.ok) {
+        showToast('OTP sent to current ' + (changePhoneMethod === 'email' ? 'email' : 'phone'), 'success');
+      } else {
+        const d = await res.json().catch(() => ({}));
+        showToast(d.error || 'Failed to send OTP', 'error');
+      }
+    } catch (e) { showToast('Error sending OTP', 'error'); }
+  };
+
+  const handleVerifyCurrentPhoneOtp = async () => {
+    if (!changePhoneCurrentOtp) { showToast('Enter OTP', 'error'); return; }
+    try {
+      const res = await adminFetch(`/admin/customers/${selectedCustomerDetail.id}/phone-change/verify-current`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ otp: changePhoneCurrentOtp })
+      });
+      if (res.ok) {
+        showToast('Verified', 'success');
+        setChangePhoneStep('new');
+      } else {
+        const d = await res.json().catch(() => ({}));
+        showToast(d.error || 'Invalid OTP', 'error');
+      }
+    } catch (e) { showToast('Error verifying OTP', 'error'); }
+  };
+
+  const handleSendNewPhoneOtp = async () => {
+    if (!changePhoneNewNumber) { showToast('Enter new phone', 'error'); return; }
+    try {
+      const res = await adminFetch(`/admin/customers/${selectedCustomerDetail.id}/phone-change/send-new`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ newPhone: changePhoneNewNumber })
+      });
+      if (res.ok) {
+        showToast('OTP sent to new phone', 'success');
+      } else {
+        const d = await res.json().catch(() => ({}));
+        showToast(d.error || 'Failed to send OTP', 'error');
+      }
+    } catch (e) { showToast('Error sending OTP', 'error'); }
+  };
+
+  const handleVerifyNewPhoneOtp = async () => {
+    if (!changePhoneNewOtp || !changePhoneNewNumber) { showToast('Enter OTP and new phone', 'error'); return; }
+    try {
+      const res = await adminFetch(`/admin/customers/${selectedCustomerDetail.id}/phone-change/verify-new`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ otp: changePhoneNewOtp, newPhone: changePhoneNewNumber })
+      });
+      if (res.ok) {
+        handleChangeCustomerPhone(); // Auto-save on verify success
+      } else {
+        const d = await res.json().catch(() => ({}));
+        showToast(d.error || 'Invalid OTP', 'error');
+      }
+    } catch (e) { showToast('Error verifying OTP', 'error'); }
+  };
+
   const handleChangeCustomerPhone = async () => {
     if (!selectedCustomerDetail) return;
     try {
-      const res = await fetch(`${API_BASE}/admin/customers/${selectedCustomerDetail.id}/phone-change`, {
+      const res = await adminFetch(`/admin/customers/${selectedCustomerDetail.id}/phone-change`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: (!changePhoneCurrentOtp || !changePhoneNewOtp || !changePhoneNewNumber) ? null : JSON.stringify({ currentPhoneOtp: changePhoneCurrentOtp, newPhone: changePhoneNewNumber, newPhoneOtp: changePhoneNewOtp })
+        body: JSON.stringify({ newPhone: changePhoneNewNumber })
       });
       if (res.ok) {
         showToast('Phone number updated successfully', 'success');
@@ -15907,26 +15979,49 @@ export default function App() {
         <div className="modal-overlay">
           <div className="modal-content glass-card" style={{ maxWidth: '400px' }}>
             <PanelErrorBoundary t={t}>
-            <h3>Change Customer Phone</h3>
-            <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Current Phone: {selectedCustomerDetail.phone}</p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', margin: '1rem 0' }}>
-              <div className="input-group">
-                <label className="input-label">{demoOtpMode ? 'Current Phone OTP (Demo: 123456)' : 'Current Phone OTP'}</label>
-                <input type="tel" inputMode="numeric" maxLength={6} className="text-input" placeholder="123456" value={changePhoneCurrentOtp} onChange={e => setChangePhoneCurrentOtp(e.target.value.replace(/\D/g, '').slice(0, 6))} />
+            <h3>{t('Change Customer Phone', 'ग्राहक फ़ोन बदलें', 'গ্রাহকের ফোন পরিবর্তন করুন')}</h3>
+            <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{t('Current Phone:', 'वर्तमान फ़ोन:', 'বর্তমান ফোন:')} {selectedCustomerDetail.phone}</p>
+            
+            {changePhoneStep === 'current' ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', margin: '1rem 0' }}>
+                <div className="input-group">
+                  <label className="input-label">{t('Verification Method', 'सत्यापन विधि', 'যাচাই পদ্ধতি')}</label>
+                  <select className="select-input" value={changePhoneMethod} onChange={e => setChangePhoneMethod(e.target.value)}>
+                    <option value="phone">{t('SMS to Phone', 'फ़ोन पर एसएमएस', 'ফোনে এসএমএস')}</option>
+                    <option value="email">{t('Email', 'ईमेल', 'ইমেইল')}</option>
+                  </select>
+                </div>
+                <button className="btn btn-secondary" onClick={handleSendCurrentPhoneOtp} style={{ alignSelf: 'flex-start' }}>{t('Send OTP', 'ओटीपी भेजें', 'ওটিপি পাঠান')}</button>
+                
+                <div className="input-group" style={{ marginTop: '0.5rem' }}>
+                  <label className="input-label">{demoOtpMode ? t('OTP (Demo: 123456)', 'ओटीपी (डेमो: 123456)', 'ওটিপি (ডেমো: 123456)') : t('OTP', 'ओटीपी', 'ওটিপি')}</label>
+                  <input type="tel" inputMode="numeric" maxLength={6} className="text-input" placeholder="123456" value={changePhoneCurrentOtp} onChange={e => setChangePhoneCurrentOtp(e.target.value.replace(/\D/g, '').slice(0, 6))} />
+                </div>
+                
+                <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '1rem' }}>
+                  <button className="btn btn-secondary" onClick={closeCustomerModals}>{t('Cancel', 'रद्द करें', 'বাতিল করুন')}</button>
+                  <button className="btn btn-accent" onClick={handleVerifyCurrentPhoneOtp}>{t('Verify', 'सत्यापित करें', 'যাচাই করুন')}</button>
+                </div>
               </div>
-              <div className="input-group">
-                <label className="input-label">New Phone Number</label>
-                <input type="tel" inputMode="numeric" maxLength={15} className="text-input" placeholder="9830099999" value={changePhoneNewNumber} onChange={e => setChangePhoneNewNumber(normalizeFrontendPhone(e.target.value))} />
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', margin: '1rem 0' }}>
+                <div className="input-group">
+                  <label className="input-label">{t('New Phone Number', 'नया फ़ोन नंबर', 'নতুন ফোন নম্বর')}</label>
+                  <input type="tel" inputMode="numeric" maxLength={15} className="text-input" placeholder="9830099999" value={changePhoneNewNumber} onChange={e => setChangePhoneNewNumber(normalizeFrontendPhone(e.target.value))} />
+                </div>
+                <button className="btn btn-secondary" onClick={handleSendNewPhoneOtp} style={{ alignSelf: 'flex-start' }}>{t('Send OTP', 'ओटीपी भेजें', 'ওটিপি পাঠান')}</button>
+                
+                <div className="input-group" style={{ marginTop: '0.5rem' }}>
+                  <label className="input-label">{demoOtpMode ? t('New Phone OTP (Demo: 123456)', 'नए फ़ोन का ओटीपी (डेमो: 123456)', 'নতুন ফোনের ওটিপি (ডেমো: 123456)') : t('New Phone OTP', 'नए फ़ोन का ओटीपी', 'নতুন ফোনের ওটিপি')}</label>
+                  <input type="tel" inputMode="numeric" maxLength={6} className="text-input" placeholder="123456" value={changePhoneNewOtp} onChange={e => setChangePhoneNewOtp(e.target.value.replace(/\D/g, '').slice(0, 6))} />
+                </div>
+                
+                <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '1rem' }}>
+                  <button className="btn btn-secondary" onClick={() => setChangePhoneStep('current')}>{t('Back', 'पीछे', 'পিছনে')}</button>
+                  <button className="btn btn-accent" onClick={handleVerifyNewPhoneOtp}>{t('Verify & Change Phone', 'सत्यापित करें और फ़ोन बदलें', 'যাচাই করুন এবং ফোন পরিবর্তন করুন')}</button>
+                </div>
               </div>
-              <div className="input-group">
-                <label className="input-label">{demoOtpMode ? 'New Phone OTP (Demo: 123456)' : 'New Phone OTP'}</label>
-                <input type="tel" inputMode="numeric" maxLength={6} className="text-input" placeholder="123456" value={changePhoneNewOtp} onChange={e => setChangePhoneNewOtp(e.target.value.replace(/\D/g, '').slice(0, 6))} />
-              </div>
-            </div>
-            <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
-              <button className="btn btn-secondary" onClick={closeCustomerModals}>Cancel</button>
-              <button className="btn btn-accent" onClick={handleChangeCustomerPhone}>Verify & Change Phone</button>
-            </div>
+            )}
             </PanelErrorBoundary>
           </div>
         </div>
