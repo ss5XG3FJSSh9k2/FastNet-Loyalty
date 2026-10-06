@@ -6421,16 +6421,20 @@ app.post('/api/admin/stockists/:id/commission-rate', async (req, res) => {
   const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
   const delivered30d = orders.filter(o => o.stockist_id === id && o.status === 'DELIVERED' && new Date(o.created_at).getTime() >= thirtyDaysAgo);
   
-  const currentEarnings = delivered30d.reduce((sum, o) => sum + ((parseFloat(o.subtotal) || 0) * (currentRate / 100)), 0);
-  const newEarnings = delivered30d.reduce((sum, o) => sum + ((parseFloat(o.subtotal) || 0) * (numRate / 100)), 0);
+  const gross_gmv = delivered30d.reduce((sum, o) => sum + (parseFloat(o.subtotal) || 0), 0);
+  const currentEarnings = gross_gmv * (currentRate / 100);
+  const newEarnings = gross_gmv * (numRate / 100);
   
   if (confirmationText !== 'CONFIRM') {
     return res.json({
       preview: true,
+      orders_count: delivered30d.length,
+      gross_gmv: gross_gmv,
       current_rate: currentRate,
       new_rate: numRate,
       current_earnings_30d: currentEarnings,
-      new_earnings_30d: newEarnings
+      new_earnings_30d: newEarnings,
+      diff: newEarnings - currentEarnings
     });
   }
   
