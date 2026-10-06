@@ -1935,7 +1935,22 @@ async function main() {
   assert(p3_regRes1.body.user && p3_regRes1.body.user.id, 'Returns user object');
   assert(p3_regRes1.body.bindings.cable_partner_id === 'ptr-adhya', 'Cable binding saved correctly');
   assert(p3_regRes1.body.bindings.broadband_partner_id === p3_bbPartnerId, 'Broadband binding saved correctly');
+  assert(p3_regRes1.body.token, 'Customer registration returns a token');
+  
   const p3_custId1 = p3_regRes1.body.user.id;
+  const p3_custToken1 = p3_regRes1.body.token;
+
+  // Verify that we can use this token for profile routes
+  const p3_profCheck = await get(`http://localhost:3001/api/customer/${p3_custId1}/profile`, { headers: { Authorization: `Bearer ${p3_custToken1}` } });
+  assert(p3_profCheck.status === 200, 'Can GET profile using registration token');
+  assert(p3_profCheck.body.user.name === 'P3 Customer One', 'Profile data is accessible via token');
+  
+  const p3_profUpdateCheck = await post(`http://localhost:3001/api/customer/${p3_custId1}/profile`, { name: 'P3 Customer One' }, { headers: { Authorization: `Bearer ${p3_custToken1}` } });
+  assert(p3_profUpdateCheck.status === 200, 'Can POST profile using registration token');
+  
+  const p3_bindingsCheck = await post(`http://localhost:3001/api/customer/partner-bindings`, { customer_user_id: p3_custId1, cable_partner_id: 'ptr-adhya', broadband_partner_id: null }, { headers: { Authorization: `Bearer ${p3_custToken1}` } });
+  assert(p3_bindingsCheck.status === 200, 'Can POST partner-bindings using registration token');
+
 
   // Test 4: POST /api/auth/register-customer with invalid partner_id returns 400 invalid_partner_binding
   const p3_regResInvalid = await post('http://localhost:3001/api/auth/register-customer', {
@@ -2749,7 +2764,19 @@ async function main() {
 
   // Test #458: Response contains new user referral_code
   assert(typeof regReferralRes.body.referral_code === 'string' && regReferralRes.body.referral_code.length === 6, 'Response contains new user referral_code');
+  assert(regReferralRes.body.token, 'Referral registration returns a token');
 
+  const refCustId = regReferralRes.body.user.id;
+  const refCustToken = regReferralRes.body.token;
+  
+  const refProfCheck = await get(`http://localhost:3001/api/customer/${refCustId}/profile`, { headers: { Authorization: `Bearer ${refCustToken}` } });
+  assert(refProfCheck.status === 200, 'Can GET profile using referral registration token');
+  
+  const refProfUpdateCheck = await post(`http://localhost:3001/api/customer/${refCustId}/profile`, { name: 'Ref Name Updated' }, { headers: { Authorization: `Bearer ${refCustToken}` } });
+  assert(refProfUpdateCheck.status === 200, 'Can POST profile using referral registration token');
+  
+  const refBindingsCheck = await post(`http://localhost:3001/api/customer/partner-bindings`, { customer_user_id: refCustId, cable_partner_id: null, broadband_partner_id: null }, { headers: { Authorization: `Bearer ${refCustToken}` } });
+  assert(refBindingsCheck.status === 200, 'Can POST partner-bindings using referral registration token');
   // Test #459: Invalid referral code returns 400 invalid_referral_code
   const regBadRefRes = await post('http://localhost:3001/api/customer/register-with-referral', {
     phone: '9839910003', email: 'test_9839910003@fastnet.test',
@@ -5200,10 +5227,26 @@ async function main() {
   const paLeadRes = await post(`http://localhost:3001/api/admin/partner-leads/${authLeadId}/status`, { status: 'REJECTED', reason: 'Not a fit' });
   assert(paLeadRes.status === 200, 'Partner-admin CAN update partner_leads');
 
-  // b) Standard admin CANNOT update partner_leads
+  // b) Standard admin CAN update partner_leads (and testing reason validation & audit)
   loginAs('u-admin', 'ADMIN');
-  const adminLeadRes = await post(`http://localhost:3001/api/admin/partner-leads/${authLeadId}/status`, { status: 'REJECTED', reason: 'Not a fit' });
-  assert(adminLeadRes.status === 403, 'Standard admin CANNOT update partner_leads');
+  
+  // b.1) Admin rejects with short reason -> 400
+  const shortReasonRes = await post(`http://localhost:3001/api/admin/partner-leads/${authLeadId}/status`, { status: 'REJECTED', reason: 'abc' });
+  assert(shortReasonRes.status === 400, 'Admin rejects with a 3-character reason and gets 400');
+  
+  // b.2) Admin rejects with valid reason -> 200
+  const adminLeadRes = await post(`http://localhost:3001/api/admin/partner-leads/${authLeadId}/status`, { status: 'REJECTED', reason: 'Admin rejected' });
+  assert(adminLeadRes.status === 200, 'Standard admin CAN update partner_leads');
+  
+  // Verify lead state and reason
+  const leadsAfter = await get('http://localhost:3001/api/admin/partner-leads');
+  const theLead = leadsAfter.body.find(l => l.id === authLeadId);
+  assert(theLead.status === 'REJECTED', 'the lead is REJECTED');
+  assert(theLead.reason === 'Admin rejected', 'lead.reason is saved');
+  
+  // Verify audit log
+  const auditRes = await dbModule.query(`SELECT * FROM admin_audit_log WHERE entity_id = $1 AND action = 'UPDATE_LEAD_STATUS' ORDER BY created_at DESC LIMIT 1`, [authLeadId]);
+  assert(auditRes.rows.length > 0 && auditRes.rows[0].admin_user_id === 'u-admin', 'an UPDATE_LEAD_STATUS audit row exists with the acting user');
 
   // c) Customer CANNOT update partner_leads
   loginAs('u-cust1', 'CUSTOMER');

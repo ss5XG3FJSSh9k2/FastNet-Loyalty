@@ -3550,8 +3550,14 @@ export default function App() {
       const data = await res.json().catch(() => ({}));
       logApi('POST', endpoint.replace(API_BASE, ''), payload, res.status, data);
       if (res.ok) {
+        if (!data.token) {
+          showToast('Account created. Please sign in.', 'success');
+          setShowCustomerSignup(false);
+          return;
+        }
         persistSession(data.user, data.token);
         setSelectedRegionId(data.user.region_id);
+        fetchCustomerProfileData();
         showToast(t(`Welcome, ${data.user.name}!`, `स्वागत, ${data.user.name}!`, `স্বাগতম, ${data.user.name}!`));
         setShowCustomerSignup(false);
         setRegName(''); setRegEmail(''); setRegAddress(''); setOtpSent(false); setSignupReferralCode('');

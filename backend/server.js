@@ -707,8 +707,12 @@ app.post('/api/auth/register-customer', async (req, res) => {
 
   await appendAudit(req, 'REGISTER_CUSTOMER', 'user', userId, null, { phone, name: cleanName, role: 'CUSTOMER' });
 
+  const sessionHelper = require('./lib/session');
+  const token = sessionHelper.signSession(newUser.id, newUser.role);
+
   res.status(200).json({
     success: true,
+    token,
     user: sanitizeUser(newUser),
     bindings: binding
   });
@@ -1055,7 +1059,10 @@ app.post('/api/customer/register-with-referral', async (req, res) => {
     await appendAudit(req, 'CREATE_PARTNER_BINDING', 'customer_partner_binding', user.id, null, bindings);
   }
 
-  const resObj = { success: true, user: sanitizeUser(user), referral_code: user.referral_code };
+  const sessionHelper = require('./lib/session');
+  const token = sessionHelper.signSession(user.id, user.role);
+
+  const resObj = { success: true, token, user: sanitizeUser(user), referral_code: user.referral_code };
   if (bindings) resObj.bindings = bindings;
   return res.json(resObj);
 });
@@ -1651,9 +1658,6 @@ app.use('/api/admin', (req, res, next) => {
   requireAuth(req, res, (err) => {
     if (err) return next(err);
 
-    if (p.match(/^\/partner-leads\/[^\/]+\/status$/)) {
-      return requireRole('PARTNER_ADMIN')(req, res, next);
-    }
     const isPartner = p.match(/^\/kyc\/[^\/]+\/document$/) || p.match(/^\/users\/[^\/]+\/references$/) || p.match(/^\/users\/[^\/]+\/account$/) || p.match(/^\/vendors\/[^\/]+$/) || p === '/analytics' || p.startsWith('/partner-leads');
     if (isPartner) {
       return requireRole('ADMIN', 'PARTNER_ADMIN')(req, res, next);
