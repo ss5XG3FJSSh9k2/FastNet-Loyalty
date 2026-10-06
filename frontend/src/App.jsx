@@ -967,6 +967,7 @@ export default function App() {
   const [adminCustomerSearch, setAdminCustomerSearch] = useState('');
   const [adminIncludeInactiveCustomers, setAdminIncludeInactiveCustomers] = useState(false);
   const [selectedCustomerDetail, setSelectedCustomerDetail] = useState(null);
+  const [showCustomerDetailModal, setShowCustomerDetailModal] = useState(false);
   const [showEditCustomerModal, setShowEditCustomerModal] = useState(false);
   const [editCustomerName, setEditCustomerName] = useState('');
   const [editCustomerEmail, setEditCustomerEmail] = useState('');
@@ -977,6 +978,21 @@ export default function App() {
   const [showPointsCreditModal, setShowPointsCreditModal] = useState(false);
   const [pointsCreditAmount, setPointsCreditAmount] = useState('');
   const [pointsCreditReason, setPointsCreditReason] = useState('');
+
+  const closeCustomerModals = () => {
+    setShowEditCustomerModal(false);
+    setShowChangePhoneModal(false);
+    setShowPointsCreditModal(false);
+    setShowCustomerDetailModal(false);
+    setSelectedCustomerDetail(null);
+    setEditCustomerName('');
+    setEditCustomerEmail('');
+    setChangePhoneCurrentOtp('');
+    setChangePhoneNewNumber('');
+    setChangePhoneNewOtp('');
+    setPointsCreditAmount('');
+    setPointsCreditReason('');
+  };
 
   const [adminStockists, setAdminStockists] = useState([]);
   const [adminIncludeInactiveStockists, setAdminIncludeInactiveStockists] = useState(false);
@@ -3774,7 +3790,7 @@ export default function App() {
       });
       if (res.ok) {
         showToast('Customer updated', 'success');
-        setShowEditCustomerModal(false);
+        closeCustomerModals();
         fetchDbState();
       } else {
         const d = await res.json().catch(() => ({}));
@@ -3793,8 +3809,7 @@ export default function App() {
       });
       if (res.ok) {
         showToast('Phone number updated successfully', 'success');
-        setShowChangePhoneModal(false);
-        setChangePhoneCurrentOtp(''); setChangePhoneNewNumber(''); setChangePhoneNewOtp('');
+        closeCustomerModals();
         fetchDbState();
       } else {
         const d = await res.json().catch(() => ({}));
@@ -3821,8 +3836,7 @@ export default function App() {
       });
       if (res.ok) {
         showToast('Points credited successfully', 'success');
-        setShowPointsCreditModal(false);
-        setPointsCreditAmount(''); setPointsCreditReason('');
+        closeCustomerModals();
         fetchDbState();
       } else {
         const d = await res.json().catch(() => ({}));
@@ -12393,7 +12407,10 @@ export default function App() {
                               <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
                                 <button className="btn btn-secondary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem' }} onClick={async () => {
                                   const res = await fetch(`${API_BASE}/admin/customers/${c.id}`);
-                                  if (res.ok) setSelectedCustomerDetail(await res.json().catch(() => ({})));
+                                  if (res.ok) {
+                                    setSelectedCustomerDetail(await res.json().catch(() => ({})));
+                                    setShowCustomerDetailModal(true);
+                                  }
                                 }}>
                                   Details
                                 </button>
@@ -15877,7 +15894,7 @@ export default function App() {
               </div>
             </div>
             <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
-              <button className="btn btn-secondary" onClick={() => setShowEditCustomerModal(false)}>Cancel</button>
+              <button className="btn btn-secondary" onClick={closeCustomerModals}>Cancel</button>
               <button className="btn btn-accent" onClick={handleSaveEditCustomer}>Save Changes</button>
             </div>
             </PanelErrorBoundary>
@@ -15907,7 +15924,7 @@ export default function App() {
               </div>
             </div>
             <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
-              <button className="btn btn-secondary" onClick={() => setShowChangePhoneModal(false)}>Cancel</button>
+              <button className="btn btn-secondary" onClick={closeCustomerModals}>Cancel</button>
               <button className="btn btn-accent" onClick={handleChangeCustomerPhone}>Verify & Change Phone</button>
             </div>
             </PanelErrorBoundary>
@@ -16017,7 +16034,7 @@ export default function App() {
               </div>
             </div>
             <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
-              <button className="btn btn-secondary" onClick={() => setShowPointsCreditModal(false)}>Cancel</button>
+              <button className="btn btn-secondary" onClick={closeCustomerModals}>Cancel</button>
               <button className="btn btn-accent" onClick={handleIssuePointsCredit}>Credit Points</button>
             </div>
             </PanelErrorBoundary>
@@ -16026,13 +16043,13 @@ export default function App() {
       )}
 
       {/* R5 Customer Detail Modal */}
-      {selectedCustomerDetail && !showEditCustomerModal && !showChangePhoneModal && !showPointsCreditModal && (
+      {showCustomerDetailModal && selectedCustomerDetail && (
         <div className="modal-overlay">
           <div className="modal-content glass-card" style={{ maxWidth: '600px', maxHeight: '80vh', overflowY: 'auto' }}>
             <PanelErrorBoundary t={t}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
               <h3 style={{ fontSize: '1.2rem', margin: 0 }}>Customer Detail: {selectedCustomerDetail.name}</h3>
-              <button className="btn btn-secondary" style={{ padding: '0.2rem 0.5rem' }} onClick={() => setSelectedCustomerDetail(null)}><X size={14} /></button>
+              <button className="btn btn-secondary" style={{ padding: '0.2rem 0.5rem' }} onClick={closeCustomerModals}><X size={14} /></button>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem', fontSize: '0.85rem' }}>
               <div><strong>Phone:</strong> {selectedCustomerDetail.phone}</div>
