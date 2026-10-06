@@ -48,7 +48,7 @@ async function assertOwnsStockist(req, res, stockistId) {
   }
   if (req.user.role === 'ADMIN') return true;
   const callerStockist = await getCallerStockist(req);
-  if (callerStockist && callerStockist.id === stockistId) return true;
+  if (callerStockist && (callerStockist.id === stockistId || callerStockist.user_id === stockistId)) return true;
   res.status(403).json({ error: 'Forbidden' });
   return false;
 }
@@ -2040,16 +2040,26 @@ async function resolveStockistRate(stockistId) {
 }
 
 app.patch('/api/stockist/profile', requireAuth, async (req, res) => {
-  const stockistId = req.headers['x-user-id'] || req.body.stockistId || req.body.stockist_id;
+  let stockistId;
+  let callerStockist = null;
+  if (req.user.role === 'ADMIN') {
+    stockistId = req.headers['x-user-id'] || req.body.stockistId || req.body.stockist_id || req.body.id;
+    if (!stockistId) return res.status(400).json({ error: 'Admin requires explicit stockist id' });
+  } else {
+    callerStockist = await getCallerStockist(req);
+    if (!callerStockist) return res.status(403).json({ error: 'Unauthorized' });
+    stockistId = callerStockist.id;
+  }
+
   if (!await assertOwnsStockist(req, res, stockistId)) return;
   try {
-    if (!stockistId) return res.status(403).json({ error: 'Unauthorized' });
-    // Check if they are trying to patch a specific ID that isn't theirs
-    if (req.body.id && req.body.id !== stockistId) {
-      return res.status(403).json({ error: 'Forbidden: Cannot edit another stockist profile' });
-    }
-    if (req.body.stockist_id && req.body.stockist_id !== stockistId) {
-      return res.status(403).json({ error: 'Forbidden: Cannot edit another stockist profile' });
+    if (req.user.role !== 'ADMIN') {
+      if (req.body.id && req.body.id !== stockistId) {
+        return res.status(403).json({ error: 'Forbidden: Cannot edit another stockist profile' });
+      }
+      if (req.body.stockist_id && req.body.stockist_id !== stockistId) {
+        return res.status(403).json({ error: 'Forbidden: Cannot edit another stockist profile' });
+      }
     }
 
     const stockists = await db.getTable('stockists');
@@ -3474,13 +3484,19 @@ app.post('/api/stockist/push-subscription', requireAuth, async (req, res) => {
 
 // Acknowledge Order
 app.patch('/api/orders/:id/acknowledge', requireAuth, async (req, res) => {
-  const stockistId = req.headers['x-user-id'];
-  if (!stockistId) return res.status(403).json({ error: 'Unauthorized' });
+  let stockistId = req.headers['x-user-id'];
+  if (req.user.role !== 'ADMIN') {
+    const callerStockist = await getCallerStockist(req);
+    if (!callerStockist) return res.status(403).json({ error: 'Unauthorized' });
+    stockistId = callerStockist.id;
+  }
+  if (!await assertOwnsStockist(req, res, stockistId)) return;
   
   const orders = await db.getTable('orders');
   const order = orders.find(o => o.id === req.params.id);
-  if (!order || order.stockist_id !== stockistId) {
-    return res.status(404).json({ error: 'Order not found' });
+  if (!order) return res.status(404).json({ error: 'Order not found' });
+  if (req.user.role !== 'ADMIN' && order.stockist_id !== stockistId) {
+    return res.status(403).json({ error: 'Forbidden' });
   }
   
   if (!order.acknowledged_at) {

@@ -817,7 +817,7 @@ export default function App() {
 
   useEffect(() => {
     localStorage.setItem('fastnet_carts', JSON.stringify({ userId: currentUser?.id, carts: customerCarts }));
-  }, [customerCarts]);
+  }, [customerCarts, currentUser?.id]);
 
   const currentCart = selectedStockist ? (customerCarts[selectedStockist.id]?.items || []) : [];
   const [showCartsSheet, setShowCartsSheet] = useState(false);
