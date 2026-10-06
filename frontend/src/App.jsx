@@ -578,6 +578,10 @@ export default function App() {
       }
     });
   };
+  const [isVerifyingSession, setIsVerifyingSession] = useState(() => {
+    try { return !!localStorage.getItem('token') && !!localStorage.getItem('currentUser'); }
+    catch { return false; }
+  });
   const [activeRole, setActiveRole] = useState('marketing');
   const [dbState, setDbState] = useState(null);
   const [regions, setRegions] = useState([]);
@@ -615,6 +619,8 @@ export default function App() {
       localStorage.removeItem('currentUser');
       localStorage.removeItem('token');
       localStorage.removeItem('adminTabLastSeen');
+      localStorage.removeItem('fastnet_carts');
+      localStorage.removeItem('fastnet_partner_session');
     } catch {}
     setCurrentUser(null);
   };
@@ -631,13 +637,20 @@ export default function App() {
   useEffect(() => {
     const raw = (() => { try { return localStorage.getItem('currentUser'); } catch { return null; } })();
     const token = (() => { try { return localStorage.getItem('token'); } catch { return null; } })();
-    if (!raw || !token) return;
+    if (!raw || !token) {
+      setIsVerifyingSession(false);
+      return;
+    }
 
     try { 
       const parsed = JSON.parse(raw); 
       if (!parsed || !parsed.id || !parsed.role) throw new Error('invalid');
       setCurrentUser(parsed); 
-    } catch { clearSession(); return; }
+    } catch { 
+      clearSession(); 
+      setIsVerifyingSession(false);
+      return; 
+    }
 
     fetch(`${API_BASE}/auth/me`)
       .then(r => r.ok ? r.json() : Promise.reject(r.status))
@@ -645,7 +658,8 @@ export default function App() {
         if (!d.user || !d.user.id || !d.user.role) throw new Error('invalid');
         persistSession(d.user, d.token);
       })
-      .catch(() => clearSession());
+      .catch(() => clearSession())
+      .finally(() => setIsVerifyingSession(false));
   }, []);
 
   useEffect(() => {
@@ -781,14 +795,28 @@ export default function App() {
   const [customerCarts, setCustomerCarts] = useState(() => {
     try {
       const stored = localStorage.getItem('fastnet_carts');
-      return stored ? JSON.parse(stored) : {};
+      if (!stored) return {};
+      const parsed = JSON.parse(stored);
+      if (!parsed || typeof parsed !== 'object') return {};
+      
+      const rawUser = localStorage.getItem('currentUser');
+      const userId = rawUser ? JSON.parse(rawUser)?.id : null;
+
+      if ('userId' in parsed) {
+         if (parsed.userId === userId && parsed.carts && typeof parsed.carts === 'object') {
+           return parsed.carts;
+         }
+         return {};
+      } else {
+         return {};
+      }
     } catch {
       return {};
     }
   });
 
   useEffect(() => {
-    localStorage.setItem('fastnet_carts', JSON.stringify(customerCarts));
+    localStorage.setItem('fastnet_carts', JSON.stringify({ userId: currentUser?.id, carts: customerCarts }));
   }, [customerCarts]);
 
   const currentCart = selectedStockist ? (customerCarts[selectedStockist.id]?.items || []) : [];

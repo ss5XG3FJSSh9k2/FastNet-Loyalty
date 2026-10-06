@@ -1,4 +1,5 @@
-import { StrictMode } from 'react'
+const fs = require('fs');
+const content = `import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.jsx'
@@ -22,7 +23,7 @@ class RootErrorBoundary extends React.Component {
     console.error("RootErrorBoundary caught an error:", error, errorInfo);
     
     const stackStr = (error && error.stack) ? error.stack : '';
-    const stackLines = stackStr.split('\n').slice(0, 8);
+    const stackLines = stackStr.split('\\n').slice(0, 8);
     const errorMsg = error ? error.toString() : 'Unknown error';
 
     try {
@@ -82,3 +83,5 @@ createRoot(document.getElementById('root')).render(
     </RootErrorBoundary>
   </StrictMode>,
 )
+`;
+fs.writeFileSync('frontend/src/main.jsx', content);
