@@ -885,19 +885,30 @@ export default function App() {
     handleSetAdminTab(tab);
     if (onOpen) onOpen();
     
+    let manualScrollOccurred = false;
+    const scrollListener = () => { manualScrollOccurred = true; };
+    window.addEventListener('wheel', scrollListener, { once: true, passive: true });
+    window.addEventListener('touchstart', scrollListener, { once: true, passive: true });
+    
+    const executeScroll = () => {
+      if (adminContentRef.current) {
+        const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        adminContentRef.current.scrollIntoView({
+          behavior: prefersReducedMotion ? 'auto' : 'smooth',
+          block: 'start'
+        });
+      }
+    };
+
     window.requestAnimationFrame(() => {
+      executeScroll();
       setTimeout(() => {
-        if (adminContentRef.current) {
-          const rect = adminContentRef.current.getBoundingClientRect();
-          if (rect.top < 0 || rect.top > window.innerHeight) {
-            const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-            adminContentRef.current.scrollIntoView({
-              behavior: prefersReducedMotion ? 'auto' : 'smooth',
-              block: 'start'
-            });
-          }
+        window.removeEventListener('wheel', scrollListener);
+        window.removeEventListener('touchstart', scrollListener);
+        if (!manualScrollOccurred) {
+          executeScroll();
         }
-      }, 50);
+      }, 250);
     });
   };
 
@@ -12129,7 +12140,7 @@ export default function App() {
                 );
               })()}
 
-              <div ref={adminContentRef} id="admin-tab-content">
+              <div ref={adminContentRef} id="admin-tab-content" style={{ scrollMarginTop: '16px' }}>
               {adminTab === 'analytics' && (
                 <div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
