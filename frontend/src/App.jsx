@@ -1013,6 +1013,8 @@ export default function App() {
   const [showCommissionRateModal, setShowCommissionRateModal] = useState(false);
   const [newCommissionRate, setNewCommissionRate] = useState('');
   const [commissionRatePreview, setCommissionRatePreview] = useState(null);
+  const [commissionPreviewLoading, setCommissionPreviewLoading] = useState(false);
+  const [commissionSubmitting, setCommissionSubmitting] = useState(false);
   const [commissionTypedConfirm, setCommissionTypedConfirm] = useState('');
   const [showStockistRegionModal, setShowStockistRegionModal] = useState(false);
   const [newStockistRegion, setNewStockistRegion] = useState('r1');
@@ -3957,7 +3959,10 @@ export default function App() {
   };
 
   const handlePreviewCommissionRate = async () => {
+    if (commissionPreviewLoading) return;
     if (!selectedStockistDetail || newCommissionRate === '' || newCommissionRate === null || newCommissionRate === undefined) return;
+    setCommissionPreviewLoading(true);
+    setCommissionRatePreview(null);
     try {
       const res = await fetch(`${API_BASE}/admin/stockists/${selectedStockistDetail.id}/commission-rate`, {
         method: 'POST',
@@ -3971,14 +3976,17 @@ export default function App() {
         showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
     } catch (e) { showToast('Error fetching rate preview', 'error'); }
+    finally { setCommissionPreviewLoading(false); }
   };
 
   const handleSubmitCommissionRate = async () => {
+    if (commissionSubmitting) return;
     if (!selectedStockistDetail || newCommissionRate === '' || newCommissionRate === null || newCommissionRate === undefined) return;
     if (commissionTypedConfirm !== 'CONFIRM') {
       showToast('Type CONFIRM to apply commission rate change', 'error');
       return;
     }
+    setCommissionSubmitting(true);
     try {
       const res = await fetch(`${API_BASE}/admin/stockists/${selectedStockistDetail.id}/commission-rate`, {
         method: 'POST',
@@ -3995,6 +4003,7 @@ export default function App() {
         showToast(d.error || 'Update failed', 'error');
       }
     } catch (e) { showToast('Error updating commission rate', 'error'); }
+    finally { setCommissionSubmitting(false); }
   };
 
   const handleChangeStockistRegion = async () => {
@@ -16276,18 +16285,18 @@ export default function App() {
             <PanelErrorBoundary t={t}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
               <h3 style={{ fontSize: '1.1rem', margin: 0 }}>Change Commission Rate</h3>
-              <button className="btn btn-secondary" style={{ padding: '0.2rem 0.5rem' }} onClick={() => setShowCommissionRateModal(false)}><X size={14} /></button>
+              <button className="btn btn-secondary" style={{ padding: '0.2rem 0.5rem' }} onClick={() => { setShowCommissionRateModal(false); setCommissionPreviewLoading(false); setCommissionSubmitting(false); }}><X size={14} /></button>
             </div>
             <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Stockist: <strong>{selectedStockistDetail.name}</strong> (Current: {selectedStockistDetail.stockist?.commission_rate ?? selectedStockistDetail.commission_rate ?? 10}%)</p>
             
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', margin: '1rem 0' }}>
               <div className="input-group">
                 <label className="input-label">New Commission Rate (%)</label>
-                <NumberStepper value={newCommissionRate} onChange={setNewCommissionRate} min={0} max={100} step={0.5} decimals={1} suffix="%" />
+                <NumberStepper value={newCommissionRate} onChange={(v) => { setNewCommissionRate(v); setCommissionRatePreview(null); }} min={0} max={100} step={0.5} decimals={1} suffix="%" />
               </div>
               
-              <button className="btn btn-secondary" style={{ fontSize: '0.75rem' }} onClick={handlePreviewCommissionRate}>
-                Calculate 30-Day Earnings Preview
+              <button className="btn btn-secondary" style={{ fontSize: '0.75rem' }} onClick={handlePreviewCommissionRate} disabled={commissionPreviewLoading}>
+                {commissionPreviewLoading ? t('Loading preview...', 'पूर्वावलोकन लोड हो रहा है...', 'প্রিভিউ লোড হচ্ছে...') : 'Calculate 30-Day Earnings Preview'}
               </button>
 
               {commissionRatePreview && (
@@ -16318,9 +16327,9 @@ export default function App() {
             </div>
 
             <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
-              <button className="btn btn-secondary" onClick={() => setShowCommissionRateModal(false)}>Cancel</button>
-              <button className="btn btn-accent" onClick={handleSubmitCommissionRate} disabled={commissionTypedConfirm !== 'CONFIRM'}>
-                Apply Rate Change
+              <button className="btn btn-secondary" onClick={() => { setShowCommissionRateModal(false); setCommissionPreviewLoading(false); setCommissionSubmitting(false); }}>Cancel</button>
+              <button className="btn btn-accent" onClick={handleSubmitCommissionRate} disabled={commissionTypedConfirm !== 'CONFIRM' || commissionSubmitting}>
+                {commissionSubmitting ? 'Applying...' : 'Apply Rate Change'}
               </button>
             </div>
             </PanelErrorBoundary>
