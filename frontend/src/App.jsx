@@ -807,6 +807,31 @@ export default function App() {
     try { localStorage.setItem('adminTabLastSeen', JSON.stringify(next)); } catch {}
   };
 
+  const goToAdminTab = (tab, onOpen) => {
+    const advancedTabs = ['vendors', 'regions', 'anomalies', 'audit_log', 'health'];
+    if (advancedTabs.includes(tab) && typeof setShowAdvanced === 'function') {
+      setShowAdvanced(true);
+    }
+    
+    handleSetAdminTab(tab);
+    if (onOpen) onOpen();
+    
+    window.requestAnimationFrame(() => {
+      setTimeout(() => {
+        if (adminContentRef.current) {
+          const rect = adminContentRef.current.getBoundingClientRect();
+          if (rect.top < 0 || rect.top > window.innerHeight) {
+            const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+            adminContentRef.current.scrollIntoView({
+              behavior: prefersReducedMotion ? 'auto' : 'smooth',
+              block: 'start'
+            });
+          }
+        }
+      }, 50);
+    });
+  };
+
   const handleSetAdminTab = (tab) => {
     setAdminTab(tab);
     markTabSeen(tab);
@@ -1597,6 +1622,7 @@ export default function App() {
   const [unacknowledgedOrders, setUnacknowledgedOrders] = useState([]);
   const alertedOrderIds = useRef(new Set());
   const isFirstOrderLoad = useRef(true);
+  const adminContentRef = useRef(null);
 
   const playChime = () => {
     try {
@@ -11513,19 +11539,19 @@ export default function App() {
           <div className="admin-grid">
             <div className="admin-sidebar">
               {/* Primary Top Section (Always Visible) */}
-              <button className={`admin-nav-item ${adminTab === 'home' ? 'active' : ''}`} onClick={() => setAdminTab('home')}>
+              <button className={`admin-nav-item ${adminTab === 'home' ? 'active' : ''}`} onClick={() => goToAdminTab('home')}>
                 <Home size={16} /> Home
               </button>
-              <button className={`admin-nav-item ${adminTab === 'kyc' ? 'active' : ''}`} onClick={() => setAdminTab('kyc')}>
+              <button className={`admin-nav-item ${adminTab === 'kyc' ? 'active' : ''}`} onClick={() => goToAdminTab('kyc')}>
                 <UserCheck size={16} /> Pending KYC {pendingKyc.length > 0 && <span className="badge badge-danger" style={{ marginLeft: '0.25rem', fontSize: '0.65rem' }}>{pendingKyc.length}</span>}
               </button>
-              <button className={`admin-nav-item ${adminTab === 'customers' ? 'active' : ''}`} onClick={() => setAdminTab('customers')}>
+              <button className={`admin-nav-item ${adminTab === 'customers' ? 'active' : ''}`} onClick={() => goToAdminTab('customers')}>
                 <UserCheck size={16} /> Customers ({adminCustomers.length})
               </button>
-              <button className={`admin-nav-item ${adminTab === 'stockists' ? 'active' : ''}`} onClick={() => setAdminTab('stockists')}>
+              <button className={`admin-nav-item ${adminTab === 'stockists' ? 'active' : ''}`} onClick={() => goToAdminTab('stockists')}>
                 <Store size={16} /> Stockists
               </button>
-              <button className={`admin-nav-item ${adminTab === 'redemption_approvals' ? 'active' : ''}`} onClick={() => { setAdminTab('redemption_approvals'); fetchRedemptionApprovals(); }}>
+              <button className={`admin-nav-item ${adminTab === 'redemption_approvals' ? 'active' : ''}`} onClick={() => goToAdminTab('redemption_approvals', fetchRedemptionApprovals)}>
                 <Gift size={16} /> Orders {adminRedemptionApprovals.filter(r => r.status === 'PENDING_ADMIN_APPROVAL').length > 0 && <span className="badge badge-danger" style={{ marginLeft: '0.25rem', fontSize: '0.65rem' }}>{adminRedemptionApprovals.filter(r => r.status === 'PENDING_ADMIN_APPROVAL').length}</span>}
                 {adminRedemptionApprovals.filter(r => r.status === 'DISPUTED').length > 0 && (
                   <span className="badge badge-warning" style={{ marginLeft: '0.25rem', fontSize: '0.65rem' }}>
@@ -11533,12 +11559,12 @@ export default function App() {
                   </span>
                 )}
               </button>
-              <button className={`admin-nav-item ${adminTab === 'transactions' ? 'active' : ''}`} onClick={() => setAdminTab('transactions')}>
+              <button className={`admin-nav-item ${adminTab === 'transactions' ? 'active' : ''}`} onClick={() => goToAdminTab('transactions')}>
                 <ArrowRightLeft size={16} /> Transactions 
                 {refundDueCount > 0 && <span className="badge badge-danger" style={{ marginLeft: '0.25rem', fontSize: '0.65rem' }} title="Refunds Due">{refundDueCount}</span>}
                 {UNPAID > 0 && <span className="badge badge-warning" style={{ marginLeft: '0.25rem', fontSize: '0.65rem', background: 'var(--warning)', color: 'black' }} title="Unpaid Payouts">{UNPAID}</span>}
               </button>
-              <button className={`admin-nav-item ${adminTab === 'generic_rewards' ? 'active' : ''}`} onClick={() => { setAdminTab('generic_rewards'); fetchAdminGenericRewards(); }}>
+              <button className={`admin-nav-item ${adminTab === 'generic_rewards' ? 'active' : ''}`} onClick={() => goToAdminTab('generic_rewards', fetchAdminGenericRewards)}>
                 <Gift size={16} /> Generic Rewards
               </button>
               <button 
@@ -11554,7 +11580,7 @@ export default function App() {
               >
                 <FileText size={16} /> Bills {pendingRedemptions.filter(r=>r.billing_sync_status==='PENDING').length > 0 && <span className="badge badge-warning" style={{ marginLeft: '0.25rem', fontSize: '0.65rem' }}>{pendingRedemptions.filter(r=>r.billing_sync_status==='PENDING').length}</span>}
               </button>
-              <button className={`admin-nav-item ${adminTab === 'bill_photos' ? 'active' : ''}`} onClick={() => { handleSetAdminTab('bill_photos'); fetchAdminBillPhotos(); }}>
+              <button className={`admin-nav-item ${adminTab === 'bill_photos' ? 'active' : ''}`} onClick={() => goToAdminTab('bill_photos', fetchAdminBillPhotos)}>
                 <FileText size={16} /> Bill Photos {adminBillPhotos.filter(b => b.bill_status === 'PENDING').length > 0 && <span className="badge badge-warning" style={{ marginLeft: '0.25rem', fontSize: '0.65rem' }}>{adminBillPhotos.filter(b => b.bill_status === 'PENDING').length}</span>}
               </button>
               <button 
@@ -11584,17 +11610,17 @@ export default function App() {
               >
                 <ShieldAlert size={16} /> Blacklisted/Rejected {blacklistedUsers.length > 0 && <span className="badge badge-danger" style={{ marginLeft: '0.25rem', fontSize: '0.65rem' }}>{blacklistedUsers.length}</span>}
               </button>
-              <button className={`admin-nav-item ${adminTab === 'partners' ? 'active' : ''}`} onClick={() => { setAdminTab('partners'); setPartnerSubTab(unresolvedLeads.length > 0 ? 'leads' : 'onboarded'); fetchAdminPartners(); }}>
+              <button className={`admin-nav-item ${adminTab === 'partners' ? 'active' : ''}`} onClick={() => goToAdminTab('partners', () => { setPartnerSubTab(unresolvedLeads.length > 0 ? 'leads' : 'onboarded'); fetchAdminPartners(); })}>
                 <UserPlus size={16} /> {t('Partners / Onboarded Partners', 'पार्टनर / शामिल किए गए पार्टनर', 'অংশীদার / অনবোর্ড করা অংশীদার')} {unresolvedLeads.length > 0 && <span className="badge badge-warning" style={{ marginLeft: '0.25rem', fontSize: '0.65rem' }}>{unresolvedLeads.length}</span>}
               </button>
-              <button className={`admin-nav-item ${adminTab === 'analytics' ? 'active' : ''}`} onClick={() => { setAdminTab('analytics'); fetchAnalytics(); localStorage.setItem('fastnet_admin_analytics_visited', 'true'); }}>
+              <button className={`admin-nav-item ${adminTab === 'analytics' ? 'active' : ''}`} onClick={() => goToAdminTab('analytics', () => { fetchAnalytics(); localStorage.setItem('fastnet_admin_analytics_visited', 'true'); })}>
                 <TrendingUp size={16} /> Analytics
               </button>
-              <button className={`admin-nav-item ${adminTab === 'config' || adminTab === 'rates' || adminTab === 'settings' ? 'active' : ''}`} onClick={() => setAdminTab('config')}>
+              <button className={`admin-nav-item ${adminTab === 'config' || adminTab === 'rates' || adminTab === 'settings' ? 'active' : ''}`} onClick={() => goToAdminTab('config')}>
                 <Settings size={16} /> Settings
               </button>
               
-              <button className={`admin-nav-item ${adminTab === 'feedback' ? 'active' : ''}`} onClick={() => handleSetAdminTab('feedback')}>
+              <button className={`admin-nav-item ${adminTab === 'feedback' ? 'active' : ''}`} onClick={() => goToAdminTab('feedback')}>
                 <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                   <ShieldAlert size={16} /> Feedback & Reports ({allFeedbackReports.length})
                   {adminPartnerFeedback.filter(f => f.status === 'NEW').length > 0 && <span className="badge badge-warning" style={{ marginLeft: '0.25rem', fontSize: '0.65rem' }}>{adminPartnerFeedback.filter(f => f.status === 'NEW').length}</span>}
@@ -11620,32 +11646,32 @@ export default function App() {
                 {showAdvanced && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', marginTop: '0.35rem', paddingLeft: '0.25rem' }}>
 
-                    <button className={`admin-nav-item ${adminTab === 'vendors' ? 'active' : ''}`} onClick={() => handleSetAdminTab('vendors')}>
+                    <button className={`admin-nav-item ${adminTab === 'vendors' ? 'active' : ''}`} onClick={() => goToAdminTab('vendors')}>
                       <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                         <ShoppingBag size={16} /> Wholesalers ({vendors.length})
                         {isUnread('vendors') && <span className="unread-dot" aria-label="Unread wholesalers" />}
                       </span>
                     </button>
-                    <button className={`admin-nav-item ${adminTab === 'regions' ? 'active' : ''}`} onClick={() => { handleSetAdminTab('regions'); fetchAdminRegions(); }}>
+                    <button className={`admin-nav-item ${adminTab === 'regions' ? 'active' : ''}`} onClick={() => goToAdminTab('regions', fetchAdminRegions)}>
                       <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                         <Globe size={16} /> Regions ({adminRegionsList.length})
                         {isUnread('regions') && <span className="unread-dot" aria-label="Unread regions" />}
                       </span>
                     </button>
-                    <button className={`admin-nav-item ${adminTab === 'anomalies' ? 'active' : ''}`} onClick={() => handleSetAdminTab('anomalies')}>
+                    <button className={`admin-nav-item ${adminTab === 'anomalies' ? 'active' : ''}`} onClick={() => goToAdminTab('anomalies')}>
                       <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                         <ShieldAlert size={16} /> Flagged Store Orders ({anomalies.length})
                         {isUnread('anomalies') && <span className="unread-dot" aria-label="Unread flagged orders" />}
                       </span>
                     </button>
 
-                    <button className={`admin-nav-item ${adminTab === 'audit_log' ? 'active' : ''}`} onClick={() => handleSetAdminTab('audit_log')}>
+                    <button className={`admin-nav-item ${adminTab === 'audit_log' ? 'active' : ''}`} onClick={() => goToAdminTab('audit_log')}>
                       <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                         <FileText size={16} /> Audit Log
                       </span>
                     </button>
 
-                    <button className={`admin-nav-item ${adminTab === 'health' ? 'active' : ''}`} onClick={() => { handleSetAdminTab('health'); fetchHealthData(); }}>
+                    <button className={`admin-nav-item ${adminTab === 'health' ? 'active' : ''}`} onClick={() => goToAdminTab('health', fetchHealthData)}>
                       <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                         <TrendingUp size={16} /> System Health
                       </span>
@@ -11720,7 +11746,7 @@ export default function App() {
                   </div>
                 </div>
                 <div 
-                  onClick={() => setAdminTab('transactions')}
+                  onClick={() => goToAdminTab('transactions')}
                   style={{ 
                     background: UNPAID > 0 ? 'rgba(245,158,11,0.08)' : 'rgba(34,197,94,0.08)', 
                     border: UNPAID > 0 ? '1px solid rgba(245,158,11,0.2)' : '1px solid rgba(34,197,94,0.2)', 
@@ -11793,7 +11819,7 @@ export default function App() {
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
                       {/* Step 1 */}
                       <div 
-                        onClick={() => { setAdminTab('regions'); fetchAdminRegions(); }}
+                        onClick={() => goToAdminTab('regions', fetchAdminRegions)}
                         style={{
                           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                           padding: '0.65rem 0.85rem', borderRadius: '8px',
@@ -11816,7 +11842,7 @@ export default function App() {
 
                       {/* Step 2 */}
                       <div 
-                        onClick={step1Done ? () => setAdminTab('vendors') : undefined}
+                        onClick={step1Done ? () => goToAdminTab('vendors') : undefined}
                         style={{
                           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                           padding: '0.65rem 0.85rem', borderRadius: '8px',
@@ -11842,7 +11868,7 @@ export default function App() {
 
                       {/* Step 3 */}
                       <div 
-                        onClick={step2Done ? () => { setAdminTab('kyc'); fetchDbState(); } : undefined}
+                        onClick={step2Done ? () => goToAdminTab('kyc', fetchDbState) : undefined}
                         style={{
                           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                           padding: '0.65rem 0.85rem', borderRadius: '8px',
@@ -11868,12 +11894,14 @@ export default function App() {
 
                       {/* Step 4 */}
                       <div 
+                        onClick={step3Done ? () => goToAdminTab('customers') : undefined}
                         style={{
                           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                           padding: '0.65rem 0.85rem', borderRadius: '8px',
                           background: step4Done ? 'rgba(34,197,94,0.1)' : 'rgba(255,255,255,0.03)',
                           border: step4Done ? '1px solid rgba(34,197,94,0.3)' : '1px solid var(--border-color)',
-                          opacity: step3Done ? 1 : 0.4
+                          opacity: step3Done ? 1 : 0.4,
+                          cursor: step3Done ? 'pointer' : 'not-allowed'
                         }}
                       >
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
@@ -11896,6 +11924,7 @@ export default function App() {
                 );
               })()}
 
+              <div ref={adminContentRef} id="admin-tab-content">
               {adminTab === 'analytics' && (
                 <div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
@@ -14638,7 +14667,7 @@ export default function App() {
                 </div>
               )}
 
-
+              </div>
             </div>
           </div>
         </div>
