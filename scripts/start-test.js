@@ -4,6 +4,7 @@ const path = require('path');
 const mode = process.argv[2] || 'dev';
 
 process.env.SEED_MODE = 'test';
+process.env.TEST_SUITE = 'true';
 process.env.EMAIL_MOCK = 'true';
 process.env.SMS_MOCK = 'true';
 process.env.R2_MOCK = 'true';

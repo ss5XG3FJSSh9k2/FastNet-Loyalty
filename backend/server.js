@@ -9784,6 +9784,9 @@ const readyPromise = db.init().then(async () => {
   reportMalformedPhones();
 
   if (process.env.SEED_MODE === 'test') {
+    if (!process.env.TEST_SUITE) {
+      console.warn('\n[WARNING] SEED_MODE=test was set by accident outside the test suite. This will load preset data!\n');
+    }
     const users = await db.getTable('users');
     if (!users || users.length === 0) {
       console.error('\n[FATAL ERROR] SEED_MODE=test is set but the database is empty! The app must not run empty in test mode.\n');

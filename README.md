@@ -39,3 +39,7 @@ node backend/tests/regression.js
 | **Customer** | `9876543210` | `123456` | Standard rural subscriber |
 | **Stockist** | `7654321098` | `123456` | Local merchant (Madan Grocers) |
 | **Admin** | *Accessible via role tab* | *None required* | System operator portal |
+
+## How to run for testing
+- `npm run dev` to continue where you left off.
+- `npm run dev:fresh` to start from the beginning.

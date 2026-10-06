@@ -10,3 +10,4 @@ frontend/dist/
 .env
 backend/.env
 backend/uploads/
+backend/data/dev-db.json

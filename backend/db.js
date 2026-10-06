@@ -1,9 +1,32 @@
 const { Pool } = require('pg');
 const migrations = require('./lib/migrations');
 const seedRunner = require('./lib/seed-runner');
+const fs = require('fs');
+const path = require('path');
 
 let pool = null;
 let isMemMode = false;
+
+let saveTimeout = null;
+function scheduleSave() {
+  if (!isMemMode || process.env.DEV_LAUNCHER !== 'true') return;
+  if (saveTimeout) clearTimeout(saveTimeout);
+  saveTimeout = setTimeout(async () => {
+    try {
+      const dbFile = path.join(__dirname, 'data/dev-db.json');
+      const tempFile = dbFile + '.tmp';
+      const allData = await getAll();
+      if (!fs.existsSync(path.dirname(dbFile))) {
+        fs.mkdirSync(path.dirname(dbFile), { recursive: true });
+      }
+      fs.writeFileSync(tempFile, JSON.stringify(allData, null, 2), 'utf8');
+      fs.renameSync(tempFile, dbFile);
+    } catch (e) {
+      console.error('Failed to save dev DB', e);
+    }
+  }, 1000);
+}
+
 
 async function getClientOrPool(client) {
   if (client) return client;
@@ -190,19 +213,54 @@ async function init() {
     const dbInterface = { query, getTable, insertRow, updateRow, deleteRow };
     await migrations.runMigrations(dbInterface);
 
-    const seedMode = process.env.SEED_MODE || 'production';
-    if (seedMode === 'production') {
-      console.log('[Seed] SEED_MODE=production — starting with an empty database.');
-    } else {
-      console.log(`[Seed] SEED_MODE=${seedMode} — starting with test seed data.`);
+    const isDevLauncher = process.env.DEV_LAUNCHER === 'true';
+    const dbFile = path.join(__dirname, 'data/dev-db.json');
+    let loadedFromDisk = false;
+
+    if (isMemMode && isDevLauncher && fs.existsSync(dbFile)) {
+      try {
+        const savedData = JSON.parse(fs.readFileSync(dbFile, 'utf8'));
+        for (const table of Object.keys(savedData)) {
+          for (const row of savedData[table]) {
+            try {
+              const keys = Object.keys(row);
+              if (keys.length === 0) continue;
+              const cols = keys.map(k => `"${k}"`).join(', ');
+              const placeholders = keys.map((_, i) => `$${i + 1}`).join(', ');
+              const jsonbCols = ['before', 'after', 'before_state', 'after_state', 'rules_fired', 'metric_values', 'details', 'active_regions', 'service_types', 'items'];
+              const values = keys.map(k => {
+                const val = row[k];
+                if (val !== null && val !== undefined && jsonbCols.includes(k)) return JSON.stringify(val);
+                if (val !== null && typeof val === 'object' && !(val instanceof Date)) return JSON.stringify(val);
+                return val;
+              });
+              await query(`INSERT INTO ${table} (${cols}) VALUES (${placeholders})`, values);
+            } catch (e) {
+              // ignore
+            }
+          }
+        }
+        loadedFromDisk = true;
+      } catch (err) {
+        console.error('Failed to load dev-db.json', err);
+      }
     }
 
-    // Check if DB has users
-    const checkRes = await query('SELECT COUNT(*) as count FROM users');
-    const count = parseInt(checkRes.rows[0].count, 10);
-    if (count === 0 && seedMode === 'test') {
-      await seedRunner.seedDatabase(dbInterface);
-      await backfillReferralCodes(dbInterface);
+    if (!loadedFromDisk) {
+      const seedMode = process.env.SEED_MODE || 'production';
+      if (seedMode === 'production') {
+        console.log('[Seed] SEED_MODE=production — starting with an empty database.');
+      } else {
+        console.log(`[Seed] SEED_MODE=${seedMode} — starting with test seed data.`);
+      }
+
+      // Check if DB has users
+      const checkRes = await query('SELECT COUNT(*) as count FROM users');
+      const count = parseInt(checkRes.rows[0].count, 10);
+      if (count === 0 && seedMode === 'test') {
+        await seedRunner.seedDatabase(dbInterface);
+        await backfillReferralCodes(dbInterface);
+      }
     }
 
     await dedupeStockists(dbInterface);
@@ -259,6 +317,7 @@ async function saveTable(tableName, rows) {
   for (const row of rows) {
     await insertRow(tableName, row);
   }
+  scheduleSave();
 }
 
 const jsonbCols = ['before', 'after', 'before_state', 'after_state', 'rules_fired', 'metric_values', 'details', 'active_regions', 'service_types', 'items'];
@@ -300,6 +359,7 @@ async function insertRow(tableName, row, client = null) {
 
   const sql = `INSERT INTO ${tableName} (${cols}) VALUES (${placeholders}) RETURNING *`;
   const res = await query(sql, values, client);
+  scheduleSave();
   return normalizeRow(res.rows[0]);
 }
 
@@ -339,6 +399,7 @@ async function updateRow(tableName, id, patch, client = null) {
 
   const sql = `UPDATE ${tableName} SET ${setClauses} WHERE id = $${values.length} RETURNING *`;
   const res = await query(sql, values, client);
+  scheduleSave();
   return normalizeRow(res.rows[0]);
 }
 
@@ -348,6 +409,7 @@ async function deleteRow(tableName, id, client = null) {
   }
 
   const res = await query(`DELETE FROM ${tableName} WHERE id = $1 RETURNING *`, [id], client);
+  scheduleSave();
   return normalizeRow(res.rows[0]);
 }
 
@@ -375,12 +437,15 @@ async function transaction(fn) {
 
 async function getAll() {
   const tables = [
-    'users', 'regions', 'stockists', 'products', 'orders', 'points_ledger',
-    'inventory', 'vendors', 'partner_leads', 'fraud_reports', 'admin_audit_log',
-    'commission_config', 'product_bill_photos', 'partners', 'partner_regions',
-    'partner_packages', 'partner_users', 'customer_partner_bindings',
-    'redemption_approvals', 'partner_feedback', 'partner_notifications',
-    'user_blacklist', 'support_tickets', 'stockist_cod_commissions'
+    'tenants', 'users', 'regions', 'stockists', 'products', 'orders', 'points_ledger',
+    'inventory', 'stockist_inventory', 'order_items', 'split_payouts', 'payment_ledger',
+    'cod_commission_ledger', 'commission_rates', 'stockist_commission_rates',
+    'points_earn_config', 'anomaly_logs', 'stockist_vendors', 'vendors', 'partner_leads',
+    'fraud_reports', 'admin_audit_log', 'commission_config', 'product_bill_photos',
+    'partners', 'partner_regions', 'partner_packages', 'partner_users',
+    'customer_partner_bindings', 'redemption_approvals', 'partner_feedback',
+    'partner_notifications', 'feedback_reports', 'user_blacklist', 'support_tickets',
+    'stockist_cod_commissions'
   ];
 
   const db = {};

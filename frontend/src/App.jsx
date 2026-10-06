@@ -632,6 +632,7 @@ export default function App() {
   const [needsSetup, setNeedsSetup] = useState(false);
   const [setupName, setSetupName] = useState('');
   const [setupPhone, setSetupPhone] = useState('');
+  const [adminSetupEmail, setAdminSetupEmail] = useState('');
   const [setupError, setSetupError] = useState('');
   const [setupSuccessAdmin, setSetupSuccessAdmin] = useState(null);
   const [isSubmittingSetup, setIsSubmittingSetup] = useState(false);
@@ -663,13 +664,17 @@ export default function App() {
       setSetupError(t('Please enter a valid 10-digit phone number.', 'कृपया 10 अंकों का मान्य फ़ोन नंबर दर्ज करें।', 'অনুগ্রহ করে একটি বৈধ ১০ সংখ্যার ফোন নম্বর লিখুন।'));
       return;
     }
+    if (!adminSetupEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(adminSetupEmail.trim())) {
+      setSetupError(t('Please enter a valid email address.', 'कृपया एक मान्य ईमेल दर्ज करें।', 'অনুগ্রহ করে একটি বৈধ ইমেল ঠিকানা লিখুন।'));
+      return;
+    }
 
     setIsSubmittingSetup(true);
     try {
       const res = await fetch(`${API_BASE}/setup/create-admin`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: setupName.trim(), phone: setupPhone.trim() })
+        body: JSON.stringify({ name: setupName.trim(), phone: setupPhone.trim(), email: adminSetupEmail.trim() })
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -14756,6 +14761,20 @@ export default function App() {
                 />
               </div>
 
+              <div className="input-group">
+                <label className="input-label" style={{ fontSize: '0.8rem', fontWeight: '600', color: 'var(--text-main)' }}>
+                  {t('Email', 'ईमेल', 'ইমেইল')}
+                </label>
+                <input
+                  type="email"
+                  className="text-input"
+                  placeholder="you@example.com"
+                  value={adminSetupEmail}
+                  onChange={e => setAdminSetupEmail(e.target.value)}
+                  style={{ width: '100%', padding: '0.65rem 0.85rem', fontSize: '0.85rem' }}
+                />
+              </div>
+
               <button
                 type="submit"
                 className="btn btn-accent"
@@ -14766,7 +14785,7 @@ export default function App() {
               </button>
 
               <div style={{ textAlign: 'center', fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '-0.25rem' }}>
-                {t("You'll log in with this phone number and an OTP.", "आप इस फ़ोन नंबर और ओटीपी से लॉग इन करेंगे।", "আপনি এই ফোন নম্বর এবং একটি ওটিপি দিয়ে লগ ইন করবেন।")}
+                {t("You'll log in with this phone number or email and an OTP.", "आप इस फ़ोन नंबर या ईमेल और ओटीपी से लॉग इन करेंगे।", "আপনি এই ফোন নম্বর বা ইমেল এবং একটি ওটিপি দিয়ে লগ ইন করবেন।")}
               </div>
             </form>
           )}
