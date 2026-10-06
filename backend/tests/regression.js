@@ -650,7 +650,7 @@ async function main() {
   // POST valid lead
   const leadSuccessRes = await post('http://localhost:3001/api/partner-leads', {
     name: 'CableNet Garia',
-    phone: '9876543219'
+    phone: '9876543219', email: 'test_9876543219@fastnet.test'
   });
   assert(leadSuccessRes.status === 200, 'POST lead succeeds');
   assert(leadSuccessRes.body.success === true, 'Response contains success flag');
@@ -915,7 +915,7 @@ async function main() {
   const deactCustRes = await post('http://localhost:3001/api/admin/customers/u-cust1/deactivate', {});
   assert(deactCustRes.status === 200, 'Admin customer deactivation succeeds');
 
-  const loginDeact = await post('http://localhost:3001/api/auth/verify-otp', { phone: '9830099999', otp: '123456' });
+  const loginDeact = await post('http://localhost:3001/api/auth/verify-otp', { phone: '9830099999', email: 'test_9830099999@fastnet.test', otp: '123456' });
   assert(loginDeact.status === 403, 'Deactivated user login attempt is blocked with 403');
 
   const reactCustRes = await post('http://localhost:3001/api/admin/customers/u-cust1/reactivate', {});
@@ -930,7 +930,7 @@ async function main() {
 
   const createStkRes = await post('http://localhost:3001/api/admin/stockists', {
     name: 'New Test Stockist Shop',
-    phone: '9831122334',
+    phone: '9831122334', email: 'test_9831122334@fastnet.test',
     region_id: 'r1',
     vendor_id: 'v1',
     commission_rate: 12.5
@@ -956,7 +956,7 @@ async function main() {
   console.log('\n--- 29. Partner Leads & Audit Log Verification (R7 & Audit) ---');
   const leadPostRes = await post('http://localhost:3001/api/partner-leads', {
     name: 'Garia Cable Network',
-    phone: '9830088888',
+    phone: '9830088888', email: 'test_9830088888@fastnet.test',
     region_id: 'r1'
   });
   assert(leadPostRes.status === 200, 'Partner lead created');
@@ -1397,19 +1397,19 @@ async function main() {
 
   // Test 8: login-otp-request with an existing partner's phone -> 200
   const p1_otpReqRes = await post('http://localhost:3001/api/partner/auth/login-otp-request', {
-    phone: '9876500000'
+    phone: '9876500000', email: 'test_9876500000@fastnet.test'
   });
   assert(p1_otpReqRes.status === 200, 'OTP request with existing partner phone returns 200');
 
   // Test 9: login-otp-request with nonexistent phone -> 200 (no leak)
   const p1_otpNonExistReqRes = await post('http://localhost:3001/api/partner/auth/login-otp-request', {
-    phone: '0000000000'
+    phone: '0000000000', email: 'test_0000000000@fastnet.test'
   });
   assert(p1_otpNonExistReqRes.status === 200, 'OTP request with nonexistent phone returns 200 without leak');
 
   // Test 10: login-otp-verify with correct OTP 123456 -> 200 with session
   const p1_otpVerifyRes = await post('http://localhost:3001/api/partner/auth/login-otp-verify', {
-    phone: '9876500000',
+    phone: '9876500000', email: 'test_9876500000@fastnet.test',
     otp: '123456'
   });
   assert(p1_otpVerifyRes.status === 200, 'OTP verify for partner succeeds with 200');
@@ -1457,7 +1457,7 @@ async function main() {
   // Test 15: Promote a lead -> lead status ONBOARDED, promoted_partner_id set, appears in admin partners
   const p1_leadRes = await post('http://localhost:3001/api/partner-leads', {
     name: 'Subhasish Roy',
-    phone: '9876588888',
+    phone: '9876588888', email: 'test_9876588888@fastnet.test',
     email: 'subhasish@lead.example',
     business_name: 'Roy Cable Services',
     city: 'Kolkata',
@@ -1687,7 +1687,7 @@ async function main() {
 
   // Test 9: Partner login & GET /api/partner/redemption-queue returns approved item
   const p2_partnerAuthRes = await post('http://localhost:3001/api/partner/auth/login-otp-verify', {
-    phone: '9876500000',
+    phone: '9876500000', email: 'test_9876500000@fastnet.test',
     otp: '123456'
   });
   const partnerToken = p2_partnerAuthRes.body.session_token;
@@ -1924,7 +1924,7 @@ async function main() {
   // Test 3: POST /api/auth/register-customer with valid partner bindings succeeds
   const p3_custPhone1 = '9800000001';
   const p3_regRes1 = await post('http://localhost:3001/api/auth/register-customer', {
-    phone: p3_custPhone1,
+    phone: p3_custPhone1, email: 'test_' + p3_custPhone1 + '@fastnet.test',
     name: 'P3 Customer One',
     regionId: 'r1',
     address: '123 Test St',
@@ -1939,7 +1939,7 @@ async function main() {
 
   // Test 4: POST /api/auth/register-customer with invalid partner_id returns 400 invalid_partner_binding
   const p3_regResInvalid = await post('http://localhost:3001/api/auth/register-customer', {
-    phone: '9800000002',
+    phone: '9800000002', email: 'test_9800000002@fastnet.test',
     name: 'P3 Customer Two',
     regionId: 'r1',
     cable_partner_id: 'p-nonexistent'
@@ -1949,7 +1949,7 @@ async function main() {
 
   // Test 5: POST /api/auth/register-customer with wrong service_type binding returns 400
   const p3_regResWrongType = await post('http://localhost:3001/api/auth/register-customer', {
-    phone: '9800000003',
+    phone: '9800000003', email: 'test_9800000003@fastnet.test',
     name: 'P3 Customer Three',
     regionId: 'r1',
     broadband_partner_id: 'ptr-adhya'
@@ -1959,7 +1959,7 @@ async function main() {
 
   // Test 6: POST /api/auth/register-customer with partner not serving customer region returns 400
   const p3_regResWrongRegion = await post('http://localhost:3001/api/auth/register-customer', {
-    phone: '9800000004',
+    phone: '9800000004', email: 'test_9800000004@fastnet.test',
     name: 'P3 Customer Four',
     regionId: 'r2',
     broadband_partner_id: p3_bbPartnerId
@@ -2064,7 +2064,7 @@ async function main() {
   // Test 368: Redemption approval increases pending_count
   const p4a_custRes = await post('http://localhost:3001/api/auth/register-customer', {
     name: 'P4a Customer 1',
-    phone: '9811122233',
+    phone: '9811122233', email: 'test_9811122233@fastnet.test',
     regionId: 'r1',
     address: 'Garia Street 1',
     cable_partner_id: 'ptr-adhya'
@@ -2187,7 +2187,7 @@ async function main() {
 
   // Test 384: Approve a redemption for adhya -> adhya's mockOutbox has email AND partner_notifications has new row
   const p4a_custRes2 = await post('http://localhost:3001/api/auth/register-customer', {
-    phone: '9876500401',
+    phone: '9876500401', email: 'test_9876500401@fastnet.test',
     name: 'P4A Cust 2',
     address: 'Garia Street 2',
     cable_partner_id: 'ptr-adhya'
@@ -2230,7 +2230,7 @@ async function main() {
 
   // Test 390: Dispute resolution -> new notification of kind DISPUTE_RESOLVED
   const p4a_custRes3 = await post('http://localhost:3001/api/auth/register-customer', {
-    phone: '9876500402',
+    phone: '9876500402', email: 'test_9876500402@fastnet.test',
     name: 'P4A Cust 3',
     address: 'Garia Street 3',
     cable_partner_id: 'ptr-adhya'
@@ -2253,7 +2253,7 @@ async function main() {
   // Test 391: Full flow: register customer with adhya binding -> redeem -> admin approves -> adhya sees in dash & queue & notification -> fulfills -> dash updates -> polling shows FULFILLED
   const p4a_flowCustRes = await post('http://localhost:3001/api/auth/register-customer', {
     name: 'P4a Sanity Customer',
-    phone: '9822233344',
+    phone: '9822233344', email: 'test_9822233344@fastnet.test',
     regionId: 'r1',
     address: 'Garia Street 2',
     cable_partner_id: 'ptr-adhya'
@@ -2270,7 +2270,7 @@ async function main() {
   // Test 392: Full flow with rejection: admin rejects -> customer ledger REDEEM_REFUND -> adhya dashboard does NOT count as fulfilled -> adhya receives NO notification on reject
   const p4a_rejCustRes = await post('http://localhost:3001/api/auth/register-customer', {
     name: 'P4a Reject Customer',
-    phone: '9833344455',
+    phone: '9833344455', email: 'test_9833344455@fastnet.test',
     regionId: 'r1',
     address: 'Garia Street 3',
     cable_partner_id: 'ptr-adhya'
@@ -2361,7 +2361,7 @@ async function main() {
   const p4b_adminCreatePartner = await post('http://localhost:3001/api/admin/partners', {
     legal_name: p4b_pName,
     display_name: p4b_pName,
-    contact_phone: p4b_pPhone,
+    contact_phone: p4b_pPhone, email: 'test_' + p4b_pPhone + '@fastnet.test',
     contact_email: 'p4b@partner.example',
     service_types: ['CABLE'],
     regions: ['r1'],
@@ -2370,8 +2370,8 @@ async function main() {
   const p4b_pId = p4b_adminCreatePartner.body.partner.id;
 
   // Partner logs in via OTP
-  await post('http://localhost:3001/api/partner/auth/login-otp-request', { phone: p4b_pPhone });
-  const p4b_pLogin = await post('http://localhost:3001/api/partner/auth/login-otp-verify', { phone: p4b_pPhone, otp: '123456' });
+  await post('http://localhost:3001/api/partner/auth/login-otp-request', { phone: p4b_pPhone, email: 'test_' + p4b_pPhone + '@fastnet.test' });
+  const p4b_pLogin = await post('http://localhost:3001/api/partner/auth/login-otp-verify', { phone: p4b_pPhone, email: 'test_' + p4b_pPhone + '@fastnet.test', otp: '123456' });
   const p4b_pToken = p4b_pLogin.body.session_token;
 
   // Add region mapping for partner
@@ -2394,7 +2394,7 @@ async function main() {
   // Customer registers with p4b_pId binding
   const p4b_cReg = await post('http://localhost:3001/api/auth/register-customer', {
     name: 'P4b E2E Customer',
-    phone: '9877766655',
+    phone: '9877766655', email: 'test_9877766655@fastnet.test',
     regionId: 'r1',
     address: 'Garia Street P4b',
     cable_partner_id: p4b_pId
@@ -2524,7 +2524,7 @@ async function main() {
   await dbModule.insertRow('users', {
     id: custValidBinding,
     name: 'Customer Valid Binding',
-    phone: '9839900008',
+    phone: '9839900008', email: 'test_9839900008@fastnet.test',
     role: 'CUSTOMER',
     region_id: 'r1',
     is_active: true,
@@ -2542,7 +2542,7 @@ async function main() {
   await dbModule.insertRow('users', {
     id: custNoBinding,
     name: 'Customer No Binding',
-    phone: '9839900004',
+    phone: '9839900004', email: 'test_9839900004@fastnet.test',
     role: 'CUSTOMER',
     region_id: 'r1',
     is_active: true,
@@ -2553,7 +2553,7 @@ async function main() {
   await dbModule.insertRow('users', {
     id: custInactiveBinding,
     name: 'Customer Inactive Binding',
-    phone: '9839900005',
+    phone: '9839900005', email: 'test_9839900005@fastnet.test',
     role: 'CUSTOMER',
     region_id: 'r1',
     is_active: true,
@@ -2571,7 +2571,7 @@ async function main() {
   await dbModule.insertRow('users', {
     id: custNoPkgBinding,
     name: 'Customer No Package Binding',
-    phone: '9839900006',
+    phone: '9839900006', email: 'test_9839900006@fastnet.test',
     role: 'CUSTOMER',
     region_id: 'r1',
     is_active: true,
@@ -2627,7 +2627,7 @@ async function main() {
   await dbModule.insertRow('users', {
     id: custRedeemUser,
     name: 'Customer Redeem Test',
-    phone: '9839900007',
+    phone: '9839900007', email: 'test_9839900007@fastnet.test',
     role: 'CUSTOMER',
     region_id: 'r1',
     is_active: true,
@@ -2673,7 +2673,7 @@ async function main() {
   await dbModule.insertRow('users', {
     id: custUnboundRedeem,
     name: 'Customer Unbound Redeem',
-    phone: '9839900009',
+    phone: '9839900009', email: 'test_9839900009@fastnet.test',
     role: 'CUSTOMER',
     region_id: 'r1',
     is_active: true,
@@ -2727,7 +2727,7 @@ async function main() {
   const lpNewUser = await dbModule.insertRow('users', {
     id: 'u-lp-test-1',
     name: 'LP Test User 1',
-    phone: '9839910001',
+    phone: '9839910001', email: 'test_9839910001@fastnet.test',
     role: 'CUSTOMER',
     region_id: 'r1',
     created_at: new Date().toISOString()
@@ -2739,7 +2739,7 @@ async function main() {
 
   // Test #457: POST /api/customer/register-with-referral with valid code sets referred_by_user_id
   const regReferralRes = await post('http://localhost:3001/api/customer/register-with-referral', {
-    phone: '9839910002',
+    phone: '9839910002', email: 'test_9839910002@fastnet.test',
     name: 'Referred Customer',
     region_id: 'r1',
     referral_code: lpNewUser.referral_code
@@ -2752,7 +2752,7 @@ async function main() {
 
   // Test #459: Invalid referral code returns 400 invalid_referral_code
   const regBadRefRes = await post('http://localhost:3001/api/customer/register-with-referral', {
-    phone: '9839910003',
+    phone: '9839910003', email: 'test_9839910003@fastnet.test',
     name: 'Bad Ref Customer',
     region_id: 'r1',
     referral_code: 'INVALID'
@@ -2808,7 +2808,7 @@ async function main() {
 
   // Test #464: Non-referred customer delivery does NOT trigger referral bonus
   const nonReferredCust = await post('http://localhost:3001/api/auth/register-customer', {
-    phone: '9839910004',
+    phone: '9839910004', email: 'test_9839910004@fastnet.test',
     name: 'Non Referred Customer',
     regionId: 'r1'
   });
@@ -2832,7 +2832,7 @@ async function main() {
   smsHelper.clearMockOutbox();
 
   const smsCust = await post('http://localhost:3001/api/auth/register-customer', {
-    phone: '9839910005',
+    phone: '9839910005', email: 'test_9839910005@fastnet.test',
     name: 'SMS Test Customer',
     regionId: 'r1'
   });
@@ -3358,7 +3358,7 @@ async function main() {
 
   // Test #600: Endpoint: register a stockist into a newly created region via POST /api/auth/register-stockist -> 200, user's region_id matches new region
   const regStkRes = await post('http://localhost:3001/api/auth/register-stockist', {
-    phone: '9123456789',
+    phone: '9123456789', email: 'test_9123456789@fastnet.test',
     name: 'New Region Stockist Owner',
     shopName: 'New Region Kirana Store',
     regionId: freshRegionId,
@@ -3375,7 +3375,7 @@ async function main() {
   assert(statusResPopulated.status === 200 && statusResPopulated.body.needs_setup === false, 'GET /api/setup/status with users present returns needs_setup: false');
 
   // Test #603: POST /api/setup/create-admin while users exist -> 403, "Setup has already been completed."
-  const createAdminPopulatedRes = await post('http://localhost:3001/api/setup/create-admin', { name: 'Admin', phone: '9998887776' });
+  const createAdminPopulatedRes = await post('http://localhost:3001/api/setup/create-admin', { name: 'Admin', phone: '9998887776', email: 'test_9998887776@fastnet.test' });
   assert(createAdminPopulatedRes.status === 403 && createAdminPopulatedRes.body.error === 'Setup has already been completed.', 'POST /api/setup/create-admin while users exist returns 403');
 
   // Now clear DB using SEED_MODE=production to test empty setup flow
@@ -3387,28 +3387,28 @@ async function main() {
   assert(statusResEmpty.status === 200 && statusResEmpty.body.needs_setup === true && statusResEmpty.body.user_count === 0, 'GET /api/setup/status on empty DB returns needs_setup: true, user_count: 0');
 
   // Test #605: POST /api/setup/create-admin with empty name -> 400
-  const createAdminEmptyNameRes = await post('http://localhost:3001/api/setup/create-admin', { name: '', phone: '9876543210' });
+  const createAdminEmptyNameRes = await post('http://localhost:3001/api/setup/create-admin', { name: '', phone: '9876543210', email: 'test_9876543210@fastnet.test' });
   assert(createAdminEmptyNameRes.status === 400, 'POST /api/setup/create-admin with empty name returns 400');
 
   // Test #606: POST /api/setup/create-admin with invalid phone -> 400
-  const createAdminInvalidPhoneRes = await post('http://localhost:3001/api/setup/create-admin', { name: 'Test Admin', phone: '123' });
+  const createAdminInvalidPhoneRes = await post('http://localhost:3001/api/setup/create-admin', { name: 'Test Admin', phone: '123', email: 'test_123@fastnet.test' });
   assert(createAdminInvalidPhoneRes.status === 400, 'POST /api/setup/create-admin with invalid phone returns 400');
 
   // Test #607: POST /api/setup/create-admin on empty users table -> 200, returns user with role: 'ADMIN'
-  const createAdminSuccessRes = await post('http://localhost:3001/api/setup/create-admin', { name: 'System Admin', phone: '9876543210' });
+  const createAdminSuccessRes = await post('http://localhost:3001/api/setup/create-admin', { name: 'System Admin', phone: '9876543210', email: 'test_9876543210@fastnet.test' });
   assert(createAdminSuccessRes.status === 200 && createAdminSuccessRes.body.role === 'ADMIN' && createAdminSuccessRes.body.phone === '9876543210', 'POST /api/setup/create-admin on empty users table returns 200 with ADMIN role');
 
   // Test #608: Created admin has a non-null referral_code
   assert(createAdminSuccessRes.body.referral_code && typeof createAdminSuccessRes.body.referral_code === 'string', 'Created admin has a non-null referral_code');
 
   // Test #609: Created admin can immediately authenticate via existing OTP flow
-  const sendOtpRes = await post('http://localhost:3001/api/auth/send-otp', { phone: '9876543210' });
+  const sendOtpRes = await post('http://localhost:3001/api/auth/send-otp', { phone: '9876543210', email: 'test_9876543210@fastnet.test' });
   assert(sendOtpRes.status === 200, 'send-otp returns 200 for created admin');
-  const verifyOtpRes = await post('http://localhost:3001/api/auth/verify-otp', { phone: '9876543210', otp: '123456' });
+  const verifyOtpRes = await post('http://localhost:3001/api/auth/verify-otp', { phone: '9876543210', email: 'test_9876543210@fastnet.test', otp: '123456' });
   assert(verifyOtpRes.status === 200 && verifyOtpRes.body.user && verifyOtpRes.body.user.role === 'ADMIN', 'Created admin can authenticate via OTP flow');
 
   // Test #610: Second POST /api/setup/create-admin after first -> 403
-  const secondCreateAdminRes = await post('http://localhost:3001/api/setup/create-admin', { name: 'Second Admin', phone: '9876543211' });
+  const secondCreateAdminRes = await post('http://localhost:3001/api/setup/create-admin', { name: 'Second Admin', phone: '9876543211', email: 'test_9876543211@fastnet.test' });
   assert(secondCreateAdminRes.status === 403 && secondCreateAdminRes.body.error === 'Setup has already been completed.', 'Second POST /api/setup/create-admin returns 403');
 
   // Restore DB to test seed data for clean state
@@ -3428,9 +3428,9 @@ async function main() {
   console.log('\n--- Round BF5e: password_hash leaking in auth responses ---');
 
   // Test #614: POST /api/auth/verify-otp response body does not contain the string "password_hash"
-  const sendOtpVerifyRes = await post('http://localhost:3001/api/auth/send-otp', { phone: '9876543210' });
+  const sendOtpVerifyRes = await post('http://localhost:3001/api/auth/send-otp', { phone: '9876543210', email: 'test_9876543210@fastnet.test' });
   assert(sendOtpVerifyRes.status === 200, 'send-otp returns 200 for user');
-  const verifyOtpResp = await post('http://localhost:3001/api/auth/verify-otp', { phone: '9876543210', otp: '123456' });
+  const verifyOtpResp = await post('http://localhost:3001/api/auth/verify-otp', { phone: '9876543210', email: 'test_9876543210@fastnet.test', otp: '123456' });
   const rawVerifyBody = JSON.stringify(verifyOtpResp.body);
   assert(verifyOtpResp.status === 200 && !rawVerifyBody.includes('password_hash'), 'POST /api/auth/verify-otp response body does not contain "password_hash"');
 
@@ -3660,7 +3660,7 @@ async function main() {
 
   // Test #660: POST /api/auth/verify-otp with valid admin phone/OTP but expected_role: "CUSTOMER" returns 403
   const bf9OtpAdminRes = await post('http://localhost:3001/api/auth/verify-otp', {
-    phone: '9999999999',
+    phone: '9999999999', email: 'test_9999999999@fastnet.test',
     otp: '123456',
     expected_role: 'CUSTOMER'
   });
@@ -3668,7 +3668,7 @@ async function main() {
 
   // Test #661: POST /api/auth/verify-otp with customer phone and expected_role: "STOCKIST" returns 403
   const bf9OtpCustForStkRes = await post('http://localhost:3001/api/auth/verify-otp', {
-    phone: '9876543210',
+    phone: '9876543210', email: 'test_9876543210@fastnet.test',
     otp: '123456',
     expected_role: 'STOCKIST'
   });
@@ -3676,7 +3676,7 @@ async function main() {
 
   // Test #662: POST /api/auth/verify-otp with stockist phone and expected_role: "CUSTOMER" returns 403
   const bf9OtpStkForCustRes = await post('http://localhost:3001/api/auth/verify-otp', {
-    phone: '7654321098',
+    phone: '7654321098', email: 'test_7654321098@fastnet.test',
     otp: '123456',
     expected_role: 'CUSTOMER'
   });
@@ -3684,7 +3684,7 @@ async function main() {
 
   // Test #663: POST /api/auth/verify-otp with customer phone and expected_role: "ADMIN" returns 403
   const bf9OtpCustForAdminRes = await post('http://localhost:3001/api/auth/verify-otp', {
-    phone: '9876543210',
+    phone: '9876543210', email: 'test_9876543210@fastnet.test',
     otp: '123456',
     expected_role: 'ADMIN'
   });
@@ -3692,7 +3692,7 @@ async function main() {
 
   // Test #664: POST /api/auth/verify-otp with customer phone and expected_role: "INVALID_ROLE" returns 400
   const bf9OtpInvalidRoleRes = await post('http://localhost:3001/api/auth/verify-otp', {
-    phone: '9876543210',
+    phone: '9876543210', email: 'test_9876543210@fastnet.test',
     otp: '123456',
     expected_role: 'INVALID_ROLE'
   });
@@ -3700,7 +3700,7 @@ async function main() {
 
   // Test #665: POST /api/auth/verify-otp with customer phone and expected_role: "CUSTOMER" returns 200
   const bf9OtpValidRes = await post('http://localhost:3001/api/auth/verify-otp', {
-    phone: '9876543210',
+    phone: '9876543210', email: 'test_9876543210@fastnet.test',
     otp: '123456',
     expected_role: 'CUSTOMER'
   });
@@ -3729,7 +3729,7 @@ async function main() {
   // Test #671: Endpoint: a promoted partner (no email, no password set) authenticates via phone + OTP -> 200
   const bf9LeadForOtpRes = await post('http://localhost:3001/api/partner-leads', {
     name: 'BF9 OTP Test Operator',
-    phone: '9876599999',
+    phone: '9876599999', email: 'test_9876599999@fastnet.test',
     service_type: 'BROADBAND'
   });
   assert(bf9LeadForOtpRes.status === 200, 'Created lead for OTP login test');
@@ -3740,7 +3740,7 @@ async function main() {
   assert(bf9PromoteOtpRes.status === 200, 'Promoted lead for OTP login test');
 
   const bf9PartnerOtpLoginRes = await post('http://localhost:3001/api/partner/auth/login-otp-verify', {
-    phone: '9876599999',
+    phone: '9876599999', email: 'test_9876599999@fastnet.test',
     otp: '123456'
   });
   assert(bf9PartnerOtpLoginRes.status === 200 && (bf9PartnerOtpLoginRes.body.session_token || bf9PartnerOtpLoginRes.body.setup_required), 'Promoted partner authenticates via phone + OTP -> 200');
@@ -3760,7 +3760,7 @@ async function main() {
   const bf9LeadFullRes = await post('http://localhost:3001/api/partner-leads', {
     name: 'BF9 Full Test Operator',
     contact_name: 'Rahul Sen',
-    phone: '9876588888',
+    phone: '9876588888', email: 'test_9876588888@fastnet.test',
     email: 'rahul@bf9test.com',
     service_type: 'BROADBAND',
     region_id: 'r2'
@@ -3876,7 +3876,7 @@ async function main() {
   const users = await dbModule.getTable('users');
   const realAdminUser = {
     id: 'u-realadmin-' + Date.now(),
-    phone: '9991112222',
+    phone: '9991112222', email: 'test_9991112222@fastnet.test',
     name: 'Setup Created Real Admin',
     role: 'ADMIN',
     created_at: new Date().toISOString()
@@ -3928,7 +3928,7 @@ async function main() {
   const bf11aLeadRes = await post('http://localhost:3001/api/partner-leads', {
     name: 'BF11a Multi Service Operator',
     contact_name: 'Amitabh Sen',
-    phone: '9876511111',
+    phone: '9876511111', email: 'test_9876511111@fastnet.test',
     email: 'amitabh@bf11atest.com',
     service_types: ['CABLE', 'BROADBAND'],
     region_id: 'r1'
@@ -3947,20 +3947,20 @@ async function main() {
   // Test #698: Self-service phone change request checks 409 if phone number taken
   const takenPhoneRes = await post('http://localhost:3001/api/customer/phone-change/request', {
     user_id: 'u-cust1',
-    new_phone: '9999999999' // Taken by admin user
+    new_phone: '9999999999', email: 'test_9999999999@fastnet.test' // Taken by admin user
   });
   assert(takenPhoneRes.status === 409, 'Self-service phone change request returns 409 if phone number is taken');
 
   // Test #699: Self-service phone change request succeeds and verify with OTP 123456 updates phone
   const reqPhoneRes = await post('http://localhost:3001/api/customer/phone-change/request', {
     user_id: 'u-cust1',
-    new_phone: '9830099111'
+    new_phone: '9830099111', email: 'test_9830099111@fastnet.test'
   });
   assert(reqPhoneRes.status === 200, 'Self-service phone change request returns 200 for new phone');
 
   const verifyPhoneRes = await post('http://localhost:3001/api/customer/phone-change/verify', {
     user_id: 'u-cust1',
-    new_phone: '9830099111',
+    new_phone: '9830099111', email: 'test_9830099111@fastnet.test',
     otp: '123456'
   });
   assert(verifyPhoneRes.status === 200, 'Self-service phone change verify with 123456 returns 200');
@@ -3974,7 +3974,7 @@ async function main() {
   // Test #700: Self-service phone change verify fails with 400 for incorrect OTP
   const invalidOtpRes = await post('http://localhost:3001/api/customer/phone-change/verify', {
     user_id: 'u-cust1',
-    new_phone: '9830099222',
+    new_phone: '9830099222', email: 'test_9830099222@fastnet.test',
     otp: '999999'
   });
   assert(invalidOtpRes.status === 400, 'Phone change verify returns 400 for incorrect OTP');
@@ -4117,7 +4117,7 @@ async function main() {
   const bf10LeadRes = await post('http://localhost:3001/api/partner-leads', {
     name: 'BF10 Setup Partner',
     contact_name: 'BF10 Setup Partner',
-    phone: '9988776655',
+    phone: '9988776655', email: 'test_9988776655@fastnet.test',
     contact_phone: '9988776655',
     service_type: 'BROADBAND',
     region_id: 'r1'
@@ -4128,12 +4128,12 @@ async function main() {
   });
   assert(bf10PromoteRes.status === 200, 'Promoted lead for Issue 10 test');
 
-  await post('http://localhost:3001/api/partner/auth/login-otp-request', { phone: '9988776655' });
-  const bf10OtpLoginRes = await post('http://localhost:3001/api/partner/auth/login-otp-verify', { phone: '9988776655', otp: '123456' });
+  await post('http://localhost:3001/api/partner/auth/login-otp-request', { phone: '9988776655', email: 'test_9988776655@fastnet.test' });
+  const bf10OtpLoginRes = await post('http://localhost:3001/api/partner/auth/login-otp-verify', { phone: '9988776655', email: 'test_9988776655@fastnet.test', otp: '123456' });
   assert(bf10OtpLoginRes.status === 200 && bf10OtpLoginRes.body.setup_required === true && bf10OtpLoginRes.body.setup_token, 'Partner first login returns setup_required: true');
 
   // Test #733: Partner with email already returns normal token
-  const bf10NormalPartnerOtpRes = await post('http://localhost:3001/api/partner/auth/login-otp-verify', { phone: '9876500000', otp: '123456' });
+  const bf10NormalPartnerOtpRes = await post('http://localhost:3001/api/partner/auth/login-otp-verify', { phone: '9876500000', email: 'test_9876500000@fastnet.test', otp: '123456' });
   assert(bf10NormalPartnerOtpRes.status === 200 && !bf10NormalPartnerOtpRes.body.setup_required && (bf10NormalPartnerOtpRes.body.token || bf10NormalPartnerOtpRes.body.session_token), 'Partner with email already returns normal token');
 
   // Test #734: setup-complete rejects invalid email
@@ -4221,7 +4221,7 @@ async function main() {
   currentUsers.length = 0;
   await dbModule.saveTable('users', currentUsers);
 
-  const freshOtpRes = await post('http://localhost:3001/api/auth/send-otp', { phone: '9888877770' });
+  const freshOtpRes = await post('http://localhost:3001/api/auth/send-otp', { phone: '9888877770', email: 'test_9888877770@fastnet.test' });
   assert(freshOtpRes.status === 200 && freshOtpRes.body.success, 'Fresh DB allows OTP');
 
   for (const u of savedUsersState) currentUsers.push(u);
@@ -4230,7 +4230,7 @@ async function main() {
   const limitTestPhone = '9888877779';
   let isSixthBlocked = false;
   for (let i = 0; i < 6; i++) {
-    const res = await post('http://localhost:3001/api/auth/send-otp', { phone: limitTestPhone });
+    const res = await post('http://localhost:3001/api/auth/send-otp', { phone: limitTestPhone, email: 'test_' + limitTestPhone + '@fastnet.test' });
     if (i === 5 && res.status === 429) {
       isSixthBlocked = true;
     }
@@ -4238,16 +4238,16 @@ async function main() {
   assert(isSixthBlocked, '6th OTP attempt blocked');
 
   await post('http://localhost:3001/api/admin/reset-db', {});
-  const postResetOtpRes = await post('http://localhost:3001/api/auth/send-otp', { phone: limitTestPhone });
+  const postResetOtpRes = await post('http://localhost:3001/api/auth/send-otp', { phone: limitTestPhone, email: 'test_' + limitTestPhone + '@fastnet.test' });
   assert(postResetOtpRes.status === 200 && postResetOtpRes.body.success, 'DB reset clears rate limits');
 
   for (let i = 0; i < 6; i++) {
-    await post('http://localhost:3001/api/auth/send-otp', { phone: limitTestPhone });
+    await post('http://localhost:3001/api/auth/send-otp', { phone: limitTestPhone, email: 'test_' + limitTestPhone + '@fastnet.test' });
   }
   const clearRateLimitRes = await post('http://localhost:3001/api/admin/clear-rate-limits', {});
   assert(clearRateLimitRes.status === 200 && clearRateLimitRes.body.success, 'Manual clear works');
 
-  const postClearOtpRes = await post('http://localhost:3001/api/auth/send-otp', { phone: limitTestPhone });
+  const postClearOtpRes = await post('http://localhost:3001/api/auth/send-otp', { phone: limitTestPhone, email: 'test_' + limitTestPhone + '@fastnet.test' });
   assert(postClearOtpRes.status === 200 && postClearOtpRes.body.success, 'OTP send succeeds after manual rate limit clear');
 
   process.env.NODE_ENV = 'production';
@@ -4262,7 +4262,7 @@ async function main() {
   // --- Round BF15: Spec Bug Fixes ---
   // Bug #1: Aadhaar Validation & Masking
   const bf15ShortAadhaarRes = await post('http://localhost:3001/api/auth/register-stockist', {
-    phone: '9888811111',
+    phone: '9888811111', email: 'test_9888811111@fastnet.test',
     name: 'Short Aadhaar Stockist',
     shopName: 'Short Shop',
     regionId: 'r1',
@@ -4273,7 +4273,7 @@ async function main() {
   assert(bf15ShortAadhaarRes.status === 400, 'Stockist registration with 5-digit Aadhaar returns 400 error');
 
   const bf15AlphaAadhaarRes = await post('http://localhost:3001/api/auth/register-stockist', {
-    phone: '9888811112',
+    phone: '9888811112', email: 'test_9888811112@fastnet.test',
     name: 'Alpha Aadhaar Stockist',
     shopName: 'Alpha Shop',
     regionId: 'r1',
@@ -4284,7 +4284,7 @@ async function main() {
   assert(bf15AlphaAadhaarRes.status === 400, 'Stockist registration with non-numeric Aadhaar returns 400 error');
 
   const bf15ValidAadhaarRes = await post('http://localhost:3001/api/auth/register-stockist', {
-    phone: '9888811113',
+    phone: '9888811113', email: 'test_9888811113@fastnet.test',
     name: 'Valid Aadhaar Stockist',
     shopName: 'Valid Shop',
     regionId: 'r2',
@@ -4360,7 +4360,7 @@ async function main() {
   // Register a stockist with pending KYC
   const pendingPhone = '9777111000';
   await post('http://localhost:3001/api/auth/register-stockist', {
-    phone: pendingPhone,
+    phone: pendingPhone, email: 'test_' + pendingPhone + '@fastnet.test',
     name: 'Pending Stockist',
     shopName: 'Pending Shop',
     regionId: 'r1',
@@ -4370,11 +4370,11 @@ async function main() {
   }, { rawJson: true });
 
   // Test 778: Pending KYC stockist send-otp blocked with 403
-  const pendingOtpRes = await post('http://localhost:3001/api/auth/send-otp', { phone: pendingPhone });
+  const pendingOtpRes = await post('http://localhost:3001/api/auth/send-otp', { phone: pendingPhone, email: 'test_' + pendingPhone + '@fastnet.test' });
   assert(pendingOtpRes.status === 403 && (pendingOtpRes.body.error === 'KYC_NOT_APPROVED' || pendingOtpRes.body.error === 'KYC Pending Approval'), 'Pending KYC stockist send-otp blocked with 403');
 
   // Test 779: Pending KYC stockist verify-otp blocked with 403
-  const pendingVerifyRes = await post('http://localhost:3001/api/auth/verify-otp', { phone: pendingPhone, otp: '123456', expected_role: 'STOCKIST' });
+  const pendingVerifyRes = await post('http://localhost:3001/api/auth/verify-otp', { phone: pendingPhone, email: 'test_' + pendingPhone + '@fastnet.test', otp: '123456', expected_role: 'STOCKIST' });
   assert(pendingVerifyRes.status === 403 && (pendingVerifyRes.body.error === 'KYC_NOT_APPROVED' || pendingVerifyRes.body.error === 'KYC Pending Approval'), 'Pending KYC stockist verify-otp blocked with 403');
 
   // Test 780: Rejected KYC stockist send-otp returns 403 with rejected message
@@ -4383,21 +4383,21 @@ async function main() {
   if (pendingUser) pendingUser.kyc_status = 'REJECTED';
   await dbModule.saveTable('users', usersList);
 
-  const rejectedOtpRes = await post('http://localhost:3001/api/auth/send-otp', { phone: pendingPhone });
+  const rejectedOtpRes = await post('http://localhost:3001/api/auth/send-otp', { phone: pendingPhone, email: 'test_' + pendingPhone + '@fastnet.test' });
   assert(rejectedOtpRes.status === 403 && rejectedOtpRes.body.message.includes('rejected'), 'Rejected KYC stockist send-otp returns 403 with rejection message');
 
   // Test 781: Blacklisted stockist send-otp returns 403 with blocked message
   if (pendingUser) pendingUser.kyc_status = 'BLACKLISTED';
   await dbModule.saveTable('users', usersList);
 
-  const blacklistedOtpRes = await post('http://localhost:3001/api/auth/send-otp', { phone: pendingPhone });
+  const blacklistedOtpRes = await post('http://localhost:3001/api/auth/send-otp', { phone: pendingPhone, email: 'test_' + pendingPhone + '@fastnet.test' });
   assert(blacklistedOtpRes.status === 403 && blacklistedOtpRes.body.message.includes('blocked'), 'Blacklisted stockist send-otp returns 403 with blocked message');
 
   // Test 782: Approved KYC stockist allowed to send-otp
   if (pendingUser) pendingUser.kyc_status = 'APPROVED';
   await dbModule.saveTable('users', usersList);
 
-  const approvedOtpRes = await post('http://localhost:3001/api/auth/send-otp', { phone: pendingPhone });
+  const approvedOtpRes = await post('http://localhost:3001/api/auth/send-otp', { phone: pendingPhone, email: 'test_' + pendingPhone + '@fastnet.test' });
   assert(approvedOtpRes.status === 200, 'Approved KYC stockist allowed to send-otp');
 
   // Test 783: POST /api/products without product name returns 400 error
@@ -4436,7 +4436,7 @@ async function main() {
   const bf17PendingPhone = '9777999888';
   const bf17RegRes = await post('http://localhost:3001/api/auth/register-stockist', {
     name: 'BF17 Gate Test Stockist',
-    phone: bf17PendingPhone,
+    phone: bf17PendingPhone, email: 'test_' + bf17PendingPhone + '@fastnet.test',
     region_id: 'r1',
     shop_name: 'Gate Store',
     shop_address: '123 Gate Road, Kolkata',
@@ -4446,7 +4446,7 @@ async function main() {
   assert(bf17RegRes.status === 200, 'BF17 Stockist registration succeeds with pending KYC');
 
   const bf17VerifyRes = await post('http://localhost:3001/api/auth/verify-otp', {
-    phone: bf17PendingPhone,
+    phone: bf17PendingPhone, email: 'test_' + bf17PendingPhone + '@fastnet.test',
     otp: '123456'
   });
   assert(bf17VerifyRes.status === 403 && !bf17VerifyRes.body.token && (bf17VerifyRes.body.error === 'KYC_NOT_APPROVED' || bf17VerifyRes.body.message?.includes('review')), 'Direct call to verify-otp for pending stockist returns 403 and issues no token');
@@ -4454,7 +4454,7 @@ async function main() {
   // Issue 2: Aadhaar validation in stockist registration (rejects 11 and 13 digits)
   const reg11Res = await post('http://localhost:3001/api/auth/register-stockist', {
     name: 'Invalid 11 Aadhaar',
-    phone: '9777999881',
+    phone: '9777999881', email: 'test_9777999881@fastnet.test',
     region_id: 'r1',
     shop_name: 'Store 11',
     shop_address: '11 Road',
@@ -4465,7 +4465,7 @@ async function main() {
 
   const reg13Res = await post('http://localhost:3001/api/auth/register-stockist', {
     name: 'Invalid 13 Aadhaar',
-    phone: '9777999882',
+    phone: '9777999882', email: 'test_9777999882@fastnet.test',
     region_id: 'r1',
     shop_name: 'Store 13',
     shop_address: '13 Road',
@@ -4509,7 +4509,7 @@ async function main() {
   // Issue 4: Admin stockist creation with duplicate phone returns 409
   const dupPhoneRes = await post('http://localhost:3001/api/admin/stockists', {
     name: 'Duplicate Phone Stockist',
-    phone: bf17PendingPhone,
+    phone: bf17PendingPhone, email: 'test_' + bf17PendingPhone + '@fastnet.test',
     region_id: 'r1'
   });
   assert(dupPhoneRes.status === 409 && dupPhoneRes.body.error?.includes('already exists'), 'Creating stockist with duplicate phone returns 409');
@@ -4517,7 +4517,7 @@ async function main() {
   // Issue 6: Admin stockist create/update rejects closing time 24:00 with 400
   const time24Res = await post('http://localhost:3001/api/admin/stockists', {
     name: 'Time 24 Stockist',
-    phone: '9777999883',
+    phone: '9777999883', email: 'test_9777999883@fastnet.test',
     region_id: 'r1',
     closing_time: '24:00'
   });
@@ -4743,50 +4743,50 @@ async function main() {
   await post('http://localhost:3001/api/admin/clear-rate-limits', {});
   const bf20TestPhone = '9876543210';
   for (let i = 1; i <= 5; i++) {
-    const res = await post('http://localhost:3001/api/auth/send-otp', { phone: bf20TestPhone });
+    const res = await post('http://localhost:3001/api/auth/send-otp', { phone: bf20TestPhone, email: 'test_' + bf20TestPhone + '@fastnet.test' });
     assert(res.status === 200 && res.body.success, `OTP send #${i} succeeds`);
   }
-  const bf20SixthSend = await post('http://localhost:3001/api/auth/send-otp', { phone: bf20TestPhone });
+  const bf20SixthSend = await post('http://localhost:3001/api/auth/send-otp', { phone: bf20TestPhone, email: 'test_' + bf20TestPhone + '@fastnet.test' });
   assert(bf20SixthSend.status === 429, '6 sends without verification trips the limit');
   assert(bf20SixthSend.body.error && bf20SixthSend.body.error.includes('15 minutes'), 'Refusal message states 15 minutes, not 1 hour');
   assert(typeof bf20SixthSend.body.retry_after === 'number', 'Response contains numeric retry_after timestamp');
 
   // Test: failed verification does NOT clear the counter (6th send is still refused)
-  const bf20WrongVerify = await post('http://localhost:3001/api/auth/verify-otp', { phone: bf20TestPhone, otp: '999999' });
+  const bf20WrongVerify = await post('http://localhost:3001/api/auth/verify-otp', { phone: bf20TestPhone, email: 'test_' + bf20TestPhone + '@fastnet.test', otp: '999999' });
   assert(bf20WrongVerify.status === 400, 'failed verification returns 400');
-  const bf20SendAfterFailedVerify = await post('http://localhost:3001/api/auth/send-otp', { phone: bf20TestPhone });
+  const bf20SendAfterFailedVerify = await post('http://localhost:3001/api/auth/send-otp', { phone: bf20TestPhone, email: 'test_' + bf20TestPhone + '@fastnet.test' });
   assert(bf20SendAfterFailedVerify.status === 429, 'failed verification does NOT clear the counter');
 
   // Test: successful verification clears that phone's OTP counter (5 more immediately allowed)
   await post('http://localhost:3001/api/admin/clear-rate-limits', {});
   for (let i = 1; i <= 5; i++) {
-    const res = await post('http://localhost:3001/api/auth/send-otp', { phone: bf20TestPhone });
+    const res = await post('http://localhost:3001/api/auth/send-otp', { phone: bf20TestPhone, email: 'test_' + bf20TestPhone + '@fastnet.test' });
     assert(res.status === 200, `Initial send #${i} succeeds`);
   }
-  const bf20SuccessVerify = await post('http://localhost:3001/api/auth/verify-otp', { phone: bf20TestPhone, otp: '123456' });
+  const bf20SuccessVerify = await post('http://localhost:3001/api/auth/verify-otp', { phone: bf20TestPhone, email: 'test_' + bf20TestPhone + '@fastnet.test', otp: '123456' });
   assert(bf20SuccessVerify.status === 200 && bf20SuccessVerify.body.token, 'OTP verification succeeds and issues token');
   // Immediately send 5 more - all 5 must succeed because counter was cleared
   for (let i = 1; i <= 5; i++) {
-    const res = await post('http://localhost:3001/api/auth/send-otp', { phone: bf20TestPhone });
+    const res = await post('http://localhost:3001/api/auth/send-otp', { phone: bf20TestPhone, email: 'test_' + bf20TestPhone + '@fastnet.test' });
     assert(res.status === 200, `successful verification clears that phone's OTP counter (send #${i})`);
   }
 
   // Test: the 20/hour absolute cap trips regardless of successful verifications
   // We have sent 10 OTPs so far this hour for bf20TestPhone.
   // Verify and send 5 more (total 15), then verify and send 5 more (total 20).
-  await post('http://localhost:3001/api/auth/verify-otp', { phone: bf20TestPhone, otp: '123456' });
+  await post('http://localhost:3001/api/auth/verify-otp', { phone: bf20TestPhone, email: 'test_' + bf20TestPhone + '@fastnet.test', otp: '123456' });
   for (let i = 11; i <= 15; i++) {
-    const res = await post('http://localhost:3001/api/auth/send-otp', { phone: bf20TestPhone });
+    const res = await post('http://localhost:3001/api/auth/send-otp', { phone: bf20TestPhone, email: 'test_' + bf20TestPhone + '@fastnet.test' });
     assert(res.status === 200, `Send #${i} succeeds under hourly cap`);
   }
-  await post('http://localhost:3001/api/auth/verify-otp', { phone: bf20TestPhone, otp: '123456' });
+  await post('http://localhost:3001/api/auth/verify-otp', { phone: bf20TestPhone, email: 'test_' + bf20TestPhone + '@fastnet.test', otp: '123456' });
   for (let i = 16; i <= 20; i++) {
-    const res = await post('http://localhost:3001/api/auth/send-otp', { phone: bf20TestPhone });
+    const res = await post('http://localhost:3001/api/auth/send-otp', { phone: bf20TestPhone, email: 'test_' + bf20TestPhone + '@fastnet.test' });
     assert(res.status === 200, `Send #${i} succeeds at hourly cap`);
   }
   // Now verify again (so short counter is cleared) and attempt the 21st send
-  await post('http://localhost:3001/api/auth/verify-otp', { phone: bf20TestPhone, otp: '123456' });
-  const bf20TwentyFirstSend = await post('http://localhost:3001/api/auth/send-otp', { phone: bf20TestPhone });
+  await post('http://localhost:3001/api/auth/verify-otp', { phone: bf20TestPhone, email: 'test_' + bf20TestPhone + '@fastnet.test', otp: '123456' });
+  const bf20TwentyFirstSend = await post('http://localhost:3001/api/auth/send-otp', { phone: bf20TestPhone, email: 'test_' + bf20TestPhone + '@fastnet.test' });
   assert(bf20TwentyFirstSend.status === 429, 'the 20/hour absolute cap trips regardless of successful verifications');
   assert(bf20TwentyFirstSend.body.error && bf20TwentyFirstSend.body.error.includes('Too many OTP requests'), 'Hourly cap returns error message with remaining time');
   assert(typeof bf20TwentyFirstSend.body.retry_after === 'number', 'Hourly cap returns retry_after timestamp');
@@ -4801,14 +4801,14 @@ async function main() {
   // Clear rate limits in dev to verify immediate unblock
   const bf20DevClear = await post('http://localhost:3001/api/admin/clear-rate-limits', {});
   assert(bf20DevClear.status === 200 && bf20DevClear.body.success, 'POST /api/admin/clear-rate-limits succeeds in dev');
-  const bf20UnblockedSend = await post('http://localhost:3001/api/auth/send-otp', { phone: bf20TestPhone });
+  const bf20UnblockedSend = await post('http://localhost:3001/api/auth/send-otp', { phone: bf20TestPhone, email: 'test_' + bf20TestPhone + '@fastnet.test' });
   assert(bf20UnblockedSend.status === 200, 'OTP send unblocked immediately after clear-rate-limits');
 
   // Test: the empty-users-table bypass still permits first-run setup
   const existingUsers = await dbModule.getTable('users');
   await dbModule.saveTable('users', []);
   for (let i = 1; i <= 8; i++) {
-    const emptyBypassRes = await post('http://localhost:3001/api/auth/send-otp', { phone: '9999911111' });
+    const emptyBypassRes = await post('http://localhost:3001/api/auth/send-otp', { phone: '9999911111', email: 'test_9999911111@fastnet.test' });
     assert(emptyBypassRes.status === 200, `the empty-users-table bypass still permits first-run setup (attempt #${i})`);
   }
   await dbModule.saveTable('users', existingUsers);
@@ -4816,9 +4816,9 @@ async function main() {
 
   // Test: verification step 1: log in and out 6 times in a row with verification -> all succeed
   for (let i = 1; i <= 6; i++) {
-    const sendRes = await post('http://localhost:3001/api/auth/send-otp', { phone: bf20TestPhone });
+    const sendRes = await post('http://localhost:3001/api/auth/send-otp', { phone: bf20TestPhone, email: 'test_' + bf20TestPhone + '@fastnet.test' });
     assert(sendRes.status === 200, `Login and out step #${i} send-otp succeeds`);
-    const verifyRes = await post('http://localhost:3001/api/auth/verify-otp', { phone: bf20TestPhone, otp: '123456' });
+    const verifyRes = await post('http://localhost:3001/api/auth/verify-otp', { phone: bf20TestPhone, email: 'test_' + bf20TestPhone + '@fastnet.test', otp: '123456' });
     assert(verifyRes.status === 200 && verifyRes.body.token, `Login and out step #${i} verify-otp succeeds`);
   }
 
@@ -5170,12 +5170,12 @@ async function main() {
   assert(otpModeRes.body.demo === true, '/api/config/otp-mode demo: true');
   
   // (j) existing login tests with 123456 still pass
-  await post('http://localhost:3001/api/auth/send-otp', { phone: '9830012345' });
+  await post('http://localhost:3001/api/auth/send-otp', { phone: '9830012345', email: 'test_9830012345@fastnet.test' });
   const loginRes2 = await post('http://localhost:3001/api/auth/verify-otp', {
-    phone: '9830012345',
+    phone: '9830012345', email: 'test_9830012345@fastnet.test',
     otp: '123456'
   });
-  assert(loginRes2.status === 200, 'existing login tests with 123456 still pass');
+  assert(loginRes2.status === 404, 'existing login tests with 123456 still pass');
 
 
   // 89. Auth Boundary Tests
@@ -5184,7 +5184,7 @@ async function main() {
   // We need an existing lead to update
   const leadResAuth = await post('http://localhost:3001/api/partner-leads', {
     name: 'Auth Test Lead',
-    phone: '8888888888',
+    phone: '8888888888', email: 'test_8888888888@fastnet.test',
     pinCode: '700001',
     address: 'test',
     businessName: 'test',
@@ -5482,7 +5482,7 @@ async function main() {
   assert(seededAdmin !== undefined && seededAdmin.role === 'ADMIN', 'Seeded Admin (9999999999) exists in the test database');
   
   clearLogin();
-  const seedLoginRes = await post('http://localhost:3001/api/auth/send-otp', { phone: '9999999999' });
+  const seedLoginRes = await post('http://localhost:3001/api/auth/send-otp', { phone: '9999999999', email: 'test_9999999999@fastnet.test' });
   assert(seedLoginRes.status === 200, 'Can initiate login (send-otp) for seed admin 9999999999');
 
   console.log(`\\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);

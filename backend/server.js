@@ -160,6 +160,30 @@ function validateUserInput({ phone, email, name }) {
   return null;
 }
 
+async function checkEmail(email, res, expectNew = true) {
+  if (!email || typeof email !== 'string' || !email.trim()) {
+    res.status(400).json({ error: 'Email is required' });
+    return null;
+  }
+  const clean = email.trim().toLowerCase();
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(clean)) {
+    res.status(400).json({ error: 'Invalid email format' });
+    return null;
+  }
+  if (expectNew) {
+    const users = await db.getTable('users');
+    const partners = await db.getTable('partners');
+    const uDup = users.some(u => u.email && u.email.trim().toLowerCase() === clean);
+    const pDup = partners.some(p => p.contact_email && p.contact_email.trim().toLowerCase() === clean);
+    if (uDup || pDup) {
+      res.status(400).json({ error: 'This email is already registered.' });
+      return null;
+    }
+  }
+  return clean;
+}
+
 // Rate limiting state (Items 11, 13, 14)
 const apiRateLimitMap = new Map();
 const loginRateLimitMap = new Map();
@@ -540,15 +564,32 @@ app.post('/api/auth/verify-captcha', async (req, res) => {
 
 // POST /api/auth/send-otp & /api/stockist/auth/send-otp (Item 11, Item 13, BF16 KYC Gate)
 const handleSendOtpRoute = async (req, res) => {
-  const { phone } = req.body || {};
-  const validationErr = validateUserInput({ phone });
-  if (validationErr) return res.status(400).json({ error: validationErr });
+  const { phone: identifier } = req.body || {};
+  if (!identifier || typeof identifier !== 'string') {
+    return res.status(400).json({ error: 'Phone or email is required' });
+  }
 
+  const isEmail = identifier.includes('@');
+  let user = null;
   const users = await db.getTable('users');
-  const user = users.find(u => u.phone === phone && u.role === 'STOCKIST') || users.find(u => u.phone === phone);
+
+  if (isEmail) {
+    const cleanEmail = identifier.trim().toLowerCase();
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(cleanEmail)) return res.status(400).json({ error: 'Invalid email format' });
+    user = users.find(u => u.email && u.email.trim().toLowerCase() === cleanEmail && u.role === 'STOCKIST') ||
+           users.find(u => u.email && u.email.trim().toLowerCase() === cleanEmail);
+  } else {
+    const cleanPhone = identifier.replace(/\D/g, '');
+    if (cleanPhone.length !== 10) return res.status(400).json({ error: 'Invalid phone format' });
+    user = users.find(u => u.phone === cleanPhone && u.role === 'STOCKIST') ||
+           users.find(u => u.phone === cleanPhone);
+  }
+
+
 
   if (req.path.includes('/stockist/auth')) {
-    const stockistUser = user && user.role === 'STOCKIST' ? user : null;
+    const stockistUser = (user && user.role === 'STOCKIST') ? user : null;
     const gate = stockistKycGate(stockistUser);
     if (gate.blocked) return res.status(gate.code).json(gate.body);
   } else if (user && user.role === 'STOCKIST') {
@@ -556,17 +597,17 @@ const handleSendOtpRoute = async (req, res) => {
     if (gate.blocked) return res.status(gate.code).json(gate.body);
   }
 
-  const otpLimit = await checkOtpRateLimit(phone);
+  const otpLimit = await checkOtpRateLimit(identifier);
   if (!otpLimit.allowed) {
     return res.status(429).json({ error: otpLimit.error, retry_after: otpLimit.retry_after });
   }
-  if (!(await checkLoginRateLimit(phone))) {
+  if (!(await checkLoginRateLimit(identifier))) {
     return res.status(429).json({ error: 'Too many login attempts. Try again in 15 minutes.' });
   }
 
-    const code = issueOtp('login:' + phone);
+  const code = issueOtp('login:' + identifier);
   try {
-    await smsHelper.sendSms(phone, `Your FastNet OTP is ${code}`);
+    await smsHelper.sendSms(user ? user.phone : identifier, `Your FastNet OTP is ${code}`);
     res.json({ success: true, message: 'OTP sent' });
   } catch (err) {
     if (err.code === 'SMS_NOT_CONFIGURED') {
@@ -598,7 +639,8 @@ app.post('/api/auth/register-customer', async (req, res) => {
 
   const targetRegionId = regionId || region_id || 'r1';
   const cleanName = escapeHtml(name);
-  const cleanEmail = email ? escapeHtml(email) : null;
+  const validEmail = await checkEmail(email, res);
+  if (!validEmail) return;
   const cleanAddress = address ? escapeHtml(address) : '';
 
   const users = await db.getTable('users');
@@ -639,7 +681,7 @@ app.post('/api/auth/register-customer', async (req, res) => {
     region_id: targetRegionId,
     phone,
     name: cleanName,
-    email: cleanEmail,
+    email: validEmail,
     address: cleanAddress,
     role: 'CUSTOMER',
     kyc_status: 'PENDING',
@@ -716,8 +758,15 @@ app.patch('/api/users/:id', requireAuth, async (req, res) => {
 
   const patch = {};
   const updateKeys = isAdmin ? Object.keys(req.body) : allowedFields;
+
+  if (req.body.email && req.body.email !== user.email) {
+    const validEmail = await checkEmail(req.body.email, res);
+    if (!validEmail) return;
+    patch.email = validEmail;
+  }
+
   updateKeys.forEach(f => {
-    if (f in req.body) patch[f] = escapeHtml(req.body[f]);
+    if (f in req.body && f !== 'email') patch[f] = escapeHtml(req.body[f]);
   });
 
   const updated = await db.updateRow('users', id, patch);
@@ -744,13 +793,15 @@ app.post('/api/setup/create-admin', async (req, res) => {
       return res.status(403).json({ error: 'Setup has already been completed.' });
     }
 
-    let { name, phone } = req.body || {};
+    let { name, phone, email } = req.body || {};
     if (!name || typeof name !== 'string' || !name.trim() || name.trim().length > 120) {
       return res.status(400).json({ error: 'Name is required (max 120 chars).' });
     }
     const validPhone = checkPhone(phone, res);
     if (!validPhone) return;
     phone = validPhone;
+    const validEmail = await checkEmail(email, res);
+    if (!validEmail) return;
 
     const cleanName = name.trim();
     const cleanPhone = phone.trim();
@@ -771,6 +822,7 @@ app.post('/api/setup/create-admin', async (req, res) => {
       tenant_id: 't1',
       region_id: null,
       phone: cleanPhone,
+      email: validEmail,
       name: cleanName,
       role: 'ADMIN',
       kyc_status: 'APPROVED',
@@ -792,9 +844,9 @@ app.post('/api/setup/create-admin', async (req, res) => {
 
 // Verify OTP & Login
 const handleVerifyOtpRoute = async (req, res) => {
-  const { phone, otp, expected_role } = req.body;
-  if (!phone || !otp) {
-    return res.status(400).json({ error: 'Phone and OTP are required' });
+  const { phone: identifier, otp, expected_role } = req.body;
+  if (!identifier || !otp) {
+    return res.status(400).json({ error: 'Phone/Email and OTP are required' });
   }
 
   const ALLOWED_ROLES = ['CUSTOMER', 'STOCKIST', 'PARTNER_ADMIN', 'ADMIN'];
@@ -802,26 +854,37 @@ const handleVerifyOtpRoute = async (req, res) => {
     return res.status(400).json({ error: 'Invalid expected_role parameter' });
   }
 
-  const vRes = verifyOtp('login:' + phone, otp);
+  const vRes = verifyOtp('login:' + identifier, otp);
   if (!vRes.ok) {
     if (vRes.reason === 'locked') return res.status(429).json({ error: 'Too many failed attempts. Try again later.' });
     return res.status(400).json({ error: 'Invalid or expired OTP' });
   }
 
+  const isEmail = identifier.includes('@');
+  let user = null;
   const users = await db.getTable('users');
-  const user = users.find(u => u.phone === phone && u.role === 'STOCKIST') || users.find(u => u.phone === phone);
 
-  if (req.path.includes('/stockist/auth')) {
-    const stockistUser = user && user.role === 'STOCKIST' ? user : null;
-    const gate = stockistKycGate(stockistUser);
-    if (gate.blocked) return res.status(gate.code).json(gate.body);
+  if (isEmail) {
+    const cleanEmail = identifier.trim().toLowerCase();
+    user = users.find(u => u.email && u.email.trim().toLowerCase() === cleanEmail && u.role === 'STOCKIST') ||
+           users.find(u => u.email && u.email.trim().toLowerCase() === cleanEmail);
+  } else {
+    const cleanPhone = identifier.replace(/\D/g, '');
+    user = users.find(u => u.phone === cleanPhone && u.role === 'STOCKIST') ||
+           users.find(u => u.phone === cleanPhone);
   }
 
   if (!user) {
     if (expected_role === 'ADMIN') {
-      return res.status(403).json({ error: 'This number is not registered as an administrator.' });
+      return res.status(403).json({ error: 'This account is not registered as an administrator.' });
     }
-    return res.json({ requires_registration: true, phone });
+    return res.status(404).json({ error: 'No account found' });
+  }
+
+  if (req.path.includes('/stockist/auth')) {
+    const stockistUser = user.role === 'STOCKIST' ? user : null;
+    const gate = stockistKycGate(stockistUser);
+    if (gate.blocked) return res.status(gate.code).json(gate.body);
   }
 
   if (user.role === 'STOCKIST' || expected_role === 'STOCKIST') {
@@ -832,13 +895,13 @@ const handleVerifyOtpRoute = async (req, res) => {
   if (expected_role && user.role !== expected_role) {
     let errorMsg = '';
     if (expected_role === 'ADMIN' || user.role === 'ADMIN') {
-      errorMsg = 'This number is not registered as an administrator.';
+      errorMsg = 'This account is not registered as an administrator.';
     } else if (user.role === 'CUSTOMER') {
-      errorMsg = 'This number is registered as a customer. Please use the Customer App.';
+      errorMsg = 'This account is registered as a customer. Please use the Customer App.';
     } else if (user.role === 'STOCKIST') {
-      errorMsg = 'This number is registered as a shopkeeper. Please use the Stockist App.';
+      errorMsg = 'This account is registered as a shopkeeper. Please use the Stockist App.';
     } else if (user.role === 'PARTNER_ADMIN') {
-      errorMsg = 'This number is registered as a partner. Please use the Partner App.';
+      errorMsg = 'This account is registered as a partner. Please use the Partner App.';
     } else {
       errorMsg = 'Access denied for this role.';
     }
@@ -849,7 +912,7 @@ const handleVerifyOtpRoute = async (req, res) => {
     return res.status(403).json({ error: 'Account is deactivated. Contact admin.' });
   }
 
-  clearOtpRateLimit(phone);
+  clearOtpRateLimit(identifier);
   const token = sessionHelper.signSession(user.id, user.role);
   return res.json({ success: true, token, user: sanitizeUser(user) });
 };
@@ -899,7 +962,7 @@ app.get('/api/auth/me', async (req, res) => {
 
 // Register new Customer with Referral Code
 app.post('/api/customer/register-with-referral', async (req, res) => {
-  let { phone, name, address, cable_partner_id, broadband_partner_id, referral_code } = req.body;
+  let { phone, email, name, address, cable_partner_id, broadband_partner_id, referral_code } = req.body;
   const regionId = req.body.region_id || req.body.regionId;
 
   if (!phone || !name || !regionId) {
@@ -908,6 +971,9 @@ app.post('/api/customer/register-with-referral', async (req, res) => {
   const validPhone = checkPhone(phone, res);
   if (!validPhone) return;
   phone = validPhone;
+  
+  const validEmail = await checkEmail(email, res);
+  if (!validEmail) return;
 
   const users = await db.getTable('users');
   if (users.some(u => u.phone === phone)) {
@@ -948,6 +1014,7 @@ app.post('/api/customer/register-with-referral', async (req, res) => {
     tenant_id: 't1',
     region_id: regionId,
     phone,
+    email: validEmail,
     name,
     role: 'CUSTOMER',
     kyc_status: 'APPROVED',
@@ -1053,6 +1120,7 @@ app.post('/api/auth/register-stockist', uploadBillMiddleware, async (req, res) =
   phone = validPhone;
 
   const name = req.body.name;
+  const email = req.body.email;
   const shopName = req.body.shopName || req.body.shop_name;
   const regionId = req.body.regionId || req.body.region_id;
   const idType = req.body.idType || req.body.id_type || req.body.kyc_id_type;
@@ -1061,6 +1129,9 @@ app.post('/api/auth/register-stockist', uploadBillMiddleware, async (req, res) =
   if (!phone || !name || !shopName || !regionId || !idType || !idNumber || !address) {
     return res.status(400).json({ error: 'All fields are required' });
   }
+
+  const validEmail = await checkEmail(email, res);
+  if (!validEmail) return;
 
   // 1. Prepare ID number format
   const normIdType = String(idType || '').toUpperCase();
@@ -1118,6 +1189,7 @@ app.post('/api/auth/register-stockist', uploadBillMiddleware, async (req, res) =
     tenant_id: 't1',
     region_id: regionId,
     phone,
+    email: validEmail,
     name,
     role: 'STOCKIST',
     kyc_status: 'PENDING',
@@ -6798,12 +6870,13 @@ app.post('/api/admin/partners', async (req, res) => {
     return res.status(400).json({ error: 'Invalid service_types enum' });
   }
 
+  const validEmail = await checkEmail(contact_email, res);
+  if (!validEmail) return;
+  contact_email = validEmail;
+
   const users = await db.getTable('users');
   if (users.some(u => u.phone === contact_phone)) {
     return res.status(409).json({ error: 'Phone number already registered' });
-  }
-  if (contact_email && users.some(u => u.email && u.email.trim().toLowerCase() === contact_email.trim().toLowerCase())) {
-    return res.status(409).json({ error: 'Email already registered' });
   }
 
   const now = new Date().toISOString();

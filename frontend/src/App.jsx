@@ -1836,9 +1836,11 @@ export default function App() {
 
   // Auth fields
   const [loginPhone, setLoginPhone] = useState('');
+  const [addEmailInput, setAddEmailInput] = useState('');
   const [loginOtp, setLoginOtp] = useState('');
   const [otpSent, setOtpSent] = useState(false);
   const [regName, setRegName] = useState('');
+  const [regEmail, setRegEmail] = useState('');
   const [regRegion, setRegRegion] = useState('');
   const [regKycType, setRegKycType] = useState('Aadhaar');
   const [regKycNumber, setRegKycNumber] = useState('');
@@ -3394,7 +3396,7 @@ export default function App() {
 
   // Customer registration
   const handleCustomerRegister = async () => {
-    if (!regName || !loginPhone) { showToast('Name and phone required', 'error'); return; }
+    if (!regName || !loginPhone || !regEmail) { showToast('Name, phone and email required', 'error'); return; }
     if (!noCableProvider && !signupCablePartnerId) {
       showToast('Please select your cable operator or choose Not Listed', 'error');
       return;
@@ -3409,7 +3411,7 @@ export default function App() {
     }
 
     try {
-      const payload = { phone: loginPhone, name: regName, regionId: regRegion, address: regAddress };
+      const payload = { phone: loginPhone, email: regEmail, name: regName, regionId: regRegion, address: regAddress };
       if (signupCablePartnerId && !noCableProvider) {
         payload.cable_partner_id = signupCablePartnerId;
       }
@@ -3431,7 +3433,7 @@ export default function App() {
         setSelectedRegionId(data.user.region_id);
         showToast(t(`Welcome, ${data.user.name}!`, `स्वागत, ${data.user.name}!`, `স্বাগতম, ${data.user.name}!`));
         setShowCustomerSignup(false);
-        setRegName(''); setRegAddress(''); setOtpSent(false); setSignupReferralCode('');
+        setRegName(''); setRegEmail(''); setRegAddress(''); setOtpSent(false); setSignupReferralCode('');
         setSignupCablePartnerId(''); setNoCableProvider(false);
         setHasBroadbandAnswered(false); setHasBroadband(false);
         setSignupBroadbandPartnerId(''); setNoBroadbandProvider(false);
@@ -3511,8 +3513,8 @@ export default function App() {
   };
 
   const handleStockistRegister = async () => {
-    if (!regName || !loginPhone || !regShopName || !regAddress || !regRegion) {
-      showToast('All fields required', 'error'); return;
+    if (!regName || !loginPhone || !regEmail || !regShopName || !regAddress || !regRegion) {
+      showToast('All fields required (including email)', 'error'); return;
     }
     const isAadhaar = String(regKycType2 || '').toUpperCase().includes('AADHAAR') || String(regKycType2 || '').toUpperCase().includes('AADHAR');
     if (isAadhaar) {
@@ -3531,6 +3533,7 @@ export default function App() {
     try {
       const formData = new FormData();
       formData.append('phone', loginPhone);
+      formData.append('email', regEmail);
       formData.append('name', regName);
       formData.append('shopName', regShopName);
       formData.append('regionId', regRegion);
@@ -3541,7 +3544,7 @@ export default function App() {
 
       const res = await fetch(`${API_BASE}/auth/register-stockist`, { method: 'POST', body: formData });
       const data = await res.json().catch(() => ({}));
-      logApi('POST', '/auth/register-stockist', { phone: loginPhone, name: regName, shopName: regShopName }, res.status, data);
+      logApi('POST', '/auth/register-stockist', { phone: loginPhone, email: regEmail, name: regName, shopName: regShopName }, res.status, data);
       if (res.ok) {
         setStockistPendingUser(data.user);
         showToast(t('Registration submitted! Awaiting admin approval.', 'पंजीकरण सबमिट!', 'নিবন্ধন জমা হয়েছে!'), 'warning');
@@ -5220,6 +5223,55 @@ export default function App() {
   // UI RENDERERS
   // ----------------------------------------------------
 
+  const renderAddEmailScreen = () => {
+    return (
+      <div className="login-content-container" style={{ padding: '2.5rem 1.5rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem', flex: 1 }}>
+        <div style={{ textAlign: 'left', marginBottom: '0.5rem' }}>
+          <h2 className="login-heading" style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>{t('Add Your Email', 'अपना ईमेल जोड़ें', 'আপনার ইমেল যোগ করুন')}</h2>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>{t('An email address is required to continue using your account.', 'अपने खाते का उपयोग जारी रखने के लिए एक ईमेल पता आवश्यक है।', 'আপনার অ্যাকাউন্ট ব্যবহার চালিয়ে যেতে একটি ইমেল ঠিকানা প্রয়োজন।')}</p>
+        </div>
+        <div className="input-group">
+          <label className="input-label">{t('Email Address', 'ईमेल पता', 'ইমেল ঠিকানা')}</label>
+          <input 
+            type="email" 
+            placeholder="example@fastnet.com" 
+            className="text-input" 
+            value={addEmailInput}
+            onChange={e => setAddEmailInput(e.target.value.trim().toLowerCase())}
+          />
+        </div>
+        <button 
+          className="btn" 
+          onClick={async () => {
+            if (!addEmailInput) {
+              showToast('Please enter a valid email address', 'error');
+              return;
+            }
+            try {
+              const res = await fetch(`${API_BASE}/users/${currentUser.id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('token') || ''}` },
+                body: JSON.stringify({ email: addEmailInput })
+              });
+              const data = await res.json();
+              if (res.ok) {
+                showToast('Email updated successfully!');
+                setCurrentUser({ ...currentUser, email: addEmailInput });
+                localStorage.setItem('currentUser', JSON.stringify({ ...currentUser, email: addEmailInput }));
+              } else {
+                showToast(data.error || 'Failed to update email', 'error');
+              }
+            } catch (err) {
+              showToast('Network error while updating email', 'error');
+            }
+          }}
+        >
+          {t('Save and Continue', 'सहेजें और जारी रखें', 'সংরক্ষণ করুন এবং চালিয়ে যান')}
+        </button>
+      </div>
+    );
+  };
+
   const renderAuthForm = (appRole = activeRole) => {
     const isCustomerApp = appRole === 'customer';
     const isStockistApp = appRole === 'stockist';
@@ -5264,13 +5316,13 @@ export default function App() {
         {!otpSent ? (
           <>
             <div className="input-group">
-              <label className="input-label">Phone Number</label>
+              <label className="input-label">{t('Phone Number or Email', 'फ़ोन नंबर या ईमेल', 'ফোন নম্বর বা ইমেল')}</label>
               <input 
-                type="tel" 
-                placeholder="Enter 10-digit mobile number" 
+                type="text" 
+                placeholder={t('Enter 10-digit mobile or email', '10-अंकीय मोबाइल या ईमेल दर्ज करें', '10-অঙ্কের মোবাইল বা ইমেল লিখুন')} 
                 className="text-input" 
                 value={loginPhone}
-                onChange={e => { setLoginPhone(e.target.value.replace(/\D/g,'').substring(0,10)); setLoginErrorMessage(''); }}
+                onChange={e => { setLoginPhone(e.target.value.trim().toLowerCase()); setLoginErrorMessage(''); }}
               />
             </div>
             {loginErrorMessage && (
@@ -5339,6 +5391,10 @@ export default function App() {
             <div className="input-group">
               <label className="input-label">{t('Full Name', 'पूरा नाम', 'পুরো নাম')}</label>
               <input type="text" placeholder="e.g. Joy Dev" className="text-input" value={regName} onChange={e => setRegName(e.target.value)} />
+            </div>
+            <div className="input-group">
+              <label className="input-label">{t('Email Address', 'ईमेल पता', 'ইমেল ঠিকানা')}</label>
+              <input type="email" placeholder="example@fastnet.com" className="text-input" value={regEmail} onChange={e => setRegEmail(e.target.value.trim().toLowerCase())} />
             </div>
             <div className="input-group">
               <label className="input-label">{t('Select Region', 'क्षेत्र चुनें', 'অঞ্চল নির্বাচন করুন')}</label>
@@ -5485,6 +5541,10 @@ export default function App() {
             <div className="input-group">
               <label className="input-label">{t('Owner Name', 'मालिक का नाम', 'মালিকের নাম')}</label>
               <input type="text" placeholder="e.g. Rafiq Ahmed" className="text-input" value={regName} onChange={e => setRegName(e.target.value)} />
+            </div>
+            <div className="input-group">
+              <label className="input-label">{t('Email Address', 'ईमेल पता', 'ইমেল ঠিকানা')}</label>
+              <input type="email" placeholder="example@fastnet.com" className="text-input" value={regEmail} onChange={e => setRegEmail(e.target.value.trim().toLowerCase())} />
             </div>
             <div className="input-group">
               <label className="input-label">{t('Shop Name', 'दुकान का नाम', 'দোকানের নাম')}</label>
@@ -14963,12 +15023,24 @@ export default function App() {
       {/* Workspace Area */}
       <div className="workspace-content">
         <main className="main-viewport">
-          {activeRole === 'marketing' && <PanelErrorBoundary key={activeRole} t={t}>{renderMarketingView()}</PanelErrorBoundary>}
-          {activeRole === 'customer' && <PanelErrorBoundary key={activeRole} t={t}>{renderCustomerView()}</PanelErrorBoundary>}
-          {activeRole === 'stockist' && <PanelErrorBoundary key={activeRole} t={t}>{renderStockistView()}</PanelErrorBoundary>}
-          {activeRole === 'partner' && <PanelErrorBoundary key={activeRole} t={t}>{renderPartnerView()}</PanelErrorBoundary>}
-          {activeRole === 'admin' && <PanelErrorBoundary key={activeRole} t={t}>{renderAdminView()}</PanelErrorBoundary>}
-          {activeRole === 'db' && <PanelErrorBoundary key={activeRole} t={t}>{renderDbInspector()}</PanelErrorBoundary>}
+          {currentUser && currentUser.email && currentUser.email.includes('fastnet.invalid') ? (
+            <PanelErrorBoundary key="add-email" t={t}>
+              <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', width: '100%', padding: '2rem' }}>
+                <div className="glass-card" style={{ width: '450px', maxWidth: '100%', borderRadius: '16px', overflow: 'hidden', background: '#1a1f2c' }}>
+                  {renderAddEmailScreen()}
+                </div>
+              </div>
+            </PanelErrorBoundary>
+          ) : (
+            <>
+              {activeRole === 'marketing' && <PanelErrorBoundary key={activeRole} t={t}>{renderMarketingView()}</PanelErrorBoundary>}
+              {activeRole === 'customer' && <PanelErrorBoundary key={activeRole} t={t}>{renderCustomerView()}</PanelErrorBoundary>}
+              {activeRole === 'stockist' && <PanelErrorBoundary key={activeRole} t={t}>{renderStockistView()}</PanelErrorBoundary>}
+              {activeRole === 'partner' && <PanelErrorBoundary key={activeRole} t={t}>{renderPartnerView()}</PanelErrorBoundary>}
+              {activeRole === 'admin' && <PanelErrorBoundary key={activeRole} t={t}>{renderAdminView()}</PanelErrorBoundary>}
+              {activeRole === 'db' && <PanelErrorBoundary key={activeRole} t={t}>{renderDbInspector()}</PanelErrorBoundary>}
+            </>
+          )}
 
           {/* Redemption Detail Modal Overlay */}
           {selectedRedemptionDetail && (

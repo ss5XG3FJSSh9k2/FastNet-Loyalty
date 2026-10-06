@@ -30,6 +30,7 @@ CREATE TABLE users (
     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
     region_id UUID NOT NULL REFERENCES regions(id) ON DELETE CASCADE,
     phone VARCHAR(15) NOT NULL,
+    email VARCHAR(255) NOT NULL,
     name VARCHAR(255) NOT NULL,
     role user_role NOT NULL,
     kyc_status kyc_status DEFAULT 'PENDING',
@@ -37,6 +38,8 @@ CREATE TABLE users (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(tenant_id, phone)
 );
+
+CREATE UNIQUE INDEX idx_users_email_lower ON users (LOWER(email));
 
 CREATE INDEX idx_users_tenant_region ON users(tenant_id, region_id);
 CREATE INDEX idx_users_phone ON users(phone);
