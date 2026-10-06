@@ -592,12 +592,30 @@ export default function App() {
     const token = (() => { try { return localStorage.getItem('token'); } catch { return null; } })();
     if (!raw || !token) return;
 
-    try { setCurrentUser(JSON.parse(raw)); } catch { clearSession(); return; }
+    try { 
+      const parsed = JSON.parse(raw); 
+      if (!parsed || !parsed.id || !parsed.role) throw new Error('invalid');
+      setCurrentUser(parsed); 
+    } catch { clearSession(); return; }
 
     fetch(`${API_BASE}/auth/me`)
       .then(r => r.ok ? r.json() : Promise.reject(r.status))
-      .then(d => persistSession(d.user, d.token))
+      .then(d => {
+        if (!d.user || !d.user.id || !d.user.role) throw new Error('invalid');
+        persistSession(d.user, d.token);
+      })
       .catch(() => clearSession());
+  }, []);
+
+  useEffect(() => {
+    fetch(`${API_BASE}/regions`)
+      .then(res => res.ok ? res.json() : [])
+      .then(data => {
+        const list = Array.isArray(data) ? data : [];
+        setRegions(list);
+        setAllSystemRegions(list);
+      })
+      .catch(() => {});
   }, []);
   const [nowTick, setNowTick] = useState(Date.now());
   const [confirmCancelOrderId, setConfirmCancelOrderId] = useState(null);
@@ -790,7 +808,7 @@ export default function App() {
   };
 
   const newestTs = (rows, field = 'created_at') =>
-    (rows || []).reduce((max, r) => {
+    (Array.isArray(rows) ? rows : []).reduce((max, r) => {
       const t = Date.parse(r?.[field] || '');
       return Number.isNaN(t) ? max : Math.max(max, t);
     }, 0);
@@ -2034,7 +2052,7 @@ export default function App() {
   // ----------------------------------------------------
 
   const fetchDbState = async () => {
-    if (!currentUser) return;
+    if (!currentUser || currentUser.role !== 'ADMIN') return;
     try {
       const res = await fetch(`${API_BASE}/admin/kyc-queue`); // Just testing backend online
       if (res.ok) {
@@ -2071,28 +2089,26 @@ export default function App() {
         const blRes = await fetch(`${API_BASE}/admin/blacklist`);
         if (blRes.ok) {
           const blData = await blRes.json().catch(() => ({}));
-          const list = Array.isArray(blData) ? blData : (blData.blacklist || []);
-          setBlacklistedUsers(list);
+          setBlacklistedUsers(prev => asList(blRes, Array.isArray(blData) ? blData : blData?.blacklist, prev || []));
         }
-
 
         const fraudRes = await fetch(`${API_BASE}/admin/fraud-reports`);
         const auditRes = await fetch(`${API_BASE}/admin/audit-log`);
         const ccRes = await fetch(`${API_BASE}/admin/commission-config`);
         const bpRes = await fetch(`${API_BASE}/admin/bill-photos`);
 
-        if (custsRes.ok) setAdminCustomers(await custsRes.json().catch(() => ({})));
-        if (stksRes.ok) setAdminStockists(await stksRes.json().catch(() => ({})));
-        if (fraudRes.ok) setAdminFraudReports(await fraudRes.json().catch(() => ({})));
-        if (auditRes.ok) setAdminAuditLogs(await auditRes.json().catch(() => ({})));
+        if (custsRes.ok) { const d = await custsRes.json().catch(() => ({})); setAdminCustomers(prev => asList(custsRes, d, prev || [])); }
+        if (stksRes.ok) { const d = await stksRes.json().catch(() => ({})); setAdminStockists(prev => asList(stksRes, d, prev || [])); }
+        if (fraudRes.ok) { const d = await fraudRes.json().catch(() => ({})); setAdminFraudReports(prev => asList(fraudRes, d, prev || [])); }
+        if (auditRes.ok) { const d = await auditRes.json().catch(() => ({})); setAdminAuditLogs(prev => asList(auditRes, d, prev || [])); }
         if (bpRes.ok) {
           const bpData = await bpRes.json().catch(() => ({}));
-          setAdminBillPhotos(bpData.data || []);
+          setAdminBillPhotos(prev => asList(bpRes, bpData?.data, prev || []));
         }
         if (ccRes.ok) {
           const ccData = await ccRes.json().catch(() => ({}));
           setCommissionConfigs(ccData);
-          const gRow = ccData.find(c => c.scope === 'GLOBAL');
+          const gRow = (Array.isArray(ccData) ? ccData : []).find(c => c.scope === 'GLOBAL');
           if (gRow) {
             setGlobalReinvestPct(gRow.stockist_reinvest_pct);
             setGlobalPointsPct(gRow.points_from_pot_pct);
@@ -2101,7 +2117,7 @@ export default function App() {
         }
 
         const partnersRes = await fetch(`${API_BASE}/admin/partners`);
-        if (partnersRes.ok) setAdminPartners(await partnersRes.json().catch(() => ({})));
+        if (partnersRes.ok) { const d = await partnersRes.json().catch(() => ({})); setAdminPartners(prev => asList(partnersRes, d, prev || [])); }
 
         const approvalsRes = await fetch(`${API_BASE}/admin/redemption-approvals`);
         if (approvalsRes.ok) setAdminRedemptionApprovals(await approvalsRes.json().catch(() => ({})));
@@ -2113,14 +2129,14 @@ export default function App() {
 
         setPendingKyc(pendingKyc);
         setCommissionRates(rates);
-        setAnomalies(anomalies);
-        setPendingRedemptions(redemptions);
-        setVendors(vendorsList);
-        setPartnerLeads(leads);
+        setAnomalies(prev => asList(anomaliesRes, anomalies, prev || []));
+        setPendingRedemptions(prev => asList(redRes, redemptions, prev || []));
+        setVendors(prev => asList(vendorsRes, vendorsList, prev || []));
+        setPartnerLeads(prev => asList(leadsRes, leads, prev || []));
         
         setAllStockistCommissionRates(stockistCommissionRates);
         setAllPointsEarnConfigs(pointsEarnConfigs);
-        setAllFeedbackReports(feedbackReports);
+        setAllFeedbackReports(prev => asList(fbRes, feedbackReports, prev || []));
 
         try {
           const regRes = await fetch(`${API_BASE}/regions`);
@@ -2160,7 +2176,8 @@ export default function App() {
   const fetchAdminPartners = async () => {
     try {
       const res = await fetch(`${API_BASE}/admin/partners`);
-      if (res.ok) setAdminPartners(await res.json().catch(() => ({})));
+      const data = await res.json().catch(() => ({}));
+      setAdminPartners(prev => asList(res, data, prev || []));
     } catch (e) {
       console.error(e);
     }
@@ -2196,7 +2213,8 @@ export default function App() {
   const fetchAdminRegions = async () => {
     try {
       const res = await fetch(`${API_BASE}/admin/regions`);
-      if (res.ok) setAdminRegionsList(await res.json().catch(() => ({})));
+      const data = await res.json().catch(() => ({}));
+      setAdminRegionsList(prev => asList(res, data, prev || []));
     } catch (e) {
       console.error('Error fetching admin regions:', e);
     }
@@ -2603,7 +2621,7 @@ export default function App() {
   };
 
   const syncInspectorTable = async () => {
-    if (!currentUser) return;
+    if (!currentUser || currentUser.role !== 'ADMIN') return;
     try {
       const ordersRes = await fetch(`${API_BASE}/orders`);
       const list = await ordersRes.json().catch(() => ({}));
@@ -4029,15 +4047,15 @@ export default function App() {
       // 4. Load approved vendor list for this stockist (§12 many-to-many)
       const vRes = await fetch(`${API_BASE}/stockists/${pData.id}/vendors`);
       const vData = await vRes.json().catch(() => ({}));
-      setStockistApprovedVendors(vData);
-      if (vData.length > 0 && !selectedRestockVendorId) {
+      setStockistApprovedVendors(prev => asList(vRes, vData, prev || []));
+      if (Array.isArray(vData) && vData.length > 0 && !selectedRestockVendorId) {
         setSelectedRestockVendorId(vData[0].id);
       }
 
-      // Save all vendors list too for selection
-      const allVRes = await adminFetch('/admin/vendors');
+      // Save all available vendors list too for selection
+      const allVRes = await fetch(`${API_BASE}/stockists/${pData.id}/available-vendors`);
       const allVData = await allVRes.json().catch(() => ({}));
-      setVendors(allVData);
+      setVendors(prev => asList(allVRes, allVData, prev || []));
 
       // Fetch stockist stats
       const statsRes = await fetch(`${API_BASE}/stockists/${pData.id}/stats`);
@@ -14712,6 +14730,7 @@ export default function App() {
   };
 
   const isUnread = (tab) => {
+    if (currentUser?.role !== 'ADMIN') return false;
     if (tab === 'analytics' || tab === 'health' || tab === 'audit_log') return false;
     const rows = getTabRows(tab);
     const newest = newestTs(rows, 'created_at');

@@ -31,7 +31,7 @@ if (mode === 'backend') {
 } else {
   const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
   const backend = spawn(process.execPath, [path.join(__dirname, '../backend/server.js')], { stdio: 'inherit', env: process.env });
-  const frontend = spawn(npmCmd, ['run', 'frontend'], { stdio: 'inherit', env: process.env, cwd: path.join(__dirname, '..') });
+  const frontend = spawn(npmCmd, ['run', 'frontend'], { stdio: 'inherit', env: process.env, cwd: path.join(__dirname, '..'), shell: process.platform === 'win32' });
 
   const shutdown = () => {
     backend.kill();

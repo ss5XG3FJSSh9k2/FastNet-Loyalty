@@ -5413,6 +5413,13 @@ app.get('/api/stockists/:stockistId/vendors', requireAuth, async (req, res) => {
   return res.json(vendors.filter(v => approvedIds.includes(v.id)));
 });
 
+app.get('/api/stockists/:stockistId/available-vendors', requireAuth, async (req, res) => {
+  const { stockistId } = req.params;
+  if (!await assertOwnsStockist(req, res, stockistId)) return;
+  const vendors = await db.getTable('vendors');
+  return res.json(vendors.filter(v => v.is_active !== false));
+});
+
 app.get('/api/admin/anomalies', async (req, res) => {
   const logs = await db.getTable('anomaly_logs');
   return res.json(logs);
