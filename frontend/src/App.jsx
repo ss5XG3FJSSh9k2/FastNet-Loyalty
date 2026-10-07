@@ -4881,7 +4881,7 @@ export default function App() {
     );
   };
 
-  const handleRemoveVendor = async (vendor) => {
+  const handleDeactivateVendor = async (vendor) => {
     try {
       const refRes = await adminFetch(`/admin/vendors/${vendor.id}/references`);
       const { reference_count } = await refRes.json().catch(() => ({}));
@@ -4889,59 +4889,134 @@ export default function App() {
       let message;
       if (reference_count === 0) {
         message = t(
-          `Are you sure you want to delete ${vendor.name}? It is not assigned to any stockist. This permanently deletes it.`,
-          `क्या आप निश्चित रूप से ${vendor.name} को हटाना चाहते हैं? यह किसी स्टॉकिस्ट को सौंपा नहीं गया है। यह इसे स्थायी रूप से हटा देता है।`,
-          `আপনি কি নিশ্চিত যে আপনি ${vendor.name} কে মুছে ফেলতে চান? এটি কোন স্টকিস্টকে বরাদ্দ করা হয়নি। এটি স্থায়ীভাবে এটি মুছে ফেলে।`
+          `Deactivate ${vendor.name}? It will no longer appear when assigning a wholesaler to shopkeepers. You can reactivate it any time.`,
+          `क्या आप ${vendor.name} को निष्क्रिय करना चाहते हैं? दुकानदारों को थोक व्यापारी सौंपते समय यह अब दिखाई नहीं देगा। आप इसे किसी भी समय पुनः सक्रिय कर सकते हैं।`,
+          `${vendor.name} কে নিষ্ক্রিয় করবেন? দোকানদারদের কাছে পাইকারি বিক্রেতা বরাদ্দ করার সময় এটি আর প্রদর্শিত হবে না। আপনি যে কোনো সময় এটি পুনরায় সক্রিয় করতে পারেন।`
         );
       } else {
         message = t(
-          `${vendor.name} is assigned to ${reference_count} stockist(s). It will be marked inactive. Those stockists keep their supplier, but it cannot be assigned to anyone new.`,
-          `${vendor.name} को ${reference_count} स्टॉकिस्ट(s) को सौंपा गया है। इसे निष्क्रिय चिह्नित किया जाएगा। वे स्टॉकिस्ट अपना आपूर्तिकर्ता रखते हैं, लेकिन इसे किसी नए को सौंपा नहीं जा सकता है।`,
-          `${vendor.name} কে ${reference_count} স্টকিস্ট(গুলি) এ বরাদ্দ করা হয়েছে। এটিকে নিষ্ক্রিয় হিসাবে চিহ্নিত করা হবে। সেই স্টকিস্টরা তাদের সরবরাহকারী রাখেন, তবে এটি নতুন কাউকে বরাদ্দ করা যাবে না।`
+          `Deactivate ${vendor.name}? ${reference_count} shopkeeper(s) keep this supplier, but it cannot be assigned to anyone new. You can reactivate it any time.`,
+          `क्या आप ${vendor.name} को निष्क्रिय करना चाहते हैं? ${reference_count} दुकानदार इस आपूर्तिकर्ता को रखते हैं, लेकिन इसे किसी नए को सौंपा नहीं जा सकता है। आप इसे किसी भी समय पुनः सक्रिय कर सकते हैं।`,
+          `${vendor.name} কে নিষ্ক্রিয় করবেন? ${reference_count} জন দোকানদার এই সরবরাহকারী রাখেন, তবে এটি নতুন কাউকে বরাদ্দ করা যাবে না। আপনি যে কোনো সময় এটি পুনরায় সক্রিয় করতে পারেন।`
         );
       }
 
       triggerConfirmModal(
-        t('Confirm Removal', 'हटाने की पुष्टि करें', 'অপসারণ নিশ্চিত করুন'),
+        t('Confirm Deactivation', 'निष्क्रिय करने की पुष्टि करें', 'নিষ্ক্রিয়করণ নিশ্চিত করুন'),
         message,
         async () => {
           try {
-            const res = await adminFetch(`/admin/vendors/${vendor.id}`, { method: 'DELETE' });
+            const res = await adminFetch(`/admin/vendors/${vendor.id}`, {
+              method: 'PATCH',
+              body: JSON.stringify({ is_active: false })
+            });
+            const data = await res.json().catch(() => ({}));
             if (res.ok) {
-              showToast('Wholesaler removed');
+              if (!showInactiveVendors) {
+                showToast(t(
+                  `${vendor.name} deactivated. Tick Show inactive to see it`,
+                  `${vendor.name} निष्क्रिय। इसे देखने के लिए निष्क्रिय दिखाएं पर टिक करें`,
+                  `${vendor.name} নিষ্ক্রিয় করা হয়েছে। এটি দেখতে নিষ্ক্রিয় দেখান টিক দিন`
+                ));
+              } else {
+                showToast(t(`${vendor.name} deactivated.`, `${vendor.name} निष्क्रिय।`, `${vendor.name} নিষ্ক্রিয় করা হয়েছে।`));
+              }
               fetchAdminVendors();
+              fetchDbState();
             } else {
-              const data = await res.json().catch(() => ({}));
-              showToast(data.message || data.error || 'Remove failed', 'error');
+              showToast(data.message || data.error || `Request failed (${res.status})`, 'error');
             }
           } catch (err) {
             showToast('Network error', 'error');
           }
         },
-        true,
-        t('Yes, delete', 'हाँ, हटाएं', 'হ্যাঁ, মুছে ফেলুন'),
+        false,
+        t('Yes, deactivate', 'हाँ, निष्क्रिय करें', 'হ্যাঁ, নিষ্ক্রিয় করুন'),
         t('Cancel', 'रद्द करें', 'বাতিল করুন')
       );
     } catch (e) { showToast('Error checking references', 'error'); }
   };
 
-  const handleReactivateVendor = async (vendor) => {
+  const handleRemoveVendor = async (vendor) => {
     try {
-      const res = await adminFetch(`/admin/vendors/${vendor.id}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ is_active: true })
-      });
-      const data = await res.json().catch(() => ({}));
-      if (res.ok) {
-        showToast(`Wholesaler ${vendor.name} reactivated.`);
-        fetchAdminVendors();
-        fetchDbState();
+      const refRes = await adminFetch(`/admin/vendors/${vendor.id}/references`);
+      const { reference_count } = await refRes.json().catch(() => ({}));
+
+      if (reference_count === 0) {
+        const message = t(
+          `Are you sure you want to delete ${vendor.name}? This permanently deletes it and cannot be undone.`,
+          `क्या आप निश्चित रूप से ${vendor.name} को हटाना चाहते हैं? यह इसे स्थायी रूप से हटा देता है और इसे पूर्ववत नहीं किया जा सकता है।`,
+          `আপনি কি নিশ্চিত যে আপনি ${vendor.name} কে মুছে ফেলতে চান? এটি স্থায়ীভাবে এটি মুছে ফেলে এবং পূর্বাবস্থায় ফেরানো যাবে না।`
+        );
+        triggerConfirmModal(
+          t('Confirm Deletion', 'हटाने की पुष्टि करें', 'মুছে ফেলা নিশ্চিত করুন'),
+          message,
+          async () => {
+            try {
+              const res = await adminFetch(`/admin/vendors/${vendor.id}`, { method: 'DELETE' });
+              if (res.ok) {
+                showToast(t('Wholesaler deleted', 'थोक व्यापारी हटा दिया गया', 'পাইকারি বিক্রেতা মুছে ফেলা হয়েছে'));
+                fetchAdminVendors();
+              } else {
+                const data = await res.json().catch(() => ({}));
+                showToast(data.message || data.error || 'Delete failed', 'error');
+              }
+            } catch (err) {
+              showToast('Network error', 'error');
+            }
+          },
+          true,
+          t('Yes, delete', 'हाँ, हटाएं', 'হ্যাঁ, মুছে ফেলুন'),
+          t('Cancel', 'रद्द करें', 'বাতিল করুন')
+        );
       } else {
-        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
+        const message = t(
+          `${vendor.name} is used by ${reference_count} shopkeeper(s) and cannot be deleted. Deactivate it instead.`,
+          `${vendor.name} का उपयोग ${reference_count} दुकानदार(ओं) द्वारा किया जाता है और इसे हटाया नहीं जा सकता है। इसके बजाय इसे निष्क्रिय करें।`,
+          `${vendor.name} ${reference_count} জন দোকানদার ব্যবহার করেন এবং এটি মুছে ফেলা যাবে না। পরিবর্তে এটি নিষ্ক্রিয় করুন।`
+        );
+        triggerConfirmModal(
+          t('Cannot Delete', 'हटा नहीं सकते', 'মুছে ফেলা যাবে না'),
+          message,
+          () => {},
+          false,
+          t('OK', 'ठीक है', 'ঠিক আছে'),
+          null
+        );
       }
-    } catch (err) {
-      showToast('Network error', 'error');
-    }
+    } catch (e) { showToast('Error checking references', 'error'); }
+  };
+
+  const handleReactivateVendor = async (vendor) => {
+    triggerConfirmModal(
+      t('Confirm Reactivation', 'पुनः सक्रिय करने की पुष्टि करें', 'পুনরায় সক্রিয়করণ নিশ্চিত করুন'),
+      t(
+        `Are you sure you want to reactivate ${vendor.name}?`,
+        `क्या आप निश्चित रूप से ${vendor.name} को पुनः सक्रिय करना चाहते हैं?`,
+        `আপনি কি নিশ্চিত যে আপনি ${vendor.name} কে পুনরায় সক্রিয় করতে চান?`
+      ),
+      async () => {
+        try {
+          const res = await adminFetch(`/admin/vendors/${vendor.id}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ is_active: true })
+          });
+          const data = await res.json().catch(() => ({}));
+          if (res.ok) {
+            showToast(t(`Wholesaler ${vendor.name} reactivated.`, `थोक व्यापारी ${vendor.name} पुनः सक्रिय हो गया।`, `পাইকারি বিক্রেতা ${vendor.name} পুনরায় সক্রিয় করা হয়েছে।`));
+            fetchAdminVendors();
+            fetchDbState();
+          } else {
+            showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
+          }
+        } catch (err) {
+          showToast('Network error', 'error');
+        }
+      },
+      false,
+      t('Yes, reactivate', 'हाँ, पुनः सक्रिय करें', 'হ্যাঁ, পুনরায় সক্রিয় করুন'),
+      t('Cancel', 'रद्द करें', 'বাতিল করুন')
+    );
   };
 
   const handleEditVendorSave = async () => {
@@ -14692,12 +14767,13 @@ export default function App() {
                                     setEditingVendor(v);
                                     setEditingVendorName(v.name);
                                     setEditingVendorRegionId(v.region_id);
-                                  }}>Edit</button>
+                                  }}>{t('Edit', 'संपादित करें', 'সম্পাদনা করুন')}</button>
                                   {v.is_active === false ? (
-                                    <button className="btn btn-outline" style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem', borderColor: 'var(--success)', color: 'var(--success)' }} onClick={() => handleReactivateVendor(v)}>Reactivate</button>
+                                    <button className="btn btn-outline" style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem', borderColor: 'var(--success)', color: 'var(--success)' }} onClick={() => handleReactivateVendor(v)}>{t('Reactivate', 'पुनः सक्रिय करें', 'পুনরায় সক্রিয় করুন')}</button>
                                   ) : (
-                                    <button className="btn btn-outline" style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem', borderColor: 'var(--danger)', color: 'var(--danger)' }} onClick={() => handleRemoveVendor(v)}>Remove</button>
+                                    <button className="btn btn-outline" style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem', borderColor: 'var(--warning)', color: 'var(--warning)' }} onClick={() => handleDeactivateVendor(v)}>{t('Deactivate', 'निष्क्रिय करें', 'নিষ্ক্রিয় করুন')}</button>
                                   )}
+                                  <button className="btn btn-outline" style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem', borderColor: 'var(--danger)', color: 'var(--danger)' }} onClick={() => handleRemoveVendor(v)}>{t('Delete', 'हटाएं', 'মুছে ফেলুন')}</button>
                                 </div>
                               </td>
                             </tr>

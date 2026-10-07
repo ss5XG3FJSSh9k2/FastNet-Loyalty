@@ -5887,11 +5887,7 @@ app.delete('/api/admin/vendors/:id', async (req, res) => {
     return res.json({ success: true, action: 'DELETED', reference_count: 0 });
   }
 
-  vendor.is_active = false;
-  vendor.deactivated_at = new Date().toISOString();
-  await db.saveTable('vendors', vendors);
-  await appendAudit(req, 'DEACTIVATE_VENDOR', 'vendor', vendor.id, before, { reference_count: refCount });
-  return res.json({ success: true, action: 'DEACTIVATED', reference_count: refCount });
+  return res.status(409).json({ error: 'vendor_in_use', reference_count: refCount });
 });
 
 app.get('/api/admin/vendors/:id/references', async (req, res) => {
