@@ -7010,7 +7010,7 @@ export default function App() {
               <>
                 <div className="input-group">
                   <label className="input-label">Registered Phone Number</label>
-                  <input type="tel" inputMode="numeric" maxLength={15} placeholder="10-digit mobile number" className="text-input" value={partnerLoginPhone} onChange={e => setPartnerLoginPhone(normalizeFrontendPhone(e.target.value))} />
+                  <input type="tel" inputMode="numeric" maxLength={10} placeholder="10-digit mobile number" className="text-input" value={partnerLoginPhone} onChange={e => setPartnerLoginPhone(normalizeFrontendPhone(e.target.value))} />
                 </div>
                 <button className="btn btn-primary" style={{ width: '100%', marginTop: '1rem' }} onClick={handlePartnerSendOtp}>
                   Send One-Time Password
@@ -7555,7 +7555,7 @@ export default function App() {
                     </div>
                     <div className="input-group">
                       <label className="input-label">{t('Contact Phone', 'संपर्क फोन', 'যোগাযোগ ফোন')}</label>
-                      <input type="tel" inputMode="numeric" maxLength={15} className="text-input" value={pProfContactPhone} onChange={e => setPProfContactPhone(normalizeFrontendPhone(e.target.value))} />
+                      <input type="tel" inputMode="numeric" maxLength={10} className="text-input" value={pProfContactPhone} onChange={e => setPProfContactPhone(normalizeFrontendPhone(e.target.value))} />
                       {pProfContactPhone !== initialContactPhone && (
                         <div style={{ marginTop: '0.35rem', fontSize: '0.7rem' }}>
                           <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
@@ -7761,18 +7761,18 @@ export default function App() {
                   <div className="input-group">
                     <label className="input-label">Face Value ₹ *</label>
                     <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', marginTop: '-0.25rem', marginBottom: '0.5rem' }}>The rupee value the customer perceives. What you'd normally charge them for this.</div>
-                    <input type="number" inputMode="decimal" className="text-input" value={pkgFaceValue} onChange={e => setPkgFaceValue(e.target.value)} />
+                    <input type="number" inputMode="numeric" min="1" max="100000" step="1" onKeyDown={e => { if (['e', 'E', '+', '-', '.'].includes(e.key)) e.preventDefault(); }} className="text-input" value={pkgFaceValue} onChange={e => setPkgFaceValue(e.target.value)} />
                   </div>
                   <div className="input-group">
                     <label className="input-label">Cost to Partner ₹</label>
                     <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', marginTop: '-0.25rem', marginBottom: '0.5rem' }}>Your actual cost to provide it. Used to calculate your platform payout. Defaults to Face Value if empty.</div>
-                    <input type="number" inputMode="decimal" className="text-input" value={pkgCostToPartner} onChange={e => setPkgCostToPartner(e.target.value)} placeholder={pkgFaceValue} />
+                    <input type="number" inputMode="numeric" min="0" max="100000" step="1" onKeyDown={e => { if (['e', 'E', '+', '-', '.'].includes(e.key)) e.preventDefault(); }} className="text-input" value={pkgCostToPartner} onChange={e => setPkgCostToPartner(e.target.value)} placeholder={pkgFaceValue} />
                   </div>
                 </div>
                 <div className="input-group">
                   <label className="input-label">Point Cost *</label>
                   <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', marginTop: '-0.25rem', marginBottom: '0.5rem' }}>How many loyalty points a customer must spend to redeem this. Usually 1 point = ₹1, so equal to Face Value.</div>
-                  <input type="number" inputMode="decimal" className="text-input" value={pkgPointCost} onChange={e => setPkgPointCost(e.target.value)} placeholder={pkgFaceValue} />
+                  <input type="number" inputMode="numeric" min="1" max="100000" step="1" onKeyDown={e => { if (['e', 'E', '+', '-', '.'].includes(e.key)) e.preventDefault(); }} className="text-input" value={pkgPointCost} onChange={e => setPkgPointCost(e.target.value)} placeholder={pkgFaceValue} />
                 </div>
                 
                 <div className="input-group">
@@ -7801,6 +7801,8 @@ export default function App() {
                         className="text-input"
                         style={{ width: '90px' }}
                         min="1" max="3650"
+                        step="1"
+                        onKeyDown={e => { if (['e', 'E', '+', '-', '.'].includes(e.key)) e.preventDefault(); }}
                         placeholder={t('Days', 'दिन', 'দিন')}
                         value={pkgDurationDays}
                         onChange={e => setPkgDurationDays(e.target.value)}
@@ -8172,7 +8174,7 @@ export default function App() {
               onChange={(e) => setPartnerContactName(e.target.value)}
             />
             <input 
-              type="tel" inputMode="numeric" maxLength={15} placeholder="Phone Number" className="text-input" value={partnerPhone} onChange={(e) => setPartnerPhone(normalizeFrontendPhone(e.target.value))}
+              type="tel" inputMode="numeric" maxLength={10} placeholder="Phone Number" className="text-input" value={partnerPhone} onChange={(e) => setPartnerPhone(normalizeFrontendPhone(e.target.value))}
             />
             <input 
               type="email" 
@@ -11396,12 +11398,12 @@ export default function App() {
                         
                         <div className="input-group">
                           <label className="input-label">{t('Selling Price (₹)', 'विक्रय मूल्य (₹)', 'বিক্রয় মূল্য (₹)')}</label>
-                          <input type="number" inputMode="decimal" className="text-input" value={newProdPrice} onChange={e => setNewProdPrice(e.target.value)} />
+                          <input type="number" inputMode="numeric" min="1" max="100000" step="1" onKeyDown={e => { if (['e', 'E', '+', '-', '.'].includes(e.key)) e.preventDefault(); }} className="text-input" value={newProdPrice} onChange={e => setNewProdPrice(e.target.value)} />
                         </div>
                         
                         <div className="input-group">
                           <label className="input-label">{t('Cost Price (₹)', 'लागत मूल्य (₹)', 'ক্রয় মূল্য (₹)')}</label>
-                          <input type="number" inputMode="decimal" className="text-input" value={newProdCostPrice} onChange={e => setNewProdCostPrice(e.target.value)} />
+                          <input type="number" inputMode="numeric" min="0" max="100000" step="1" onKeyDown={e => { if (['e', 'E', '+', '-', '.'].includes(e.key)) e.preventDefault(); }} className="text-input" value={newProdCostPrice} onChange={e => setNewProdCostPrice(e.target.value)} />
                           <small style={{ color: 'var(--text-muted)', fontSize: '0.65rem', display: 'block', marginTop: '0.2rem' }}>
                             {t('Points customers earn are based on your margin', 'ग्राहकों द्वारा अर्जित अंक आपके मार्जिन पर आधारित होते हैं', 'গ্রাহকদের অর্জিত পয়েন্ট আপনার মার্জিনের ওপর ভিত্তি করে নির্ধারিত হয়')}
                           </small>
@@ -11419,7 +11421,7 @@ export default function App() {
                         
                         <div className="input-group">
                           <label className="input-label">{t('Initial Stock', 'प्रारंभिक स्टॉक', 'প্রাথমিক স্টক')}</label>
-                          <input type="number" inputMode="decimal" className="text-input" value={newProdInitialStock} onChange={e => setNewProdInitialStock(e.target.value)} />
+                          <input type="number" inputMode="numeric" min="0" max="100000" step="1" onKeyDown={e => { if (['e', 'E', '+', '-', '.'].includes(e.key)) e.preventDefault(); }} className="text-input" value={newProdInitialStock} onChange={e => setNewProdInitialStock(e.target.value)} />
                         </div>
 
                         <div className="input-group">
@@ -11548,12 +11550,12 @@ export default function App() {
                         
                         <div className="input-group">
                           <label className="input-label">{t('Selling Price (₹)', 'विक्रय मूल्य (₹)', 'বিক্রয় মূল্য (₹)')}</label>
-                          <input type="number" inputMode="decimal" className="text-input" value={editProdPrice} onChange={e => setEditProdPrice(e.target.value)} />
+                          <input type="number" inputMode="numeric" min="1" max="100000" step="1" onKeyDown={e => { if (['e', 'E', '+', '-', '.'].includes(e.key)) e.preventDefault(); }} className="text-input" value={editProdPrice} onChange={e => setEditProdPrice(e.target.value)} />
                         </div>
                         
                         <div className="input-group">
                           <label className="input-label">{t('Cost Price (₹)', 'लागत मूल्य (₹)', 'ক্রয় মূল্য (₹)')}</label>
-                          <input type="number" inputMode="decimal" className="text-input" value={editProdCostPrice} onChange={e => setEditProdCostPrice(e.target.value)} />
+                          <input type="number" inputMode="numeric" min="0" max="100000" step="1" onKeyDown={e => { if (['e', 'E', '+', '-', '.'].includes(e.key)) e.preventDefault(); }} className="text-input" value={editProdCostPrice} onChange={e => setEditProdCostPrice(e.target.value)} />
                           <small style={{ color: 'var(--text-muted)', fontSize: '0.65rem', display: 'block', marginTop: '0.2rem' }}>
                             {t('Points customers earn are based on your margin', 'ग्राहकों द्वारा अर्जित अंक आपके मार्जिन पर आधारित होते हैं', 'গ্রাহকদের অর্জিত পয়েন্ট আপনার মার্জিনের ওপর ভিত্তি করে নির্ধারিত হয়')}
                           </small>
@@ -15308,7 +15310,7 @@ export default function App() {
                   {t('Phone Number (10 digits)', 'फ़ोन नंबर (10 अंक)', 'ফোন নম্বর (১০ সংখ্যা)')}
                 </label>
                 <input
-                  type="tel" inputMode="numeric" className="text-input" placeholder="9876543210" value={setupPhone} onChange={e => setSetupPhone(normalizeFrontendPhone(e.target.value))}
+                  type="tel" inputMode="numeric" maxLength={10} className="text-input" placeholder="9876543210" value={setupPhone} onChange={e => setSetupPhone(normalizeFrontendPhone(e.target.value))}
                   maxLength={15}
                   style={{ width: '100%', padding: '0.65rem 0.85rem', fontSize: '0.85rem' }}
                 />
@@ -15874,7 +15876,9 @@ export default function App() {
                         name="point_cost" 
                         inputMode="numeric"
                         min="1"
+                        max="100000"
                         step="1"
+                        onKeyDown={e => { if (['e', 'E', '+', '-', '.'].includes(e.key)) e.preventDefault(); }}
                         defaultValue={editingGenericReward?.point_cost} 
                         style={{ paddingRight: '2.5rem' }}
                         aria-invalid={!!genericRewardErrors.point_cost}
@@ -15900,7 +15904,9 @@ export default function App() {
                         name="value_rupees" 
                         inputMode="decimal"
                         min="0"
+                        max="100000"
                         step="0.01"
+                        onKeyDown={e => { if (['e', 'E', '+', '-'].includes(e.key)) e.preventDefault(); }}
                         defaultValue={editingGenericReward?.value_rupees} 
                         style={{ paddingLeft: '1.5rem' }}
                         aria-invalid={!!genericRewardErrors.value_rupees}
@@ -15927,6 +15933,8 @@ export default function App() {
                         defaultValue={editingGenericReward ? editingGenericReward.min_order_value : ''}
                         step="1"
                         min="0"
+                        max="100000"
+                        onKeyDown={e => { if (['e', 'E', '+', '-', '.'].includes(e.key)) e.preventDefault(); }}
                         placeholder="e.g. 500"
                         aria-invalid={!!genericRewardErrors.min_order_value}
                       />
@@ -15968,6 +15976,8 @@ export default function App() {
                           className="text-input"
                           style={{ width: '90px' }}
                           min="1" max="3650"
+                          step="1"
+                          onKeyDown={e => { if (['e', 'E', '+', '-', '.'].includes(e.key)) e.preventDefault(); }}
                           placeholder="Days"
                           value={genericRewardCooldownDays}
                           onChange={e => {
@@ -16203,7 +16213,7 @@ export default function App() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', margin: '1rem 0' }}>
                 <div className="input-group">
                   <label className="input-label">{t('New Phone Number', 'नया फ़ोन नंबर', 'নতুন ফোন নম্বর')}</label>
-                  <input type="tel" inputMode="numeric" maxLength={15} className="text-input" placeholder="9830099999" value={changePhoneNewNumber} onChange={e => setChangePhoneNewNumber(normalizeFrontendPhone(e.target.value))} />
+                  <input type="tel" inputMode="numeric" maxLength={10} className="text-input" placeholder="9830099999" value={changePhoneNewNumber} onChange={e => setChangePhoneNewNumber(normalizeFrontendPhone(e.target.value))} />
                 </div>
                 <button className="btn btn-secondary" onClick={handleSendNewPhoneOtp} style={{ alignSelf: 'flex-start' }}>{t('Send OTP', 'ओटीपी भेजें', 'ওটিপি পাঠান')}</button>
                 
@@ -16263,8 +16273,10 @@ export default function App() {
                 <input
                   type="number"
                   min="0"
+                  max="500"
                   step="0.01"
                   inputMode="decimal"
+                  onKeyDown={e => { if (['e', 'E', '+', '-'].includes(e.key)) e.preventDefault(); }}
                   className="text-input"
                   placeholder="e.g. 40, leave empty if disabled"
                   value={regionDeliveryFee}
@@ -16317,7 +16329,7 @@ export default function App() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', margin: '1rem 0' }}>
               <div className="input-group">
                 <label className="input-label">Points Amount (positive integer)</label>
-                <input type="number" inputMode="decimal" className="text-input" placeholder="100" value={pointsCreditAmount} onChange={e => setPointsCreditAmount(e.target.value)} />
+                <input type="number" inputMode="numeric" min="1" max="1000" step="1" onKeyDown={e => { if (['e', 'E', '+', '-', '.'].includes(e.key)) e.preventDefault(); }} className="text-input" placeholder="100" value={pointsCreditAmount} onChange={e => setPointsCreditAmount(e.target.value)} />
               </div>
               <div className="input-group">
                 <label className="input-label">Reason (Required for audit log)</label>
@@ -16393,7 +16405,7 @@ export default function App() {
               </div>
               <div className="input-group">
                 <label className="input-label">Phone Number (Login user)</label>
-                <input type="tel" inputMode="numeric" maxLength={15} className="text-input" placeholder="9830011223" value={createStkPhone} onChange={e => setCreateStkPhone(normalizeFrontendPhone(e.target.value))} />
+                <input type="tel" inputMode="numeric" maxLength={10} className="text-input" placeholder="9830011223" value={createStkPhone} onChange={e => setCreateStkPhone(normalizeFrontendPhone(e.target.value))} />
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
                 <div className="input-group">
@@ -16572,7 +16584,12 @@ export default function App() {
                   </div>
                   <div className="input-group">
                     <label className="input-label">{t('Phone', 'फ़ोन', 'ফোন')}</label>
-                    <input type="text" className="text-input" value={editStkPhone} onChange={e => setEditStkPhone(e.target.value)} />
+                    <input type="tel" inputMode="numeric" maxLength={10} className="text-input" value={editStkPhone} onChange={e => setEditStkPhone(normalizeFrontendPhone(e.target.value))} />
+                    {editStkPhone.length > 0 && editStkPhone.length !== 10 && (
+                      <span style={{ fontSize: '0.75rem', color: 'var(--danger)', marginTop: '0.2rem' }}>
+                        {t('Enter exactly 10 digits', 'बिल्कुल 10 अंक दर्ज करें', 'ঠিক ১০টি সংখ্যা লিখুন')}
+                      </span>
+                    )}
                   </div>
                   <div className="input-group">
                     <label className="input-label">{t('ID Type', 'पहचान का प्रकार', 'পরিচয়ের ধরন')}</label>
@@ -16593,7 +16610,7 @@ export default function App() {
                 <button className="btn btn-secondary" onClick={() => setShowEditStockistModal(false)}>
                   {t('Cancel', 'रद्द करें', 'বাতিল করুন')}
                 </button>
-                <button className="btn btn-accent" onClick={handleEditStockist}>
+                <button className="btn btn-accent" onClick={handleEditStockist} disabled={editStkPhone.length > 0 && editStkPhone.length !== 10}>
                   {t('Save Changes', 'बदलाव सहेजें', 'পরিবর্তন সংরক্ষণ করুন')}
                 </button>
               </div>
@@ -17343,7 +17360,7 @@ export default function App() {
                 <div className="input-group">
                   <label className="input-label">New 10-Digit Phone Number</label>
                   <input
-                    type="tel" inputMode="numeric" maxLength={15} className="text-input" placeholder="Enter new phone number" value={selfServiceNewPhone} onChange={e => setSelfServiceNewPhone(normalizeFrontendPhone(e.target.value))}
+                    type="tel" inputMode="numeric" maxLength={10} className="text-input" placeholder="Enter new phone number" value={selfServiceNewPhone} onChange={e => setSelfServiceNewPhone(normalizeFrontendPhone(e.target.value))}
                   />
                 </div>
                 <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '0.5rem' }}>

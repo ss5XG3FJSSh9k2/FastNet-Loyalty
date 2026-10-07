@@ -6711,7 +6711,17 @@ app.post('/api/admin/stockists/:id', async (req, res) => {
     if (kyc_id_type && kyc_id_type !== oldIdType) { kyc.id_type = kyc_id_type; user.kyc_id_type = kyc_id_type; kycChanged = true; }
     if (kyc_id_number && kyc_id_number !== oldIdNumber) { kyc.id_number = kyc_id_number; user.kyc_id_number = kyc_id_number; kycChanged = true; }
     if (user_name && user_name !== user.name) { user.name = user_name.trim(); kycChanged = true; }
-    if (user_phone && user_phone !== user.phone) { user.phone = user_phone.trim(); kycChanged = true; }
+    if (user_phone && user_phone !== user.phone) {
+      const validPhone = checkPhone(user_phone, res);
+      if (!validPhone) return;
+      const users = await db.getTable('users');
+      const existing = users.find(u => u.phone === validPhone && u.id !== user.id);
+      if (existing) {
+        return res.status(400).json({ error: 'Phone already registered' });
+      }
+      user.phone = validPhone;
+      kycChanged = true;
+    }
     
     if (kycChanged) {
       user.kyc_status = 'PENDING';
@@ -7532,7 +7542,33 @@ app.patch('/api/admin/partners/:id', async (req, res) => {
   const partner = partners.find(p => p.id === id);
   if (!partner) return res.status(404).json({ error: 'Partner not found' });
 
-  const mutableFields = ['legal_name', 'display_name', 'contact_phone', 'contact_email', 'address', 'gst_number'];
+  let validPhone = partner.contact_phone;
+  if (req.body.contact_phone && req.body.contact_phone !== partner.contact_phone) {
+    validPhone = checkPhone(req.body.contact_phone, res);
+    if (!validPhone) return;
+    const users = await db.getTable('users');
+    const partnerUsers = (await db.getTable('partner_users')).filter(pu => pu.partner_id === id);
+    const partnerUserIds = partnerUsers.map(pu => pu.user_id);
+    const existing = users.find(u => u.phone === validPhone && !partnerUserIds.includes(u.id));
+    if (existing) {
+      return res.status(400).json({ error: 'Phone already registered' });
+    }
+  }
+
+  let validEmail = partner.contact_email;
+  if (req.body.contact_email !== undefined && req.body.contact_email !== partner.contact_email) {
+    if (req.body.contact_email) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(req.body.contact_email)) {
+        return res.status(400).json({ error: 'Invalid email format' });
+      }
+      validEmail = req.body.contact_email.trim().toLowerCase();
+    } else {
+      validEmail = '';
+    }
+  }
+
+  const mutableFields = ['legal_name', 'display_name', 'address', 'gst_number'];
   const before = { ...partner };
 
   mutableFields.forEach(field => {
@@ -7540,19 +7576,23 @@ app.patch('/api/admin/partners/:id', async (req, res) => {
       partner[field] = req.body[field];
     }
   });
+  if (req.body.contact_phone) partner.contact_phone = validPhone;
+  if (req.body.contact_email !== undefined) partner.contact_email = validEmail;
+
   partner.updated_at = new Date().toISOString();
-  await db.saveTable('partners', partners);
 
   const partnerUsers = (await db.getTable('partner_users')).filter(pu => pu.partner_id === id);
   const users = await db.getTable('users');
   partnerUsers.forEach(pu => {
     const u = users.find(usr => usr.id === pu.user_id);
     if (u) {
-      if (req.body.contact_phone) u.phone = req.body.contact_phone;
-      if (req.body.contact_email !== undefined) u.email = req.body.contact_email;
+      if (req.body.contact_phone) u.phone = validPhone;
+      if (req.body.contact_email !== undefined) u.email = validEmail;
       if (req.body.display_name) u.name = req.body.display_name;
     }
   });
+
+  await db.saveTable('partners', partners);
   await db.saveTable('users', users);
 
   await appendAudit(req, 'EDIT_PARTNER', 'partner', id, before, partner);
