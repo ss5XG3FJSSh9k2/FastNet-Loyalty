@@ -983,7 +983,11 @@ async function main() {
   assert(emailChangeRes.status === 200, 'Full path by email: change succeeds');
   
   const auditLogs2 = await dbModule.getTable('admin_audit_log');
-  const emailAudit = auditLogs2.find(a => a.entity_id === 'u-cust2' && a.action === 'CHANGE_PHONE');
+  // u-cust2 changed number twice (by phone earlier, by email now): take the newest audit row.
+  const emailAudit = auditLogs2
+    .filter(a => a.entity_id === 'u-cust2' && a.action === 'CHANGE_PHONE')
+    .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
+    .pop();
   assert(emailAudit !== undefined && emailAudit.after.method === 'email', 'and the audit row records email.');
 
   const creditPtsRes = await post('http://localhost:3001/api/admin/customers/u-cust1/points-credit', {
@@ -1042,7 +1046,17 @@ async function main() {
   assert(leadPostRes.status === 200, 'Partner lead created');
   const leadId = leadPostRes.body.lead.id;
 
+  // Partner admins may work partner leads, but not KYC documents, analytics, vendors or accounts.
   loginAs('u-partner-admin', 'PARTNER_ADMIN');
+  const partnerAnalyticsRes = await get('http://localhost:3001/api/admin/analytics');
+  assert(partnerAnalyticsRes.status === 403, 'Partner admin cannot read platform analytics');
+  const partnerKycDocRes = await get('http://localhost:3001/api/admin/kyc/u-stk5/document');
+  assert(partnerKycDocRes.status === 403, 'Partner admin cannot read a stockist KYC document');
+  const partnerVendorRes = await patch('http://localhost:3001/api/admin/vendors/v1', { name: 'Hijacked' });
+  assert(partnerVendorRes.status === 403, 'Partner admin cannot edit a vendor');
+  const partnerAccountDelRes = await del('http://localhost:3001/api/admin/users/u-stk3/account');
+  assert(partnerAccountDelRes.status === 403, 'Partner admin cannot delete a user account');
+
   const leadStatusRes = await post(`http://localhost:3001/api/admin/partner-leads/${leadId}/status`, {
     status: 'CONTACTED'
   });
@@ -3511,7 +3525,11 @@ async function main() {
   // Test #609: Created admin can immediately authenticate via existing OTP flow
   const sendOtpRes = await post('http://localhost:3001/api/auth/send-otp', { phone: '9876543210', email: 'test_9876543210@fastnet.test' });
   assert(sendOtpRes.status === 200, 'send-otp returns 200 for created admin');
-  const verifyOtpRes = await post('http://localhost:3001/api/auth/verify-otp', { phone: '9876543210', email: 'test_9876543210@fastnet.test', otp: '123456' });
+  // Outside test mode the OTP is random: read it from the mock SMS outbox.
+  const setupOtpSms = require('../lib/sms').getMockOutbox().filter(s => s.phone === '9876543210').pop();
+  const setupOtp = setupOtpSms && (setupOtpSms.body.match(/\d{6}/) || [])[0];
+  assert(setupOtp && setupOtp !== '123456', 'Outside test mode the login OTP is random, not the fixed demo code');
+  const verifyOtpRes = await post('http://localhost:3001/api/auth/verify-otp', { phone: '9876543210', email: 'test_9876543210@fastnet.test', otp: setupOtp });
   assert(verifyOtpRes.status === 200 && verifyOtpRes.body.user && verifyOtpRes.body.user.role === 'ADMIN', 'Created admin can authenticate via OTP flow');
 
   // Test #610: Second POST /api/setup/create-admin after first -> 403
@@ -3576,15 +3594,18 @@ async function main() {
   assert(slotsMapMatches.length > 0 && allAccessors, 'every SLOTS.map( in App.jsx accesses .value and .label');
 
   // Test #623: Endpoint: place an order with a pickupSlot in new format (e.g. 2026-08-07T17:00) -> 200, matching stored pickupSlot
+  // (Slots must not be in the past, so use tomorrow at 17:00.)
+  const bf6bTomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  const bf6bSlot = `${bf6bTomorrow.getFullYear()}-${String(bf6bTomorrow.getMonth() + 1).padStart(2, '0')}-${String(bf6bTomorrow.getDate()).padStart(2, '0')}T17:00`;
   const bf6bOrderRes = await post('http://localhost:3001/api/orders', {
     customerId: 'u-cust1',
     stockistId: 's1',
     items: [{ productId: 'p1', quantity: 1, price: 100 }],
     fulfillmentType: 'PICKUP',
-    pickupSlot: '2026-08-07T17:00'
+    pickupSlot: bf6bSlot
   });
   const bf6bCreatedOrder = (await get('http://localhost:3001/api/orders?customerId=u-cust1')).body.find(o => o.id === bf6bOrderRes.body.orderId);
-  assert(bf6bOrderRes.status === 200 && bf6bCreatedOrder && bf6bCreatedOrder.pickup_slot === '2026-08-07T17:00', 'POST /api/orders with pickupSlot 2026-08-07T17:00 returns 200 and matches stored pickupSlot');
+  assert(bf6bOrderRes.status === 200 && bf6bCreatedOrder && bf6bCreatedOrder.pickup_slot === bf6bSlot, `POST /api/orders with pickupSlot ${bf6bSlot} returns 200 and matches stored pickupSlot`);
 
   // Test #624: Endpoint: stored pickupSlot on created order does not contain "object Object"
   assert(!bf6bCreatedOrder.pickup_slot.includes('object Object'), 'stored pickupSlot does not contain "object Object"');
@@ -4689,7 +4710,7 @@ async function main() {
 
   loginAs('u-partner-admin', 'PARTNER_ADMIN');
   const partnerDocRes = await get('http://localhost:3001/api/admin/kyc/u-stk3/document');
-  assert(partnerDocRes.status === 200, 'GET /api/admin/kyc/:userId/document partner-admin returns 200');
+  assert(partnerDocRes.status === 403, 'GET /api/admin/kyc/:userId/document partner-admin returns 403 (KYC documents are admin-only)');
 
   loginAs('u-admin', 'ADMIN');
 
@@ -5596,6 +5617,185 @@ async function main() {
   const cComm = cPot - cPoints;
   assert(cPoints === 1350000 && cComm === 2025000, '(e) Pure-arithmetic check matches points 1350000 and commission 2025000');
 
+
+
+  // --- BUG REPORT FIXES (2026-10-07) ---
+  console.log('\n--- BUG REPORT FIXES ---');
+  loginAs('u-admin', 'ADMIN');
+  await post('http://localhost:3001/api/admin/reset-db');
+  const brOrder = async (extra = {}, who = ['u-cust1', 'CUSTOMER']) => {
+    loginAs(who[0], who[1]);
+    const r = await post('http://localhost:3001/api/orders', Object.assign({
+      customerId: 'u-cust1', stockistId: 's1', pickupSlot: 'Morning (8AM–12PM)',
+      fulfillmentType: 'PICKUP', paymentMethod: 'UPI', items: [{ productId: 'p1', quantity: 1 }]
+    }, extra));
+    return r;
+  };
+  const brRow = async (table, id) => (await dbModule.getTable(table)).find(r => r.id === id);
+
+  // 1. saveTable no longer loses rows when two requests save the same table
+  const brSnapA = await dbModule.getTable('admin_audit_log');
+  const brSnapB = await dbModule.getTable('admin_audit_log');
+  const brAudit = (id) => ({ id, admin_user_id: 'u-admin', action: 'RACE_TEST', entity_type: 'test', entity_id: id, before: null, after: null, reason: '', created_at: new Date().toISOString() });
+  brSnapA.push(brAudit('race-a'));
+  brSnapB.push(brAudit('race-b'));
+  await Promise.all([dbModule.saveTable('admin_audit_log', brSnapA), dbModule.saveTable('admin_audit_log', brSnapB)]);
+  let brAudits = await dbModule.getTable('admin_audit_log');
+  assert(brAudits.some(a => a.id === 'race-a') && brAudits.some(a => a.id === 'race-b'), 'Concurrent saveTable calls from stale snapshots keep both new rows');
+  const brSnapC = (await dbModule.getTable('admin_audit_log')).filter(a => a.id !== 'race-a');
+  await dbModule.saveTable('admin_audit_log', brSnapC);
+  brAudits = await dbModule.getTable('admin_audit_log');
+  assert(!brAudits.some(a => a.id === 'race-a') && brAudits.some(a => a.id === 'race-b'), 'saveTable still deletes rows the caller removed, and only those');
+
+  loginAs('u-cust1', 'CUSTOMER');
+  const brOrdersBefore = (await dbModule.getTable('orders')).length;
+  const brParallel = await Promise.all(Array.from({ length: 8 }, () => post('http://localhost:3001/api/orders', {
+    customerId: 'u-cust1', stockistId: 's1', pickupSlot: 'Morning (8AM–12PM)', paymentMethod: 'UPI', items: [{ productId: 'p1', quantity: 1 }]
+  })));
+  const brOrdersAfter = (await dbModule.getTable('orders')).length;
+  assert(brParallel.every(r => r.status === 200), '8 orders placed in parallel all succeed');
+  assert(brOrdersAfter - brOrdersBefore === 8, '8 orders placed in parallel are all saved');
+
+  // 2. The in-memory database alone is not test mode: dev-only routes are closed
+  process.env.SEED_MODE = 'production';
+  assert(require('../lib/env').isTestEnv() === false, 'POSTGRES_MODE=mem alone does not count as test mode');
+  assert(require('../lib/env').isDemoOtpMode() === false, 'Fixed demo OTP is off outside test mode');
+  clearLogin();
+  const brOverride = await post('http://localhost:3001/api/admin/override-table', { table: 'users', id: 'u-cust1', patch: { role: 'ADMIN' } });
+  assert(brOverride.status === 404, 'override-table is unavailable outside test mode');
+  const brResetDb = await post('http://localhost:3001/api/admin/reset-db', {});
+  assert(brResetDb.status === 404, 'reset-db is unavailable outside test mode');
+  const brClearRl = await post('http://localhost:3001/api/admin/clear-rate-limits', {});
+  assert(brClearRl.status === 401, 'clear-rate-limits needs an admin login outside test mode');
+  process.env.SEED_MODE = 'test';
+  assert((await brRow('users', 'u-cust1')).role === 'CUSTOMER', 'Customer role unchanged by the rejected override');
+
+  // 3. Offline sync applies the normal ownership and status rules
+  const brSyncOrder = (await brOrder()).body.orderId;
+  loginAs('u-cust2', 'CUSTOMER');
+  const brSyncCust = await post('http://localhost:3001/api/orders/sync', { updates: [{ orderId: brSyncOrder, status: 'DELIVERED' }] });
+  assert(brSyncCust.status === 403, 'Customers cannot use the offline sync to change orders');
+  loginAs('u-stk2', 'STOCKIST');
+  const brSyncOther = await post('http://localhost:3001/api/orders/sync', { updates: [{ orderId: brSyncOrder, status: 'READY' }] });
+  assert(brSyncOther.status === 200 && brSyncOther.body.synced_count === 0 && brSyncOther.body.results[0].ok === false, 'Sync cannot change another stockist\'s order');
+  loginAs('u-stk1', 'STOCKIST');
+  const brSyncBanana = await post('http://localhost:3001/api/orders/sync', { updates: [{ orderId: brSyncOrder, status: 'BANANA' }] });
+  assert(brSyncBanana.body.synced_count === 0, 'Sync rejects an unknown status');
+  const brSyncOk = await post('http://localhost:3001/api/orders/sync', { updates: [{ orderId: brSyncOrder, status: 'RECEIVED' }] });
+  assert(brSyncOk.body.synced_count === 1 && (await brRow('orders', brSyncOrder)).status === 'RECEIVED', 'Sync applies a valid update by the owning stockist');
+
+  // 4. Stockists cannot order on a customer's account
+  const brStkOrder = await brOrder({}, ['u-stk1', 'STOCKIST']);
+  assert(brStkOrder.status === 403, 'A stockist cannot place an order as a customer');
+
+  // 5. Customers cannot choose the commission model
+  const brModel = await brOrder({ commission_model: 'gross_v1' });
+  assert(brModel.status === 200 && brModel.body.order.commission_model === 'profit_v2', 'commission_model from a customer is ignored');
+
+  // 6. The delivery PIN is checked
+  const brPinOrder = (await brOrder()).body.orderId;
+  loginAs('u-admin', 'ADMIN');
+  await patch(`http://localhost:3001/api/orders/${brPinOrder}/status`, { status: 'READY' });
+  const brRealPin = (await brRow('orders', brPinOrder)).pickup_pin;
+  loginAs('u-stk1', 'STOCKIST');
+  const brWrongPin = await patch(`http://localhost:3001/api/orders/${brPinOrder}/status`, { status: 'DELIVERED', pin: brRealPin === '0000' ? '1111' : '0000' });
+  assert(brWrongPin.status === 400, 'Wrong PIN is rejected');
+  const brRightPin = await patch(`http://localhost:3001/api/orders/${brPinOrder}/status`, { status: 'DELIVERED', pin: brRealPin });
+  assert(brRightPin.status === 200, 'Correct PIN completes the order');
+
+  // 7, 9. Delivered orders stay delivered
+  loginAs('u-cust1', 'CUSTOMER');
+  const brNoShowDelivered = await post(`http://localhost:3001/api/orders/${brPinOrder}/noshw-action`, { action: 'CANCEL' });
+  assert(brNoShowDelivered.status === 400, 'No-show CANCEL is rejected on a delivered order');
+  loginAs('u-stk1', 'STOCKIST');
+  const brForceCancel = await patch(`http://localhost:3001/api/orders/${brPinOrder}/status`, { status: 'CANCELLED', force: true });
+  assert(brForceCancel.status === 400 && (await brRow('orders', brPinOrder)).status === 'DELIVERED', 'force:true cannot cancel a delivered order');
+  const brReceivedOrder = (await brOrder()).body.orderId;
+  loginAs('u-stk1', 'STOCKIST');
+  await patch(`http://localhost:3001/api/orders/${brReceivedOrder}/status`, { status: 'RECEIVED' });
+  const brStkForce = await patch(`http://localhost:3001/api/orders/${brReceivedOrder}/status`, { status: 'CANCELLED', force: true });
+  assert(brStkForce.status === 403, 'Stockists cannot use force to cancel past PENDING');
+  const brBackwards = await patch(`http://localhost:3001/api/orders/${brReceivedOrder}/status`, { status: 'PENDING' });
+  assert(brBackwards.status === 400, 'Order status cannot move backwards');
+
+  // 10, 15. Cancelled orders stay cancelled; free-window cancellation refunds in full
+  const brCancelOrderRes = await brOrder();
+  const brCancelOrder = brCancelOrderRes.body.orderId;
+  const brCancelRes = await post(`http://localhost:3001/api/orders/${brCancelOrder}/cancel`);
+  const brCancelled = await brRow('orders', brCancelOrder);
+  assert(brCancelRes.status === 200 && brCancelled.status === 'CANCELLED', 'Customer cancels inside the free window');
+  assert(Number(brCancelled.refund_amount) === Number(brCancelled.amount_paid), `Free-window cancellation refunds in full (paid ${brCancelled.amount_paid}, refund ${brCancelled.refund_amount})`);
+  const brReschedule = await post(`http://localhost:3001/api/orders/${brCancelOrder}/noshw-action`, { action: 'RESCHEDULE', newSlot: 'Evening (4PM–8PM)' });
+  assert(brReschedule.status === 400 && (await brRow('orders', brCancelOrder)).status === 'CANCELLED', 'No-show reschedule cannot revive a cancelled order');
+  loginAs('u-admin', 'ADMIN');
+  const brRevive = await patch(`http://localhost:3001/api/orders/${brCancelOrder}/status`, { status: 'DELIVERED' });
+  assert(brRevive.status === 400, 'A cancelled order cannot be set to DELIVERED');
+
+  // 11. A failed "ready" update leaves the order unchanged
+  const brStockOrder = (await brOrder()).body.orderId;
+  const brInv = (await dbModule.getTable('stockist_inventory')).find(i => i.stockist_id === 's1' && i.product_id === 'p1');
+  loginAs('u-admin', 'ADMIN');
+  await post('http://localhost:3001/api/admin/override-table', { table: 'stockist_inventory', id: brInv.id, patch: { stock_qty: 0, stock_quantity: 0 } });
+  const brStatusBefore = (await brRow('orders', brStockOrder)).status;
+  const brReadyNoStock = await patch(`http://localhost:3001/api/orders/${brStockOrder}/status`, { status: 'READY' });
+  assert(brReadyNoStock.status === 400 && (await brRow('orders', brStockOrder)).status === brStatusBefore, 'READY with insufficient stock fails and leaves the status unchanged');
+  await post('http://localhost:3001/api/admin/override-table', { table: 'stockist_inventory', id: brInv.id, patch: { stock_qty: brInv.stock_qty, stock_quantity: brInv.stock_qty } });
+
+  // 12. A multi-store checkout is all-or-nothing
+  loginAs('u-cust1', 'CUSTOMER');
+  const brCountBefore = (await dbModule.getTable('orders')).length;
+  const brMulti = await post('http://localhost:3001/api/orders', {
+    customerId: 'u-cust1', fulfillmentType: 'PICKUP', paymentMethod: 'UPI',
+    stores: [
+      { stockistId: 's1', pickupSlot: 'Morning (8AM–12PM)', items: [{ productId: 'p1', quantity: 1 }] },
+      { stockistId: 's3', pickupSlot: 'Morning (8AM–12PM)', items: [{ productId: 'no-such-product', quantity: 1 }] }
+    ]
+  });
+  assert(brMulti.status === 400 && (await dbModule.getTable('orders')).length === brCountBefore, 'A failing store saves no order for the other stores');
+
+  // 13, 20. Redemption amounts are validated
+  const brFixed = await post('http://localhost:3001/api/ledger/redeem', { customerId: 'u-cust1', amount: 1, redemptionType: 'BROADBAND_DISCOUNT_100' });
+  assert(brFixed.status === 400, 'A fixed-value reward cannot be redeemed for 1 point');
+  const brNan = await post('http://localhost:3001/api/ledger/redeem', { customerId: 'u-cust1', amount: 'abc', redemptionType: 'BROADBAND_DISCOUNT' });
+  assert(brNan.status === 400, 'Redemption amount "abc" returns 400');
+
+  // 14. Held points are voided when the order is cancelled
+  const brHeldOrder = (await brOrder()).body.orderId;
+  await dbModule.insertRow('points_ledger', { id: 'l-held-test', tenant_id: 't1', region_id: 'r1', customer_id: 'u-cust1', amount: 7, type: 'EARN_HELD', order_id: brHeldOrder, description: 'held', billing_sync_status: 'HELD', created_at: new Date().toISOString() });
+  loginAs('u-cust1', 'CUSTOMER');
+  await post(`http://localhost:3001/api/orders/${brHeldOrder}/cancel`);
+  assert((await brRow('points_ledger', 'l-held-test')).billing_sync_status === 'VOIDED', 'Held points on a cancelled order are voided');
+  const brVoid = (await dbModule.getTable('points_ledger')).find(l => l.reference_id === 'l-held-test' && l.type === 'EARN_VOID');
+  assert(brVoid && Number(brVoid.amount) === 0, 'The void entry does not add points to the balance');
+
+  // 16. Switching to delivery keeps the checkout split and adds the fee for the shop
+  loginAs('u-admin', 'ADMIN');
+  await post('http://localhost:3001/api/admin/override-table', { table: 'regions', id: 'r1', patch: { delivery_fee: 20 } });
+  const brSwitchOrder = (await brOrder()).body.orderId;
+  const brPayoutBefore = (await dbModule.getTable('split_payouts')).find(sp => sp.order_id === brSwitchOrder);
+  loginAs('u-cust1', 'CUSTOMER');
+  const brSwitch = await patch(`http://localhost:3001/api/orders/${brSwitchOrder}/fulfillment`, { fulfillmentType: 'DELIVERY' });
+  const brPayoutAfter = (await dbModule.getTable('split_payouts')).find(sp => sp.order_id === brSwitchOrder);
+  assert(brSwitch.status === 200 && Number(brPayoutAfter.platform_amount) === Number(brPayoutBefore.platform_amount), 'Switching to delivery does not change the platform share');
+  assert(Math.abs(Number(brPayoutAfter.stockist_amount) - Number(brPayoutBefore.stockist_amount) - 20) < 0.001, 'Switching to delivery adds the delivery fee to the stockist share');
+
+  // 17-19. Checkout input validation
+  assert((await brOrder({ fulfillmentType: 'TELEPORT' })).status === 400, 'fulfillmentType TELEPORT returns 400');
+  assert((await brOrder({ pickupSlot: 'yesterday lol' })).status === 400, 'pickupSlot "yesterday lol" returns 400');
+  assert((await brOrder({ paymentMethod: 5 })).status === 400, 'Numeric paymentMethod returns 400, not 500');
+
+  // 21, 22. Audit rows name the signed-in admin; partner email subject is complete
+  loginAs('u-admin', 'ADMIN');
+  const brRegion = await post('http://localhost:3001/api/admin/regions', { name: 'Audit Check Region', code: 'audit-check', admin_id: 'u-impostor' });
+  if (brRegion.status === 200) {
+    const brRegionAudit = (await dbModule.getTable('admin_audit_log')).find(a => a.action === 'REGION_CREATE' && a.entity_id === brRegion.body.id);
+    assert(brRegionAudit && brRegionAudit.user_id === 'u-admin', 'Audit row records the signed-in admin, not admin_id from the body');
+  } else {
+    assert(false, `Region create for audit check failed (${brRegion.status})`);
+  }
+  const brServerSrc = fs.readFileSync(path.join(__dirname, '../server.js'), 'utf8');
+  assert(!brServerSrc.includes('New redemption ready for you: `'), 'Partner email subject includes the package name');
+  await post('http://localhost:3001/api/admin/reset-db');
 
   console.log('\\n--- BF-START-SEED ---');
   assert(process.env.SEED_MODE === 'test', 'SEED_MODE is test in test environment');

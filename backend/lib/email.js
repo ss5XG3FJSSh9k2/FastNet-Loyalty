@@ -27,6 +27,10 @@ async function sendEmail(to, subject, htmlBody, textBody) {
     };
     mockOutbox.push(entry);
     console.log(`[Email Mock] Sent "${subject}" to ${to}`);
+    // Outside test mode OTPs are random, so show the message for local logins.
+    if (process.env.NODE_ENV !== 'production' && !require('./env').isTestEnv() && textBody) {
+      console.log(`[Email Mock] ${textBody}`);
+    }
     return entry;
   }
 

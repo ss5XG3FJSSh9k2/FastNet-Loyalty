@@ -139,6 +139,32 @@ const getServiceTypeLabel = (st) => {
 
 const asList = (res, data, fallback = []) => (res && res.ok && Array.isArray(data) ? data : fallback);
 
+// The backend accepts two spellings of the same order stages (RECEIVED/READY and
+// ACCEPTED/PREPARING/READY_FOR_PICKUP/OUT_FOR_DELIVERY). The UI works with one
+// set, so orders are mapped onto it as they arrive from the API.
+const UI_ORDER_STATUS = { ACCEPTED: 'RECEIVED', PREPARING: 'RECEIVED', READY_FOR_PICKUP: 'READY', OUT_FOR_DELIVERY: 'READY', SHIPPED: 'READY' };
+const toUiOrder = (o) => (o && UI_ORDER_STATUS[o.status] ? { ...o, status: UI_ORDER_STATUS[o.status] } : o);
+const toUiOrders = (list) => (Array.isArray(list) ? list.map(toUiOrder) : list);
+
+// reCAPTCHA v3 loads only when a real site key is configured. Without one
+// (local development) the backend skips CAPTCHA checks outside production.
+const RECAPTCHA_SITE_KEY = import.meta.env.VITE_RECAPTCHA_SITE_KEY || '';
+let recaptchaLoad = null;
+const loadRecaptcha = () => {
+  if (!RECAPTCHA_SITE_KEY) return Promise.resolve(null);
+  if (!recaptchaLoad) {
+    recaptchaLoad = new Promise((resolve) => {
+      const script = document.createElement('script');
+      script.src = `https://www.google.com/recaptcha/api.js?render=${encodeURIComponent(RECAPTCHA_SITE_KEY)}`;
+      script.async = true;
+      script.onload = () => window.grecaptcha.ready(() => resolve(window.grecaptcha));
+      script.onerror = () => { recaptchaLoad = null; resolve(null); };
+      document.head.appendChild(script);
+    });
+  }
+  return recaptchaLoad;
+};
+
 class PanelErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
@@ -588,6 +614,10 @@ export default function App() {
   const [selectedRegionId, setSelectedRegionId] = useState('');
   const [demoOtpMode, setDemoOtpMode] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
+  // A new session renders a different screen; start it at the top of the page.
+  useEffect(() => {
+    if (currentUser?.id) window.scrollTo(0, 0);
+  }, [currentUser?.id]);
   const [showPersonalDetails, setShowPersonalDetails] = useState(false);
   const [calcConfig, setCalcConfig] = useState(null); // { stockist_reinvest_pct, points_from_pot_pct }
 
@@ -673,6 +703,13 @@ export default function App() {
       .catch(() => {});
   }, []);
   const [nowTick, setNowTick] = useState(Date.now());
+  // Clock shown in the phone mock-ups' status bars.
+  const [clockTick, setClockTick] = useState(Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setClockTick(Date.now()), 30000);
+    return () => clearInterval(timer);
+  }, []);
+  const phoneClock = new Date(clockTick).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
   const [confirmCancelOrderId, setConfirmCancelOrderId] = useState(null);
   const [confirmDeliverySwitchOrderId, setConfirmDeliverySwitchOrderId] = useState(null);
 
@@ -842,10 +879,15 @@ export default function App() {
   const [customerLedger, setCustomerLedger] = useState([]);
   const [customerBalance, setCustomerBalance] = useState(0);
   const [customerHeldBalance, setCustomerHeldBalance] = useState(0);
-  const [customerOrders, setCustomerOrders] = useState([]);
+  const [customerOrders, setCustomerOrdersRaw] = useState([]);
+  const setCustomerOrders = (v) => setCustomerOrdersRaw(prev => toUiOrders(typeof v === 'function' ? v(prev) : v));
   const [customerAppTab, setCustomerAppTab] = useState('store'); // store, ledger, orders
   const [redeemAmount, setRedeemAmount] = useState('');
-  const [checkoutResult, setCheckoutResult] = useState(null);
+  const [checkoutResult, setCheckoutResultRaw] = useState(null);
+  const setCheckoutResult = (v) => setCheckoutResultRaw(prev => {
+    const next = typeof v === 'function' ? v(prev) : v;
+    return next && Array.isArray(next.orders) ? { ...next, orders: toUiOrders(next.orders) } : next;
+  });
   const [customerSearch, setCustomerSearch] = useState('');
 
   // New expansion states & Round R
@@ -1560,6 +1602,18 @@ export default function App() {
       }
     }
   }, [dbState?.orders, currentUser?.id]);
+  // A notice with a single OK button (no Cancel/Yes choice).
+  const triggerInfoModal = (title, message) => {
+    setConfirmModal({
+      isOpen: true,
+      title,
+      message,
+      infoOnly: true,
+      onConfirm: () => {},
+      yesLabel: t('OK', 'ठीक है', 'ঠিক আছে')
+    });
+  };
+
   const triggerConfirmModal = (title, message, onConfirm, danger, yesLabel, noLabel) => {
     setConfirmModal({
       isOpen: true,
@@ -1718,7 +1772,8 @@ export default function App() {
   const [closedUntilDraft, setClosedUntilDraft] = useState(null);
   const [showCustomDate, setShowCustomDate] = useState(false);
   const [closedUntilPreset, setClosedUntilPreset] = useState(null);
-  const [stockistOrders, setStockistOrders] = useState([]);
+  const [stockistOrders, setStockistOrdersRaw] = useState([]);
+  const setStockistOrders = (v) => setStockistOrdersRaw(prev => toUiOrders(typeof v === 'function' ? v(prev) : v));
 
 
   const [unacknowledgedOrders, setUnacknowledgedOrders] = useState([]);
@@ -1918,10 +1973,11 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (activeRole === "admin") {
+    // Only once an admin is signed in; before that the call just returns 401.
+    if (activeRole === "admin" && currentUser?.role === 'ADMIN') {
       fetchAdminVendors(showInactiveVendors);
     }
-  }, [showInactiveVendors, activeRole]);
+  }, [showInactiveVendors, activeRole, currentUser?.role]);
 
   // Admin Dashboard State
   const [pendingKyc, setPendingKyc] = useState([]);
@@ -2028,7 +2084,7 @@ export default function App() {
       return isPickup ? t('Ready for Pickup', 'पिकअप के लिए तैयार', 'পিকআপের জন্য প্রস্তুত') : t('Ready for Delivery', 'वितरण के लिए तैयार', 'ডেলিভারির জন্য প্রস্তুত');
     }
     if (status === 'DELIVERED') {
-      return isPickup ? t('Picked Up', 'পিকআপ किया गया', 'পিকআপ সম্পন্ন') : t('Delivered', 'वितरित', 'ডেলিভারি সম্পন্ন');
+      return isPickup ? t('Picked Up', 'पिकअप किया गया', 'পিকআপ সম্পন্ন') : t('Delivered', 'वितरित', 'ডেলিভারি সম্পন্ন');
     }
     if (status === 'CANCELLED') {
       return t('Cancelled', 'रद्द', 'বাতিল');
@@ -2893,13 +2949,14 @@ export default function App() {
       try {
         const oRes = await fetch(`${API_BASE}/orders?customerId=${currentUser.id}`);
         if (oRes.ok) {
-          const oData = await oRes.json().catch(() => ({}));
+          const oData = toUiOrders(await oRes.json().catch(() => []));
+          if (!Array.isArray(oData)) return;
           setCustomerOrders(prev => {
             // Compare and Toast on changes
             oData.forEach(newO => {
               const oldO = prev.find(o => o.id === newO.id);
               if (oldO && oldO.status !== newO.status) {
-                showToast(`Order #${newO.id.substring(2).toUpperCase()} status updated to ${newO.status}!`, 'info');
+                showToast(`Order #${newO.id.substring(2).toUpperCase()} status updated to ${formatOrderStatusDisplay(newO.status, newO.fulfillment_type)}!`, 'info');
               }
             });
             return oData;
@@ -2919,9 +2976,10 @@ export default function App() {
 
   const verifyCaptchaAndGetToken = async () => {
     let token = 'dummy_token_for_test_env';
-    if (window.grecaptcha && window.grecaptcha.execute) {
+    const grecaptcha = await loadRecaptcha();
+    if (grecaptcha) {
       try {
-        token = await window.grecaptcha.execute('6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI', {action: 'login'});
+        token = await grecaptcha.execute(RECAPTCHA_SITE_KEY, {action: 'login'});
       } catch (e) {
         console.warn('reCAPTCHA execute failed', e);
       }
@@ -4383,7 +4441,11 @@ export default function App() {
       logApi('POST', '/orders/sync', payload, res.status, data);
 
       if (res.ok) {
-        showToast(`Synced ${data.synced_count} offline actions successfully!`);
+        if (data.failed_count > 0) {
+          showToast(`Synced ${data.synced_count} offline actions; ${data.failed_count} could not be applied (${(data.results || []).filter(r => !r.ok).map(r => r.error).filter(Boolean)[0] || 'rejected'}).`, 'warning');
+        } else {
+          showToast(`Synced ${data.synced_count} offline actions successfully!`);
+        }
         setOfflineQueue([]);
         loadStockistData();
 
@@ -5860,7 +5922,7 @@ export default function App() {
             <div className="input-group">
               <label className="input-label">{t('Region', 'क्षेत्र', 'অঞ্চল')}</label>
               <select className="text-input" value={regRegion} onChange={e => setRegRegion(e.target.value)}>
-                <option value="">{t('Select Region', 'क्षेत्र चुनें', 'অঞ্চল निर्वाचन করুন')}</option>
+                <option value="">{t('Select Region', 'क्षेत्र चुनें', 'অঞ্চল নির্বাচন করুন')}</option>
                 {regions.map(r => (
                   <option key={r.id} value={r.id}>{r.name}</option>
                 ))}
@@ -7593,8 +7655,7 @@ export default function App() {
                 
                 <div className="input-group">
                   <label className="input-label">{t('Subscription Duration', 'सदस्यता अवधि', 'সাবস্ক্রিপশন সময়কাল')}</label>
-                  <select
-                    className="text-input"
+                  <select className="text-input"
                     value={pkgDurationMode === 'custom' ? 'custom' : pkgDurationDays}
                     onChange={e => {
                       if (e.target.value === 'custom') {
@@ -8106,15 +8167,28 @@ export default function App() {
     const isLoggedOut = !currentUser || currentUser.role !== 'CUSTOMER';
     const activeRegionName = currentUser ? (regions.find(r => r.id === currentUser.region_id)?.name || 'Kolkata South (Garia)') : 'Kolkata South (Garia)';
 
+    // Minutes until a pickup order is ready / a delivery order arrives, or null
+    // when there is nothing meaningful to show.
     const computeEta = (order) => {
-      const prep = parseInt(order.prep_time) || 15;
+      const prep = parseInt(order.pickup_eta_minutes, 10) || 15;
+      const isPickup = order.fulfillment_type === 'PICKUP';
       switch (order.status) {
         case 'CONFIRMING':
-        case 'PENDING': return prep + 10;
+        case 'PENDING': return isPickup ? prep : prep + 10;
         case 'RECEIVED': return prep;
-        case 'READY': return 10;
-        default: return '--';
+        case 'READY': return isPickup ? 0 : 10;
+        default: return null;
       }
+    };
+    const etaLabel = (order) => {
+      const mins = computeEta(order);
+      if (mins === null) return null;
+      if (order.fulfillment_type === 'PICKUP') {
+        return mins === 0
+          ? t('Ready for pickup', 'पिकअप के लिए तैयार', 'পিকআপের জন্য প্রস্তুত')
+          : `${t('Ready in', 'तैयार होने में', 'প্রস্তুত হতে')} ${mins} ${t('mins', 'मिनट', 'মিনিট')}`;
+      }
+      return `${t('Arriving in', 'आने में', 'আসছে')} ${mins} ${t('mins', 'मिनट', 'মিনিট')}`;
     };
     const activeOrderList = (customerOrders || []).filter(o => !['DELIVERED', 'CANCELLED', 'NO_SHOW'].includes(o.status));
     const activeOrder = activeOrderList.length > 0 ? activeOrderList.sort((a,b) => new Date(b.created_at) - new Date(a.created_at))[0] : null;
@@ -8122,7 +8196,7 @@ export default function App() {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.75rem', width: '100%' }}>
         <div className="perspective-banner">
-          <span><UserCheck size={14} style={{ display: 'inline', marginRight: '0.25rem', verticalAlign: 'middle' }} /> {t('Customer View', 'कस्टमर व्यू', 'গ্রাহক মোড')}: {isLoggedOut ? t('Not logged in', 'লগইন করা নেই', 'লগইন করা নেই') : `${currentUser.name} (${activeRegionName})`}</span>
+          <span><UserCheck size={14} style={{ display: 'inline', marginRight: '0.25rem', verticalAlign: 'middle' }} /> {t('Customer View', 'कस्टमर व्यू', 'গ্রাহক মোড')}: {isLoggedOut ? t('Not logged in', 'लॉग इन नहीं है', 'লগইন করা নেই') : `${currentUser.name} (${activeRegionName})`}</span>
         </div>
         
         <div className="phone-mockup">
@@ -8160,7 +8234,7 @@ export default function App() {
               <>
                 <div className="phone-header">
                   <span>FastNet 5G</span>
-                  <span><Signal size={12} style={{ display: 'inline', marginRight: '0.2rem' }} /><Battery size={12} style={{ display: 'inline', marginRight: '0.2rem' }} /> 19:43</span>
+                  <span><Signal size={12} style={{ display: 'inline', marginRight: '0.2rem' }} /><Battery size={12} style={{ display: 'inline', marginRight: '0.2rem' }} /> {phoneClock}</span>
                 </div>
                 {/* Localized Auth Form */}
                 {renderAuthForm('customer')}
@@ -8173,7 +8247,7 @@ export default function App() {
                     <span>FastNet 5G</span>
                     <span className="badge badge-success" style={{ fontSize: '0.55rem', padding: '0.1rem 0.35rem' }}>{formatPoints(customerBalance)}</span>
                   </div>
-                  <span><Signal size={12} style={{ display: 'inline', marginRight: '0.2rem' }} /><Battery size={12} style={{ display: 'inline', marginRight: '0.2rem' }} /> 19:43</span>
+                  <span><Signal size={12} style={{ display: 'inline', marginRight: '0.2rem' }} /><Battery size={12} style={{ display: 'inline', marginRight: '0.2rem' }} /> {phoneClock}</span>
                 </div>
 
                 {checkoutResult && (
@@ -8361,7 +8435,7 @@ export default function App() {
                               : `*Fulfillment:* Home Delivery\n\nYour order will be delivered to your registered address shortly.`
                           }\n\nThank you for choosing FastNet!`}
                         </p>
-                        <span style={{ alignSelf: 'flex-end', fontSize: '0.5rem', color: '#8696a0', marginTop: '0.2rem' }}>19:43 <CheckCheck size={10} style={{ display: 'inline', color: '#53bdeb' }} /></span>
+                        <span style={{ alignSelf: 'flex-end', fontSize: '0.5rem', color: '#8696a0', marginTop: '0.2rem' }}>{phoneClock} <CheckCheck size={10} style={{ display: 'inline', color: '#53bdeb' }} /></span>
                       </div>
                     </div>
 
@@ -8549,11 +8623,9 @@ export default function App() {
                                       disabled={!isOpen}
                                       onClick={async () => {
                                         if (!isOpen) {
-                                          triggerConfirmModal(
+                                          triggerInfoModal(
                                             t('Shop Closed', 'दुकान बंद है', 'দোকান বন্ধ'),
-                                            t(`This shop is closed. It reopens at ${s.opening_time || '09:00'}`, `यह दुकान बंद है। यह ${s.opening_time || '09:00'} पर पुनः खुलती है`, `এই দোকানটি বন্ধ। এটি পুনরায় খোলে ${s.opening_time || '09:00'}-এ`),
-                                            () => {},
-                                            false
+                                            t(`This shop is closed. It reopens at ${s.opening_time || '09:00'}`, `यह दुकान बंद है। यह ${s.opening_time || '09:00'} पर पुनः खुलती है`, `এই দোকানটি বন্ধ। এটি পুনরায় খোলে ${s.opening_time || '09:00'}-এ`)
                                           );
                                           return;
                                         }
@@ -8561,11 +8633,9 @@ export default function App() {
                                           const pRes = await fetch(`${API_BASE}/products?regionId=${currentUser.region_id}&stockistId=${s.id}&customer=true`);
                                           const prods = await pRes.json().catch(() => ({}));
                                           if (Array.isArray(prods) && prods.length === 0) {
-                                            triggerConfirmModal(
+                                            triggerInfoModal(
                                               t('No Items', 'कोई सामान नहीं', 'কোনো জিনিসপত্র নেই'),
-                                              t('This shop has no items available.', 'इस दुकान में कोई सामान उपलब्ध नहीं है।', 'এই দোকানে কোনো सामान उपलब्ध नहीं है।'),
-                                              () => {},
-                                              false
+                                              t('This shop has no items available.', 'इस दुकान में कोई सामान उपलब्ध नहीं है।', 'এই দোকানে কোনো জিনিসপত্র উপলব্ধ নেই।')
                                             );
                                             return;
                                           }
@@ -8775,7 +8845,7 @@ export default function App() {
                                       <div key={sid} style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
                                         <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{sName}:</div>
                                         <select className="text-input" style={{ fontSize: '0.85rem', padding: '0.6rem' }} value={cartPickupSlots[sid] || ''} onChange={e => { setCartPickupSlots(prev => ({ ...prev, [sid]: e.target.value })); setSlotError(false); }}>
-                                          <option value="">{t('-- Pick a time slot --', '-- समय स्लॉट चुनें --', '-- समय स्लॉट বেছে নিন --')}</option>
+                                          <option value="">{t('-- Pick a time slot --', '-- समय स्लॉट चुनें --', '-- সময় স্লট বেছে নিন --')}</option>
                                           {SLOTS.map(slot => <option key={slot.value} value={slot.value}>{slot.label}</option>)}
                                         </select>
                                       </div>
@@ -9098,7 +9168,7 @@ export default function App() {
                               >
                                 {cartFulfillment === 'PICKUP'
                                   ? <><Key size={16} style={{ marginRight: '0.4rem' }} />{t('Place Pickup Order', 'पिकअप ऑर्डर दें', 'পিকআপ অর্ডার দিন')}</>
-                                  : <><Truck size={16} style={{ marginRight: '0.4rem' }} />{t('Place Delivery Order (COD)', 'डिलीवरी ऑर्डर (COD)', 'ডেলিভারি ऑर्डर (COD)')}</>
+                                  : <><Truck size={16} style={{ marginRight: '0.4rem' }} />{t('Place Delivery Order (COD)', 'डिलीवरी ऑर्डर (COD)', 'ডেলিভারি অর্ডার (COD)')}</>
                                 }
                               </button>
                             );
@@ -9306,7 +9376,7 @@ export default function App() {
                                               <span>{pkg.name}</span>
                                               {isTimed && (
                                                 <span className="badge badge-primary" style={{ fontSize: '0.55rem', padding: '0.05rem 0.35rem' }}>
-                                                  ⏱ {pkg.duration_days} {t('Days', 'दिन', 'दिन')}
+                                                  ⏱ {pkg.duration_days} {t('Days', 'दिन', 'দিন')}
                                                 </span>
                                               )}
                                             </div>
@@ -9319,7 +9389,7 @@ export default function App() {
                                             <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginTop: '0.2rem' }}>
                                               <span style={{ fontSize: '0.7rem', fontWeight: 'bold', color }}>{formatPoints(pkg.point_cost)}</span>
                                               <span style={{ fontSize: '0.6rem', color: 'var(--text-muted)' }}>
-                                                {t(`worth ₹${pkg.face_value_rupees}`, `मूल्य ₹${pkg.face_value_rupees}`, `মূল्य ₹${pkg.face_value_rupees}`)}
+                                                {t(`worth ₹${pkg.face_value_rupees}`, `मूल्य ₹${pkg.face_value_rupees}`, `মূল্য ₹${pkg.face_value_rupees}`)}
                                               </span>
                                               {bottomText}
                                             </div>
@@ -9393,7 +9463,7 @@ export default function App() {
                                     onClick={() => {
                                       if (currentUser?.referral_code) {
                                         navigator.clipboard.writeText(currentUser.referral_code);
-                                        showToast(t('Referral code copied!', 'रेफरल कोड कॉपी हो गया!', 'रेফারেল কোড কপি হয়েছে!'));
+                                        showToast(t('Referral code copied!', 'रेफरल कोड कॉपी हो गया!', 'রেফারেল কোড কপি হয়েছে!'));
                                       }
                                     }}
                                     style={{ background: 'rgba(34,197,94,0.2)', border: '1px solid #22c55e', color: 'white', padding: '0.3rem 0.6rem', borderRadius: '6px', fontSize: '0.65rem', cursor: 'pointer', fontWeight: '600' }}
@@ -9448,7 +9518,7 @@ export default function App() {
                                       } else if (item.status === 'REJECTED') {
                                         statusLabel = t('Rejected. Points refunded', 'अस्वीकृत. अंक वापस किए गए', 'বাতিল. পয়েন্ট ফেরত দেওয়া হয়েছে');
                                       } else if (item.status === 'DISPUTED') {
-                                        statusLabel = t('Under review', 'समीक्षाधीन', 'পুনর্বিবেचनाधीन');
+                                        statusLabel = t('Under review', 'समीक्षाधीन', 'পর্যালোচনাধীন');
                                       }
 
                                       const statusColor = item.status === 'FULFILLED' ? '#22c55e' : item.status === 'REJECTED' ? '#9ca3af' : item.status === 'APPROVED_AWAITING_PARTNER' ? '#3b82f6' : '#eab308';
@@ -9519,7 +9589,7 @@ export default function App() {
                           </p>
                         )}
                         <p style={{ fontSize: '0.6rem', color: 'var(--text-muted)', margin: '0.25rem 0 0' }}>
-                          {t('Closed-loop points redeemable in the Rewards tab.', 'पुरस्कार टैब में रिडीम करने योग्य पॉइंट्स।', 'রিওয়ার্ডस ট্যাবে রিডিম করার যোগ্য পয়েন্ট।')}
+                          {t('Closed-loop points redeemable in the Rewards tab.', 'पुरस्कार टैब में रिडीम करने योग्य पॉइंट्स।', 'রিওয়ার্ডস ট্যাবে রিডিম করার যোগ্য পয়েন্ট।')}
                         </p>
                       </div>
 
@@ -9534,7 +9604,7 @@ export default function App() {
                           onClick={() => setShowFraudReportModal(true)}
                         >
                           <ShieldAlert size={12} style={{ color: 'var(--warning)' }} />
-                          {t('Report a problem', 'समस्या रिपोर्ट करें', 'সমস্যা रिपोर्ट करें')}
+                          {t('Report a problem', 'समस्या रिपोर्ट करें', 'সমস্যা রিপোর্ট করুন')}
                         </button>
                       </div>
                       {customerHeldBalance > 0 && (
@@ -9561,7 +9631,7 @@ export default function App() {
                         ))}
                         {customerLedger.length === 0 && (
                           <p style={{ color: 'var(--text-muted)', fontSize: '0.7rem', textAlign: 'center' }}>
-                            {t('No transactions recorded.', 'कोई लेन-देन दर्ज नहीं है।', 'কোনो লেনদেন রেকর্ড করা হয়নি।')}
+                            {t('No transactions recorded.', 'कोई लेन-देन दर्ज नहीं है।', 'কোনো লেনদেন রেকর্ড করা হয়নি।')}
                           </p>
                         )}
                       </div>
@@ -9592,7 +9662,7 @@ export default function App() {
                                    )}
                                  </div>
                               </div>
-                              <div style={{ color: 'var(--text-muted)' }}>{t('Store', 'दुकान', 'दुकान')}: {o.stockist_name}</div>
+                              <div style={{ color: 'var(--text-muted)' }}>{t('Store', 'दुकान', 'দোকান')}: {o.stockist_name}</div>
                               <div style={{ color: 'var(--text-muted)', fontSize: '0.625rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
                                 {o.fulfillment_type === 'DELIVERY' ? (
                                   <>
@@ -9602,7 +9672,7 @@ export default function App() {
                                 ) : (
                                   <>
                                     <Store size={12} style={{ color: 'var(--primary)' }} />
-                                    <span>{t('Mode: Take Away', 'मोड: पिकअप', 'অবস্থা: पिकअप')} ({formatPickupSlotDisplay(o.pickup_slot) || t('Pending slot', 'स्लॉट लंबित', 'স্লট পেন্ডিং')})</span>
+                                    <span>{t('Mode: Take Away', 'मोड: पिकअप', 'মোড: পিকআপ')} ({formatPickupSlotDisplay(o.pickup_slot) || t('Pending slot', 'स्लॉट लंबित', 'স্লট পেন্ডিং')})</span>
                                   </>
                                 )}
                               </div>
@@ -9880,14 +9950,14 @@ export default function App() {
 
                         <div className="input-group">
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <label className="input-label">{t('Phone Number', 'फ़ोन नंबर', 'फोन नंबर')}</label>
+                            <label className="input-label">{t('Phone Number', 'फ़ोन नंबर', 'ফোন নম্বর')}</label>
                             <button
                               type="button"
                               className="btn btn-secondary"
                               style={{ padding: '0.15rem 0.4rem', fontSize: '0.65rem' }}
                               onClick={() => { setSelfServiceNewPhone(''); setSelfServiceOtp(''); setSelfServiceNewOtp(''); setSelfServiceOtpSent(false); setShowSelfServicePhoneModal(true); }}
                             >
-                              {t('Change Phone Number', 'फ़ोन नंबर बदलें', 'फोन नंबर परिवर्तन')}
+                              {t('Change Phone Number', 'फ़ोन नंबर बदलें', 'ফোন নম্বর পরিবর্তন করুন')}
                             </button>
                           </div>
                           <input
@@ -10015,7 +10085,7 @@ export default function App() {
                                 setProfileNoBroadband(true);
                               }}
                             >
-                              {t('No', 'नहीं', 'ना')}
+                              {t('No', 'नहीं', 'না')}
                             </button>
                           </div>
 
@@ -10119,9 +10189,9 @@ export default function App() {
                         <div className="glass-card" style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
                             <strong style={{ fontSize: '0.9rem' }}>{t('Order Status', 'ऑर्डर स्थिति', 'অর্ডারের অবস্থা')}</strong>
-                            {liveOrder.status !== 'DELIVERED' && liveOrder.status !== 'CANCELLED' && (
+                            {etaLabel(liveOrder) && (
                               <span style={{ fontSize: '0.75rem', color: 'var(--accent)', fontWeight: 'bold' }}>
-                                {t('Arriving in', 'आने में', 'আসছে')} {computeEta(liveOrder)} {t('mins', 'मिनट', 'মিনিট')}
+                                {etaLabel(liveOrder)}
                               </span>
                             )}
                           </div>
@@ -10276,9 +10346,11 @@ export default function App() {
                       <strong style={{ fontSize: '0.85rem' }}>{activeOrder.stockist_name}</strong>
                       <span style={{ fontSize: '0.7rem', color: 'var(--accent)', fontWeight: 'bold' }}>{formatOrderStatusDisplay(activeOrder.status, activeOrder.fulfillment_type)} ›</span>
                     </div>
-                    <div className="badge badge-success" style={{ fontSize: '0.75rem', padding: '0.3rem 0.5rem' }}>
-                      {t('arriving in','आने में','আসছে')} {computeEta(activeOrder)} {t('mins','मिनट','মিনিট')}
-                    </div>
+                    {etaLabel(activeOrder) && (
+                      <div className="badge badge-success" style={{ fontSize: '0.75rem', padding: '0.3rem 0.5rem' }}>
+                        {etaLabel(activeOrder)}
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -10401,7 +10473,7 @@ export default function App() {
         { key: 'CONFIRMING', label: t('Order Placed', 'ऑर्डर दिया गया', 'অর্ডার দেওয়া হয়েছে') },
         { key: 'RECEIVED', label: t('Received', 'प्राप्त', 'গৃহীত') },
         { key: 'READY', label: isPickup ? t('Ready for Pickup', 'पिकअप के लिए तैयार', 'পিকআপের জন্য প্রস্তুত') : t('Ready for Delivery', 'वितरण के लिए तैयार', 'ডেলিভারির জন্য প্রস্তুত') },
-        { key: 'DELIVERED', label: isPickup ? t('Picked Up', 'পিকআপ করা হয়েছে', 'পিকআপ সম্পন্ন') : t('Delivered', 'वितरित', 'ডেলিভারি সম্পন্ন') }
+        { key: 'DELIVERED', label: isPickup ? t('Picked Up', 'पिकअप किया गया', 'পিকআপ সম্পন্ন') : t('Delivered', 'वितरित', 'ডেলিভারি সম্পন্ন') }
       ];
 
       const currentIndex = steps.findIndex(s => s.key === status);
@@ -10440,7 +10512,7 @@ export default function App() {
               <>
                 <div className="phone-header">
                   <span>FastNet 5G</span>
-                  <span><Signal size={12} style={{ display: 'inline', marginRight: '0.2rem' }} /><Battery size={12} style={{ display: 'inline', marginRight: '0.2rem' }} /> 19:43</span>
+                  <span><Signal size={12} style={{ display: 'inline', marginRight: '0.2rem' }} /><Battery size={12} style={{ display: 'inline', marginRight: '0.2rem' }} /> {phoneClock}</span>
                 </div>
                 {renderAuthForm('stockist')}
               </>
@@ -10448,7 +10520,7 @@ export default function App() {
               <>
                 <div className="phone-header">
                   <span>FastNet 5G</span>
-                  <span><Signal size={12} style={{ display: 'inline', marginRight: '0.2rem' }} /><Battery size={12} style={{ display: 'inline', marginRight: '0.2rem' }} /> 19:43</span>
+                  <span><Signal size={12} style={{ display: 'inline', marginRight: '0.2rem' }} /><Battery size={12} style={{ display: 'inline', marginRight: '0.2rem' }} /> {phoneClock}</span>
                 </div>
                 <div style={{ padding: '2rem 1.5rem', textAlign: 'center', display: 'flex', flexDirection: 'column', justify: 'center', height: '100%', gap: '1rem' }}>
                   <ShieldAlert size={48} style={{ color: 'var(--warning)', alignSelf: 'center' }} />
@@ -11224,7 +11296,7 @@ export default function App() {
                         </div>
                         
                         <div className="input-group">
-                          <label className="input-label">{t('Initial Stock', 'प्रारंभिक स्टॉक', 'প্রাথমिक स्टॉक')}</label>
+                          <label className="input-label">{t('Initial Stock', 'प्रारंभिक स्टॉक', 'প্রাথমিক স্টক')}</label>
                           <input type="number" inputMode="decimal" className="text-input" value={newProdInitialStock} onChange={e => setNewProdInitialStock(e.target.value)} />
                         </div>
 
@@ -15139,7 +15211,7 @@ export default function App() {
                 disabled={isSubmittingSetup}
                 style={{ width: '100%', padding: '0.75rem', fontSize: '0.9rem', fontWeight: 'bold', marginTop: '0.25rem' }}
               >
-                {isSubmittingSetup ? t('Creating...', 'बनाया जा रहा है...', 'তৈরি করা হচ্ছে...') : t('Create Administrator Account', 'प्रशासक खाता बनाएं', 'অ্যাডমিনিस्ट্রেটর অ্যাকাউন্ট তৈরি করুন')}
+                {isSubmittingSetup ? t('Creating...', 'बनाया जा रहा है...', 'তৈরি করা হচ্ছে...') : t('Create Administrator Account', 'प्रशासक खाता बनाएं', 'অ্যাডমিনিস্ট্রেটর অ্যাকাউন্ট তৈরি করুন')}
               </button>
 
               <div style={{ textAlign: 'center', fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '-0.25rem' }}>
@@ -15240,13 +15312,15 @@ export default function App() {
               {confirmModal.message}
             </p>
             <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
-              <button 
-                className="btn btn-secondary" 
+              {!confirmModal.infoOnly && (
+              <button
+                className="btn btn-secondary"
                 style={{ padding: '0.5rem 1rem', fontSize: '0.8rem' }}
                 onClick={() => setConfirmModal(null)}
               >
                 {confirmModal.noLabel || t('No', 'नहीं', 'না')}
               </button>
+              )}
               <button 
                 className={confirmModal.danger ? 'btn btn-danger' : 'btn btn-accent'} 
                 style={{ padding: '0.5rem 1rem', fontSize: '0.8rem' }}
@@ -15744,9 +15818,8 @@ export default function App() {
                 <div className="reward-modal-grid">
                   <div className="input-group">
                     <label className="input-label" htmlFor="reward_cooldown_mode">Redeem again after</label>
-                    <select
+                    <select className="text-input"
                       id="reward_cooldown_mode"
-                      className="text-input"
                       value={genericRewardCooldownMode}
                       onChange={e => {
                         const val = e.target.value;
@@ -15986,7 +16059,7 @@ export default function App() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', margin: '1rem 0' }}>
                 <div className="input-group">
                   <label className="input-label">{t('Verification Method', 'सत्यापन विधि', 'যাচাই পদ্ধতি')}</label>
-                  <select className="select-input" value={changePhoneMethod} onChange={e => setChangePhoneMethod(e.target.value)}>
+                  <select className="text-input" value={changePhoneMethod} onChange={e => setChangePhoneMethod(e.target.value)}>
                     <option value="phone">{t('SMS to Phone', 'फ़ोन पर एसएमएस', 'ফোনে এসএমএস')}</option>
                     <option value="email">{t('Email', 'ईमेल', 'ইমেইল')}</option>
                   </select>
@@ -17412,8 +17485,7 @@ export default function App() {
                     </button>
                   </div>
                 ) : (
-                  <select 
-                    className="text-input" 
+                  <select className="text-input"
                     value={kycApproveSelectedVendor} 
                     onChange={e => setKycApproveSelectedVendor(e.target.value)}
                   >
@@ -17490,8 +17562,7 @@ export default function App() {
                     </button>
                   </div>
                 ) : (
-                  <select 
-                    className="text-input" 
+                  <select className="text-input"
                     value={kycApproveSelectedVendor} 
                     onChange={e => setKycApproveSelectedVendor(e.target.value)}
                   >

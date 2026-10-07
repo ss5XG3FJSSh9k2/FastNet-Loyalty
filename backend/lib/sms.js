@@ -26,7 +26,8 @@ async function sendSms(phone, body) {
     };
     mockOutbox.push(entry);
     if (process.env.NODE_ENV !== 'production') {
-      console.log(`[SMS Mock] Sent to ${phone}`);
+      // Outside test mode OTPs are random, so show the message for local logins.
+      console.log(envMod.isTestEnv() ? `[SMS Mock] Sent to ${phone}` : `[SMS Mock] Sent to ${phone}: ${body}`);
     }
     return entry;
   }
