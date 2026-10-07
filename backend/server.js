@@ -9312,14 +9312,19 @@ app.post('/api/partner/regions', requireAuth, async (req, res) => {
   const session = await getPartnerSession(req);
   if (!session) return res.status(401).json({ error: 'Unauthorized or invalid session' });
 
-  const { region_id, service_type } = req.body;
-  if (!region_id || !service_type) {
-    return res.status(400).json({ error: 'region_id and service_type are required' });
+  const { region_id, service_type, service_types } = req.body;
+  
+  const typesToProcess = service_types ? service_types : (service_type ? [service_type] : []);
+
+  if (!region_id || typesToProcess.length === 0) {
+    return res.status(400).json({ error: 'region_id and service_types are required' });
   }
 
   const partnerServiceTypes = session.partner.service_types || [];
-  if (!partnerServiceTypes.includes(service_type)) {
-    return res.status(400).json({ error: 'service_type not supported by partner' });
+  for (const st of typesToProcess) {
+    if (!partnerServiceTypes.includes(st)) {
+      return res.status(400).json({ error: 'One or more service_types not supported by partner' });
+    }
   }
 
   const regions = await db.getTable('regions');
@@ -9329,27 +9334,53 @@ app.post('/api/partner/regions', requireAuth, async (req, res) => {
   }
 
   const partnerRegions = await db.getTable('partner_regions');
-  const duplicate = partnerRegions.some(pr =>
-    pr.partner_id === session.partnerId && pr.region_id === region_id && pr.service_type === service_type
-  );
-  if (duplicate) {
-    return res.status(409).json({ error: 'Region mapping already exists for this service_type' });
+  
+  const createdRows = [];
+  const skippedTypes = [];
+
+  for (const st of typesToProcess) {
+    const duplicate = partnerRegions.some(pr =>
+      pr.partner_id === session.partnerId && pr.region_id === region_id && pr.service_type === st
+    );
+    if (duplicate) {
+      skippedTypes.push(st);
+      continue;
+    }
+    
+    const newRow = {
+      id: 'prg-' + generateId(),
+      partner_id: session.partnerId,
+      region_id,
+      service_type: st,
+      is_active: true,
+      created_at: new Date().toISOString()
+    };
+    createdRows.push(newRow);
   }
 
-  const newRow = {
-    id: 'prg-' + generateId(),
-    partner_id: session.partnerId,
-    region_id,
-    service_type,
-    is_active: true,
-    created_at: new Date().toISOString()
-  };
+  if (createdRows.length === 0 && skippedTypes.length > 0) {
+    return res.status(409).json({ error: 'Region mapping already exists for all provided service_types' });
+  }
 
-  partnerRegions.push(newRow);
-  await db.saveTable('partner_regions', partnerRegions);
-  await appendAudit(req, 'PARTNER_REGION_ADD', 'partner_region', newRow.id, null, newRow, session.userId);
+  if (createdRows.length > 0) {
+    for (const newRow of createdRows) {
+      partnerRegions.push(newRow);
+    }
+    await db.saveTable('partner_regions', partnerRegions);
 
-  return res.json(newRow);
+    for (const newRow of createdRows) {
+      await appendAudit(req, 'PARTNER_REGION_ADD', 'partner_region', newRow.id, null, newRow, session.userId);
+    }
+  }
+
+  if (!req.body.service_types && createdRows.length === 1) {
+    return res.json(createdRows[0]);
+  }
+
+  return res.json({
+    created: createdRows,
+    skipped: skippedTypes
+  });
 });
 
 app.post('/api/partner/regions/:regionRowId/deactivate', requireAuth, async (req, res) => {

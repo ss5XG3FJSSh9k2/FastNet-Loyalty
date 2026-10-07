@@ -1401,7 +1401,7 @@ export default function App() {
   const [allSystemRegions, setAllSystemRegions] = useState([]);
   const [showAddRegionModal, setShowAddRegionModal] = useState(false);
   const [newRegionId, setNewRegionId] = useState('r1');
-  const [newRegionServiceType, setNewRegionServiceType] = useState('CABLE');
+  const [newRegionServiceTypes, setNewRegionServiceTypes] = useState([]);
   const [deactWarnModal, setDeactWarnModal] = useState(false);
   const [deactWarnRowId, setDeactWarnRowId] = useState(null);
   const [deactWarnPackages, setDeactWarnPackages] = useState([]);
@@ -6811,15 +6811,19 @@ export default function App() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${partnerSessionToken}`
         },
-        body: JSON.stringify({ region_id: newRegionId, service_type: newRegionServiceType })
+        body: JSON.stringify({ region_id: newRegionId, service_types: newRegionServiceTypes })
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        showToast('Region mapping added!', 'success');
+        const createdCount = data.created ? data.created.length : (data.id ? 1 : 0);
+        const skippedCount = data.skipped ? data.skipped.length : 0;
+        let msg = `Added ${createdCount} services for ${newRegionId}`;
+        if (skippedCount > 0) msg += ` (${skippedCount} already existed)`;
+        showToast(msg, 'success');
         setShowAddRegionModal(false);
         fetchPartnerRegions();
       } else {
-        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
+        showToast(data.message || data.error || `Request failed (${res.status})`, 'error');
       }
     } catch (err) {
       showToast('Network error adding region', 'error');
@@ -7521,7 +7525,7 @@ export default function App() {
                 <div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
                     <h4 style={{ margin: 0, fontSize: '0.9rem' }}>{t('Service Regions', 'सेवा क्षेत्र', 'সেবা এলাকা')}</h4>
-                    <button className="btn btn-primary" style={{ fontSize: '0.7rem', padding: '0.3rem 0.6rem' }} onClick={() => setShowAddRegionModal(true)}>
+                    <button className="btn btn-primary" style={{ fontSize: '0.7rem', padding: '0.3rem 0.6rem' }} onClick={() => { setNewRegionServiceTypes(partnerData?.service_types || []); setShowAddRegionModal(true); }}>
                       + {t('Add Region', 'क्षेत्र जोड़ें', 'এলাকা যোগ করুন')}
                     </button>
                   </div>
@@ -7950,16 +7954,51 @@ export default function App() {
                   </select>
                 </div>
                 <div className="input-group">
-                  <label className="input-label">Service Type</label>
-                  <select className="text-input" value={newRegionServiceType} onChange={e => setNewRegionServiceType(e.target.value)}>
-                    {(partnerData?.service_types || ['CABLE', 'BROADBAND']).map(st => (
-                      <option key={st} value={st}>{st}</option>
-                    ))}
-                  </select>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <label className="input-label" style={{ marginBottom: 0 }}>Service Type</label>
+                    <div style={{ fontSize: '0.7rem' }}>
+                      <a href="#" style={{ color: 'var(--primary)' }} onClick={(e) => { e.preventDefault(); setNewRegionServiceTypes(partnerData?.service_types || []); }}>Select all</a> | <a href="#" style={{ color: 'var(--primary)' }} onClick={(e) => { e.preventDefault(); setNewRegionServiceTypes([]); }}>Clear</a>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', marginTop: '0.5rem' }}>
+                    {(partnerData?.service_types || ['CABLE', 'BROADBAND']).map(st => {
+                      const isAlreadyAdded = (partnerRegionsList || []).some(pr => pr.region_id === newRegionId && pr.service_type === st);
+                      return (
+                        <label key={st} style={{ fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.35rem', color: isAlreadyAdded ? 'var(--text-muted)' : 'inherit' }}>
+                          <input 
+                            type="checkbox"
+                            disabled={isAlreadyAdded}
+                            checked={isAlreadyAdded ? false : newRegionServiceTypes.includes(st)}
+                            onChange={(e) => {
+                              if (e.target.checked) setNewRegionServiceTypes(prev => [...prev, st]);
+                              else setNewRegionServiceTypes(prev => prev.filter(v => v !== st));
+                            }}
+                          />
+                          {getServiceTypeLabel(st)}
+                          {isAlreadyAdded && <span style={{ fontSize: '0.65rem', marginLeft: 'auto' }}>(Already added)</span>}
+                        </label>
+                      );
+                    })}
+                  </div>
+                  {((partnerData?.service_types || []).every(st => (partnerRegionsList || []).some(pr => pr.region_id === newRegionId && pr.service_type === st)) && (partnerData?.service_types || []).length > 0) && (
+                    <div style={{ fontSize: '0.7rem', color: 'var(--warning)', marginTop: '0.75rem', textAlign: 'center' }}>
+                      All your services are already added for this region.
+                    </div>
+                  )}
                 </div>
               </div>
               <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
-                <button className="btn btn-primary" style={{ flex: 1 }} onClick={handleAddRegion}>Add Region</button>
+                <button 
+                  className="btn btn-primary" 
+                  style={{ flex: 1 }} 
+                  onClick={handleAddRegion}
+                  disabled={
+                    (partnerData?.service_types || []).every(st => (partnerRegionsList || []).some(pr => pr.region_id === newRegionId && pr.service_type === st)) ||
+                    newRegionServiceTypes.filter(st => !(partnerRegionsList || []).some(pr => pr.region_id === newRegionId && pr.service_type === st)).length === 0
+                  }
+                >
+                  Add {newRegionServiceTypes.filter(st => !(partnerRegionsList || []).some(pr => pr.region_id === newRegionId && pr.service_type === st)).length} services
+                </button>
                 <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setShowAddRegionModal(false)}>Cancel</button>
               </div>
               </PanelErrorBoundary>
