@@ -3,6 +3,7 @@ const migrations = require('./lib/migrations');
 const seedRunner = require('./lib/seed-runner');
 const fs = require('fs');
 const path = require('path');
+const { withLock } = require('./lib/mutex.js');
 
 let pool = null;
 let isMemMode = false;
@@ -312,12 +313,14 @@ async function saveTable(tableName, rows) {
   if (tableName === 'points_ledger') {
     throw new Error('points_ledger is append-only');
   }
-  await query(`DELETE FROM ${tableName}`);
-  const dbInterface = { query, getTable, insertRow, updateRow, deleteRow };
-  for (const row of rows) {
-    await insertRow(tableName, row);
-  }
-  scheduleSave();
+  return withLock(tableName, async () => {
+    await query(`DELETE FROM ${tableName}`);
+    const dbInterface = { query, getTable, insertRow, updateRow, deleteRow };
+    for (const row of rows) {
+      await insertRow(tableName, row);
+    }
+    scheduleSave();
+  });
 }
 
 const jsonbCols = ['before', 'after', 'before_state', 'after_state', 'rules_fired', 'metric_values', 'details', 'active_regions', 'service_types', 'items'];

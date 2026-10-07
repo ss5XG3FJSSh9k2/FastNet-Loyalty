@@ -21,6 +21,7 @@ webpush.setVapidDetails(
 require('express-async-errors');
 const cors = require('cors');
 const db = require('./db');
+const { withLock } = require('./lib/mutex.js');
 
 // BF-SEC-3 Helpers
 function assertSelfOrAdmin(req, res, userId) {
@@ -3047,16 +3048,11 @@ const handleCreateOrderRoute = async (req, res) => {
       created_at: now.toISOString()
     };
 
-    const orders = await db.getTable('orders');
-    orders.push(order);
-    await db.saveTable('orders', orders);
+    await db.insertRow('orders', order);
 
-    const savedOrderItems = await db.getTable('order_items');
-    orderItems.forEach(oi => { oi.order_id = orderId; savedOrderItems.push(oi); });
-    await db.saveTable('order_items', savedOrderItems);
+    for (const oi of orderItems) { oi.order_id = orderId; await db.insertRow('order_items', oi); }
 
-    const splitPayouts = await db.getTable('split_payouts');
-    splitPayouts.push({
+    await db.insertRow('split_payouts', {
       id: 'sp-' + generateId(),
       order_id: orderId,
       stockist_id: stockistId,
@@ -3069,7 +3065,6 @@ const handleCreateOrderRoute = async (req, res) => {
       coupon_cost: couponDiscount,
       created_at: now.toISOString()
     });
-    await db.saveTable('split_payouts', splitPayouts);
 
     // Payment ledger event
     appendPaymentEvent(orderId, paymentStatus === 'COD' ? 'COD_ORDER_CREATED' : 'HELD', amountPaid, {
@@ -3099,8 +3094,6 @@ const handleCreateOrderRoute = async (req, res) => {
     createdOrders.push(await enrichOrder(order, req));
     await _sendOrderConfirmedSms(order);
   }
-
-  await db.saveTable('stockist_inventory', inventory);
 
   try {
     const allSubs = await db.getTable('stockist_push_subscriptions');
@@ -3190,8 +3183,8 @@ app.post('/api/orders/:id/cancel', requireAuth, async (req, res) => {
     if (!users[custIdx].no_show_count) users[custIdx].no_show_count = 0;
   }
 
-  await db.saveTable('orders', orders);
-  await db.saveTable('users', users);
+  await db.updateRow('orders', order.id, order);
+  if (custIdx > -1) await db.updateRow('users', order.customer_id, users[custIdx]);
 
   // Reverse any points that may have been credited (safety guard — should be 0 per regulatory constraint)
   await reverseOrderPoints(id);
@@ -3224,7 +3217,7 @@ app.post('/api/orders/:id/noshw-action', requireAuth, async (req, res) => {
     order.pickup_slot = newSlot;
     order.reschedule_used = true;
     order.status = 'READY_FOR_PICKUP'; // Reset to allow new pickup window
-    await db.saveTable('orders', orders);
+    await db.updateRow('orders', order.id, order);
     return res.json({ success: true, order: await enrichOrder(order, req) });
   }
 
@@ -3240,9 +3233,9 @@ app.post('/api/orders/:id/noshw-action', requireAuth, async (req, res) => {
         users[custIdx].prepaid_pickup_restricted = true;
       }
     }
-    await db.saveTable('users', users);
+    if (custIdx > -1) await db.updateRow('users', order.customer_id, users[custIdx]);
 
-    await db.saveTable('orders', orders);
+    await db.updateRow('orders', order.id, order);
     await reverseOrderPoints(id);
     return res.json({ success: true, order: await enrichOrder(order, req) });
   }
@@ -3266,7 +3259,7 @@ app.post('/api/orders/:id/verify-pickup', requireAuth, async (req, res) => {
   }
 
   order.status = 'DELIVERED';
-  await db.saveTable('orders', orders);
+  await db.updateRow('orders', order.id, order);
 
   // §REGULATORY: Points credited only on delivery confirmation
   await _creditPointsOnDelivery(order);
@@ -3280,7 +3273,7 @@ app.post('/api/orders/:id/verify-pickup', requireAuth, async (req, res) => {
     if (!already) {
       const payout = (await db.getTable('split_payouts')).find(sp => sp.order_id === order.id);
       const platformCommission = payout ? parseFloat(payout.platform_amount) : 0;
-      codLedger.push({
+      await db.insertRow('cod_commission_ledger', {
         id: 'cod-' + generateId(),
         stockist_id: order.stockist_id,
         order_id: order.id,
@@ -3288,7 +3281,6 @@ app.post('/api/orders/:id/verify-pickup', requireAuth, async (req, res) => {
         settled: false,
         created_at: new Date().toISOString()
       });
-      await db.saveTable('cod_commission_ledger', codLedger);
       appendPaymentEvent(order.id, 'COD_COMMISSION_ACCRUED', platformCommission, { stockist_id: order.stockist_id });
     }
   }
@@ -3297,7 +3289,7 @@ app.post('/api/orders/:id/verify-pickup', requireAuth, async (req, res) => {
   const payout = splitPayouts.find(sp => sp.order_id === id);
   if (payout) {
     payout.status = 'PROCESSED_IMMEDIATELY';
-    await db.saveTable('split_payouts', splitPayouts);
+    await db.updateRow('split_payouts', payout.id, payout);
   }
 
   return res.json({ success: true, order: await enrichOrder(order, req) });
@@ -3619,41 +3611,40 @@ app.patch('/api/orders/:id/status', requireAuth, async (req, res) => {
   } else {
     order.status = status;
   }
-  await db.saveTable('orders', orders);
+  await db.updateRow('orders', order.id, order);
 
   if (['READY_FOR_PICKUP', 'READY'].includes(status)) {
     if (!order.stock_decremented) {
       const orderItems = (await db.getTable('order_items')).filter(oi => oi.order_id === id);
-      const inventory = await db.getTable('stockist_inventory');
-      let changed = false;
-      let insufficient = null;
-      
-      orderItems.forEach(oi => {
-        const inv = inventory.find(i => i.stockist_id === order.stockist_id && i.product_id === oi.product_id);
-        if (inv) {
-          if (inv.stock_qty < oi.quantity) insufficient = { product: oi.product_id, have: inv.stock_qty, need: oi.quantity };
+      const lockRes = await withLock('stockist_inventory', async () => {
+        const inventory = await db.getTable('stockist_inventory');
+        let insufficient = null;
+        orderItems.forEach(oi => {
+          const inv = inventory.find(i => i.stockist_id === order.stockist_id && i.product_id === oi.product_id);
+          if (inv && inv.stock_qty < oi.quantity) insufficient = { product: oi.product_id, have: inv.stock_qty, need: oi.quantity };
+        });
+        if (insufficient) return { insufficient };
+
+        for (const oi of orderItems) {
+          const inv = inventory.find(i => i.stockist_id === order.stockist_id && i.product_id === oi.product_id);
+          if (inv) {
+            inv.stock_qty -= parseInt(oi.quantity, 10);
+            inv.stock_quantity = inv.stock_qty;
+            inv.is_available = inv.stock_qty > 0;
+            await db.updateRow('stockist_inventory', inv.id, inv);
+          }
         }
+        return { success: true };
       });
 
-      if (insufficient) {
+      if (lockRes.insufficient) {
         return res.status(400).json({ 
-          error: `Not enough stock to fulfill — you have ${insufficient.have}, order needs ${insufficient.need}`, 
+          error: `Not enough stock to fulfill — you have ${lockRes.insufficient.have}, order needs ${lockRes.insufficient.need}`, 
           code: 'INSUFFICIENT_STOCK' 
         });
       }
-
-      orderItems.forEach(oi => {
-        const inv = inventory.find(i => i.stockist_id === order.stockist_id && i.product_id === oi.product_id);
-        if (inv) {
-          inv.stock_qty -= parseInt(oi.quantity, 10);
-          inv.stock_quantity = inv.stock_qty;
-          inv.is_available = inv.stock_qty > 0;
-          changed = true;
-        }
-      });
-      if (changed) await db.saveTable('stockist_inventory', inventory);
       order.stock_decremented = true;
-      await db.saveTable('orders', orders);
+      await db.updateRow('orders', order.id, order);
     }
     await _sendOrderReadySms(order);
   }
@@ -3671,7 +3662,7 @@ app.patch('/api/orders/:id/status', requireAuth, async (req, res) => {
       });
       const settlement = await calculateSettlement(order.subtotal, totalProfitMargin, order.stockist_id, order.region_id);
       order.points_credited = settlement.pointsCredited;
-      await db.saveTable('orders', orders);
+      await db.updateRow('orders', order.id, order);
     }
     await _creditPointsOnDelivery(order);
     await _processReferralBonusOnDelivery(order);
@@ -3684,7 +3675,7 @@ app.patch('/api/orders/:id/status', requireAuth, async (req, res) => {
       if (!already) {
         const payout = (await db.getTable('split_payouts')).find(sp => sp.order_id === order.id);
         const platformCommission = payout ? parseFloat(payout.platform_amount) : 0;
-        codLedger.push({
+        await db.insertRow('cod_commission_ledger', {
           id: 'cod-' + generateId(),
           stockist_id: order.stockist_id,
           order_id: order.id,
@@ -3692,7 +3683,6 @@ app.patch('/api/orders/:id/status', requireAuth, async (req, res) => {
           settled: false,
           created_at: new Date().toISOString()
         });
-        await db.saveTable('cod_commission_ledger', codLedger);
         appendPaymentEvent(order.id, 'COD_COMMISSION_ACCRUED', platformCommission, { stockist_id: order.stockist_id });
       }
     }
@@ -3748,7 +3738,7 @@ app.patch('/api/orders/:id/fulfillment', requireAuth, async (req, res) => {
         if (payout) {
           payout.stockist_amount = stockistPayout;
           payout.platform_amount = platformPayout;
-          await db.saveTable('split_payouts', splitPayouts);
+          await db.updateRow('split_payouts', payout.id, payout);
         }
       }
     } else {
@@ -3768,7 +3758,7 @@ app.patch('/api/orders/:id/fulfillment', requireAuth, async (req, res) => {
     order.pickup_slot = pickupSlot;
   }
 
-  await db.saveTable('orders', orders);
+  await db.updateRow('orders', order.id, order);
   return res.json({ success: true, order: await enrichOrder(order, req) });
 });
 
@@ -3795,7 +3785,7 @@ app.post('/api/orders/sync', requireAuth, async (req, res) => {
     }
   }
 
-  if (syncCount > 0) await db.saveTable('orders', orders);
+  // removed saveTable
   return res.json({ success: true, synced_count: syncCount });
 });
 
@@ -3825,7 +3815,7 @@ app.post('/api/admin/release-split/:orderId', async (req, res) => {
   const payout = splitPayouts.find(sp => sp.order_id === orderId);
   if (payout) {
     payout.status = 'SPLIT_RELEASED';
-    await db.saveTable('split_payouts', splitPayouts);
+    await db.updateRow('split_payouts', payout.id, payout);
   }
 
   appendPaymentEvent(orderId, 'SPLIT_RELEASED', order.total_price, {
