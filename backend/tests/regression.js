@@ -5660,6 +5660,12 @@ async function main() {
   process.env.SEED_MODE = 'production';
   assert(require('../lib/env').isTestEnv() === false, 'POSTGRES_MODE=mem alone does not count as test mode');
   assert(require('../lib/env').isDemoOtpMode() === false, 'Fixed demo OTP is off outside test mode');
+  process.env.DEMO_OTP = 'true';
+  assert(require('../lib/env').isDemoOtpMode() === true, 'DEMO_OTP=true turns on the demo OTP outside test mode');
+  clearLogin();
+  const brDemoOverride = await post('http://localhost:3001/api/admin/override-table', { table: 'users', id: 'u-cust1', patch: { role: 'ADMIN' } });
+  assert(brDemoOverride.status === 404, 'DEMO_OTP does not open the test-only admin routes');
+  delete process.env.DEMO_OTP;
   clearLogin();
   const brOverride = await post('http://localhost:3001/api/admin/override-table', { table: 'users', id: 'u-cust1', patch: { role: 'ADMIN' } });
   assert(brOverride.status === 404, 'override-table is unavailable outside test mode');

@@ -45,6 +45,9 @@ if (mode === 'dev:seed') {
       fs.unlinkSync(secretFile);
     }
     console.log('Empty start. Open the app and create the administrator.');
+    // Testers log in with the demo OTP 123456. Remove this line to use the
+    // random codes printed in this console instead.
+    process.env.DEMO_OTP = 'true';
   } else {
     if (fs.existsSync(dbFile)) {
       console.log('Loaded saved data.');
@@ -52,7 +55,9 @@ if (mode === 'dev:seed') {
       console.log('Empty start. Open the app and create the administrator.');
     }
   }
-  console.log('Login OTPs are random; the mock SMS/email lines below show each code.');
+  console.log(process.env.DEMO_OTP === 'true'
+    ? 'Login OTP is always 123456 (demo mode).'
+    : 'Login OTPs are random; the mock SMS/email lines below show each code.');
 }
 console.log('====================================================');
 

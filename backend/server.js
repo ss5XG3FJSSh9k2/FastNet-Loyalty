@@ -10093,6 +10093,7 @@ function assertProductionConfig() {
   const errors = [];
   if (require('./lib/env').isTestEnv() || process.env.SEED_MODE === 'test') errors.push('SEED_MODE is test');
   if (process.env.SMS_MOCK === 'true') errors.push('SMS_MOCK is true');
+  if (process.env.DEMO_OTP === 'true') errors.push('DEMO_OTP is true');
   if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) errors.push('JWT_SECRET missing or too short');
   if (!process.env.DATABASE_URL) errors.push('DATABASE_URL missing');
   if (!process.env.MSG91_AUTH_KEY) errors.push('MSG91_AUTH_KEY missing');

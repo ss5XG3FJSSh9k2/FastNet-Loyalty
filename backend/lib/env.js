@@ -13,6 +13,9 @@ const isLocalDev = () => isTestEnv() || (
   )
 );
 
-const isDemoOtpMode = () => isTestEnv();
+// Fixed demo OTP 123456: always in test mode, and in other non-production runs
+// only when DEMO_OTP=true is set explicitly (the dev:fresh launcher does this).
+// It only affects OTP codes; the test-only admin routes stay closed.
+const isDemoOtpMode = () => isTestEnv() || (process.env.DEMO_OTP === 'true' && process.env.NODE_ENV !== 'production');
 
 module.exports = { isTestEnv, isLocalDev, isDemoOtpMode };
