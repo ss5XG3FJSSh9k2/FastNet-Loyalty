@@ -21,6 +21,7 @@ webpush.setVapidDetails(
 require('express-async-errors');
 const cors = require('cors');
 const db = require('./db');
+const { validatePayoutFields } = require('./lib/payout');
 const { withLock } = require('./lib/mutex.js');
 
 // BF-SEC-3 Helpers
@@ -521,6 +522,23 @@ async function appendPaymentEvent(orderId, eventType, amount, metadata = {}) {
 }
 
 // Helper: append an admin audit log entry
+
+async function capturePayoutEvent(req, entityType, entityId, before, finalEntity, userId) {
+  const fields = [];
+  if ((before.payout_upi_id || '') !== (finalEntity.payout_upi_id || '')) fields.push('UPI');
+  const ifscKey = entityType === 'partner' ? 'payout_bank_ifsc' : 'payout_ifsc';
+  if ((before[ifscKey] || '') !== (finalEntity[ifscKey] || '')) fields.push('IFSC');
+  if ((before.payout_bank_account || '') !== (finalEntity.payout_bank_account || '')) fields.push('Bank Account');
+  if ((before.payout_account_name || '') !== (finalEntity.payout_account_name || '')) fields.push('Account Name');
+
+  if (fields.length > 0) {
+    const mask = (acc) => acc && acc.length > 4 ? '...' + acc.slice(-4) : acc;
+    const beforeMasked = { ...before, payout_bank_account: mask(before.payout_bank_account) };
+    const finalMasked = { ...finalEntity, payout_bank_account: mask(finalEntity.payout_bank_account) };
+    await appendAudit(req, 'PAYOUT_DETAILS_CHANGED', entityType, entityId, beforeMasked, finalMasked, 'Fields changed: ' + fields.join(', '));
+  }
+}
+
 async function appendAudit(req, action, entity_type, entity_id, before = null, after = null, reason = '') {
   const admin_user_id = (req && req.user && req.user.userId) || 'u-admin';
   const log = await db.getTable('admin_audit_log');
@@ -2208,20 +2226,16 @@ app.patch('/api/stockist/profile', requireAuth, async (req, res) => {
     }
 
     // Validate payout fields
-    if (payload.payout_upi_id !== undefined) {
-      if (payload.payout_upi_id && !/^[\w.-]+@[\w.-]+$/.test(payload.payout_upi_id)) {
-        return res.status(400).json({ error: 'Malformed UPI ID' });
-      }
-      stockist.payout_upi_id = payload.payout_upi_id;
+    const payoutVal = validatePayoutFields(payload);
+    if (!payoutVal.ok) {
+      return res.status(400).json({ error: payoutVal.error });
     }
-    if (payload.payout_ifsc !== undefined) {
-      if (payload.payout_ifsc && !/^[A-Za-z]{4}0[A-Za-z0-9]{6}$/.test(payload.payout_ifsc)) {
-        return res.status(400).json({ error: 'Malformed IFSC code' });
-      }
-      stockist.payout_ifsc = payload.payout_ifsc;
-    }
-    if (payload.payout_bank_account !== undefined) stockist.payout_bank_account = payload.payout_bank_account;
-    if (payload.payout_account_name !== undefined) stockist.payout_account_name = payload.payout_account_name;
+    const oldStockist = { ...stockist };
+    if (payoutVal.values.payout_upi_id !== undefined) stockist.payout_upi_id = payoutVal.values.payout_upi_id;
+    if (payoutVal.values.payout_ifsc !== undefined) stockist.payout_ifsc = payoutVal.values.payout_ifsc;
+    if (payoutVal.values.payout_bank_account !== undefined) stockist.payout_bank_account = payoutVal.values.payout_bank_account;
+    if (payoutVal.values.payout_account_name !== undefined) stockist.payout_account_name = payoutVal.values.payout_account_name;
+    
     if (payload.contact_phone !== undefined) stockist.contact_phone = payload.contact_phone;
 
     // Handle Manual Closed
@@ -2251,6 +2265,7 @@ app.patch('/api/stockist/profile', requireAuth, async (req, res) => {
       }
     }
 
+    await capturePayoutEvent(req, 'stockist', stockist.id, oldStockist, stockist, req.user ? req.user.userId : stockist.user_id);
     await db.saveTable('stockists', stockists);
     
     // Audit log
@@ -6148,6 +6163,24 @@ app.post('/api/customer/fraud-reports', requireAuth, async (req, res) => {
 });
 
 // Admin GET Fraud Reports
+app.get('/api/admin/payout-changes', async (req, res) => {
+  const log = await db.getTable('admin_audit_log');
+  const notices = log.filter(l => l.action === 'PAYOUT_DETAILS_CHANGED').sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  res.json(notices);
+});
+
+app.post('/api/admin/payout-changes/:id/review', async (req, res) => {
+  const { id } = req.params;
+  const log = await db.getTable('admin_audit_log');
+  const notice = log.find(l => l.id === id && l.action === 'PAYOUT_DETAILS_CHANGED');
+  if (!notice) return res.status(404).json({ error: 'Notice not found' });
+  
+  notice.reviewed_by = req.user.userId;
+  notice.reviewed_at = new Date().toISOString();
+  await db.saveTable('admin_audit_log', log);
+  res.json({ success: true });
+});
+
 app.get('/api/admin/fraud-reports', async (req, res) => {
   let reports = await db.getTable('fraud_reports');
   const users = await db.getTable('users');
@@ -9539,27 +9572,14 @@ app.patch('/api/partner/me', requireAuth, async (req, res) => {
     return res.status(400).json({ error: "Address cannot exceed 300 characters." });
   }
 
-  if (payout_upi_id) {
-    if (!/^[\w.-]+@[\w.-]+$/.test(payout_upi_id)) {
-      return res.status(400).json({ error: "Enter a valid UPI ID like name@bank." });
-    }
+  const payoutVal = validatePayoutFields({ payout_upi_id, payout_bank_account, payout_bank_ifsc, payout_account_name });
+  if (!payoutVal.ok) {
+    return res.status(400).json({ error: payoutVal.error });
   }
-  if (payout_bank_ifsc) {
-    payout_bank_ifsc = payout_bank_ifsc.toUpperCase();
-    if (!/^[A-Z]{4}0[A-Z0-9]{6}$/.test(payout_bank_ifsc)) {
-      return res.status(400).json({ error: "IFSC must be 11 characters, like SBIN0000300." });
-    }
-  }
-  if (payout_bank_account) {
-    if (!/^\d{9,18}$/.test(payout_bank_account)) {
-      return res.status(400).json({ error: "Bank account number must be 9 to 18 digits." });
-    }
-  }
-  if (payout_account_name) {
-    if (!/^[A-Za-z\s.-]{2,80}$/.test(payout_account_name)) {
-      return res.status(400).json({ error: "Enter the account holder's name." });
-    }
-  }
+  if (payoutVal.values.payout_upi_id !== undefined) payout_upi_id = payoutVal.values.payout_upi_id;
+  if (payoutVal.values.payout_bank_account !== undefined) payout_bank_account = payoutVal.values.payout_bank_account;
+  if (payoutVal.values.payout_bank_ifsc !== undefined) payout_bank_ifsc = payoutVal.values.payout_bank_ifsc;
+  if (payoutVal.values.payout_account_name !== undefined) payout_account_name = payoutVal.values.payout_account_name;
 
   if (contact_phone !== undefined) {
     const validPhone = checkPhone(contact_phone, res);
@@ -9648,6 +9668,7 @@ app.patch('/api/partner/me', requireAuth, async (req, res) => {
   }
 
   await appendAudit(req, 'EDIT_PARTNER_PROFILE', 'partner', session.partnerId, beforePartner, finalPartner, session.userId);
+  await capturePayoutEvent(req, 'partner', session.partnerId, beforePartner, finalPartner, session.userId);
 
   return res.json({
     partner: finalPartner,

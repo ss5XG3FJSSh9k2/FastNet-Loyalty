@@ -933,6 +933,21 @@ export default function App() {
 
   const [adminRegionFilter, setAdminRegionFilter] = useState('ALL');
   const [adminTab, setAdminTab] = useState('home');
+  const [adminPayoutChanges, setAdminPayoutChanges] = useState([]);
+  const [adminUnreadPayoutChangesCount, setAdminUnreadPayoutChangesCount] = useState(0);
+
+  const fetchAdminPayoutChanges = async () => {
+    try {
+      const res = await adminFetch(`${API_BASE}/admin/payout-changes`);
+      const data = await res.json();
+      if (res.ok) {
+        setAdminPayoutChanges(data);
+        setAdminUnreadPayoutChangesCount(data.filter(d => !d.reviewed_at).length);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   const ADVANCED_TABS = ['vendors','regions','anomalies'];
@@ -2997,6 +3012,7 @@ export default function App() {
       fetchAnalytics();
       fetchAdminRegions();
       fetchAdminPayouts();
+      fetchAdminPayoutChanges();
     }
     syncInspectorTable();
   }, [currentUser, activeRole, showDevSettings]);
@@ -12406,6 +12422,13 @@ export default function App() {
                       </span>
                     </button>
 
+                    <button className={`admin-nav-item ${adminTab === 'payout_changes' ? 'active' : ''}`} onClick={() => goToAdminTab('payout_changes', fetchAdminPayoutChanges)}>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                        <FileText size={16} /> Payout changes
+                        {adminUnreadPayoutChangesCount > 0 && <span className="badge badge-warning" style={{ marginLeft: '0.25rem', fontSize: '0.65rem' }}>{adminUnreadPayoutChangesCount}</span>}
+                      </span>
+                    </button>
+
                     <button className={`admin-nav-item ${adminTab === 'audit_log' ? 'active' : ''}`} onClick={() => goToAdminTab('audit_log')}>
                       <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                         <FileText size={16} /> Audit Log
@@ -14239,6 +14262,53 @@ export default function App() {
                 </div>
               )}
 
+              {adminTab === 'payout_changes' && (
+                <div>
+                  <h2 style={{ fontSize: '1.4rem', marginBottom: '1rem' }}>Payout changes</h2>
+                  <table className="admin-table">
+                    <thead>
+                      <tr>
+                        <th>Time</th>
+                        <th>Role</th>
+                        <th>User</th>
+                        <th>Fields Changed</th>
+                        <th>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {adminPayoutChanges.length === 0 ? (
+                        <tr><td colSpan="5" style={{ textAlign: 'center', color: 'var(--text-muted)' }}>No payout changes.</td></tr>
+                      ) : adminPayoutChanges.map(n => (
+                        <tr key={n.id}>
+                          <td>{new Date(n.created_at).toLocaleString()}</td>
+                          <td>{n.entity_type}</td>
+                          <td>{n.entity_id}</td>
+                          <td style={{ fontSize: '0.8rem' }}>
+                            {n.reason}
+                          </td>
+                          <td>
+                            {n.reviewed_at ? (
+                              <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Reviewed by {n.reviewed_by} on {new Date(n.reviewed_at).toLocaleString()}</span>
+                            ) : (
+                              <button 
+                                className="btn btn-primary" 
+                                style={{ padding: '0.2rem 0.5rem', fontSize: '0.7rem' }}
+                                onClick={async () => {
+                                  await adminFetch(`${API_BASE}/admin/payout-changes/${n.id}/review`, { method: 'POST' });
+                                  fetchAdminPayoutChanges();
+                                }}
+                              >
+                                Mark reviewed
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
               {adminTab === 'audit_log' && (
                 <div>
                   <h2 style={{ fontSize: '1.4rem', marginBottom: '1rem' }}>Admin Audit Log</h2>
@@ -15244,6 +15314,9 @@ export default function App() {
                           <td style={{ fontSize: '0.8rem' }}>
                             UPI: {p.payout_upi_id || 'N/A'}<br/>
                             Bank: {p.payout_bank_account ? `${p.payout_bank_account} (IFSC: ${p.payout_bank_ifsc})` : 'N/A'}
+                            {adminPayoutChanges.some(n => n.entity_type === 'partner' && n.entity_id === p.partner_id && !n.reviewed_at) && (
+                                <><br/><span className="badge badge-warning" style={{ marginTop: '0.25rem', display: 'inline-block', fontSize: '0.65rem' }}>Changed on {new Date(adminPayoutChanges.find(n => n.entity_type === 'partner' && n.entity_id === p.partner_id && !n.reviewed_at).created_at).toLocaleDateString()}, not yet reviewed</span></>
+                            )}
                           </td>
                           <td>{p.redemption_count}</td>
                           <td style={{ fontWeight: 'bold' }}>₹{p.amount_owed}</td>

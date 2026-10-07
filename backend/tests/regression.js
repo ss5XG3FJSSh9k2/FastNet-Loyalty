@@ -5896,6 +5896,94 @@ async function main() {
   // Another partner session cannot change this partner's row (already covered by auth token design, we use own token)
   
   assert(true, 'BF-PARTNER-PROFILE-SAVE backend tests passed');
+
+  console.log('\\n--- 38. BF-PAYOUT-CHANGE-NOTICE ---');
+  const getPayoutNotices = async (token) => {
+    return await get('http://localhost:3001/api/admin/payout-changes', { headers: { Authorization: `Bearer ${token}` } });
+  };
+  
+  // 1. partner: address only
+  const cBeforePartner1 = await getPayoutNotices(adminToken);
+  const p1Len = cBeforePartner1.body ? cBeforePartner1.body.length : 0;
+  await patch('http://localhost:3001/api/partner/me', { address: 'New Addr' }, { headers: { Authorization: `Bearer ${adhyaTokenForProfile}` } });
+  const cAfterPartner1 = await getPayoutNotices(adminToken);
+  assert(cAfterPartner1.body.length === p1Len, 'Address change does not trigger payout notice for partner');
+
+  // 2. partner: upi
+  await patch('http://localhost:3001/api/partner/me', { payout_upi_id: 'new@upi' }, { headers: { Authorization: `Bearer ${adhyaTokenForProfile}` } });
+  const cAfterPartner2 = await getPayoutNotices(adminToken);
+  assert(cAfterPartner2.body.length === p1Len + 1, 'UPI change triggers one payout notice');
+  const partnerUpiNotice = cAfterPartner2.body[0];
+  assert(partnerUpiNotice.reason.includes('UPI'), 'Notice names the UPI field');
+  assert(partnerUpiNotice.after.payout_upi_id === 'new@upi', 'Notice holds full UPI');
+
+  // 3. partner: upi again
+  await patch('http://localhost:3001/api/partner/me', { payout_upi_id: 'new@upi' }, { headers: { Authorization: `Bearer ${adhyaTokenForProfile}` } });
+  const cAfterPartner3 = await getPayoutNotices(adminToken);
+  assert(cAfterPartner3.body.length === p1Len + 1, 'Same UPI value again triggers no new event');
+
+  // 4. partner: account + ifsc
+  await patch('http://localhost:3001/api/partner/me', { payout_bank_account: '1234567890', payout_bank_ifsc: 'HDFC0000123' }, { headers: { Authorization: `Bearer ${adhyaTokenForProfile}` } });
+  const cAfterPartner4 = await getPayoutNotices(adminToken);
+  assert(cAfterPartner4.body.length === p1Len + 2, 'Account and IFSC change triggers one event for both');
+  const partnerAcctNotice = cAfterPartner4.body[0];
+  assert(partnerAcctNotice.reason.includes('Bank Account') && partnerAcctNotice.reason.includes('IFSC'), 'Event lists both fields');
+  assert(partnerAcctNotice.after.payout_bank_account === '...7890', 'Audit row holds only last 4 digits of account');
+
+  // stockist prep
+  const stockistRes = await get('http://localhost:3001/api/admin/stockists', { headers: { Authorization: `Bearer ${adminToken}` } });
+  const sTestId = stockistRes.body[0].id;
+  const adminStockistUrl = `http://localhost:3001/api/stockist/profile`;
+  
+  const seedStockistLoginRes = await post('http://localhost:3001/api/auth/send-otp', { phone: stockistRes.body[0].user_phone });
+  const sTokenRes = await post('http://localhost:3001/api/auth/verify-otp', { phone: stockistRes.body[0].user_phone, otp: '123456' });
+  const sToken = sTokenRes.body.token;
+
+  // stockist: bad inputs
+  const sBadBank = await patch(adminStockistUrl, { payout_bank_account: '12ab' }, { headers: { Authorization: `Bearer ${sToken}` } });
+  assert(sBadBank.status === 400, 'Bad bank account returns 400 on stockist route');
+  const sBadName = await patch(adminStockistUrl, { payout_account_name: 'a' }, { headers: { Authorization: `Bearer ${sToken}` } });
+  assert(sBadName.status === 400, '1-letter holder name returns 400 on stockist route');
+
+  // stockist: same 4 cases
+  const cBeforeStockist1 = await getPayoutNotices(adminToken);
+  const s1Len = cBeforeStockist1.body.length;
+  // 1. non-payout only
+  await patch(adminStockistUrl, { address: 'new street' }, { headers: { Authorization: `Bearer ${sToken}` } });
+  const cAfterStockist1 = await getPayoutNotices(adminToken);
+  assert(cAfterStockist1.body.length === s1Len, 'Non-payout change does not trigger payout notice for stockist');
+
+  // 2. stockist: upi
+  await patch(adminStockistUrl, { payout_upi_id: 'stock@upi' }, { headers: { Authorization: `Bearer ${sToken}` } });
+  const cAfterStockist2 = await getPayoutNotices(adminToken);
+  assert(cAfterStockist2.body.length === s1Len + 1, 'UPI change triggers one payout notice for stockist');
+
+  // 3. stockist: upi again
+  await patch(adminStockistUrl, { payout_upi_id: 'stock@upi' }, { headers: { Authorization: `Bearer ${sToken}` } });
+  const cAfterStockist3 = await getPayoutNotices(adminToken);
+  assert(cAfterStockist3.body.length === s1Len + 1, 'Same UPI value again triggers no new event for stockist');
+
+  // 4. stockist: account + ifsc
+  await patch(adminStockistUrl, { payout_bank_account: '9876543210', payout_ifsc: 'HDFC0000123' }, { headers: { Authorization: `Bearer ${sToken}` } });
+  const cAfterStockist4 = await getPayoutNotices(adminToken);
+  assert(cAfterStockist4.body.length === s1Len + 2, 'Account and IFSC change triggers one event for stockist');
+  const stockistAcctNotice = cAfterStockist4.body[0];
+  assert(stockistAcctNotice.after.payout_bank_account === '...3210', 'Stockist audit row holds only last 4 digits');
+
+  // Admin access
+  assert(new Date(cAfterStockist4.body[0].created_at) >= new Date(cAfterStockist4.body[1].created_at), 'GET notices returns newest first');
+  
+  const markRes = await post(`http://localhost:3001/api/admin/payout-changes/${stockistAcctNotice.id}/review`, {}, { headers: { Authorization: `Bearer ${adminToken}` } });
+  assert(markRes.status === 200, 'Mark reviewed returns 200');
+  const cAfterMark = await getPayoutNotices(adminToken);
+  const reviewedNotice = cAfterMark.body.find(n => n.id === stockistAcctNotice.id);
+  assert(reviewedNotice.reviewed_by !== undefined && reviewedNotice.reviewed_at !== undefined, 'Mark reviewed stores admin id and time');
+
+  // Permissions
+  const pReject = await get('http://localhost:3001/api/admin/payout-changes', { headers: { Authorization: `Bearer ${adhyaTokenForProfile}` } });
+  assert(pReject.status === 403, 'Partner session cannot read notices');
+
+  assert(true, 'BF-PAYOUT-CHANGE-NOTICE backend tests passed');
   console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
   process.exit(0);
 
