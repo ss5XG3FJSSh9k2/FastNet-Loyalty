@@ -2084,9 +2084,15 @@ export default function App() {
   
   // Commission Config (Profit-basis v2) State
   const [commissionConfigs, setCommissionConfigs] = useState([]);
-  const [globalReinvestPct, setGlobalReinvestPct] = useState(50);
-  const [globalPointsPct, setGlobalPointsPct] = useState(40);
-  const [globalCutPct, setGlobalCutPct] = useState(12);
+  const [globalReinvestPct, setGlobalReinvestPct] = useState(40);
+  const [globalPointsPct, setGlobalPointsPct] = useState(12);
+  const [globalCutPct, setGlobalCutPct] = useState(50);
+  const globalConfigDirtyRef = useRef(false);
+  const [globalConfigDirty, setGlobalConfigDirtyState] = useState(false);
+  const setGlobalConfigDirty = (val) => {
+    globalConfigDirtyRef.current = val;
+    setGlobalConfigDirtyState(val);
+  };
 
   const [showStoreOverrideModal, setShowStoreOverrideModal] = useState(false);
   const [overrideStockistId, setOverrideStockistId] = useState('');
@@ -2389,9 +2395,11 @@ export default function App() {
           setCommissionConfigs(ccData);
           const gRow = (Array.isArray(ccData) ? ccData : []).find(c => c.scope === 'GLOBAL');
           if (gRow) {
-            setGlobalReinvestPct(gRow.stockist_reinvest_pct);
-            setGlobalPointsPct(gRow.points_from_pot_pct);
-            setGlobalCutPct(gRow.partner_redemption_cut_pct);
+            if (!globalConfigDirtyRef.current) {
+              setGlobalReinvestPct(gRow.stockist_reinvest_pct);
+              setGlobalPointsPct(gRow.points_from_pot_pct);
+              setGlobalCutPct(gRow.partner_redemption_cut_pct);
+            }
           }
         }
 
@@ -2810,6 +2818,7 @@ export default function App() {
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
         showToast('Global commission config saved!');
+        setGlobalConfigDirty(false);
         fetchDbState();
       } else {
         showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
@@ -14403,7 +14412,7 @@ export default function App() {
                         
                         <div className="input-group">
                           <label className="input-label">Stockist reinvestment % (of profit)</label>
-                      <NumberStepper value={globalReinvestPct} onChange={setGlobalReinvestPct} min={0} max={100} step={0.5} decimals={1} suffix="%" />
+                      <NumberStepper value={globalReinvestPct} onChange={(val) => { setGlobalReinvestPct(val); setGlobalConfigDirty(true); }} min={0} max={100} step={0.5} decimals={1} suffix="%" />
                           <p style={{ fontSize: '0.65rem', color: 'var(--text-muted)', margin: '0.2rem 0 0 0' }}>
                             Portion of profit reinvested back to the stockist. The remainder is the platform pot.
                           </p>
@@ -14411,7 +14420,7 @@ export default function App() {
 
                         <div className="input-group">
                           <label className="input-label">Customer points % (of platform pot)</label>
-                      <NumberStepper value={globalPointsPct} onChange={setGlobalPointsPct} min={0} max={100} step={0.5} decimals={1} suffix="%" />
+                      <NumberStepper value={globalPointsPct} onChange={(val) => { setGlobalPointsPct(val); setGlobalConfigDirty(true); }} min={0} max={100} step={0.5} decimals={1} suffix="%" />
                           <p style={{ fontSize: '0.65rem', color: 'var(--text-muted)', margin: '0.2rem 0 0 0' }}>
                             Portion of the platform pot credited to customer as points. The remainder is company commission.
                           </p>
@@ -14419,15 +14428,39 @@ export default function App() {
 
                         <div className="input-group">
                           <label className="input-label">Partner redemption cut % (of face value)</label>
-                      <NumberStepper value={globalCutPct} onChange={setGlobalCutPct} min={0} max={100} step={0.5} decimals={1} suffix="%" />
+                      <NumberStepper value={globalCutPct} onChange={(val) => { setGlobalCutPct(val); setGlobalConfigDirty(true); }} min={0} max={100} step={0.5} decimals={1} suffix="%" />
                           <p style={{ fontSize: '0.65rem', color: 'var(--text-muted)', margin: '0.2rem 0 0 0' }}>
                             When a customer redeems a partner reward, the platform keeps this percentage. The partner receives the rest.
                           </p>
                         </div>
 
-                        <button className="btn btn-accent" onClick={handleSaveGlobalConfig}>
-                          Save Global Defaults
-                        </button>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          <button className="btn btn-accent" onClick={handleSaveGlobalConfig}>
+                            Save Global Defaults
+                          </button>
+                          {globalConfigDirty && (
+                            <button className="btn btn-ghost" onClick={() => {
+                              const gRow = (Array.isArray(commissionConfigs) ? commissionConfigs : []).find(c => c.scope === 'GLOBAL');
+                              if (gRow) {
+                                setGlobalReinvestPct(gRow.stockist_reinvest_pct);
+                                setGlobalPointsPct(gRow.points_from_pot_pct);
+                                setGlobalCutPct(gRow.partner_redemption_cut_pct);
+                              } else {
+                                setGlobalReinvestPct(40);
+                                setGlobalPointsPct(12);
+                                setGlobalCutPct(50);
+                              }
+                              setGlobalConfigDirty(false);
+                            }}>
+                              {t('Reset', 'रीसेट करें', 'রিসেট')}
+                            </button>
+                          )}
+                        </div>
+                        {globalConfigDirty && (
+                          <p style={{ fontSize: '0.75rem', color: 'var(--warning)', margin: 0 }}>
+                            {t('Unsaved changes', 'सहेजे नहीं गए बदलाव', 'অসংরক্ষিত পরিবর্তন')}
+                          </p>
+                        )}
                       </div>
 
                       {/* LIVE WORKED EXAMPLE PANEL */}
