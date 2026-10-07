@@ -5113,7 +5113,13 @@ app.post('/api/admin/kyc/:userId/approve', async (req, res) => {
   const { vendorId, deliveryRadius, minOrderValue } = req.body;
   const users = await db.getTable('users');
   const user = users.find(u => u.id === userId);
-  if (!user) return res.status(404).json({ error: 'User not found' });
+  if (!user) {
+    const partnerLeads = await db.getTable('partner_leads') || [];
+    if (partnerLeads.some(l => l.id === userId)) {
+      return res.status(409).json({ error: 'wrong_record_type', message: 'This is a partner lead. Use the lead actions.' });
+    }
+    return res.status(404).json({ error: 'User not found' });
+  }
 
   user.kyc_status = 'APPROVED';
   user.kyc_approved_at = new Date().toISOString();
@@ -5264,7 +5270,13 @@ app.delete('/api/admin/users/:userId/account', async (req, res) => {
   const userId = req.params.userId;
   let users = await db.getTable('users');
   const userIndex = users.findIndex(u => u.id === userId);
-  if (userIndex === -1) return res.status(404).json({ error: 'User not found' });
+  if (userIndex === -1) {
+    const partnerLeads = await db.getTable('partner_leads') || [];
+    if (partnerLeads.some(l => l.id === userId)) {
+      return res.status(409).json({ error: 'wrong_record_type', message: 'This is a partner lead. Use the lead actions.' });
+    }
+    return res.status(404).json({ error: 'User not found' });
+  }
   const user = users[userIndex];
 
   if (user.kyc_status !== 'REJECTED' && user.kyc_status !== 'BLACKLISTED') {
@@ -5343,6 +5355,7 @@ app.get('/api/admin/blacklist', async (req, res) => {
   const userResults = rejectedOrBlacklistedUsers.map(u => {
     const record = blacklistRecords.find(b => b.user_id === u.id) || {};
     return {
+      source: 'USER',
       id: u.id,
       user_id: u.id,
       name: u.name || 'Unnamed User',
@@ -5363,6 +5376,7 @@ app.get('/api/admin/blacklist', async (req, res) => {
   );
 
   const leadResults = rejectedOrBlacklistedLeads.map(l => ({
+    source: 'LEAD',
     id: l.id,
     user_id: l.id,
     name: l.name || l.contact_name || 'Partner Lead',

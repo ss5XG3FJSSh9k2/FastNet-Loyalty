@@ -13562,7 +13562,7 @@ export default function App() {
                             const reasonText = u.reason || u.kyc_blacklist_reason || u.kyc_rejection_reason || 'No reason recorded';
 
                             return (
-                              <tr key={u.user_id || u.id}>
+                              <tr key={`${u.source}-${u.user_id || u.id}`}>
                                 <td><span className="badge badge-secondary">{u.type || (u.role === 'PARTNER_LEAD' ? 'Partner Lead' : 'Stockist')}</span></td>
                                 <td>{u.phone || '—'}</td>
                                 <td><strong>{u.name || 'Unnamed'}</strong></td>
@@ -13570,16 +13570,7 @@ export default function App() {
                                 <td>{renderKycStatusBadge(u.kyc_status || 'BLACKLISTED', true)}</td>
                                 <td>
                                   <div style={{ display: 'flex', gap: '0.3rem' }}>
-                                    <button className="btn btn-accent" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }} onClick={() => {
-                                      triggerConfirmModal(
-                                        t('Restore Account?', 'खाता पुनर्स्थापित करें?', 'অ্যাকাউন্ট পুনরুদ্ধার করবেন?'),
-                                        t(`Restore account for ${u.name || 'this user'}? They will be able to log in and submit updated documents.`, `क्या ${u.name || 'इस उपयोगकर्ता'} का खाता पुनर्स्थापित करें? वे लॉग इन कर सकेंगे और अद्यतन दस्तावेज़ जमा कर सकेंगे।`, `${u.name || 'এই ব্যবহারকারীর'} অ্যাকাউন্ট পুনরুদ্ধার করবেন? তারা লগ ইন করতে এবং আপডেট করা নথি জমা দিতে সক্ষম হবে।`),
-                                        () => handleRestoreAccount(u.user_id || u.id),
-                                        false,
-                                        t('Yes, restore', 'हाँ, पुनर्स्थापित करें', 'হ্যাঁ, পুনরুদ্ধার করুন'),
-                                        t('Cancel', 'रद्द करें', 'বাতিল করুন')
-                                      );
-                                    }}>
+                                    <button className="btn btn-accent" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }} onClick={() => handleRestoreAccount(u)}>
                                       Restore Account
                                     </button>
                                     <button className="btn btn-danger" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }} onClick={() => handleRemoveAccountRequest(u)}>
