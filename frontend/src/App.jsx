@@ -1398,7 +1398,44 @@ export default function App() {
 
   // Regions Tab state
   const [partnerRegionsList, setPartnerRegionsList] = useState([]);
+  const [regionCardOpenState, setRegionCardOpenState] = useState({});
   const [allSystemRegions, setAllSystemRegions] = useState([]);
+
+  const groupedPartnerRegions = React.useMemo(() => {
+    const groups = {};
+    partnerRegionsList.forEach(r => {
+      if (!groups[r.region_id]) {
+        groups[r.region_id] = {
+          region_id: r.region_id,
+          region_name: r.region_name || r.region_id,
+          region_code: r.region_code || r.region_id,
+          services: []
+        };
+      }
+      groups[r.region_id].services.push(r);
+    });
+    
+    const order = ['CABLE', 'BROADBAND', 'DTH', 'OTT_BUNDLE'];
+    const getOrder = (t) => {
+      const idx = order.indexOf(t);
+      return idx === -1 ? 999 : idx;
+    };
+    
+    const arr = Object.values(groups).sort((a, b) => a.region_name.localeCompare(b.region_name));
+    arr.forEach(g => {
+      g.services.sort((a, b) => getOrder(a.service_type) - getOrder(b.service_type));
+    });
+    return arr;
+  }, [partnerRegionsList]);
+
+  const toggleRegionCard = (regionId) => {
+    setRegionCardOpenState(prev => {
+      const isAutoOpen = groupedPartnerRegions.length <= 3;
+      const currentState = prev[regionId] !== undefined ? prev[regionId] : isAutoOpen;
+      return { ...prev, [regionId]: !currentState };
+    });
+  };
+
   const [showAddRegionModal, setShowAddRegionModal] = useState(false);
   const [newRegionId, setNewRegionId] = useState('r1');
   const [newRegionServiceTypes, setNewRegionServiceTypes] = useState([]);
@@ -6936,18 +6973,51 @@ export default function App() {
   const handleSavePartnerProfile = async () => {
     const isPhoneChanged = pProfContactPhone !== initialContactPhone;
     if (isPhoneChanged && !confirmPhoneChangeCheck) {
-      showToast('Please confirm phone number change by checking the checkbox', 'warning');
+      showToast(t('Please confirm phone number change by checking the checkbox', 'कृपया चेकबॉक्स को चेक करके फ़ोन नंबर बदलने की पुष्टि करें', 'অনুগ্রহ করে চেকবক্সে টিক দিয়ে ফোন নম্বর পরিবর্তনের বিষয়টি নিশ্চিত করুন'), 'warning');
       return;
     }
+
+    const tDisplayName = pProfDisplayName ? pProfDisplayName.trim() : '';
+    const tAddress = pProfAddress ? pProfAddress.trim() : '';
+    const tUpi = pProfPayoutUpiId ? pProfPayoutUpiId.trim() : '';
+    const tIfsc = pProfPayoutBankIfsc ? pProfPayoutBankIfsc.trim().toUpperCase() : '';
+    const tAccount = pProfPayoutBankAccount ? pProfPayoutBankAccount.trim() : '';
+    const tName = pProfPayoutAccountName ? pProfPayoutAccountName.trim() : '';
+
+    if (tDisplayName.length > 100) {
+      showToast(t("Display name cannot exceed 100 characters.", "प्रदर्शन नाम 100 वर्णों से अधिक नहीं हो सकता।", "প্রদর্শন নাম 100 অক্ষরের বেশি হতে পারে না।"), 'error');
+      return;
+    }
+    if (tAddress.length > 300) {
+      showToast(t("Address cannot exceed 300 characters.", "पता 300 वर्णों से अधिक नहीं हो सकता।", "ঠিকানা 300 অক্ষরের বেশি হতে পারে না।"), 'error');
+      return;
+    }
+    if (tUpi && !/^[\w.-]+@[\w.-]+$/.test(tUpi)) {
+      showToast(t("Enter a valid UPI ID like name@bank.", "name@bank की तरह एक मान्य UPI ID दर्ज करें।", "name@bank এর মত একটি বৈধ UPI ID লিখুন।"), 'error');
+      return;
+    }
+    if (tIfsc && !/^[A-Z]{4}0[A-Z0-9]{6}$/.test(tIfsc)) {
+      showToast(t("IFSC must be 11 characters, like SBIN0000300.", "IFSC 11 वर्णों का होना चाहिए, जैसे SBIN0000300।", "IFSC অবশ্যই 11 অক্ষরের হতে হবে, যেমন SBIN0000300।"), 'error');
+      return;
+    }
+    if (tAccount && !/^\d{9,18}$/.test(tAccount)) {
+      showToast(t("Bank account number must be 9 to 18 digits.", "बैंक खाता संख्या 9 से 18 अंकों की होनी चाहिए।", "ব্যাঙ্ক অ্যাকাউন্ট নম্বর 9 থেকে 18 অঙ্কের হতে হবে।"), 'error');
+      return;
+    }
+    if (tName && !/^[A-Za-z\s.-]{2,80}$/.test(tName)) {
+      showToast(t("Enter the account holder's name.", "खाताधारक का नाम दर्ज करें।", "অ্যাকাউন্ট হোল্ডারের নাম লিখুন।"), 'error');
+      return;
+    }
+
     const payload = {
-      display_name: pProfDisplayName,
+      display_name: tDisplayName,
       contact_phone: pProfContactPhone,
       contact_email: pProfContactEmail,
-      address: pProfAddress,
-      payout_upi_id: pProfPayoutUpiId,
-      payout_bank_account: pProfPayoutBankAccount,
-      payout_bank_ifsc: pProfPayoutBankIfsc,
-      payout_account_name: pProfPayoutAccountName,
+      address: tAddress,
+      payout_upi_id: tUpi,
+      payout_bank_account: tAccount,
+      payout_bank_ifsc: tIfsc,
+      payout_account_name: tName,
       confirm_phone_change: isPhoneChanged ? confirmPhoneChangeCheck : false
     };
     try {
@@ -6961,13 +7031,26 @@ export default function App() {
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        showToast('Partner profile updated successfully!', 'success');
-        fetchPartnerProfile();
+        showToast(t('Partner profile updated successfully!', 'पार्टनर प्रोफ़ाइल सफलतापूर्वक अपडेट की गई!', 'অংশীদার প্রোফাইল সফলভাবে আপডেট করা হয়েছে!'), 'success');
+        
+        // Re-read values from response
+        if (data.partner) {
+          setPProfDisplayName(data.partner.display_name || '');
+          setPProfContactPhone(data.partner.contact_phone || '');
+          setPProfContactEmail(data.partner.contact_email || '');
+          setPProfAddress(data.partner.address || '');
+          setPProfPayoutUpiId(data.partner.payout_upi_id || '');
+          setPProfPayoutBankAccount(data.partner.payout_bank_account || '');
+          setPProfPayoutBankIfsc(data.partner.payout_bank_ifsc || '');
+          setPProfPayoutAccountName(data.partner.payout_account_name || '');
+          setInitialContactPhone(data.partner.contact_phone || '');
+          setConfirmPhoneChangeCheck(false);
+        }
       } else {
-        showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
+        showToast(data.error || data.message || t('Something went wrong', 'कुछ गलत हो गया', 'কিছু একটা ভুল হয়েছে'), 'error');
       }
     } catch (err) {
-      showToast('Network error updating profile', 'error');
+      showToast(t('Network error updating profile', 'प्रोफ़ाइल अपडेट करने में नेटवर्क त्रुटि', 'প্রোফাইল আপডেট করার সময় নেটওয়ার্ক ত্রুটি'), 'error');
     }
   };
 
@@ -7529,53 +7612,77 @@ export default function App() {
                       + {t('Add Region', 'क्षेत्र जोड़ें', 'এলাকা যোগ করুন')}
                     </button>
                   </div>
-                  <table style={{ width: '100%', fontSize: '0.75rem', borderCollapse: 'collapse' }}>
-                    <thead>
-                      <tr style={{ borderBottom: '1px solid var(--border-color)', textAlign: 'left', color: 'var(--text-muted)' }}>
-                        <th style={{ padding: '0.4rem' }}>{t('Region', 'क्षेत्र', 'এলাকা')}</th>
-                        <th style={{ padding: '0.4rem' }}>{t('Type', 'प्रकार', 'ধরন')}</th>
-                        <th style={{ padding: '0.4rem' }}>{t('Status', 'स्थिति', 'স্ট্যাটাস')}</th>
-                        <th style={{ padding: '0.4rem' }}>{t('Actions', 'कार्रवाई', 'ব্যবস্থা')}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {partnerRegionsList.map(r => (
-                        <tr key={r.id} style={{ borderBottom: '1px dashed var(--border-color)' }}>
-                          <td style={{ padding: '0.4rem' }}>
-                            <div style={{ fontWeight: 'bold' }}>{r.region_name || r.region_id}</div>
-                            <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Code: {r.region_code || r.region_id}</div>
-                          </td>
-                          <td style={{ padding: '0.4rem' }}><span className="badge badge-secondary">{getServiceTypeLabel(r.service_type)}</span></td>
-                          <td style={{ padding: '0.4rem' }}>
-                            <span className={`badge ${r.is_active ? 'badge-success' : 'badge-danger'}`}>
-                              {r.is_active ? t('Live', 'लाइव', 'লাইভ') : t('Inactive', 'निष्क्रिय', 'নিষ্ক্রিয়')}
-                            </span>
-                          </td>
-                          <td style={{ padding: '0.4rem' }}>
-                            <div style={{ display: 'flex', gap: '0.25rem' }}>
-                              {r.is_active ? (
-                                <button className="btn btn-secondary" style={{ padding: '0.15rem 0.35rem', fontSize: '0.65rem' }} onClick={() => handleDeactivateRegion(r, false)}>
-                                  {t('Deactivate', 'निष्क्रिय करें', 'নিষ্ক্রিয় করুন')}
-                                </button>
-                              ) : (
-                                <button className="btn btn-secondary" style={{ padding: '0.15rem 0.35rem', fontSize: '0.65rem' }} onClick={() => handleReactivateRegion(r)}>
-                                  {t('Reactivate', 'पुनः सक्रिय करें', 'পুনরায় সক্রিয় করুন')}
-                                </button>
-                              )}
-                              <button className="btn btn-danger" style={{ padding: '0.15rem 0.35rem', fontSize: '0.65rem' }} onClick={() => handleDeleteRegion(r)}>
-                                {t('Delete', 'हटाएं', 'মুছুন')}
-                              </button>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                    {groupedPartnerRegions.map(group => {
+                      const total = group.services.length;
+                      const live = group.services.filter(s => s.is_active).length;
+                      const isAutoOpen = groupedPartnerRegions.length <= 3;
+                      const isOpen = regionCardOpenState[group.region_id] !== undefined ? regionCardOpenState[group.region_id] : isAutoOpen;
+                      
+                      return (
+                        <div key={group.region_id} style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '8px', overflow: 'hidden' }}>
+                          <div 
+                            onClick={() => toggleRegionCard(group.region_id)}
+                            style={{ padding: '0.75rem 1rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: isOpen ? '1px solid var(--border-color)' : 'none' }}
+                          >
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
+                                <div style={{ fontWeight: 'bold', fontSize: '0.9rem' }}>{group.region_name}</div>
+                                <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>{group.region_code}</div>
+                              </div>
+                              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '0.4rem' }}>
+                                {t(`${live} of ${total} live`, `${total} में से ${live} चालू`, `${total} টির মধ্যে ${live} টি লাইভ`)}
+                              </div>
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+                                {group.services.map(s => (
+                                  <span key={s.id} className={`badge ${s.is_active ? 'badge-success' : ''}`} style={s.is_active ? {} : { background: 'var(--bg-default)', color: 'var(--text-muted)' }}>
+                                    {getServiceTypeLabel(s.service_type)}
+                                  </span>
+                                ))}
+                              </div>
                             </div>
-                          </td>
-                        </tr>
-                      ))}
-                      {partnerRegionsList.length === 0 && (
-                        <tr><td colSpan="4" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '1.5rem' }}>
-                          {t("No service regions added yet. Add regions to allow local subscribers to see your packages.", "अभी तक कोई सेवा क्षेत्र नहीं जोड़ा गया है। स्थानीय ग्राहकों को आपके पैकेज देखने की अनुमति देने के लिए क्षेत्र जोड़ें।", "কোনো সেবা এলাকা যোগ করা হয়নি। গ্রাহকদের আপনার প্যাকেজ দেখাতে এলাকা যোগ করুন।")}
-                        </td></tr>
-                      )}
-                    </tbody>
-                  </table>
+                            <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem', paddingLeft: '0.5rem' }}>
+                              {isOpen ? '▼' : '▶'}
+                            </div>
+                          </div>
+                          
+                          {isOpen && (
+                            <div style={{ padding: '0 1rem' }}>
+                              {group.services.map((r, i) => (
+                                <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 0', borderBottom: i < group.services.length - 1 ? '1px dashed var(--border-color)' : 'none' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                                    <span className="badge badge-secondary" style={{ fontSize: '0.7rem', background: 'var(--bg-default)', color: 'var(--text-muted)' }}>{getServiceTypeLabel(r.service_type)}</span>
+                                    <span className={`badge ${r.is_active ? 'badge-success' : 'badge-danger'}`} style={{ fontSize: '0.65rem' }}>
+                                      {r.is_active ? t('Live', 'लाइव', 'লাইভ') : t('Inactive', 'निष्क्रिय', 'নিষ্ক্রিয়')}
+                                    </span>
+                                  </div>
+                                  <div style={{ display: 'flex', gap: '0.35rem' }}>
+                                    {r.is_active ? (
+                                      <button className="btn btn-secondary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem' }} onClick={(e) => { e.stopPropagation(); handleDeactivateRegion(r, false); }}>
+                                        {t('Deactivate', 'निष्क्रिय करें', 'নিষ্ক্রিয় করুন')}
+                                      </button>
+                                    ) : (
+                                      <button className="btn btn-secondary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem' }} onClick={(e) => { e.stopPropagation(); handleReactivateRegion(r); }}>
+                                        {t('Reactivate', 'पुनः सक्रिय करें', 'পুনরায় সক্রিয় করুন')}
+                                      </button>
+                                    )}
+                                    <button className="btn btn-danger" style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem' }} onClick={(e) => { e.stopPropagation(); handleDeleteRegion(r); }}>
+                                      {t('Delete', 'हटाएं', 'মুছুন')}
+                                    </button>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                    {groupedPartnerRegions.length === 0 && (
+                      <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem 1rem', border: '1px dashed var(--border-color)', borderRadius: '8px' }}>
+                        {t("No service regions added yet. Add regions to allow local subscribers to see your packages.", "अभी तक कोई सेवा क्षेत्र नहीं जोड़ा गया है। स्थानीय ग्राहकों को आपके पैकेज देखने की अनुमति देने के लिए क्षेत्र जोड़ें।", "কোনো সেবা এলাকা যোগ করা হয়নি। গ্রাহকদের আপনার প্যাকেজ দেখাতে এলাকা যোগ করুন।")}
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -7670,11 +7777,11 @@ export default function App() {
                     </div>
                     <div className="input-group">
                       <label className="input-label">{t('Bank Account Number', 'बैंक खाता संख्या', 'ব্যাংক অ্যাকাউন্ট নম্বর')}</label>
-                      <input type="text" className="text-input" value={pProfPayoutBankAccount} onChange={e => setPProfPayoutBankAccount(e.target.value)} />
+                      <input type="text" className="text-input" value={pProfPayoutBankAccount} onChange={e => setPProfPayoutBankAccount(e.target.value)} maxLength={18} inputMode="numeric" />
                     </div>
                     <div className="input-group">
                       <label className="input-label">{t('IFSC Code', 'आईएफएससी कोड', 'আইএফএসসি কোড')}</label>
-                      <input type="text" className="text-input" value={pProfPayoutBankIfsc} onChange={e => setPProfPayoutBankIfsc(e.target.value)} />
+                      <input type="text" className="text-input" value={pProfPayoutBankIfsc} onChange={e => setPProfPayoutBankIfsc(e.target.value.toUpperCase())} />
                     </div>
                     <div className="input-group">
                       <label className="input-label">{t('Account Holder Name', 'खाता धारक का नाम', 'অ্যাকাউন্ট হোল্ডারের নাম')}</label>
