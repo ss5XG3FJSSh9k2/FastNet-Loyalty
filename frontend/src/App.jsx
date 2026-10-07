@@ -644,7 +644,36 @@ export default function App() {
     } catch {}
   };
 
+  const resetAuthForm = () => {
+    setShowCustomerSignup(false);
+    setShowStockistSignup(false);
+    setOtpSent(false);
+    setLoginPhone('');
+    setLoginErrorMessage('');
+    setLoginOtp('');
+    setRegName('');
+    setRegEmail('');
+    setRegAddress('');
+    setRegRegion(regions.length > 0 ? regions[0].id : '');
+    setRegShopName('');
+    setRegKycType2('Aadhaar');
+    setRegKycNumber2('');
+    setAadhaarDigits('');
+    setAadhaarDisplay('');
+    setAadhaarError('');
+    setRegDocPhoto(null);
+    setCustomerTermsAgreed(false);
+    setSignupCablePartnerId('');
+    setNoCableProvider(false);
+    setHasBroadbandAnswered(false);
+    setHasBroadband(false);
+    setSignupBroadbandPartnerId('');
+    setNoBroadbandProvider(false);
+    setSignupReferralCode('');
+  };
+
   const clearSession = () => {
+    resetAuthForm();
     try {
       localStorage.removeItem('currentUser');
       localStorage.removeItem('token');
@@ -2176,6 +2205,9 @@ export default function App() {
   };
 
   const switchViewToRole = async (targetRole) => {
+    if (activeRole !== targetRole) {
+      resetAuthForm();
+    }
     setActiveRole(targetRole);
     if (!isDevMode) {
       if (!currentUser || (
@@ -3639,11 +3671,7 @@ export default function App() {
         fetchCustomerProfileData();
         showToast(t(`Welcome, ${data.user.name}!`, `स्वागत, ${data.user.name}!`, `স্বাগতম, ${data.user.name}!`));
         setShowCustomerSignup(false);
-        setRegName(''); setRegEmail(''); setRegAddress(''); setOtpSent(false); setSignupReferralCode('');
-        setCustomerTermsAgreed(false);
-        setSignupCablePartnerId(''); setNoCableProvider(false);
-        setHasBroadbandAnswered(false); setHasBroadband(false);
-        setSignupBroadbandPartnerId(''); setNoBroadbandProvider(false);
+        resetAuthForm();
       } else {
         showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
@@ -3755,8 +3783,7 @@ export default function App() {
       if (res.ok) {
         setStockistPendingUser(data.user);
         showToast(t('Registration submitted! Awaiting admin approval.', 'पंजीकरण सबमिट!', 'নিবন্ধন জমা হয়েছে!'), 'warning');
-        setShowStockistSignup(false);
-        setRegName(''); setRegShopName(''); setRegKycNumber2(''); setAadhaarDigits(''); setAadhaarDisplay(''); setAadhaarError(''); setRegAddress(''); setRegDocPhoto(null); setOtpSent(false);
+        resetAuthForm();
       } else {
         showToast(data.message || data.error || `Request failed (${typeof res !== 'undefined' ? res.status : 500})`, 'error');
       }
@@ -5827,7 +5854,7 @@ export default function App() {
               </div>
             )}
           </>
-        ) : showCustomerSignup ? (
+        ) : (isCustomerApp && showCustomerSignup) ? (
           /* Customer Sign Up Flow */
           <>
             <div style={{ background: 'rgba(99,102,241,0.08)', padding: '0.75rem', borderRadius: '6px', border: '1px solid rgba(99,102,241,0.2)', fontSize: '0.75rem', textAlign: 'center' }}>
@@ -5989,7 +6016,7 @@ export default function App() {
             </div>
 
             <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
-              <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => { setShowCustomerSignup(false); setOtpSent(false); }}>← {t('Back', 'वापस', 'ফিরে')}</button>
+              <button className="btn btn-secondary" style={{ flex: 1 }} onClick={resetAuthForm}>← {t('Back', 'वापस', 'ফিরে')}</button>
               <div style={{ flex: 2, position: 'relative' }}>
                 <button 
                   className="btn btn-accent" 
@@ -6020,7 +6047,7 @@ export default function App() {
               </div>
             </div>
           </>
-        ) : showStockistSignup ? (
+        ) : (isStockistApp && showStockistSignup) ? (
           /* Stockist Sign Up Flow */
           <>
             <div style={{ background: 'rgba(245,158,11,0.08)', padding: '0.75rem', borderRadius: '6px', border: '1px solid rgba(245,158,11,0.2)', fontSize: '0.75rem', textAlign: 'center' }}>
@@ -6114,7 +6141,7 @@ export default function App() {
               ).replace('পঞ্চাশ', 'পারবেন না')}
             </div>
             <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => { setShowStockistSignup(false); setOtpSent(false); }}>← {t('Back', 'वापस', 'ফিরে')}</button>
+              <button className="btn btn-secondary" style={{ flex: 1 }} onClick={resetAuthForm}>← {t('Back', 'वापस', 'ফিরে')}</button>
               <button 
                 className="btn btn-accent" 
                 style={{ flex: 2 }} 

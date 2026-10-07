@@ -1,30 +1,94 @@
 const fs = require('fs');
-let code = fs.readFileSync('frontend/src/App.jsx', 'utf8');
+const file = 'x:/app/frontend/src/App.jsx';
+let content = fs.readFileSync(file, 'utf8');
 
-const oldClearSession = `  const clearSession = () => {
-    try {
-      localStorage.removeItem('currentUser');
-      localStorage.removeItem('token');
-      localStorage.removeItem('adminTabLastSeen');
-    } catch {}
-    setCurrentUser(null);
-  };`;
+const replacements = [
+  {
+    search: `  const clearSession = () => {`,
+    replace: `  const resetAuthForm = () => {
+    setShowCustomerSignup(false);
+    setShowStockistSignup(false);
+    setOtpSent(false);
+    setLoginPhone('');
+    setLoginErrorMessage('');
+    setLoginOtp('');
+    setRegName('');
+    setRegEmail('');
+    setRegAddress('');
+    setRegRegion(regions.length > 0 ? regions[0].id : '');
+    setRegShopName('');
+    setRegKycType2('Aadhaar');
+    setRegKycNumber2('');
+    setAadhaarDigits('');
+    setAadhaarDisplay('');
+    setAadhaarError('');
+    setRegDocPhoto(null);
+    setCustomerTermsAgreed(false);
+    setSignupCablePartnerId('');
+    setNoCableProvider(false);
+    setHasBroadbandAnswered(false);
+    setHasBroadband(false);
+    setSignupBroadbandPartnerId('');
+    setNoBroadbandProvider(false);
+    setSignupReferralCode('');
+  };
 
-const newClearSession = `  const clearSession = () => {
-    try {
-      localStorage.removeItem('currentUser');
-      localStorage.removeItem('token');
-      localStorage.removeItem('adminTabLastSeen');
-      localStorage.removeItem('fastnet_carts');
-      localStorage.removeItem('fastnet_partner_session');
-    } catch {}
-    setCurrentUser(null);
-  };`;
+  const clearSession = () => {
+    resetAuthForm();`
+  },
+  {
+    search: `  const switchViewToRole = async (targetRole) => {
+    setActiveRole(targetRole);`,
+    replace: `  const switchViewToRole = async (targetRole) => {
+    if (activeRole !== targetRole) {
+      resetAuthForm();
+    }
+    setActiveRole(targetRole);`
+  },
+  {
+    search: `        setRegName(''); setRegEmail(''); setRegAddress(''); setOtpSent(false); setSignupReferralCode('');
+        setCustomerTermsAgreed(false);
+        setSignupCablePartnerId(''); setNoCableProvider(false);
+        setHasBroadbandAnswered(false); setHasBroadband(false);
+        setSignupBroadbandPartnerId(''); setNoBroadbandProvider(false);`,
+    replace: `        resetAuthForm();`
+  },
+  {
+    search: `        setShowStockistSignup(false);
+        setRegName(''); setRegShopName(''); setRegKycNumber2(''); setAadhaarDigits(''); setAadhaarDisplay(''); setAadhaarError(''); setRegAddress(''); setRegDocPhoto(null); setOtpSent(false);`,
+    replace: `        resetAuthForm();`
+  },
+  {
+    search: `        ) : showCustomerSignup ? (`,
+    replace: `        ) : (isCustomerApp && showCustomerSignup) ? (`
+  },
+  {
+    search: `        ) : showStockistSignup ? (`,
+    replace: `        ) : (isStockistApp && showStockistSignup) ? (`
+  },
+  {
+    search: `onClick={() => { setShowCustomerSignup(false); setOtpSent(false); }}`,
+    replace: `onClick={resetAuthForm}`
+  },
+  {
+    search: `onClick={() => { setShowStockistSignup(false); setOtpSent(false); }}`,
+    replace: `onClick={resetAuthForm}`
+  }
+];
 
-if (!code.includes(oldClearSession)) {
-    console.error("oldClearSession not found");
-} else {
-    code = code.replace(oldClearSession, newClearSession);
-    fs.writeFileSync('frontend/src/App.jsx', code);
-    console.log("Patched clearSession");
+let ok = true;
+for (const r of replacements) {
+  const normalizedSearch = r.search.replace(/\r\n/g, '\n');
+  const normalizedContent = content.replace(/\r\n/g, '\n');
+  if (normalizedContent.includes(normalizedSearch)) {
+    content = normalizedContent.replace(normalizedSearch, r.replace);
+  } else {
+    console.log("NOT FOUND:", r.search);
+    ok = false;
+  }
+}
+
+if (ok) {
+  fs.writeFileSync(file, content);
+  console.log("Replaced successfully.");
 }
