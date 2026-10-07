@@ -1,3 +1,14 @@
+## How to work (applies to every ticket)
+1. Think before coding. If a spec is ambiguous, state your reading in one line and go. Ask only if a wrong guess cannot be undone.
+2. Already in the codebase? Before writing anything new: (a) search for an existing helper, component, route or constant that does it; (b) if one exists, reuse it; (c) if it almost fits, make the smallest change to it; (d) only then add new code.
+3. Simplicity first. The least code that solves the stated problem. No new library, no abstraction for a single use, no config nobody asked for.
+4. Surgical changes. Touch only lines the spec names. No drive-by refactors, renames or reformatting. If you see another bug, report it, do not fix it.
+5. Goal-driven. Turn each spec item into a check you can run. Write the failing test first when the spec describes a bug.
+6. Money and ledger code: append-only ledger, idempotent operations, no float rounding surprises. Never edit a ledger row.
+7. Never trust the client for anything that decides money, status, role or ownership. The server derives it from the token and the database.
+8. Honest reporting. Say NOT DONE for anything you did not do. Cite file:line. Show command output for every gate.
+9. No emojis, no window.confirm, every user-facing string through t(English, Hindi, Bengali), and never mix Hindi and Bengali in one string.
+
 # FASTNET LOYALTY — AGENT CONSTITUTION
 These rules are law. They were each earned by a real failure in this project. Violating one is not a style choice — it is a defect.
 
