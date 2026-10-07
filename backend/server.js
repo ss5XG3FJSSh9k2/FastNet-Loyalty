@@ -9110,6 +9110,7 @@ app.get('/api/admin/regions', async (req, res) => {
   const partnerRegions = await db.getTable('partner_regions');
   const products = await db.getTable('products');
   const vendors = await db.getTable('vendors');
+  const partners = await db.getTable('partners');
 
   const result = regions.map(r => ({
     id: r.id,
@@ -9119,6 +9120,16 @@ app.get('/api/admin/regions', async (req, res) => {
     tenant_id: r.tenant_id || 't1',
     created_at: r.created_at || null,
     counts: {
+      users: users.filter(u => u.region_id === r.id && u.role === 'CUSTOMER').length,
+      stockists: stockists.filter(s => s.region_id === r.id && s.is_active !== false && users.find(u => u.id === s.user_id)?.kyc_status === 'APPROVED').length,
+      partners: new Set(partnerRegions.filter(pr => pr.region_id === r.id && pr.is_active !== false).filter(pr => {
+        const p = partners.find(pt => pt.id === pr.partner_id);
+        return p && p.is_active !== false && p.onboarded_at;
+      }).map(pr => pr.partner_id)).size,
+      products: products.filter(p => p.region_id === r.id && !p.deleted_at).length,
+      vendors: vendors.filter(v => v.region_id === r.id && v.is_active !== false).length
+    },
+    counts_total: {
       users: users.filter(u => u.region_id === r.id).length,
       stockists: stockists.filter(s => s.region_id === r.id).length,
       partners: partnerRegions.filter(pr => pr.region_id === r.id).length,
@@ -9899,6 +9910,16 @@ app.post('/api/admin/override-table', async (req, res) => {
     await _processReferralBonusOnDelivery(updated);
   }
   return res.json({ success: true, row: updated });
+});
+
+app.post('/api/admin/insert-table', async (req, res) => {
+  const { table, row } = req.body;
+  if (!table || !row) return res.status(400).json({ error: 'Missing table or row' });
+  const rows = await db.getTable(table);
+  const newRow = { id: row.id || require('crypto').randomUUID(), created_at: new Date().toISOString(), ...row };
+  rows.push(newRow);
+  await db.saveTable(table, rows);
+  return res.json({ success: true, row: newRow });
 });
 
 // Admin Analytics Dashboard Endpoint

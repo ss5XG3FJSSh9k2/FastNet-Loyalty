@@ -5985,6 +5985,56 @@ async function main() {
 
   assert(true, 'BF-PAYOUT-CHANGE-NOTICE backend tests passed');
   console.log(`\n=== REGRESSION SUITE COMPLETED: ${passedCount}/${testCount} tests passed ===`);
+  console.log('\\n--- 39. BF-REGION-COUNTS ---');
+  
+  // 1. Create a region
+  const regId = 'r-test-' + Date.now();
+  await post('http://localhost:3001/api/admin/insert-table', { table: 'regions', row: { id: regId, name: 'Count Test Region', code: 'CNT_TEST', tenant_id: 't1' } }, { headers: { Authorization: `Bearer ${adminToken}` } });
+
+  const insert = (table, row) => post('http://localhost:3001/api/admin/insert-table', { table, row }, { headers: { Authorization: `Bearer ${adminToken}` } });
+
+  // Users
+  await insert('users', { id: 'u-cust', region_id: regId, tenant_id: 't1', role: 'CUSTOMER', is_active: true });
+  await insert('users', { id: 'u-stk', region_id: regId, tenant_id: 't1', role: 'STOCKIST', kyc_status: 'APPROVED' });
+  await insert('users', { id: 'u-ptn', region_id: regId, tenant_id: 't1', role: 'PARTNER_ADMIN' });
+  
+  // Stockists
+  await insert('users', { id: 'u-stk-p', region_id: regId, tenant_id: 't1', role: 'STOCKIST', kyc_status: 'PENDING' });
+  await insert('users', { id: 'u-stk-r', region_id: regId, tenant_id: 't1', role: 'STOCKIST', kyc_status: 'REJECTED' });
+  await insert('stockists', { id: 's-app', region_id: regId, tenant_id: 't1', user_id: 'u-stk', is_active: true });
+  await insert('stockists', { id: 's-pen', region_id: regId, tenant_id: 't1', user_id: 'u-stk-p', is_active: true });
+  await insert('stockists', { id: 's-rej', region_id: regId, tenant_id: 't1', user_id: 'u-stk-r', is_active: true });
+  
+  // Partners
+  await insert('partners', { id: 'p-app', onboarded_at: '2026-01-01T00:00:00Z', is_active: true });
+  await insert('partner_regions', { id: 'pr-1', partner_id: 'p-app', region_id: regId, service_type: 'BROADBAND', is_active: true });
+  await insert('partner_regions', { id: 'pr-2', partner_id: 'p-app', region_id: regId, service_type: 'CABLE', is_active: true });
+  
+  await insert('partners', { id: 'p-inact', onboarded_at: '2026-01-01T00:00:00Z', is_active: false });
+  await insert('partner_regions', { id: 'pr-3', partner_id: 'p-inact', region_id: regId, service_type: 'BROADBAND', is_active: true });
+
+  // Products
+  await insert('products', { id: 'prod-live', region_id: regId, tenant_id: 't1', name: 'Live' });
+  await insert('products', { id: 'prod-del', region_id: regId, tenant_id: 't1', name: 'Del', deleted_at: '2026-01-01T00:00:00Z' });
+  
+  // Vendors
+  await insert('vendors', { id: 'v-live', region_id: regId, tenant_id: 't1', is_active: true });
+  await insert('vendors', { id: 'v-inact', region_id: regId, tenant_id: 't1', is_active: false });
+  
+  const regionsAfter = await get('http://localhost:3001/api/admin/regions', { headers: { Authorization: `Bearer ${adminToken}` } });
+  const testReg = regionsAfter.body.find(r => r.id === regId);
+  
+  assert(testReg.counts.users === 1, 'Users count is exactly active customers');
+  assert(testReg.counts.stockists === 1, 'Stockists count is exactly approved, active stockists');
+  assert(testReg.counts.partners === 1, 'Partners count is distinct onboarded active partners');
+  assert(testReg.counts.products === 1, 'Products count excludes soft-deleted');
+  assert(testReg.counts.vendors === 1, 'Vendors count excludes inactive');
+  
+  // Guard test: Delete should fail because total attached is higher than display (it uses counts_total effectively).
+  const countDelRes = await del(`http://localhost:3001/api/admin/regions/${regId}`, { headers: { Authorization: `Bearer ${adminToken}` } });
+  assert(countDelRes.status === 409, 'Delete guard blocks region with attached inactive/pending records');
+  assert(testReg.counts_total !== undefined, 'counts_total is returned for the delete guard reference');
+  
   process.exit(0);
 
 }
