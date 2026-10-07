@@ -191,11 +191,12 @@ const loginRateLimitMap = new Map();
 const otpRateLimitMap = new Map();
 const otpHourlyLimitMap = new Map();
 
-const isTestEnv = () => process.env.SKIP_RATE_LIMIT === 'true' || process.env.NODE_ENV === 'test' || process.env.SEED_MODE === 'test' || process.env.POSTGRES_MODE === 'mem';
+// Rate limits and CAPTCHA are relaxed for local development only (see lib/env.js).
+const { isLocalDev } = require('./lib/env');
 
 // General API Rate Limiting Middleware (Item 14) - 100 req/min per IP
 app.use('/api/', async (req, res, next) => {
-  if (isTestEnv() || req.path.includes('/api/setup') || req.path.startsWith('/setup/') || req.path === '/setup' || req.path.startsWith('/admin/reset-db') || req.path.startsWith('/admin/clear-rate-limits')) return next();
+  if (isLocalDev() || req.path.includes('/api/setup') || req.path.startsWith('/setup/') || req.path === '/setup' || req.path.startsWith('/admin/reset-db') || req.path.startsWith('/admin/clear-rate-limits')) return next();
 
   if (req.path.includes('/auth/send-otp') || req.path.endsWith('/send-otp') || req.path.includes('login-otp-request')) {
     try {
@@ -541,7 +542,7 @@ app.post('/api/auth/verify-captcha', async (req, res) => {
   if (!captchaToken) {
     return res.status(400).json({ error: 'invalid_captcha', message: 'CAPTCHA token is missing.' });
   }
-  if (isTestEnv()) {
+  if (isLocalDev()) {
     return res.json({ success: true, score: 0.9 });
   }
   if (process.env.CAPTCHA_SECRET) {
@@ -625,7 +626,7 @@ app.post('/api/stockist/auth/send-otp', handleSendOtpRoute);
 app.post('/api/auth/register-customer', async (req, res) => {
   let { phone, email, name, regionId, region_id, address, cable_partner_id, broadband_partner_id, captchaToken, termsAgreed } = req.body || {};
 
-  const isTest = process.env.NODE_ENV === 'test' || process.env.SEED_MODE === 'test' || process.env.POSTGRES_MODE === 'mem';
+  const isTest = require('./lib/env').isTestEnv();
 
   if (!termsAgreed && !isTest) {
     return res.status(400).json({ error: 'You must agree to Terms and Privacy Policy' });
@@ -1649,9 +1650,14 @@ app.get('/api/products/:id/bill-history', requireAuth, async (req, res) => {
 // --- ADMIN GATE ---
 app.use('/api/admin', (req, res, next) => {
   const p = req.path;
-  const isDev = p === '/reset-db' || p === '/override-table' || p === '/clear-rate-limits';
-  if (isDev) {
+  // reset-db and override-table exist only in explicit test mode. clear-rate-limits
+  // is open in test mode and otherwise needs a signed-in admin.
+  const isTestOnly = p === '/reset-db' || p === '/override-table';
+  if (isTestOnly) {
     if (!require('./lib/env').isTestEnv()) return res.status(404).json({ error: 'Not found' });
+    return next();
+  }
+  if (p === '/clear-rate-limits' && require('./lib/env').isTestEnv()) {
     return next();
   }
 
@@ -1659,8 +1665,10 @@ app.use('/api/admin', (req, res, next) => {
   requireAuth(req, res, (err) => {
     if (err) return next(err);
 
-    const isPartner = p.match(/^\/kyc\/[^\/]+\/document$/) || p.match(/^\/users\/[^\/]+\/references$/) || p.match(/^\/users\/[^\/]+\/account$/) || p.match(/^\/vendors\/[^\/]+$/) || p === '/analytics' || p.startsWith('/partner-leads');
-    if (isPartner) {
+    // Partner admins may work the partner-leads queue. Everything else under
+    // /api/admin (KYC documents, platform analytics, vendors, user accounts)
+    // is admin-only.
+    if (p.startsWith('/partner-leads')) {
       return requireRole('ADMIN', 'PARTNER_ADMIN')(req, res, next);
     }
 
@@ -1887,14 +1895,15 @@ app.post('/api/admin/bill-photos/:id/reject', async (req, res) => {
         tenant_id: heldRow.tenant_id,
         region_id: heldRow.region_id,
         customer_id: heldRow.customer_id,
-        amount: heldRow.amount,
+        amount: 0, // held points were never in the balance; a positive amount here would credit them
         type: 'EARN_VOID',
         order_id: heldRow.order_id,
-        description: `Points voided for Order #${heldRow.order_id.substring(2).toUpperCase()}: ${reason.trim()}`,
+        description: `Points voided for Order #${heldRow.order_id.substring(2).toUpperCase()} (${heldRow.amount} pts): ${reason.trim()}`,
         created_at: new Date().toISOString(),
         billing_sync_status: 'VOIDED',
         reference_id: heldRow.id
       });
+      await db.updateRow('points_ledger', heldRow.id, { billing_sync_status: 'VOIDED' });
       const customer = users.find(u => u.id === heldRow.customer_id);
       if (customer && customer.phone) {
         await smsHelper.sendSms(customer.phone, `FastNet: Your pending points for order ${heldRow.order_id.substring(2).toUpperCase()} could not be credited. Reason: ${reason.trim()}`);
@@ -2535,10 +2544,35 @@ async function reverseOrderPoints(orderId) {
     }
   }
 
+  // Points still held for bill verification are voided so they can never be
+  // released for a cancelled order.
+  const heldRows = ledger.filter(l => l.order_id === orderId && l.type === 'EARN_HELD' && l.billing_sync_status === 'HELD');
+  for (const heldRow of heldRows) {
+    const alreadySettled = ledger.some(l => l.reference_id === heldRow.id && (l.type === 'EARN' || l.type === 'EARN_VOID'));
+    if (!alreadySettled) {
+      await db.insertRow('points_ledger', {
+        id: 'l-' + generateId(),
+        tenant_id: heldRow.tenant_id,
+        region_id: heldRow.region_id,
+        customer_id: heldRow.customer_id,
+        amount: 0, // held points were never in the balance, so nothing to take back
+        type: 'EARN_VOID',
+        order_id: orderId,
+        description: `Held points (${heldRow.amount}) voided: cancelled order #${orderId.substring(2).toUpperCase()}`,
+        created_at: new Date().toISOString(),
+        billing_sync_status: 'VOIDED',
+        reference_id: heldRow.id
+      });
+    }
+    await db.updateRow('points_ledger', heldRow.id, { billing_sync_status: 'VOIDED' });
+  }
+
   // db.saveTable('points_ledger') is strictly forbidden
 }
 
-async function processOrderCancellation(order, cancelledBy = 'system') {
+// retainCommission: keep the platform fee out of the refund. Only a customer
+// no-show does that; free-window and shop/admin cancellations refund in full.
+async function processOrderCancellation(order, cancelledBy = 'system', { retainCommission = false } = {}) {
   order.cancelled_from_status = order.status;
   order.cancelled_by = cancelledBy;
   order.cancelled_at = new Date().toISOString();
@@ -2576,12 +2610,13 @@ async function processOrderCancellation(order, cancelledBy = 'system') {
   if (order.payment_status === 'HELD') {
     const splitPayouts = await db.getTable('split_payouts');
     const payout = splitPayouts.find(sp => sp.order_id === order.id);
-    const platformCommission = payout ? parseFloat(payout.platform_amount) : 0;
-    
+    const platformCommission = retainCommission && payout ? parseFloat(payout.platform_amount) : 0;
+
     let orderAmountPaid = order.amount_paid !== undefined && order.amount_paid !== null ? order.amount_paid : order.total_price;
-    const refundAmount = Math.max(0, orderAmountPaid - platformCommission);
+    const refundAmount = Math.round(Math.max(0, orderAmountPaid - platformCommission) * 100) / 100;
 
     order.payment_status = 'REFUND_DUE';
+    order.refund_amount = refundAmount;
     appendPaymentEvent(order.id, 'REFUND_DUE', refundAmount, {
       reason: 'Order cancellation',
       commission_retained: platformCommission
@@ -2749,10 +2784,45 @@ async function runFraudDetection(order, customer) {
   }
 }
 
+// Order status model. The UI uses RECEIVED/READY; older API paths use
+// ACCEPTED/PREPARING and READY_FOR_PICKUP/OUT_FOR_DELIVERY. Both spellings are
+// accepted and ranked together so that an order can only move forward.
+const ORDER_STATUS_RANK = {
+  CONFIRMING: 0, PENDING: 1, ACCEPTED: 2, RECEIVED: 2, PREPARING: 3,
+  READY: 4, READY_FOR_PICKUP: 4, OUT_FOR_DELIVERY: 4, SHIPPED: 4, DELIVERED: 5
+};
+const FINAL_ORDER_STATUSES = ['DELIVERED', 'CANCELLED'];
+const READY_ORDER_STATUSES = ['READY', 'READY_FOR_PICKUP', 'OUT_FOR_DELIVERY', 'SHIPPED']; // SHIPPED: legacy rows
+const ORDER_FULFILLMENT_TYPES = ['PICKUP', 'DELIVERY', 'HOME_DELIVERY'];
+const ORDER_PAYMENT_METHODS = ['UPI', 'COD', 'ONLINE', 'CARD'];
+
+// Returns an error message, or null when the slot is acceptable. Accepts the
+// named slots, a time range ("10:00–11:00", "10:00 AM - 11:00 AM") or the
+// checkout's slot start ("2026-08-07T17:00", shop-local time).
+function validatePickupSlot(slot) {
+  if (typeof slot !== 'string' || !slot.trim() || slot.length > 64) return 'Invalid pickup slot.';
+  const s = slot.trim();
+  const norm = x => x.replace(/[–—]/g, '-').replace(/\s+/g, '').toUpperCase();
+  if (cfg.SLOT_OPTIONS.some(o => norm(o) === norm(s))) return null;
+  if (/^\d{1,2}(:\d{2})?\s*(AM|PM)?\s*[-–—]\s*\d{1,2}(:\d{2})?\s*(AM|PM)?$/i.test(s)) return null;
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/);
+  if (m) {
+    const [y, mo, d, h, mi] = m.slice(1).map(Number);
+    const when = new Date(y, mo - 1, d, h, mi);
+    if (when.getMonth() !== mo - 1 || when.getDate() !== d || h > 23 || mi > 59) return 'Invalid pickup slot.';
+    // A day of slack either side covers client/server time-zone differences.
+    if (when.getTime() < Date.now() - 24 * 60 * 60 * 1000) return 'Pickup slot is in the past.';
+    if (when.getTime() > Date.now() + 8 * 24 * 60 * 60 * 1000) return 'Pickup slot is too far ahead.';
+    return null;
+  }
+  return 'Invalid pickup slot.';
+}
+
 // POST /api/orders & /api/orders/create — multi-store aware, slot-required, HELD payment, CONFIRMING state
 const handleCreateOrderRoute = async (req, res) => {
   // Supports both old format { customerId, stockistId, items, fulfillmentType }
-  if (req.user && req.user.role === 'CUSTOMER' && !assertSelfOrAdmin(req, res, req.body.customerId)) return;
+  // Only admins may place an order on someone else's account.
+  if (req.body.customerId && !assertSelfOrAdmin(req, res, req.body.customerId)) return;
 
   // and new format { customerId, stores: [{ stockistId, items, pickupSlot }], fulfillmentType, paymentMethod }
   const { customerId, fulfillmentType, paymentMethod } = req.body;
@@ -2771,7 +2841,13 @@ const handleCreateOrderRoute = async (req, res) => {
   const customer = users.find(u => u.id === customerId);
   if (!customer) return res.status(404).json({ error: 'Customer not found' });
 
+  if (fulfillmentType !== undefined && fulfillmentType !== null && typeof fulfillmentType !== 'string') {
+    return res.status(400).json({ error: 'Invalid fulfillment type' });
+  }
   const reqFulfillment = (fulfillmentType || 'PICKUP').toUpperCase();
+  if (!ORDER_FULFILLMENT_TYPES.includes(reqFulfillment)) {
+    return res.status(400).json({ error: 'Invalid fulfillment type' });
+  }
 
   // §C9: multi-store cart forces PICKUP
   if (stores.length > 1 && (reqFulfillment === 'DELIVERY' || reqFulfillment === 'HOME_DELIVERY')) {
@@ -2793,6 +2869,8 @@ const handleCreateOrderRoute = async (req, res) => {
       if (!store.pickupSlot) {
         return res.status(400).json({ error: `Pickup slot is required for store order. Please select a time slot.` });
       }
+      const slotError = validatePickupSlot(store.pickupSlot);
+      if (slotError) return res.status(400).json({ error: slotError });
     }
   }
 
@@ -2801,7 +2879,11 @@ const handleCreateOrderRoute = async (req, res) => {
     return res.status(400).json({ error: 'Prepaid pickup is restricted due to excessive no-shows. Please choose Home Delivery (COD).' });
   }
 
-  const reqPaymentMethod = paymentMethod || (reqFulfillment === 'PICKUP' ? 'UPI' : 'COD');
+  if (paymentMethod !== undefined && paymentMethod !== null && paymentMethod !== '' &&
+      (typeof paymentMethod !== 'string' || !ORDER_PAYMENT_METHODS.includes(paymentMethod.toUpperCase()))) {
+    return res.status(400).json({ error: 'Invalid payment method' });
+  }
+  const reqPaymentMethod = paymentMethod ? paymentMethod.toUpperCase() : (reqFulfillment === 'PICKUP' ? 'UPI' : 'COD');
   
   const couponRewardId = req.body.coupon_reward_id;
   let reward = null;
@@ -2865,6 +2947,9 @@ const handleCreateOrderRoute = async (req, res) => {
   const cancelDeadline = new Date(now.getTime() + cfg.CANCEL_WINDOW_MINUTES * 60 * 1000).toISOString();
   const cartId = 'cart-' + generateId();
   const createdOrders = [];
+  // Every store is validated and priced before anything is written, so a bad
+  // store in a multi-store cart cannot leave the other stores' orders behind.
+  const preparedOrders = [];
 
   for (const storeEntry of stores) {
     const { stockistId, items, pickupSlot } = storeEntry;
@@ -2957,7 +3042,12 @@ const handleCreateOrderRoute = async (req, res) => {
       return res.status(400).json({ error: 'validation_failed', message: 'Order total must be positive', fields: { total_price: 'must be > 0' } });
     }
 
-    const reqModel = req.body.commission_model || (!req.body.stores ? 'gross_v1' : 'profit_v2');
+    // The commission model is server policy. Only admins may pick the legacy
+    // model (used for historical/test orders); everyone else gets profit_v2.
+    const isAdminCaller = req.user && req.user.role === 'ADMIN';
+    const reqModel = isAdminCaller && ['gross_v1', 'profit_v2'].includes(req.body.commission_model)
+      ? req.body.commission_model
+      : (isAdminCaller && !req.body.commission_model && !req.body.stores ? 'gross_v1' : 'profit_v2');
     let settlement;
     let platformCommission, pointsCredited, stockistReinvest, platformPot, stockistPayout, platformPayout;
 
@@ -3048,6 +3138,12 @@ const handleCreateOrderRoute = async (req, res) => {
       created_at: now.toISOString()
     };
 
+    preparedOrders.push({ order, orderItems, stockistPayout, platformPayout, settlement, effectivePaymentMethod, paymentStatus, couponDiscount, couponPointsSpent });
+  }
+
+  for (const { order, orderItems, stockistPayout, platformPayout, settlement, effectivePaymentMethod, paymentStatus, couponDiscount, couponPointsSpent } of preparedOrders) {
+    const orderId = order.id;
+    const stockistId = order.stockist_id;
     await db.insertRow('orders', order);
 
     for (const oi of orderItems) { oi.order_id = orderId; await db.insertRow('order_items', oi); }
@@ -3067,7 +3163,7 @@ const handleCreateOrderRoute = async (req, res) => {
     });
 
     // Payment ledger event
-    appendPaymentEvent(orderId, paymentStatus === 'COD' ? 'COD_ORDER_CREATED' : 'HELD', amountPaid, {
+    appendPaymentEvent(orderId, paymentStatus === 'COD' ? 'COD_ORDER_CREATED' : 'HELD', order.amount_paid, {
       method: effectivePaymentMethod,
       stockist_share: stockistPayout,
       platform_share: platformPayout - couponDiscount,
@@ -3174,7 +3270,8 @@ app.post('/api/orders/:id/cancel', requireAuth, async (req, res) => {
     return res.status(400).json({ error: 'Order status does not allow cancellation' });
   }
 
-  await processOrderCancellation(order, 'customer');
+  // Inside the free cancellation window: full refund, no platform fee retained.
+  await processOrderCancellation(order, 'customer', { retainCommission: false });
 
   // Record no-show / late cancel on customer profile
   const users = await db.getTable('users');
@@ -3207,6 +3304,11 @@ app.post('/api/orders/:id/noshw-action', requireAuth, async (req, res) => {
   if (!await assertOrderAccess(req, res, order)) return;
   if (req.user.role === 'STOCKIST') return res.status(403).json({ error: 'Forbidden' });
 
+  // A no-show only applies to an order that is waiting at the shop for pickup.
+  if (!READY_ORDER_STATUSES.includes(order.status) || order.fulfillment_type !== 'PICKUP') {
+    return res.status(400).json({ error: 'No-show actions are only available for orders ready for pickup.', code: 'NOT_A_NO_SHOW' });
+  }
+
   if (action === 'RESCHEDULE') {
     if (order.reschedule_used) {
       return res.status(400).json({ error: 'Reschedule already used. You may only reschedule once.' });
@@ -3214,15 +3316,18 @@ app.post('/api/orders/:id/noshw-action', requireAuth, async (req, res) => {
     if (!newSlot) {
       return res.status(400).json({ error: 'newSlot is required for reschedule' });
     }
+    const slotError = validatePickupSlot(newSlot);
+    if (slotError) return res.status(400).json({ error: slotError });
     order.pickup_slot = newSlot;
     order.reschedule_used = true;
-    order.status = 'READY_FOR_PICKUP'; // Reset to allow new pickup window
+    order.status = 'READY'; // Still ready at the shop, for the new pickup window
     await db.updateRow('orders', order.id, order);
     return res.json({ success: true, order: await enrichOrder(order, req) });
   }
 
   if (action === 'CANCEL') {
-    await processOrderCancellation(order, req.user?.role?.toLowerCase() || 'system');
+    // A no-show is the customer's fault, so the platform fee is retained.
+    await processOrderCancellation(order, req.user?.role?.toLowerCase() || 'system', { retainCommission: true });
 
     // Record no-show on customer profile
     const users = await db.getTable('users');
@@ -3254,7 +3359,10 @@ app.post('/api/orders/:id/verify-pickup', requireAuth, async (req, res) => {
     if (!callerStockist || callerStockist.id !== order.stockist_id) return res.status(403).json({ error: 'Forbidden' });
   }
 
-  if (order.pickup_pin !== pin) {
+  if (FINAL_ORDER_STATUSES.includes(order.status)) {
+    return res.status(400).json({ error: `Order is already ${order.status.toLowerCase()}.`, code: 'ORDER_FINAL' });
+  }
+  if (!order.pickup_pin || String(order.pickup_pin) !== String(pin || '').trim()) {
     return res.status(400).json({ error: 'Incorrect pickup verification PIN.' });
   }
 
@@ -3557,8 +3665,8 @@ app.get('/api/orders', requireAuth, async (req, res) => {
   return res.json(enriched);
 });
 
-// Update Order Status
-app.patch('/api/orders/:id/status', requireAuth, async (req, res) => {
+// Update Order Status (also used for each entry of the offline sync)
+const handleOrderStatusUpdate = async (req, res) => {
   const { id } = req.params;
   let { status, pin } = req.body;
 
@@ -3582,17 +3690,28 @@ app.patch('/api/orders/:id/status', requireAuth, async (req, res) => {
     return res.status(400).json({ error: 'Invalid order status' });
   }
 
+  // Final states stay final; repeating the current status is a no-op.
+  if (FINAL_ORDER_STATUSES.includes(order.status)) {
+    if (order.status === status) return res.json({ success: true, order: await enrichOrder(order, req) });
+    return res.status(400).json({ error: `Order is already ${order.status.toLowerCase()}.`, code: 'ORDER_FINAL' });
+  }
+  // Orders only move forward (cancellation is handled below).
+  if (status !== 'CANCELLED' && (ORDER_STATUS_RANK[status] || 0) < (ORDER_STATUS_RANK[order.status] || 0)) {
+    return res.status(400).json({ error: `Cannot move an order from ${order.status} back to ${status}.`, code: 'INVALID_TRANSITION' });
+  }
+
   if ((status === 'DELIVERED' || status === 'PICKED_UP') && !isAdmin) {
-    if (order.fulfillment_type === 'DELIVERY' || order.fulfillment_type === 'PICKUP') {
-      if (order.delivery_pin && String(pin) !== String(order.delivery_pin) && order.pickup_pin && String(pin) !== String(order.pickup_pin)) {
-        return res.status(400).json({ error: 'Invalid PIN' });
-      }
-      if (!pin) {
-        return res.status(400).json({
-          error: 'Direct transition blocked. PIN verification required for handoff completion.',
-          code: 'PIN_REQUIRED'
-        });
-      }
+    if (!pin) {
+      return res.status(400).json({
+        error: 'Direct transition blocked. PIN verification required for handoff completion.',
+        code: 'PIN_REQUIRED'
+      });
+    }
+    const validPins = [order.delivery_pin, order.pickup_pin]
+      .filter(p => p !== undefined && p !== null && p !== '')
+      .map(String);
+    if (!validPins.includes(String(pin).trim())) {
+      return res.status(400).json({ error: 'Invalid PIN' });
     }
   } else if ((status === 'DELIVERED' || status === 'PICKED_UP') && isAdmin) {
     if (order.fulfillment_type === 'PICKUP' || order.fulfillment_type === 'DELIVERY') {
@@ -3601,18 +3720,18 @@ app.patch('/api/orders/:id/status', requireAuth, async (req, res) => {
   }
 
   if (status === 'CANCELLED') {
-    if (!req.body.force && !['CONFIRMING', 'PENDING'].includes(order.status)) {
+    // Only an admin may force-cancel an order past the PENDING stage.
+    if (!(isAdmin && req.body.force) && !['CONFIRMING', 'PENDING'].includes(order.status)) {
       return res.status(403).json({
         error: 'Cancellation locked. Stockists can only cancel orders in CONFIRMING or PENDING states.',
         code: 'STOCKIST_CANCEL_LOCKED'
       });
     }
-    await processOrderCancellation(order, req.user?.role === 'ADMIN' ? 'admin' : 'stockist');
-  } else {
-    order.status = status;
+    // Shop- or admin-side cancellation is not the customer's fault: full refund.
+    await processOrderCancellation(order, req.user?.role === 'ADMIN' ? 'admin' : 'stockist', { retainCommission: false });
   }
-  await db.updateRow('orders', order.id, order);
 
+  // Take the stock before saving a "ready" status, so a stock failure leaves the order unchanged.
   if (['READY_FOR_PICKUP', 'READY'].includes(status)) {
     if (!order.stock_decremented) {
       const orderItems = (await db.getTable('order_items')).filter(oi => oi.order_id === id);
@@ -3644,8 +3763,13 @@ app.patch('/api/orders/:id/status', requireAuth, async (req, res) => {
         });
       }
       order.stock_decremented = true;
-      await db.updateRow('orders', order.id, order);
     }
+  }
+
+  if (status !== 'CANCELLED') order.status = status;
+  await db.updateRow('orders', order.id, order);
+
+  if (['READY_FOR_PICKUP', 'READY'].includes(status)) {
     await _sendOrderReadySms(order);
   }
 
@@ -3694,7 +3818,8 @@ app.patch('/api/orders/:id/status', requireAuth, async (req, res) => {
   }
 
   return res.json({ success: true, order: await enrichOrder(order, req) });
-});
+};
+app.patch('/api/orders/:id/status', requireAuth, handleOrderStatusUpdate);
 
 // PATCH fulfillment — slot change enforced, one-way delivery switch
 app.patch('/api/orders/:id/fulfillment', requireAuth, async (req, res) => {
@@ -3707,6 +3832,10 @@ app.patch('/api/orders/:id/fulfillment', requireAuth, async (req, res) => {
   if (!await assertOrderAccess(req, res, order)) return;
   if (req.user.role === 'STOCKIST') return res.status(403).json({ error: 'Forbidden' });
 
+  if ((fulfillmentType || pickupSlot !== undefined) && FINAL_ORDER_STATUSES.includes(order.status)) {
+    return res.status(400).json({ error: `Order is already ${order.status.toLowerCase()}.`, code: 'ORDER_FINAL' });
+  }
+
   if (fulfillmentType) {
     if (fulfillmentType === 'PICKUP') {
       if (order.fulfillment_type === 'DELIVERY') {
@@ -3715,6 +3844,10 @@ app.patch('/api/orders/:id/fulfillment', requireAuth, async (req, res) => {
       order.fulfillment_type = 'PICKUP';
     } else if (fulfillmentType === 'DELIVERY') {
       if (order.fulfillment_type !== 'DELIVERY') {
+        // Once the order is handed over or out, the fulfillment can no longer change.
+        if ((ORDER_STATUS_RANK[order.status] || 0) >= ORDER_STATUS_RANK.READY) {
+          return res.status(400).json({ error: 'Fulfillment is locked once the order is ready.', code: 'FULFILLMENT_LOCKED' });
+        }
         order.fulfillment_type = 'DELIVERY';
         const stockistsTable = await db.getTable('stockists');
         const stockist = stockistsTable.find(s => s.id === order.stockist_id);
@@ -3729,11 +3862,18 @@ app.patch('/api/orders/:id/fulfillment', requireAuth, async (req, res) => {
         order.total_price = order.subtotal + deliveryFee + (order.low_order_fee || 0);
         order.pickup_slot = null;
 
+        // Keep the split computed at checkout and only add the delivery fee to the
+        // stockist's share; the platform share does not change with fulfillment.
         const splitPayouts = await db.getTable('split_payouts');
         const payout = splitPayouts.find(sp => sp.order_id === id);
-        const settlement = await calculateSettlement(order.subtotal, 0, order.stockist_id, order.region_id);
-        const stockistPayout = order.subtotal - settlement.platformCommission + deliveryFee;
-        const platformPayout = settlement.platformCommission + (order.low_order_fee || 0);
+        // (The switch is one-way from pickup, so no earlier delivery fee is included.)
+        const stockistPayout = payout
+          ? Math.round((parseFloat(payout.stockist_amount) + deliveryFee) * 100) / 100
+          : null;
+        const platformPayout = payout ? parseFloat(payout.platform_amount) : null;
+        if (order.stockist_payout !== undefined && order.stockist_payout !== null) {
+          order.stockist_payout = Math.round((parseFloat(order.stockist_payout) + deliveryFee) * 100) / 100;
+        }
 
         if (payout) {
           payout.stockist_amount = stockistPayout;
@@ -3755,6 +3895,8 @@ app.patch('/api/orders/:id/fulfillment', requireAuth, async (req, res) => {
     if (order.fulfillment_type === 'DELIVERY') {
       return res.status(400).json({ error: 'Cannot set pickup slot for delivery orders.' });
     }
+    const slotError = validatePickupSlot(pickupSlot);
+    if (slotError) return res.status(400).json({ error: slotError });
     order.pickup_slot = pickupSlot;
   }
 
@@ -3769,24 +3911,34 @@ app.post('/api/orders/sync', requireAuth, async (req, res) => {
     return res.status(400).json({ error: 'Invalid sync payload' });
   }
 
-  const orders = await db.getTable('orders');
-  let syncCount = 0;
-
-  for (const upd of updates) {
-    const order = orders.find(o => o.id === upd.orderId);
-    if (order) {
-      let statusToSet = upd.status;
-      if (statusToSet === 'SHIPPED') {
-        statusToSet = order.fulfillment_type === 'PICKUP' ? 'READY_FOR_PICKUP' : 'OUT_FOR_DELIVERY';
-      }
-      order.status = statusToSet;
-      syncCount++;
-      if (statusToSet === 'CANCELLED') await reverseOrderPoints(upd.orderId);
-    }
+  if (req.user.role !== 'ADMIN' && req.user.role !== 'STOCKIST') {
+    return res.status(403).json({ error: 'Forbidden' });
   }
 
-  // removed saveTable
-  return res.json({ success: true, synced_count: syncCount });
+  // Each queued update is applied exactly like PATCH /api/orders/:id/status,
+  // with the same ownership, status-transition and PIN checks.
+  let syncCount = 0;
+  const results = [];
+  for (const upd of updates) {
+    if (!upd || typeof upd.orderId !== 'string') {
+      results.push({ orderId: upd && upd.orderId, ok: false, error: 'Invalid update' });
+      continue;
+    }
+    const outcome = { statusCode: 200, body: null };
+    const captureRes = {
+      status(code) { outcome.statusCode = code; return captureRes; },
+      json(body) { outcome.body = body; return captureRes; }
+    };
+    const subReq = Object.create(req);
+    subReq.params = { id: upd.orderId };
+    subReq.body = { status: upd.status, pin: upd.pin };
+    await handleOrderStatusUpdate(subReq, captureRes);
+    const ok = outcome.statusCode >= 200 && outcome.statusCode < 300;
+    if (ok) syncCount++;
+    results.push({ orderId: upd.orderId, ok, error: ok ? undefined : (outcome.body && outcome.body.error) });
+  }
+
+  return res.json({ success: true, synced_count: syncCount, failed_count: results.length - syncCount, results });
 });
 
 // ----------------------------------------------------
@@ -3842,12 +3994,18 @@ app.post('/api/admin/orders/:id/refund', async (req, res) => {
     return res.status(400).json({ error: 'Order is not in REFUND_DUE state' });
   }
 
-  const splitPayouts = await db.getTable('split_payouts');
-  const payout = splitPayouts.find(sp => sp.order_id === id);
-  const platformCommission = payout ? parseFloat(payout.platform_amount) : 0;
-  
-  let orderAmountPaid = order.amount_paid !== undefined && order.amount_paid !== null ? order.amount_paid : order.total_price;
-  const refundAmount = Math.max(0, orderAmountPaid - platformCommission);
+  // The cancellation decided the refund (full, or minus the fee for a no-show).
+  let refundAmount;
+  if (order.refund_amount !== undefined && order.refund_amount !== null) {
+    refundAmount = parseFloat(order.refund_amount);
+  } else {
+    // Orders cancelled before refund_amount was recorded.
+    const splitPayouts = await db.getTable('split_payouts');
+    const payout = splitPayouts.find(sp => sp.order_id === id);
+    const platformCommission = payout ? parseFloat(payout.platform_amount) : 0;
+    const orderAmountPaid = order.amount_paid !== undefined && order.amount_paid !== null ? order.amount_paid : order.total_price;
+    refundAmount = Math.max(0, orderAmountPaid - platformCommission);
+  }
 
   order.payment_status = 'REFUNDED';
   await db.saveTable('orders', orders);
@@ -4218,8 +4376,12 @@ function getRedemptionDescription(type, pts) {
 app.post('/api/ledger/redeem', requireAuth, async (req, res) => {
   const customerId = req.body.customerId || req.body.customer_user_id;
   if (!assertSelfOrAdmin(req, res, customerId)) return;
-  const { amount, redemptionType, partner_package_id, generic_reward_id } = req.body;
-  if (!customerId || !amount || parseFloat(amount) <= 0) {
+  const { redemptionType, partner_package_id, generic_reward_id } = req.body;
+  // Number("abc") is NaN, which slips past a plain "<= 0" check.
+  const amount = (typeof req.body.amount === 'number' || (typeof req.body.amount === 'string' && req.body.amount.trim() !== ''))
+    ? Number(req.body.amount)
+    : NaN;
+  if (!customerId || !Number.isFinite(amount) || amount <= 0) {
     return res.status(400).json({ error: 'Invalid redemption parameters' });
   }
 
@@ -4295,6 +4457,17 @@ app.post('/api/ledger/redeem', requireAuth, async (req, res) => {
     const ALLOWED_REDEMPTION_TYPES = ['BROADBAND_DISCOUNT', 'BROADBAND_DISCOUNT_50', 'BROADBAND_DISCOUNT_100', 'WIFI_TOPUP', 'DATA_TOPUP', 'CABLE_RECHARGE'];
     if (!redemptionType || !ALLOWED_REDEMPTION_TYPES.includes(redemptionType)) {
       return res.status(400).json({ error: 'Invalid redemption type.' });
+    }
+    // Fixed-value rewards cost exactly their value (1 point = ₹1); only the
+    // plain BROADBAND_DISCOUNT lets the customer choose the amount.
+    const FIXED_REDEMPTION_COSTS = {
+      BROADBAND_DISCOUNT_50: [50],
+      BROADBAND_DISCOUNT_100: [100],
+      CABLE_RECHARGE: [100, 120, 250]
+    };
+    const fixedCosts = FIXED_REDEMPTION_COSTS[redemptionType];
+    if (fixedCosts && !fixedCosts.includes(amount)) {
+      return res.status(400).json({ error: 'amount_mismatch', message: `This reward costs ${fixedCosts.join(' or ')} points.` });
     }
   }
 
@@ -5837,7 +6010,7 @@ app.post('/api/admin/partner-leads/:id/notes', async (req, res) => {
   const noteObj = {
     id: 'n-' + generateId(),
     text: text.trim(),
-    admin_id: req.body.admin_id || 'u-admin',
+    admin_id: req.user.userId,
     created_at: new Date().toISOString()
   };
   lead.notes.push(noteObj);
@@ -6211,7 +6384,7 @@ app.post('/api/admin/customers/:id/points-credit', async (req, res) => {
     amount: numAmount,
     type: 'MANUAL_CREDIT',
     source: 'ADMIN',
-    admin_id: req.body.admin_id || 'u-admin',
+    admin_id: req.user.userId,
     reason: reason.trim(),
     order_id: null,
     description: `Manual admin credit: ${reason.trim()}`,
@@ -7009,7 +7182,8 @@ app.get('/api/partner/auth/session', async (req, res) => {
 
 // 4.1 POST /api/admin/partners
 app.post('/api/admin/partners', async (req, res) => {
-  let { legal_name, display_name, contact_phone, contact_email, address, service_types, admin_id, gst_number } = req.body;
+  let { legal_name, display_name, contact_phone, contact_email, address, service_types, gst_number } = req.body;
+  const admin_id = req.user.userId; // the signed-in admin, never a value from the request
   if (!legal_name || !display_name || !contact_phone || !service_types || !Array.isArray(service_types) || service_types.length === 0) {
     return res.status(400).json({ error: 'Missing required partner fields' });
   }
@@ -7090,7 +7264,8 @@ app.post('/api/admin/partners', async (req, res) => {
 // 4.2 POST /api/admin/partner-leads/:id/promote
 app.post('/api/admin/partner-leads/:id/promote', async (req, res) => {
   const { id } = req.params;
-  const { admin_id, legal_name, display_name, service_types, region_id } = req.body;
+  const { legal_name, display_name, service_types, region_id } = req.body;
+  const admin_id = req.user.userId; // the signed-in admin, never a value from the request
 
   const leads = await db.getTable('partner_leads');
   const lead = leads.find(l => l.id === id);
@@ -8211,7 +8386,8 @@ app.get('/api/admin/redemption-approvals/:id', async (req, res) => {
 
 app.post('/api/admin/redemption-approvals/:id/approve', async (req, res) => {
   const { id } = req.params;
-  const { admin_id, notes } = req.body;
+  const { notes } = req.body;
+  const admin_id = req.user.userId; // the signed-in admin, never a value from the request
 
   const approvals = await db.getTable('redemption_approvals');
   const approval = approvals.find(a => a.id === id);
@@ -8250,7 +8426,7 @@ app.post('/api/admin/redemption-approvals/:id/approve', async (req, res) => {
     try {
       await emailHelper.sendEmail(
         targetPartner.contact_email,
-        `New redemption ready for you: `,
+        `New redemption ready for you: ${pkgName}`,
         `<p>Customer ${custName} (phone: ${custPhone}) has redeemed "${pkgName}". Please verify and mark fulfilled in your partner app. Approval ID: ${approval.id}</p>`,
         `Customer ${custName} (phone: ${custPhone}) has redeemed "${pkgName}". Please verify and mark fulfilled in your partner app. Approval ID: ${approval.id}`
       );
@@ -8278,7 +8454,8 @@ app.post('/api/admin/redemption-approvals/:id/approve', async (req, res) => {
 
 app.post('/api/admin/redemption-approvals/:id/reject', async (req, res) => {
   const { id } = req.params;
-  const { admin_id, reason } = req.body;
+  const { reason } = req.body;
+  const admin_id = req.user.userId; // the signed-in admin, never a value from the request
 
   if (!reason || reason.trim().length < 10) {
     return res.status(400).json({ error: 'Reason must be at least 10 characters long' });
@@ -8326,7 +8503,8 @@ app.post('/api/admin/redemption-approvals/:id/reject', async (req, res) => {
 
 app.post('/api/admin/redemption-approvals/:id/resolve-dispute', async (req, res) => {
   const { id } = req.params;
-  const { admin_id, outcome, notes } = req.body;
+  const { outcome, notes } = req.body;
+  const admin_id = req.user.userId; // the signed-in admin, never a value from the request
 
   if (!outcome || !['fulfill', 'reject'].includes(outcome)) {
     return res.status(400).json({ error: 'outcome must be fulfill or reject' });
@@ -8804,7 +8982,8 @@ app.get('/api/admin/regions', async (req, res) => {
 });
 
 app.post('/api/admin/regions', async (req, res) => {
-  const { name, code, admin_id, delivery_fee } = req.body || {};
+  const { name, code, delivery_fee } = req.body || {};
+  const admin_id = req.user.userId; // the signed-in admin, never a value from the request
 
   if (!name || typeof name !== 'string' || !name.trim() || name.trim().length > 120) {
     return res.status(400).json({ error: 'Name is required and must be between 1 and 120 characters.' });
@@ -8863,7 +9042,8 @@ app.post('/api/admin/regions', async (req, res) => {
 
 app.patch('/api/admin/regions/:id', async (req, res) => {
   const { id } = req.params;
-  const { name, code, admin_id, delivery_fee } = req.body || {};
+  const { name, code, delivery_fee } = req.body || {};
+  const admin_id = req.user.userId; // the signed-in admin, never a value from the request
 
   const regions = await db.getTable('regions');
   const region = regions.find(r => r.id === id);
@@ -8973,7 +9153,7 @@ app.delete('/api/admin/regions/:id', async (req, res) => {
     action: 'REGION_DELETE',
     entity_type: 'region',
     entity_id: id,
-    user_id: req.body?.admin_id || req.query?.admin_id || 'u-admin1',
+    user_id: req.user.userId,
     before: { name: deleted.name, code: deleted.code },
     after: null,
     created_at: new Date().toISOString()
@@ -9348,7 +9528,8 @@ app.get('/api/admin/partner-feedback', async (req, res) => {
 
 app.post('/api/admin/partner-feedback/:id/status', async (req, res) => {
   const { id } = req.params;
-  const { status, admin_notes, admin_id } = req.body;
+  const { status, admin_notes } = req.body;
+  const admin_id = req.user.userId; // the signed-in admin, never a value from the request
 
   const validStatuses = ['NEW', 'REVIEWING', 'RESOLVED', 'DISMISSED'];
   if (!status || !validStatuses.includes(status)) {
@@ -9373,7 +9554,7 @@ app.post('/api/admin/partner-feedback/:id/status', async (req, res) => {
   }
 
   await db.saveTable('partner_feedback', feedbackList);
-  await appendAudit(req, 'UPDATE_PARTNER_FEEDBACK', 'partner_feedback', id, { status: oldStatus }, { status, admin_notes: feedback.admin_notes }, admin_id || 'u-admin');
+  await appendAudit(req, 'UPDATE_PARTNER_FEEDBACK', 'partner_feedback', id, { status: oldStatus }, { status, admin_notes: feedback.admin_notes });
 
   // Trigger in-app notification for partner
   const notifications = await db.getTable('partner_notifications');

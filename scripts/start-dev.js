@@ -52,6 +52,7 @@ if (mode === 'dev:seed') {
       console.log('Empty start. Open the app and create the administrator.');
     }
   }
+  console.log('Login OTPs are random; the mock SMS/email lines below show each code.');
 }
 console.log('====================================================');
 

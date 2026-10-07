@@ -27,7 +27,7 @@ function getSecret() {
 
 function signSession(userId, role) {
   const secret = getSecret();
-  // sign with 24h expiration. jsonwebtoken automatically sets iat and exp.
+  // Sessions last 7 days. jsonwebtoken automatically sets iat and exp.
   // Payload: { sub: userId, role }
   return jwt.sign({ sub: userId, role }, secret, { expiresIn: '7d' });
 }

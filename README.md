@@ -34,12 +34,22 @@ node backend/tests/regression.js
 
 ## Demo Credentials
 
+These preset accounts exist when you start with `npm run dev:seed`, where every account logs in with the demo OTP `123456`.
+
 | Role | Username / Phone | Password / OTP | Notes |
 | :--- | :--- | :--- | :--- |
-| **Customer** | `9876543210` | `123456` | Standard rural subscriber |
-| **Stockist** | `7654321098` | `123456` | Local merchant (Madan Grocers) |
-| **Admin** | *Accessible via role tab* | *None required* | System operator portal |
+| **Customer** | `9876543210` | OTP `123456` | Standard rural subscriber |
+| **Stockist** | `7654321098` | OTP `123456` | Local merchant (Madan Grocers) |
+| **Admin** | `9999999999` | OTP `123456` | System operator portal (OTP login required) |
+| **Partner** | `adhya@partners.example` | password `partner123` | ISP partner portal |
 
 ## How to run for testing
-- `npm run dev` to continue where you left off.
-- `npm run dev:fresh` to start from the beginning.
+- `npm run dev:seed`: in-memory preset data with the demo OTP; data resets on every launch.
+- `npm run dev`: continue where you left off (data is saved to `backend/data/dev-db.json`). OTPs are random and printed in the backend console.
+- `npm run dev:fresh`: delete the saved data and start from the beginning.
+
+See [docs/testing.md](docs/testing.md) for details.
+
+## Configuration
+
+- `VITE_RECAPTCHA_SITE_KEY` (frontend build): your reCAPTCHA v3 site key. When it isn't set, no CAPTCHA script is loaded. That's fine for local development, but production needs it together with the backend's `CAPTCHA_SECRET`.

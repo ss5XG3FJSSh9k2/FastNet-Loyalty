@@ -285,6 +285,7 @@ async function resetForTest() {
 
   for (const table of tables) {
     await query(`DELETE FROM ${table}`);
+    replaceSeq.set(table, (replaceSeq.get(table) || 0) + 1);
   }
 
   const dbInterface = { query, getTable, insertRow, updateRow, deleteRow };
@@ -304,9 +305,24 @@ async function close() {
   pool = null;
 }
 
+// Rows handed out by getTable() remember the snapshot they came from, so that
+// saveTable() can write back only what the caller changed instead of
+// rewriting the whole table (which lost rows under concurrent requests).
+const rowOrigins = new WeakMap(); // row object -> { table, snapshot, json }
+const SNAPSHOT = Symbol('snapshot');
+const replaceSeq = new Map(); // table -> count of full (snapshot-less) replaces
+
 async function getTable(tableName, client = null) {
   const res = await query(`SELECT * FROM ${tableName}`, [], client);
-  return res.rows.map(normalizeRow);
+  const rows = res.rows.map(normalizeRow);
+  const snapshot = { table: tableName, ids: new Set(), deleted: new Set(), seq: replaceSeq.get(tableName) || 0 };
+  for (const row of rows) {
+    if (row.id === undefined || row.id === null) continue;
+    snapshot.ids.add(row.id);
+    rowOrigins.set(row, { table: tableName, snapshot, json: JSON.stringify(row) });
+  }
+  Object.defineProperty(rows, SNAPSHOT, { value: snapshot, enumerable: false });
+  return rows;
 }
 
 async function saveTable(tableName, rows) {
@@ -314,10 +330,81 @@ async function saveTable(tableName, rows) {
     throw new Error('points_ledger is append-only');
   }
   return withLock(tableName, async () => {
-    await query(`DELETE FROM ${tableName}`);
-    const dbInterface = { query, getTable, insertRow, updateRow, deleteRow };
+    // Work out which getTable() snapshots the caller started from.
+    const snapshots = new Set();
+    if (rows[SNAPSHOT]) snapshots.add(rows[SNAPSHOT]);
     for (const row of rows) {
-      await insertRow(tableName, row);
+      const origin = row && rowOrigins.get(row);
+      if (origin && origin.table === tableName) snapshots.add(origin.snapshot);
+    }
+
+    const inputIds = new Set(rows.map(r => r && r.id).filter(id => id !== undefined && id !== null));
+
+    let toDelete;
+    if (snapshots.size > 0) {
+      // Delete only rows the caller saw and then removed; rows inserted by
+      // other requests after the snapshot was taken are left alone.
+      toDelete = new Set();
+      for (const snap of snapshots) {
+        for (const id of snap.ids) {
+          if (!inputIds.has(id)) {
+            toDelete.add(id);
+            snap.ids.delete(id);
+            snap.deleted.add(id);
+          }
+        }
+      }
+    } else {
+      // No snapshot to diff against: fall back to replace semantics.
+      const current = await query(`SELECT id FROM ${tableName}`);
+      toDelete = new Set(current.rows.map(r => r.id).filter(id => !inputIds.has(id)));
+      if (toDelete.size > 0) replaceSeq.set(tableName, (replaceSeq.get(tableName) || 0) + 1);
+    }
+    for (const id of toDelete) {
+      await query(`DELETE FROM ${tableName} WHERE id = $1`, [id]);
+    }
+
+    // Snapshots taken before a full replace may hold rows that no longer exist.
+    let existingIds = null;
+    const seq = replaceSeq.get(tableName) || 0;
+    for (const row of rows) {
+      if (!row) continue;
+      const origin = rowOrigins.get(row);
+      if (origin && origin.table === tableName && origin.snapshot.seq !== seq) {
+        if (!existingIds) {
+          existingIds = new Set((await query(`SELECT id FROM ${tableName}`)).rows.map(r => r.id));
+        }
+        if (!existingIds.has(row.id)) origin.snapshot.deleted.add(row.id);
+      }
+      if (origin && origin.table === tableName) {
+        if (origin.snapshot.deleted.has(row.id)) {
+          // Removed by an earlier save from this same snapshot and now put back.
+          origin.snapshot.deleted.delete(row.id);
+          origin.snapshot.ids.add(row.id);
+          await insertRow(tableName, { ...row });
+          origin.json = JSON.stringify(row);
+          continue;
+        }
+        if (JSON.stringify(row) === origin.json) continue; // unchanged
+        // Write only the changed fields so concurrent edits to other fields survive.
+        const before = JSON.parse(origin.json);
+        const patch = {};
+        for (const key of Object.keys(row)) {
+          if (JSON.stringify(row[key]) !== JSON.stringify(before[key])) patch[key] = row[key];
+        }
+        const updated = await updateRow(tableName, row.id, patch);
+        if (!updated) await insertRow(tableName, { ...row });
+        origin.json = JSON.stringify(row);
+        continue;
+      }
+      if (row.id !== undefined && row.id !== null) {
+        const exists = await query(`SELECT 1 FROM ${tableName} WHERE id = $1`, [row.id]);
+        if (exists.rows.length > 0) {
+          await updateRow(tableName, row.id, { ...row });
+          continue;
+        }
+      }
+      await insertRow(tableName, { ...row });
     }
     scheduleSave();
   });
