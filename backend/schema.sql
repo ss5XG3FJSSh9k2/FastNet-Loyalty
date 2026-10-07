@@ -35,6 +35,8 @@ CREATE TABLE users (
     role user_role NOT NULL,
     kyc_status kyc_status DEFAULT 'PENDING',
     kyc_details JSONB,
+    terms_accepted_at TIMESTAMP WITH TIME ZONE,
+    terms_version VARCHAR(50),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(tenant_id, phone)
 );

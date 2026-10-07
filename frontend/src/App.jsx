@@ -2033,6 +2033,7 @@ export default function App() {
   const [regName, setRegName] = useState('');
   const [regEmail, setRegEmail] = useState('');
   const [regRegion, setRegRegion] = useState('');
+  const [customerTermsAgreed, setCustomerTermsAgreed] = useState(false);
   const [regKycType, setRegKycType] = useState('Aadhaar');
   const [regKycNumber, setRegKycNumber] = useState('');
   const [regAddress, setRegAddress] = useState('');
@@ -3610,7 +3611,7 @@ export default function App() {
     }
 
     try {
-      const payload = { phone: loginPhone, email: regEmail, name: regName, regionId: regRegion, address: regAddress };
+      const payload = { phone: loginPhone, email: regEmail, name: regName, regionId: regRegion, address: regAddress, termsAgreed: customerTermsAgreed };
       if (signupCablePartnerId && !noCableProvider) {
         payload.cable_partner_id = signupCablePartnerId;
       }
@@ -3639,6 +3640,7 @@ export default function App() {
         showToast(t(`Welcome, ${data.user.name}!`, `स्वागत, ${data.user.name}!`, `স্বাগতম, ${data.user.name}!`));
         setShowCustomerSignup(false);
         setRegName(''); setRegEmail(''); setRegAddress(''); setOtpSent(false); setSignupReferralCode('');
+        setCustomerTermsAgreed(false);
         setSignupCablePartnerId(''); setNoCableProvider(false);
         setHasBroadbandAnswered(false); setHasBroadband(false);
         setSignupBroadbandPartnerId(''); setNoBroadbandProvider(false);
@@ -5968,9 +5970,54 @@ export default function App() {
               <label className="input-label">{t('Referral Code (Optional)', 'रेफरल कोड (वैकल्पिक)', 'রেফারেল কোড (ঐচ্ছিক)')}</label>
               <input type="text" placeholder="e.g. ABC123" className="text-input" value={signupReferralCode} onChange={e => setSignupReferralCode(e.target.value.toUpperCase())} />
             </div>
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
+
+            <div className="input-group" style={{ flexDirection: 'row', alignItems: 'center', gap: '0.5rem', marginTop: '0.5rem' }}>
+              <input 
+                type="checkbox" 
+                id="customer-terms-checkbox"
+                checked={customerTermsAgreed} 
+                onChange={(e) => setCustomerTermsAgreed(e.target.checked)} 
+                style={{ width: '1.2rem', height: '1.2rem', cursor: 'pointer' }}
+              />
+              <label htmlFor="customer-terms-checkbox" style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                {t('I agree to the ', 'मैं ', 'আমি ')}
+                <span onClick={(e) => { e.preventDefault(); setShowTermsModal(true); }} style={{ color: 'var(--primary)', cursor: 'pointer', textDecoration: 'underline' }}>{t('Terms & Conditions', 'नियम और शर्तें', 'নিয়ম ও শর্তাবলী')}</span>
+                {t(' and ', ' और ', ' এবং ')}
+                <span onClick={(e) => { e.preventDefault(); setShowPrivacyPolicyModal(true); }} style={{ color: 'var(--primary)', cursor: 'pointer', textDecoration: 'underline' }}>{t('Privacy Policy', 'गोपनीयता नीति', 'গোপনীয়তা নীতি')}</span>
+                {t('', ' से सहमत हूँ।', ' তে সম্মত।')}
+              </label>
+            </div>
+
+            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
               <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => { setShowCustomerSignup(false); setOtpSent(false); }}>← {t('Back', 'वापस', 'ফিরে')}</button>
-              <button className="btn btn-accent" style={{ flex: 2 }} onClick={handleCustomerRegister} disabled={regions.length === 0}>{t('Create Account', 'खाता बनाएं', 'অ্যাকাউন্ট তৈরি')}</button>
+              <div style={{ flex: 2, position: 'relative' }}>
+                <button 
+                  className="btn btn-accent" 
+                  style={{ width: '100%', height: '100%' }} 
+                  onClick={() => {
+                    if (!customerTermsAgreed) {
+                      showToast(t('Please tick the box to agree to the Terms and Privacy Policy', 'कृपया नियम और गोपनीयता नीति से सहमत होने के लिए बॉक्स पर टिक करें', 'নিয়ম এবং গোপনীয়তা নীতিতে সম্মত হতে অনুগ্রহ করে বক্সে টিক দিন'), 'error');
+                      document.getElementById('customer-terms-checkbox')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                      return;
+                    }
+                    handleCustomerRegister();
+                  }}
+                  disabled={regions.length === 0 || !customerTermsAgreed}
+                  style={(!customerTermsAgreed || regions.length === 0) ? { opacity: 0.5 } : {}}
+                >
+                  {t('Create Account', 'खाता बनाएं', 'অ্যাকাউন্ট তৈরি')}
+                </button>
+                {!customerTermsAgreed && regions.length > 0 && (
+                  <div 
+                    style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 10, cursor: 'pointer' }}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      showToast(t('Please tick the box to agree to the Terms and Privacy Policy', 'कृपया नियम और गोपनीयता नीति से सहमत होने के लिए बॉक्स पर टिक करें', 'নিয়ম এবং গোপনীয়তা নীতিতে সম্মত হতে অনুগ্রহ করে বক্সে টিক দিন'), 'error');
+                      document.getElementById('customer-terms-checkbox')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }}
+                  />
+                )}
+              </div>
             </div>
           </>
         ) : showStockistSignup ? (
@@ -17437,7 +17484,7 @@ export default function App() {
             <PanelErrorBoundary t={t}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
               <h3 id="privacy-modal-title">{t('Privacy Policy', 'Privacy Policy', 'Privacy Policy')}</h3>
-              <button className="btn btn-secondary btn-sm" aria-label="Close Privacy Policy" onClick={() => setShowPrivacyPolicyModal(false)}>Close Menu</button>
+              <button className="btn btn-secondary btn-sm" aria-label="Close Privacy Policy" onClick={() => setShowPrivacyPolicyModal(false)}>Close</button>
             </div>
             <div style={{ fontSize: '0.9rem', lineHeight: 1.6, color: '#D1D5DB' }}>
               <p><strong>{t('Data Collected:', 'Data Collected:', 'Data Collected:')}</strong> {t('Phone number, name, delivery address, order history, points ledger.', 'Phone number, name, delivery address, order history, points ledger.', 'Phone number, name, delivery address, order history, points ledger.')}</p>
@@ -17446,7 +17493,7 @@ export default function App() {
               <p><strong>{t('User Rights:', 'User Rights:', 'User Rights:')}</strong> {t('Right to access, correct, and request deletion of personal data via privacy@fastnetloyalty.com.', 'Right to access, correct, and request deletion of personal data via privacy@fastnetloyalty.com.', 'Right to access, correct, and request deletion of personal data via privacy@fastnetloyalty.com.')}</p>
             </div>
             <div style={{ textAlign: 'right', marginTop: '1.5rem' }}>
-              <button className="btn btn-primary" onClick={() => setShowPrivacyPolicyModal(false)}>Close Menu</button>
+              <button className="btn btn-primary" onClick={() => setShowPrivacyPolicyModal(false)}>Close</button>
             </div>
             </PanelErrorBoundary>
           </div>
@@ -17460,7 +17507,7 @@ export default function App() {
             <PanelErrorBoundary t={t}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
               <h3 id="terms-modal-title">{t('Terms & Conditions', 'Terms & Conditions', 'Terms & Conditions')}</h3>
-              <button className="btn btn-secondary btn-sm" aria-label="Close Terms" onClick={() => setShowTermsModal(false)}>Close Menu</button>
+              <button className="btn btn-secondary btn-sm" aria-label="Close Terms" onClick={() => setShowTermsModal(false)}>Close</button>
             </div>
             <div style={{ fontSize: '0.9rem', lineHeight: 1.6, color: '#D1D5DB' }}>
               <p><strong>{t('Eligibility:', 'Eligibility:', 'Eligibility:')}</strong> {t('18+ years, resident of India.', '18+ years, resident of India.', '18+ years, resident of India.')}</p>
@@ -17468,7 +17515,7 @@ export default function App() {
               <p><strong>{t('Points & Loyalty:', 'Points & Loyalty:', 'Points & Loyalty:')}</strong> {t('Points earned only on DELIVERED orders. Non-transferable, non-cashable, redeemable only against platform ISP services.', 'Points earned only on DELIVERED orders. Non-transferable, non-cashable, redeemable only against platform ISP services.', 'Points earned only on DELIVERED orders. Non-transferable, non-cashable, redeemable only against platform ISP services.')}</p>
             </div>
             <div style={{ textAlign: 'right', marginTop: '1.5rem' }}>
-              <button className="btn btn-primary" onClick={() => setShowTermsModal(false)}>Close Menu</button>
+              <button className="btn btn-primary" onClick={() => setShowTermsModal(false)}>Close</button>
             </div>
             </PanelErrorBoundary>
           </div>
@@ -17482,7 +17529,7 @@ export default function App() {
             <PanelErrorBoundary t={t}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
               <h3 id="refund-modal-title">{t('Refund Policy', 'Refund Policy', 'Refund Policy')}</h3>
-              <button className="btn btn-secondary btn-sm" aria-label="Close Refund Policy" onClick={() => setShowRefundPolicyModal(false)}>Close Menu</button>
+              <button className="btn btn-secondary btn-sm" aria-label="Close Refund Policy" onClick={() => setShowRefundPolicyModal(false)}>Close</button>
             </div>
             <div style={{ fontSize: '0.9rem', lineHeight: 1.6, color: '#D1D5DB' }}>
               <p><strong>{t('Cancellation Window:', 'Cancellation Window:', 'Cancellation Window:')}</strong> {t('Orders can be cancelled within 1 minute of placement for a refund (minus platform commission fee).', 'ऑर्डर देने के 1 मिनट के भीतर रद्द किए जा सकते हैं, जिसमें से प्लेटफ़ॉर्म कमीशन शुल्क काटा जाएगा।', 'অর্ডার করার ১ মিনিটের মধ্যে বাতিল করা যেতে পারে (প্ল্যাটফর্ম কমিশন ফি কেটে নেওয়া হবে)।')}</p>
@@ -17490,7 +17537,7 @@ export default function App() {
               <p><strong>{t('Support Contact:', 'Support Contact:', 'Support Contact:')}</strong> {t('Email support@fastnetloyalty.com for refund assistance.', 'Email support@fastnetloyalty.com for refund assistance.', 'Email support@fastnetloyalty.com for refund assistance.')}</p>
             </div>
             <div style={{ textAlign: 'right', marginTop: '1.5rem' }}>
-              <button className="btn btn-primary" onClick={() => setShowRefundPolicyModal(false)}>Close Menu</button>
+              <button className="btn btn-primary" onClick={() => setShowRefundPolicyModal(false)}>Close</button>
             </div>
             </PanelErrorBoundary>
           </div>
@@ -17504,14 +17551,14 @@ export default function App() {
             <PanelErrorBoundary t={t}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
               <h3 id="cookies-modal-title">{t('Cookies Policy', 'Cookies Policy', 'Cookies Policy')}</h3>
-              <button className="btn btn-secondary btn-sm" aria-label="Close Cookies Policy" onClick={() => setShowCookiesPolicyModal(false)}>Close Menu</button>
+              <button className="btn btn-secondary btn-sm" aria-label="Close Cookies Policy" onClick={() => setShowCookiesPolicyModal(false)}>Close</button>
             </div>
             <div style={{ fontSize: '0.9rem', lineHeight: 1.6, color: '#D1D5DB' }}>
               <p><strong>{t('What Cookies Are Used:', 'What Cookies Are Used:', 'What Cookies Are Used:')}</strong> {t('Session security cookies (httpOnly, Secure), analytics preferences, and regional settings.', 'Session security cookies (httpOnly, Secure), analytics preferences, and regional settings.', 'Session security cookies (httpOnly, Secure), analytics preferences, and regional settings.')}</p>
               <p><strong>{t('Control:', 'Control:', 'Control:')}</strong> {t('You can manage or decline non-essential cookies via browser settings or the consent banner.', 'You can manage or decline non-essential cookies via browser settings or the consent banner.', 'You can manage or decline non-essential cookies via browser settings or the consent banner.')}</p>
             </div>
             <div style={{ textAlign: 'right', marginTop: '1.5rem' }}>
-              <button className="btn btn-primary" onClick={() => setShowCookiesPolicyModal(false)}>Close Menu</button>
+              <button className="btn btn-primary" onClick={() => setShowCookiesPolicyModal(false)}>Close</button>
             </div>
             </PanelErrorBoundary>
           </div>

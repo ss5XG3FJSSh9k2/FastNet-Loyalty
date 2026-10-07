@@ -130,6 +130,14 @@ function normalizePhone(phone) {
   return cleanPhone;
 }
 
+function checkTermsAgreed(req, res, isTest) {
+  if (!req.body.termsAgreed && !isTest) {
+    res.status(400).json({ error: 'You must agree to Terms and Privacy Policy' });
+    return false;
+  }
+  return true;
+}
+
 function checkPhone(phone, res) {
   const cleanPhone = normalizePhone(phone);
   if (!cleanPhone || cleanPhone.length !== 10) {
@@ -628,9 +636,7 @@ app.post('/api/auth/register-customer', async (req, res) => {
 
   const isTest = require('./lib/env').isTestEnv();
 
-  if (!termsAgreed && !isTest) {
-    return res.status(400).json({ error: 'You must agree to Terms and Privacy Policy' });
-  }
+  if (!checkTermsAgreed(req, res, isTest)) return;
 
   const validPhone = checkPhone(phone, res);
   if (!validPhone) return;
@@ -689,6 +695,8 @@ app.post('/api/auth/register-customer', async (req, res) => {
     kyc_status: 'PENDING',
     sms_marketing: false,
     email_marketing: false,
+    terms_accepted_at: req.body.termsAgreed ? new Date().toISOString() : null,
+    terms_version: req.body.termsAgreed ? '2026-10-draft' : null,
     created_at: new Date().toISOString()
   });
 
@@ -707,7 +715,7 @@ app.post('/api/auth/register-customer', async (req, res) => {
     await appendAudit(req, 'CREATE_PARTNER_BINDING', 'customer_partner_binding', userId, null, binding);
   }
 
-  await appendAudit(req, 'REGISTER_CUSTOMER', 'user', userId, null, { phone, name: cleanName, role: 'CUSTOMER' });
+  await appendAudit(req, 'REGISTER_CUSTOMER', 'user', userId, null, { phone, name: cleanName, role: 'CUSTOMER', terms_accepted_at: newUser.terms_accepted_at, terms_version: newUser.terms_version });
 
   const sessionHelper = require('./lib/session');
   const token = sessionHelper.signSession(newUser.id, newUser.role);
@@ -988,6 +996,9 @@ app.post('/api/customer/register-with-referral', async (req, res) => {
   if (!phone || !name || !regionId) {
     return res.status(400).json({ error: 'Name, phone, and region are required' });
   }
+
+  const isTest = require('./lib/env').isTestEnv();
+  if (!checkTermsAgreed(req, res, isTest)) return;
   const validPhone = checkPhone(phone, res);
   if (!validPhone) return;
   phone = validPhone;
@@ -1042,6 +1053,8 @@ app.post('/api/customer/register-with-referral', async (req, res) => {
     address: address || '',
     referred_by_user_id: referrerId,
     referral_bonus_paid: false,
+    terms_accepted_at: req.body.termsAgreed ? new Date().toISOString() : null,
+    terms_version: req.body.termsAgreed ? '2026-10-draft' : null,
     created_at: new Date().toISOString()
   };
 
@@ -1060,6 +1073,8 @@ app.post('/api/customer/register-with-referral', async (req, res) => {
     });
     await appendAudit(req, 'CREATE_PARTNER_BINDING', 'customer_partner_binding', user.id, null, bindings);
   }
+
+  await appendAudit(req, 'REGISTER_CUSTOMER', 'user', user.id, null, { phone: user.phone, name: user.name, role: 'CUSTOMER', terms_accepted_at: user.terms_accepted_at, terms_version: user.terms_version });
 
   const sessionHelper = require('./lib/session');
   const token = sessionHelper.signSession(user.id, user.role);
