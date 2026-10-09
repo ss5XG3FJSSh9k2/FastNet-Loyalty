@@ -13016,7 +13016,7 @@ export default function App() {
                         <th>Total Orders</th>
                         <th>Joined Date</th>
                         <th>Status</th>
-                        <th>Actions</th>
+                        <th style={{ whiteSpace: 'nowrap', minWidth: '340px' }}>Actions</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -13037,8 +13037,8 @@ export default function App() {
                                 {c.is_active !== false ? 'Active' : 'Inactive'}
                               </span>
                             </td>
-                            <td>
-                              <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+                            <td style={{ whiteSpace: 'nowrap' }}>
+                              <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'nowrap' }}>
                                 <button className="btn btn-secondary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem' }} onClick={async () => {
                                   const res = await fetch(`${API_BASE}/admin/customers/${c.id}`);
                                   if (res.ok) {
@@ -13177,7 +13177,7 @@ export default function App() {
                           <th>30d Earnings (GMV)</th>
                           <th>Pending Orders</th>
                           <th>Status</th>
-                          <th>Actions</th>
+                          <th style={{ whiteSpace: 'nowrap', minWidth: '380px' }}>Actions</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -13266,8 +13266,8 @@ export default function App() {
                                 <td>
                                   {renderKycStatusBadge(s.kyc_status, s.is_active)}
                                 </td>
-                                <td>
-                                  <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+                                <td style={{ whiteSpace: 'nowrap' }}>
+                                  <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'nowrap' }}>
                                     <button className="btn btn-secondary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem' }} onClick={async () => {
                                       const res = await fetch(`${API_BASE}/admin/stockists/${s.id}`);
                                       if (res.ok) {
@@ -13629,7 +13629,7 @@ export default function App() {
                             <th>Bound Customers</th>
                             <th>Status</th>
                             <th>Onboarded Date</th>
-                            <th>Actions</th>
+                            <th style={{ whiteSpace: 'nowrap', minWidth: '150px' }}>Actions</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -13646,8 +13646,8 @@ export default function App() {
                                 <td>{p.bound_customers_count || 0}</td>
                                 <td><span className={`badge ${p.is_active !== false ? 'badge-success' : 'badge-secondary'}`}>{p.is_active !== false ? 'Active' : 'Inactive'}</span></td>
                                 <td style={{ fontSize: '0.7rem' }}>{p.onboarded_at ? new Date(p.onboarded_at).toLocaleDateString() : 'N/A'}</td>
-                                <td>
-                                  <div style={{ display: 'flex', gap: '0.35rem' }}>
+                                <td style={{ whiteSpace: 'nowrap' }}>
+                                  <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'nowrap' }}>
                                     <button className="btn btn-secondary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem' }} onClick={async () => {
                                       const res = await fetch(`${API_BASE}/admin/partners/${p.id}`);
                                       if (res.ok) setSelectedPartnerDetail(await res.json().catch(() => ({})));
@@ -15068,7 +15068,7 @@ export default function App() {
                           <th style={{ padding: '0.75rem 0.5rem' }}>Partners</th>
                           <th style={{ padding: '0.75rem 0.5rem' }}>Products</th>
                           <th style={{ padding: '0.75rem 0.5rem' }}>Created</th>
-                          <th style={{ padding: '0.75rem 0.5rem' }}>Actions</th>
+                          <th style={{ padding: '0.75rem 0.5rem', whiteSpace: 'nowrap', minWidth: '150px' }}>Actions</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -15089,8 +15089,8 @@ export default function App() {
                               <td style={{ padding: '0.75rem 0.5rem' }}>{r.counts?.partners || 0}</td>
                               <td style={{ padding: '0.75rem 0.5rem' }}>{r.counts?.products || 0}</td>
                               <td style={{ padding: '0.75rem 0.5rem' }}>{r.created_at ? new Date(r.created_at).toLocaleDateString() : 'N/A'}</td>
-                              <td style={{ padding: '0.75rem 0.5rem' }}>
-                                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                              <td style={{ padding: '0.75rem 0.5rem', whiteSpace: 'nowrap' }}>
+                                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'nowrap' }}>
                                   <button
                                     className="btn btn-secondary"
                                     style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}
@@ -15204,7 +15204,7 @@ export default function App() {
                             <th>Region Area</th>
                             <th>Assigned Stockists</th>
                             <th>Status</th>
-                            <th>Actions</th>
+                            <th style={{ whiteSpace: 'nowrap', minWidth: '150px' }}>Actions</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -15238,8 +15238,8 @@ export default function App() {
                                   <span className="badge badge-success">ACTIVE</span>
                                 )}
                               </td>
-                              <td>
-                                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                              <td style={{ whiteSpace: 'nowrap' }}>
+                                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'nowrap' }}>
                                   <button className="btn btn-outline" style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem' }} onClick={() => {
                                     setEditingVendor(v);
                                     setEditingVendorName(v.name);
@@ -15492,7 +15492,7 @@ export default function App() {
                         <th>Points</th>
                         <th>Payment / Release</th>
                         <th>Status</th>
-                        <th>Action</th>
+                        <th style={{ whiteSpace: 'nowrap', minWidth: '150px' }}>Action</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -15592,7 +15592,7 @@ export default function App() {
                                     <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>N/A</span>
                                 )}
                             </td>
-                            <td>
+                            <td style={{ whiteSpace: 'nowrap' }}>
                                 {correspondingPayout && !isPaid && (
                                     <button 
                                         className="btn btn-primary" 
