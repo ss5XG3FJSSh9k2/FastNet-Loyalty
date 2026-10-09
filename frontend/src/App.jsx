@@ -1776,62 +1776,78 @@ export default function App() {
 
   const getAvailableSlots = (stockist, now = new Date()) => {
     if (!stockist) return [];
+    if (stockist.manual_closed && !stockist.closed_until) return [];
+
     const opening = stockist.opening_time || '08:00';
     const closing = stockist.closing_time || '20:00';
     const prepMinutes = stockist.prep_eta_minutes || 10;
 
-    const [opH] = opening.split(':').map(Number);
-    const [clH] = closing.split(':').map(Number);
+    const [opH, opM] = opening.split(':').map(Number);
+    const [clH, clM] = closing.split(':').map(Number);
+
+    const is24Hours = (opH === clH && opM === clM);
+    const isOvernight = !is24Hours && (clH < opH || (clH === opH && clM < opM));
 
     const minTime = new Date(now.getTime() + prepMinutes * 60 * 1000);
+    const closedUntil = stockist.closed_until ? new Date(stockist.closed_until) : null;
+    const effectiveMinTime = closedUntil && closedUntil > minTime ? closedUntil : minTime;
 
     const slots = [];
     const todayDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
-    // Try today's slots first
-    for (let h = opH; h < clH; h++) {
-      const slotStart = new Date(todayDate.getFullYear(), todayDate.getMonth(), todayDate.getDate(), h, 0, 0);
-      if (slotStart.getTime() >= minTime.getTime()) {
-        const year = todayDate.getFullYear();
-        const month = String(todayDate.getMonth() + 1).padStart(2, '0');
-        const day = String(todayDate.getDate()).padStart(2, '0');
-        const hourStr = String(h).padStart(2, '0');
-        
-        const value = `${year}-${month}-${day}T${hourStr}:00`;
-        const label = `Today, ${formatHour12(h)} – ${formatHour12(h + 1)}`;
-        slots.push({ value, label, day: 'today' });
+    for (let dayOffset = -1; dayOffset <= 2; dayOffset++) {
+      const currentDay = new Date(todayDate.getTime() + dayOffset * 24 * 60 * 60 * 1000);
+      
+      const op = new Date(currentDay.getFullYear(), currentDay.getMonth(), currentDay.getDate(), opH, opM, 0);
+      
+      let cl;
+      if (is24Hours) {
+        cl = new Date(op.getTime() + 24 * 60 * 60 * 1000);
+      } else if (isOvernight) {
+        cl = new Date(currentDay.getFullYear(), currentDay.getMonth(), currentDay.getDate() + 1, clH, clM, 0);
+      } else {
+        cl = new Date(currentDay.getFullYear(), currentDay.getMonth(), currentDay.getDate(), clH, clM, 0);
+      }
+
+      let slotTime = new Date(currentDay.getFullYear(), currentDay.getMonth(), currentDay.getDate(), opH + (opM > 0 ? 1 : 0), 0, 0).getTime();
+      const clTime = cl.getTime();
+      
+      while (slotTime + 60 * 60 * 1000 <= clTime) {
+        if (slotTime >= effectiveMinTime.getTime()) {
+          const slotStart = new Date(slotTime);
+          const year = slotStart.getFullYear();
+          const month = String(slotStart.getMonth() + 1).padStart(2, '0');
+          const day = String(slotStart.getDate()).padStart(2, '0');
+          const hourStr = String(slotStart.getHours()).padStart(2, '0');
+          const minStr = String(slotStart.getMinutes()).padStart(2, '0');
+          
+          const value = `${year}-${month}-${day}T${hourStr}:${minStr}`;
+          const endSlot = new Date(slotTime + 60 * 60 * 1000);
+          
+          const isToday = slotStart.getDate() === todayDate.getDate() && slotStart.getMonth() === todayDate.getMonth() && slotStart.getFullYear() === todayDate.getFullYear();
+          const tomorrowDate = new Date(todayDate.getTime() + 24 * 60 * 60 * 1000);
+          const isTomorrow = slotStart.getDate() === tomorrowDate.getDate() && slotStart.getMonth() === tomorrowDate.getMonth() && slotStart.getFullYear() === tomorrowDate.getFullYear();
+          
+          const prefix = isToday ? 'Today' : (isTomorrow ? 'Tomorrow' : `${year}-${month}-${day}`);
+          const label = `${prefix}, ${formatHour12(slotStart)} – ${formatHour12(endSlot)}`;
+          
+          slots.push({ value, label, day: isToday ? 'today' : 'tomorrow', time: slotTime });
+        }
+        slotTime += 60 * 60 * 1000;
       }
     }
 
-    // If no slots remain today (or less than 8), fill with tomorrow's slots
-    if (slots.length === 0) {
-      const tomorrowDate = new Date(todayDate.getTime() + 24 * 60 * 60 * 1000);
-      const year = tomorrowDate.getFullYear();
-      const month = String(tomorrowDate.getMonth() + 1).padStart(2, '0');
-      const day = String(tomorrowDate.getDate()).padStart(2, '0');
-
-      for (let h = opH; h < clH; h++) {
-        const hourStr = String(h).padStart(2, '0');
-        const value = `${year}-${month}-${day}T${hourStr}:00`;
-        const label = `Tomorrow, ${formatHour12(h)} – ${formatHour12(h + 1)}`;
-        slots.push({ value, label, day: 'tomorrow' });
-        if (slots.length >= 8) break;
+    const uniqueSlots = [];
+    const seen = new Set();
+    for (const slot of slots.sort((a, b) => a.time - b.time)) {
+      if (!seen.has(slot.value)) {
+        seen.add(slot.value);
+        uniqueSlots.push(slot);
+        if (uniqueSlots.length >= 8) break;
       }
     }
 
-    // Fallback: Always return at least one slot
-    if (slots.length === 0) {
-      const tomorrowDate = new Date(todayDate.getTime() + 24 * 60 * 60 * 1000);
-      const year = tomorrowDate.getFullYear();
-      const month = String(tomorrowDate.getMonth() + 1).padStart(2, '0');
-      const day = String(tomorrowDate.getDate()).padStart(2, '0');
-      const hourStr = String(opH).padStart(2, '0');
-      const value = `${year}-${month}-${day}T${hourStr}:00`;
-      const label = `Tomorrow, ${formatHour12(opH)} – ${formatHour12(opH + 1)}`;
-      slots.push({ value, label, day: 'tomorrow' });
-    }
-
-    return slots.slice(0, 8);
+    return uniqueSlots.map(({ value, label, day }) => ({ value, label, day }));
   };
   const [productSearch, setProductSearch] = useState('');
   const [stockistProductSearch, setStockistProductSearch] = useState('');
