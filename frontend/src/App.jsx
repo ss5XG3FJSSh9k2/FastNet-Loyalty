@@ -2175,6 +2175,16 @@ export default function App() {
     return `${formatted} pts`;
   };
 
+  const ledgerAmountColor = (entry) => {
+    if (entry.type === 'EARN') return 'var(--accent)';
+    if (entry.type === 'EARN_HELD') return 'var(--warning)';
+    if (entry.type === 'MANUAL_CREDIT') return 'var(--warning)';
+    if (entry.amount > 0) return 'var(--accent)';
+    if (entry.amount < 0) return 'var(--danger)';
+    return 'var(--text-main)';
+  };
+
+
   const pointsToRupees = (points) => Number(points) || 0;
 
   const formatOrderStatusDisplay = (status, fulfillmentType) => {
@@ -10084,10 +10094,13 @@ export default function App() {
                               <div style={{ fontWeight: '600', color: 'white' }}>{l.description}</div>
                               <div style={{ color: 'var(--text-muted)', fontSize: '0.6rem' }}>{new Date(l.created_at).toLocaleDateString()}</div>
                             </div>
-                            <div style={{ fontWeight: 'bold', color: l.type === 'EARN_HELD' ? 'var(--warning)' : (l.type === 'EARN' ? 'var(--accent)' : 'var(--danger)'), fontSize: '0.8rem', textAlign: 'right' }}>
+                            <div style={{ fontWeight: 'bold', color: ledgerAmountColor(l), fontSize: '0.8rem', textAlign: 'right' }}>
                               {l.amount > 0 ? '+' : ''}{formatPoints(l.amount)}
                               {l.type === 'EARN_HELD' && (
                                 <div style={{ fontSize: '0.55rem', color: 'var(--warning)', fontWeight: 'normal' }}>{t('pending', 'लंबित', 'মুলতুবি')}</div>
+                              )}
+                              {l.type === 'MANUAL_CREDIT' && (
+                                <div style={{ fontSize: '0.55rem', color: ledgerAmountColor(l), fontWeight: 'normal' }}>{t('from admin', 'एडमिन से', 'অ্যাডমিন থেকে')}</div>
                               )}
                             </div>
                           </div>
@@ -16797,7 +16810,7 @@ export default function App() {
               {selectedCustomerDetail.ledger?.map(l => (
                 <div key={l.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', padding: '0.3rem 0', borderBottom: '1px dashed rgba(255,255,255,0.05)' }}>
                   <span>{l.description} ({new Date(l.created_at).toLocaleDateString()})</span>
-                  <span style={{ color: l.type === 'EARN' ? 'var(--accent)' : 'var(--danger)', fontWeight: 'bold' }}>{l.amount > 0 ? '+' : ''}{l.amount}</span>
+                  <span style={{ color: ledgerAmountColor(l), fontWeight: 'bold' }}>{l.amount > 0 ? '+' : ''}{l.amount}</span>
                 </div>
               ))}
               {(!selectedCustomerDetail.ledger || selectedCustomerDetail.ledger.length === 0) && <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>No points entries.</p>}
