@@ -307,7 +307,7 @@ const MemoizedAuditLogRow = React.memo(({ log }) => {
 });
 MemoizedAuditLogRow.displayName = 'MemoizedAuditLogRow';
 
-const NumberStepper = ({ id, value, onChange, min, max, step, decimals = 0, suffix = '', size = 'md' }) => {
+const NumberStepper = ({ id, value, onChange, min, max, step, decimals = 0, suffix = '', size = 'md', fullWidth = false }) => {
   const hasMax = max !== undefined && max !== null;
   const round = v => Number(v.toFixed(decimals));
   const clamp = v => {
@@ -347,11 +347,11 @@ const NumberStepper = ({ id, value, onChange, min, max, step, decimals = 0, suff
   const sm = size === 'sm';
   const btn = sm ? 32 : 44;
   const valStyle = sm
-    ? { textAlign: 'center', width: 48, flexShrink: 0, padding: '0.25rem' }
-    : { textAlign: 'center', flex: 1, minWidth: 0 };
+    ? { textAlign: 'center', width: 48, flexShrink: 0, padding: '0.25rem', height: btn, boxSizing: 'border-box' }
+    : { textAlign: 'center', flex: 1, minWidth: 60, height: btn, boxSizing: 'border-box' };
 
   return (
-    <div style={{ display: 'inline-flex', alignItems: 'center', gap: sm ? '0.25rem' : '0.5rem' }}>
+    <div style={{ display: fullWidth ? 'flex' : 'inline-flex', alignItems: 'center', gap: sm ? '0.25rem' : '0.5rem', width: fullWidth ? '100%' : undefined }}>
       <button type="button" className="btn btn-secondary"
         style={{ width: btn, height: btn, fontSize: sm ? '1rem' : '1.25rem', flexShrink: 0, padding: 0 }}
         disabled={cur <= min}
@@ -16860,28 +16860,26 @@ export default function App() {
                   </select>
                 </div>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.75rem', alignItems: 'start' }}>
                 <div className="input-group">
-                  <label className="input-label">Commission Rate (%)</label>
-                  <NumberStepper value={createStkRate} onChange={setCreateStkRate} min={0} max={100} step={0.5} decimals={1} suffix="%" />
+                  <label className="input-label" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title="Commission Rate (%)">Commission Rate</label>
+                  <NumberStepper value={createStkRate} onChange={setCreateStkRate} min={0} max={100} step={0.5} decimals={1} suffix="%" fullWidth />
                 </div>
                 <div className="input-group">
-                  <label className="input-label">Delivery Radius (km)</label>
-                  <NumberStepper value={createStkRadius} onChange={v => setCreateStkRadius(parseFloat(v))} min={0.5} step={0.5} decimals={1} suffix="km" />
-                </div>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.5rem' }}>
-                <div className="input-group">
-                  <label className="input-label">Open Time</label>
-                  <input type="text" className="text-input" value={createStkOpen} onChange={e => setCreateStkOpen(e.target.value)} />
+                  <label className="input-label" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title="Open Time">Open Time</label>
+                  <input type="text" className="text-input" value={createStkOpen} onChange={e => setCreateStkOpen(e.target.value)} style={{ height: '44px', boxSizing: 'border-box' }} />
                 </div>
                 <div className="input-group">
-                  <label className="input-label">Close Time</label>
-                  <input type="text" className="text-input" value={createStkClose} onChange={e => setCreateStkClose(e.target.value)} />
+                  <label className="input-label" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title="Close Time">Close Time</label>
+                  <input type="text" className="text-input" value={createStkClose} onChange={e => setCreateStkClose(e.target.value)} style={{ height: '44px', boxSizing: 'border-box' }} />
                 </div>
                 <div className="input-group">
-                  <label className="input-label">Prep ETA (m)</label>
-                  <NumberStepper value={createStkEta} onChange={v => setCreateStkEta(parseInt(v, 10))} min={5} max={120} step={5} decimals={0} />
+                  <label className="input-label" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title="Prep ETA (min)">Prep ETA</label>
+                  <NumberStepper value={createStkEta} onChange={v => setCreateStkEta(parseInt(v, 10))} min={5} max={120} step={5} decimals={0} fullWidth />
+                </div>
+                <div className="input-group">
+                  <label className="input-label" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title="Delivery Radius (km)">Delivery Radius</label>
+                  <NumberStepper value={createStkRadius} onChange={v => setCreateStkRadius(parseFloat(v))} min={0.5} step={0.5} decimals={1} suffix="km" fullWidth />
                 </div>
               </div>
               <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
@@ -16930,9 +16928,9 @@ export default function App() {
                   required
                 />
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.5rem' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.5rem', alignItems: 'start' }}>
                 <div className="input-group">
-                  <label htmlFor="edit-stk-open" className="input-label">
+                  <label htmlFor="edit-stk-open" className="input-label" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={t('Opening Time', 'खुलने का समय', 'খোলার সময়')}>
                     {t('Opening Time', 'खुलने का समय', 'খোলার সময়')} <span style={{ color: 'var(--danger)' }}>*</span>
                   </label>
                   <input 
@@ -16943,10 +16941,11 @@ export default function App() {
                     value={editStkOpen} 
                     onChange={e => setEditStkOpen(e.target.value)} 
                     required
+                    style={{ height: '44px', boxSizing: 'border-box' }}
                   />
                 </div>
                 <div className="input-group">
-                  <label htmlFor="edit-stk-close" className="input-label">
+                  <label htmlFor="edit-stk-close" className="input-label" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={t('Closing Time', 'बंद होने का समय', 'বন্ধের সময়')}>
                     {t('Closing Time', 'बंद होने का समय', 'বন্ধের সময়')} <span style={{ color: 'var(--danger)' }}>*</span>
                   </label>
                   <input 
@@ -16957,19 +16956,20 @@ export default function App() {
                     value={editStkClose} 
                     onChange={e => setEditStkClose(e.target.value)} 
                     required
+                    style={{ height: '44px', boxSizing: 'border-box' }}
                   />
                 </div>
                 <div className="input-group">
-                  <label htmlFor="edit-stk-eta" className="input-label">
-                    {t('Prep ETA (min)', 'तैयारी का समय (मिनट)', 'প্রস্তুতি সময় (মিনিট)')} <span style={{ color: 'var(--danger)' }}>*</span>
+                  <label htmlFor="edit-stk-eta" className="input-label" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={t('Prep ETA (min)', 'तैयारी का समय (मिनट)', 'প্রস্তুতি সময় (মিনিট)')}>
+                    {t('Prep ETA', 'तैयारी का समय', 'প্রস্তুতি সময়')} <span style={{ color: 'var(--danger)' }}>*</span>
                   </label>
-                  <NumberStepper id="edit-stk-eta" value={editStkEta} onChange={v => setEditStkEta(parseInt(v, 10))} min={5} max={120} step={5} decimals={0} />
+                  <NumberStepper id="edit-stk-eta" value={editStkEta} onChange={v => setEditStkEta(parseInt(v, 10))} min={5} max={120} step={5} decimals={0} fullWidth />
                 </div>
                 <div className="input-group">
-                  <label htmlFor="edit-stk-radius" className="input-label">
-                    {t('Delivery Radius (km)', 'डिलीवरी का दायरा (किमी)', 'ডেলিভারি ব্যাসার্ধ (কিমি)')} <span style={{ color: 'var(--danger)' }}>*</span>
+                  <label htmlFor="edit-stk-radius" className="input-label" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={t('Delivery Radius (km)', 'डिलीवरी का दायरा (किमी)', 'ডেলিভারি ব্যাসার্ধ (কিমি)')}>
+                    {t('Delivery Radius', 'डिलीवरी का दायरा', 'ডেলিভারি ব্যাসার্ধ')} <span style={{ color: 'var(--danger)' }}>*</span>
                   </label>
-                  <NumberStepper id="edit-stk-radius" value={editStkRadius} onChange={v => setEditStkRadius(parseFloat(v))} min={0.5} step={0.5} decimals={1} suffix="km" />
+                  <NumberStepper id="edit-stk-radius" value={editStkRadius} onChange={v => setEditStkRadius(parseFloat(v))} min={0.5} step={0.5} decimals={1} suffix="km" fullWidth />
                 </div>
               </div>
 
