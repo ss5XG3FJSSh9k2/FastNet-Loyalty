@@ -1312,6 +1312,7 @@ export default function App() {
   const [selectedPartnerFeedback, setSelectedPartnerFeedback] = useState(null);
   const [partnerFeedbackNotes, setPartnerFeedbackNotes] = useState('');
   const [partnerFeedbackStatus, setPartnerFeedbackStatus] = useState('REVIEWING');
+  const [partnerFeedbackSubmitting, setPartnerFeedbackSubmitting] = useState(false);
   const [submittingFeedbackOrder, setSubmittingFeedbackOrder] = useState(null);
   const [feedbackRating, setFeedbackRating] = useState(5);
   const [feedbackReason, setFeedbackReason] = useState('');
@@ -15013,49 +15014,107 @@ export default function App() {
 
                   {showPartnerFeedbackModal && selectedPartnerFeedback && (
                     <div className="modal-overlay">
-                      <div className="modal-content glass-card" style={{ maxWidth: '500px' }}>
+                      <div className="modal-content glass-card" style={{ maxWidth: '520px', width: '90vw', maxHeight: '85vh', overflowY: 'auto' }}>
                         <PanelErrorBoundary t={t}>
-                        <h3 style={{ marginTop: 0 }}>{t('Respond to Partner Feedback', 'पार्टनर प्रतिक्रिया का जवाब दें', 'পার্টনার ফিডব্যাকের উত্তর দিন')}</h3>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <h3 style={{ margin: 0 }}>{t('Respond to Partner Feedback', 'पार्टनर प्रतिक्रिया का जवाब दें', 'পার্টনার ফিডব্যাকের উত্তর দিন')}</h3>
+                          <button className="btn btn-secondary" style={{ padding: '0.2rem 0.5rem' }} onClick={() => setShowPartnerFeedbackModal(false)}><X size={14} /></button>
+                        </div>
+                        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '1rem', marginTop: '0.25rem' }}>
+                          {selectedPartnerFeedback.partner_name} &bull; {new Date(selectedPartnerFeedback.created_at).toLocaleString()}
+                        </div>
                         
-                        <div style={{ background: 'var(--bg-surface)', padding: '1rem', borderRadius: '8px', marginBottom: '1rem' }}>
-                            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>
-                                {t('From:', 'से:', 'থেকে:')} <strong>{selectedPartnerFeedback.partner_name}</strong> &bull; {new Date(selectedPartnerFeedback.created_at).toLocaleString()}
+                        <div style={{ background: 'rgba(255, 255, 255, 0.03)', border: '1px solid var(--border-color)', padding: '1rem', borderRadius: '8px', marginBottom: '1.25rem' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                                <h4 style={{ margin: 0, fontSize: '0.95rem' }}>{selectedPartnerFeedback.subject}</h4>
+                                <span className="badge badge-primary" style={{ fontSize: '0.65rem' }}>{selectedPartnerFeedback.category}</span>
                             </div>
-                            <div style={{ fontSize: '0.9rem', fontWeight: 'bold', marginBottom: '0.5rem' }}>
-                                {selectedPartnerFeedback.subject} ({selectedPartnerFeedback.category})
-                            </div>
-                            <div style={{ fontSize: '0.9rem', whiteSpace: 'pre-wrap' }}>
-                                {selectedPartnerFeedback.message}
+                            <div style={{ maxHeight: '140px', overflowY: 'auto', fontSize: '0.85rem', whiteSpace: 'pre-wrap', color: 'var(--text-main)', paddingRight: '0.5rem' }}>
+                                {selectedPartnerFeedback.message ? selectedPartnerFeedback.message : <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>{t('No message text', 'कोई संदेश टेक्स्ट नहीं', 'কোন বার্তা টেক্সট নেই')}</span>}
                             </div>
                         </div>
 
-                        <div className="form-group">
-                          <label>{t('Update Status', 'स्थिति अपडेट करें', 'স্ট্যাটাস আপডেট করুন')}</label>
-                          <select className="text-input" value={partnerFeedbackStatus} onChange={e => setPartnerFeedbackStatus(e.target.value)}>
-                            <option value="NEW">NEW</option>
-                            <option value="REVIEWING">REVIEWING (In Progress)</option>
-                            <option value="RESOLVED">RESOLVED</option>
-                            <option value="DISMISSED">DISMISSED</option>
-                          </select>
+                        <div className="input-group" style={{ marginBottom: '1rem' }}>
+                          <label className="input-label">{t('Update Status', 'स्थिति अपडेट करें', 'স্ট্যাটাস আপডেট করুন')}</label>
+                          <div role="radiogroup" style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                            {[
+                              { val: 'NEW', label: 'NEW', badge: 'badge-warning' },
+                              { val: 'REVIEWING', label: 'REVIEWING', badge: 'badge-primary' },
+                              { val: 'RESOLVED', label: 'RESOLVED', badge: 'badge-success' },
+                              { val: 'DISMISSED', label: 'DISMISSED', badge: 'badge-danger' }
+                            ].map(s => (
+                              <button
+                                key={s.val}
+                                role="radio"
+                                aria-checked={partnerFeedbackStatus === s.val}
+                                onClick={() => setPartnerFeedbackStatus(s.val)}
+                                style={{
+                                  padding: '0.4rem 0.8rem',
+                                  borderRadius: '20px',
+                                  fontSize: '0.75rem',
+                                  fontWeight: 'bold',
+                                  border: `1px solid ${partnerFeedbackStatus === s.val ? 'var(--text-main)' : 'transparent'}`,
+                                  cursor: 'pointer',
+                                  opacity: partnerFeedbackStatus === s.val ? 1 : 0.6,
+                                  transition: 'all 0.2s',
+                                  outline: 'none'
+                                }}
+                                className={`badge ${s.badge}`}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault();
+                                    setPartnerFeedbackStatus(s.val);
+                                  }
+                                }}
+                              >
+                                {s.label}
+                              </button>
+                            ))}
+                          </div>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.4rem' }}>
+                            {partnerFeedbackStatus === 'REVIEWING' && t('In progress', 'प्रगति में है', 'চলমান')}
+                            {(partnerFeedbackStatus === 'RESOLVED' || partnerFeedbackStatus === 'DISMISSED') && t('Closes the report and requires a note', 'रिपोर्ट बंद कर देता है और एक नोट की आवश्यकता होती है', 'রিপোর্ট বন্ধ করে এবং একটি নোট প্রয়োজন')}
+                          </div>
                         </div>
-                        <div className="form-group">
-                          <label>{t('Admin Notes (Visible to Partner)', 'व्यवस्थापक नोट्स (पार्टनर को दिखाई देंगे)', 'অ্যাডমিন নোটস (পার্টনার দেখতে পাবেন)')}</label>
+
+                        <div className="input-group" style={{ marginBottom: '1.5rem' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '0.25rem' }}>
+                            <label className="input-label" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                              {t('Admin Notes', 'व्यवस्थापक नोट्स', 'অ্যাডমিন নোটস')}
+                              <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.2rem', fontWeight: 'normal' }}>
+                                <Lock size={12} /> {t('Visible to partner', 'पार्टनर को दिखाई देंगे', 'পার্টনার দেখতে পাবেন')}
+                              </span>
+                            </label>
+                            {['RESOLVED', 'DISMISSED'].includes(partnerFeedbackStatus) && (
+                              <span style={{ fontSize: '0.7rem', color: partnerFeedbackNotes.trim().length >= 10 ? 'var(--success)' : 'var(--danger)' }}>
+                                {partnerFeedbackNotes.trim().length} / 10 {t('minimum', 'न्यूनतम', 'ন্যূনতম')}
+                              </span>
+                            )}
+                          </div>
                           <textarea 
                             className="text-input" 
-                            rows="3" 
+                            rows="4" 
+                            style={{ resize: 'vertical' }}
                             value={partnerFeedbackNotes}
                             onChange={e => setPartnerFeedbackNotes(e.target.value)}
                             placeholder={t('Add your response or resolution details here...', 'अपना जवाब या समाधान विवरण यहां जोड़ें...', 'আপনার প্রতিক্রিয়া বা সমাধানের বিবরণ এখানে যোগ করুন...')}
                           ></textarea>
-                          {['RESOLVED', 'DISMISSED'].includes(partnerFeedbackStatus) && (
-                            <div style={{ fontSize: '0.7rem', color: 'var(--warning)', marginTop: '0.25rem' }}>
-                                * {t('Minimum 10 characters required for RESOLVED/DISMISSED status.', 'RESOLVED/DISMISSED स्थिति के लिए न्यूनतम 10 वर्ण आवश्यक हैं।', 'RESOLVED/DISMISSED স্ট্যাটাসের জন্য ন্যূনতম ১০টি অক্ষর প্রয়োজন।')}
+                          {selectedPartnerFeedback.admin_notes && selectedPartnerFeedback.updated_at && (
+                            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.4rem' }}>
+                              {t('Last updated:', 'अंतिम अपडेट:', 'শেষ আপডেট:')} {new Date(selectedPartnerFeedback.updated_at).toLocaleString()}
                             </div>
                           )}
                         </div>
-                        <div style={{ display: 'flex', gap: '1rem', marginTop: '1.5rem' }}>
-                          <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setShowPartnerFeedbackModal(false)}>{t('Cancel', 'रद्द करें', 'বাতিল করুন')}</button>
-                          <button className="btn btn-primary" style={{ flex: 1 }} onClick={handleUpdatePartnerFeedback}>{t('Update Feedback', 'प्रतिक्रिया अपडेट करें', 'ফিডব্যাক আপডেট করুন')}</button>
+
+                        <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
+                          <button className="btn btn-secondary" style={{ flex: 1, padding: '0.6rem 0' }} onClick={() => setShowPartnerFeedbackModal(false)} disabled={partnerFeedbackSubmitting}>{t('Cancel', 'रद्द करें', 'বাতিল করুন')}</button>
+                          <button className="btn btn-primary" style={{ flex: 1, padding: '0.6rem 0' }} onClick={async () => {
+                            setPartnerFeedbackSubmitting(true);
+                            await handleUpdatePartnerFeedback();
+                            setPartnerFeedbackSubmitting(false);
+                          }} disabled={partnerFeedbackSubmitting || (['RESOLVED', 'DISMISSED'].includes(partnerFeedbackStatus) && partnerFeedbackNotes.trim().length < 10)}>
+                            {partnerFeedbackSubmitting ? t('Updating...', 'अपडेट हो रहा है...', 'আপডেট হচ্ছে...') : t('Update Feedback', 'प्रतिक्रिया अपडेट करें', 'ফিডব্যাক আপডেট করুন')}
+                          </button>
                         </div>
                         </PanelErrorBoundary>
                       </div>
@@ -15563,11 +15622,11 @@ export default function App() {
                         <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '1rem' }}>
                           Please provide the transaction ID, UPI reference, or check number used for this payment.
                         </p>
-                        <div className="form-group">
-                          <label>Payment Reference (min 4 chars)</label>
+                        <div className="input-group">
+                          <label className="input-label">Payment Reference (min 4 chars)</label>
                           <input 
                             type="text" 
-                            className="input-field" 
+                            className="text-input" 
                             placeholder="e.g., UPI-123456789" 
                             value={paymentRefValue}
                             onChange={e => setPaymentRefValue(e.target.value)}
