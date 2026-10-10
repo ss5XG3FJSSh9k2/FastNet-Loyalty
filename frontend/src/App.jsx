@@ -463,7 +463,7 @@ const TimePicker = ({ value, onChange }) => {
           <div
             className="glass-card"
             style={{
-              width: '300px', maxWidth: '90vw',
+              width: '300px', maxWidth: `calc(90vw / var(--ui-scale))`,
               padding: '1rem', display: 'flex', flexDirection: 'column', gap: '1rem'
             }}
             onClick={e => e.stopPropagation()}
@@ -11070,7 +11070,7 @@ export default function App() {
                     )}
                   </div>
                   
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '50vh', overflowY: 'auto' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: `calc(50vh / var(--ui-scale))`, overflowY: 'auto' }}>
                     {Object.values(customerCarts).sort((a,b)=>b.createdAt-a.createdAt).map(cart => (
                       <div key={cart.stockistId} className="glass-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '8px' }}>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
@@ -12414,7 +12414,7 @@ export default function App() {
 
                         {showPersonalDetails && createPortal(
                           <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(2px)', zIndex: 'var(--z-modal)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }} onClick={() => setShowPersonalDetails(false)}>
-                            <div style={{ width: '100%', maxWidth: '360px', padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '0.85rem', background: '#161a24', border: '1px solid var(--border-color)', borderRadius: '12px', boxShadow: '0 12px 40px rgba(0,0,0,0.5)', maxHeight: '85vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
+                            <div style={{ width: '100%', maxWidth: '360px', padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '0.85rem', background: '#161a24', border: '1px solid var(--border-color)', borderRadius: '12px', boxShadow: '0 12px 40px rgba(0,0,0,0.5)', maxHeight: `calc(85vh / var(--ui-scale))`, overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
                               <h4 style={{ margin: 0, color: 'white', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem' }}>{t('Personal Details', 'व्यक्तिगत विवरण', 'ব্যক্তিগত বিবরণ')}</h4>
                               <div style={{ fontSize: '0.8rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                                 <div><span style={{color:'var(--text-muted)'}}>{t('Name','नाम','নাম')}: </span><strong>{stockistProfile.personal_name || stockistProfile.name}</strong></div>
@@ -15066,7 +15066,7 @@ export default function App() {
 
                   {showPartnerFeedbackModal && selectedPartnerFeedback && (
                     <div className="modal-overlay">
-                      <div className="modal-content glass-card" style={{ maxWidth: '520px', width: '90vw', maxHeight: '85vh', overflowY: 'auto' }}>
+                      <div className="modal-content glass-card" style={{ maxWidth: '520px', width: `calc(90vw / var(--ui-scale))`, maxHeight: `calc(85vh / var(--ui-scale))`, overflowY: 'auto' }}>
                         <PanelErrorBoundary t={t}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                           <h3 style={{ margin: 0 }}>{t('Respond to Partner Feedback', 'पार्टनर प्रतिक्रिया का जवाब दें', 'পার্টনার ফিডব্যাকের উত্তর দিন')}</h3>
@@ -15970,7 +15970,7 @@ export default function App() {
 
   if (needsSetup) {
     return (
-      <div className="simulator-shell" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', padding: '1.5rem', background: '#0f172a' }}>
+      <div className="simulator-shell" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: `calc(100vh / var(--ui-scale))`, padding: '1.5rem', background: '#0f172a' }}>
         <div className="glass-card" style={{ width: '100%', maxWidth: '440px', padding: '2rem', borderRadius: '16px', border: '1px solid rgba(255, 255, 255, 0.1)', background: 'rgba(30, 41, 59, 0.7)', backdropFilter: 'blur(16px)' }}>
           {setupSuccessAdmin ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', textAlign: 'center' }}>
@@ -16139,8 +16139,8 @@ export default function App() {
             position: 'fixed',
             top: 0,
             left: 0,
-            width: '100vw',
-            height: '100vh',
+            width: `calc(100vw / var(--ui-scale))`,
+            height: `calc(100vh / var(--ui-scale))`,
             background: 'rgba(0, 0, 0, 0.7)',
             display: 'flex',
             alignItems: 'center',
@@ -16204,8 +16204,8 @@ export default function App() {
             position: 'fixed',
             top: 0,
             left: 0,
-            width: '100vw',
-            height: '100vh',
+            width: `calc(100vw / var(--ui-scale))`,
+            height: `calc(100vh / var(--ui-scale))`,
             background: 'rgba(0, 0, 0, 0.75)',
             display: 'flex',
             alignItems: 'center',
@@ -17084,7 +17084,7 @@ export default function App() {
       {/* R5 Customer Detail Modal */}
       {showCustomerDetailModal && selectedCustomerDetail && (
         <div className="modal-overlay">
-          <div className="modal-content glass-card" style={{ maxWidth: '600px', maxHeight: '80vh', overflowY: 'auto' }}>
+          <div className="modal-content glass-card" style={{ maxWidth: '600px', maxHeight: `calc(80vh / var(--ui-scale))`, overflowY: 'auto' }}>
             <PanelErrorBoundary t={t}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
               <h3 style={{ fontSize: '1.2rem', margin: 0 }}>Customer Detail: {selectedCustomerDetail.name}</h3>
@@ -17200,7 +17200,7 @@ export default function App() {
       {/* R6 Edit Stockist Details Modal */}
       {showEditStockistModal && selectedStockistDetail && (
         <div className="modal-overlay">
-          <div className="modal-content glass-card" style={{ maxWidth: '720px', width: '90vw', maxHeight: '85vh', overflowY: 'auto', overflowX: 'hidden' }}>
+          <div className="modal-content glass-card" style={{ maxWidth: '720px', width: `calc(90vw / var(--ui-scale))`, maxHeight: `calc(85vh / var(--ui-scale))`, overflowY: 'auto', overflowX: 'hidden' }}>
             <PanelErrorBoundary t={t}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
               <h3 style={{ fontSize: '1.1rem', margin: 0 }}>{t('Edit Stockist Details', 'स्टॉकिस्ट विवरण संपादित करें', 'স্টকিস্টের বিবরণ সম্পাদনা করুন')}</h3>
@@ -17504,7 +17504,7 @@ export default function App() {
       {/* R8 Fraud Report Admin Review Modal */}
       {selectedFraudReportDetail && (
         <div className="modal-overlay">
-          <div className="modal-content glass-card" style={{ maxWidth: '600px', maxHeight: '85vh', overflowY: 'auto' }}>
+          <div className="modal-content glass-card" style={{ maxWidth: '600px', maxHeight: `calc(85vh / var(--ui-scale))`, overflowY: 'auto' }}>
             <PanelErrorBoundary t={t}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
               <h3 style={{ fontSize: '1.1rem', margin: 0 }}>Review Fraud Report</h3>
@@ -17789,7 +17789,7 @@ export default function App() {
       {/* P2 Onboarded Partner Detail Modal */}
       {selectedPartnerDetail && (
         <div className="modal-overlay">
-          <div className="modal-content glass-card" style={{ maxWidth: '600px', maxHeight: '80vh', overflowY: 'auto' }}>
+          <div className="modal-content glass-card" style={{ maxWidth: '600px', maxHeight: `calc(80vh / var(--ui-scale))`, overflowY: 'auto' }}>
             <PanelErrorBoundary t={t}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
               <h3 style={{ fontSize: '1.2rem', margin: 0 }}>Partner Details: {selectedPartnerDetail.display_name}</h3>
@@ -17884,7 +17884,7 @@ export default function App() {
       {/* Bill History Modal */}
       {showBillHistoryModal && (
         <div className="modal-overlay">
-          <div className="modal-content glass-card" style={{ maxWidth: '550px', maxHeight: '80vh', overflowY: 'auto' }}>
+          <div className="modal-content glass-card" style={{ maxWidth: '550px', maxHeight: `calc(80vh / var(--ui-scale))`, overflowY: 'auto' }}>
             <PanelErrorBoundary t={t}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
               <h3 style={{ fontSize: '1.1rem', margin: 0 }}>Bill Photo History: {billHistoryProduct?.name}</h3>
@@ -18026,7 +18026,7 @@ export default function App() {
 
         return (
           <div className="modal-overlay">
-            <div className="modal-content glass-card" style={{ maxWidth: '550px', maxHeight: '80vh', overflowY: 'auto' }}>
+            <div className="modal-content glass-card" style={{ maxWidth: '550px', maxHeight: `calc(80vh / var(--ui-scale))`, overflowY: 'auto' }}>
               <PanelErrorBoundary t={t}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
                 <h3 style={{ fontSize: '1.2rem', margin: 0 }}>Stockist Details: {shopName}</h3>
@@ -18246,7 +18246,7 @@ export default function App() {
       {/* Privacy Policy Modal (Part 2 Item 6) */}
       {showPrivacyPolicyModal && (
         <div className="modal-overlay" role="dialog" aria-labelledby="privacy-modal-title">
-          <div className="modal-content" style={{ maxWidth: '650px', maxHeight: '80vh', overflowY: 'auto' }}>
+          <div className="modal-content" style={{ maxWidth: '650px', maxHeight: `calc(80vh / var(--ui-scale))`, overflowY: 'auto' }}>
             <PanelErrorBoundary t={t}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
               <h3 id="privacy-modal-title">{t('Privacy Policy', 'Privacy Policy', 'Privacy Policy')}</h3>
@@ -18269,7 +18269,7 @@ export default function App() {
       {/* Terms & Conditions Modal (Part 2 Item 7) */}
       {showTermsModal && (
         <div className="modal-overlay" role="dialog" aria-labelledby="terms-modal-title">
-          <div className="modal-content" style={{ maxWidth: '650px', maxHeight: '80vh', overflowY: 'auto' }}>
+          <div className="modal-content" style={{ maxWidth: '650px', maxHeight: `calc(80vh / var(--ui-scale))`, overflowY: 'auto' }}>
             <PanelErrorBoundary t={t}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
               <h3 id="terms-modal-title">{t('Terms & Conditions', 'Terms & Conditions', 'Terms & Conditions')}</h3>
@@ -18291,7 +18291,7 @@ export default function App() {
       {/* Refund Policy Modal (Part 2 Item 8) */}
       {showRefundPolicyModal && (
         <div className="modal-overlay" role="dialog" aria-labelledby="refund-modal-title">
-          <div className="modal-content" style={{ maxWidth: '650px', maxHeight: '80vh', overflowY: 'auto' }}>
+          <div className="modal-content" style={{ maxWidth: '650px', maxHeight: `calc(80vh / var(--ui-scale))`, overflowY: 'auto' }}>
             <PanelErrorBoundary t={t}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
               <h3 id="refund-modal-title">{t('Refund Policy', 'Refund Policy', 'Refund Policy')}</h3>
@@ -18313,7 +18313,7 @@ export default function App() {
       {/* Cookies Policy Modal (Part 2 Item 9) */}
       {showCookiesPolicyModal && (
         <div className="modal-overlay" role="dialog" aria-labelledby="cookies-modal-title">
-          <div className="modal-content" style={{ maxWidth: '650px', maxHeight: '80vh', overflowY: 'auto' }}>
+          <div className="modal-content" style={{ maxWidth: '650px', maxHeight: `calc(80vh / var(--ui-scale))`, overflowY: 'auto' }}>
             <PanelErrorBoundary t={t}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
               <h3 id="cookies-modal-title">{t('Cookies Policy', 'Cookies Policy', 'Cookies Policy')}</h3>
@@ -18557,11 +18557,11 @@ export default function App() {
             <div style={{ marginBottom: '1rem', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
               <strong>{selectedKycDocument.idType}:</strong> {selectedKycDocument.idNumber ? formatAadhaar(selectedKycDocument.idNumber) : 'N/A'}
             </div>
-            <div style={{ textAlign: 'center', background: '#000', padding: '1rem', borderRadius: '8px', maxHeight: '60vh', overflow: 'auto' }}>
+            <div style={{ textAlign: 'center', background: '#000', padding: '1rem', borderRadius: '8px', maxHeight: `calc(60vh / var(--ui-scale))`, overflow: 'auto' }}>
               <img 
                 src={selectedKycDocument.url} 
                 alt="KYC Document" 
-                style={{ maxWidth: '100%', maxHeight: '50vh', objectFit: 'contain', display: 'block', margin: '0 auto' }} 
+                style={{ maxWidth: '100%', maxHeight: `calc(50vh / var(--ui-scale))`, objectFit: 'contain', display: 'block', margin: '0 auto' }} 
                 onError={(e) => {
                   e.target.style.display = 'none';
                   const msg = document.createElement('div');
@@ -18584,7 +18584,7 @@ export default function App() {
       {stockistListModal && createPortal(
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 'var(--z-modal)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}
              onClick={() => setStockistListModal(null)}>
-          <div style={{ background: '#161a24', border: '1px solid var(--border-color)', borderRadius: 12, padding: '1.5rem', width: '100%', maxWidth: 420, maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}
+          <div style={{ background: '#161a24', border: '1px solid var(--border-color)', borderRadius: 12, padding: '1.5rem', width: '100%', maxWidth: 420, maxHeight: `calc(80vh / var(--ui-scale))`, display: 'flex', flexDirection: 'column' }}
                onClick={e => e.stopPropagation()}>
             <h4 style={{ margin: '0 0 0.25rem' }}>{t('Stockists for','स्टॉकिस्ट','স্টকিস্ট')} {stockistListModal.vendorName}</h4>
             <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', margin: '0 0 0.75rem' }}>{stockistListModal.stockists.length} {t('assigned','सौंपे गए','নিযুক্ত')}</p>
