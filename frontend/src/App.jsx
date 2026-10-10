@@ -453,7 +453,7 @@ const TimePicker = ({ value, onChange }) => {
       {isOpen && (
         <div
           style={{
-            position: 'fixed', inset: 0, zIndex: 1000,
+            position: 'fixed', inset: 0, zIndex: 'var(--z-modal)',
             background: 'rgba(0,0,0,0.6)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             padding: '1rem'
@@ -544,6 +544,15 @@ const TimePicker = ({ value, onChange }) => {
           </div>
         </div>
       )}
+    </div>
+  );
+};
+
+const FieldError = ({ error }) => {
+  if (!error) return null;
+  return (
+    <div className="field-error-text">
+      <AlertCircle size={12} /> {error}
     </div>
   );
 };
@@ -1064,6 +1073,8 @@ export default function App() {
   const [kycActionUserId, setKycActionUserId] = useState(null);
   const [kycActionType, setKycActionType] = useState('REJECT_APPEAL');
   const [kycActionReason, setKycActionReason] = useState('');
+  const [kycActionError, setKycActionError] = useState('');
+  const kycActionReasonRef = useRef(null);
 
   const [revealedIds, setRevealedIds] = useState({});
   const [showKycDocumentModal, setShowKycDocumentModal] = useState(false);
@@ -1150,6 +1161,8 @@ export default function App() {
   const [editStkOwnerName, setEditStkOwnerName] = useState('');
   const [editStkPhone, setEditStkPhone] = useState('');
   const [showCommissionRateModal, setShowCommissionRateModal] = useState(false);
+  const [commissionRateError, setCommissionRateError] = useState('');
+  const commissionConfirmRef = useRef(null);
   const [newCommissionRate, setNewCommissionRate] = useState('');
   const [commissionRatePreview, setCommissionRatePreview] = useState(null);
   const [commissionPreviewLoading, setCommissionPreviewLoading] = useState(false);
@@ -2149,6 +2162,7 @@ export default function App() {
   const [dbTab, setDbTab] = useState('points_ledger');
   const [apiLogs, setApiLogs] = useState([]);
   const [toast, setToast] = useState(null);
+  const toastTimerRef = useRef(null);
 
   // Auth fields
   const [loginPhone, setLoginPhone] = useState('');
@@ -2187,7 +2201,18 @@ export default function App() {
 
   const showToast = (message, type = 'success', action = null) => {
     setToast({ message, type, action });
-    setTimeout(() => setToast(null), action ? 6000 : 4000);
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    const duration = type === 'error' ? 5000 : 3000;
+    toastTimerRef.current = setTimeout(() => setToast(null), action ? 6000 : duration);
+  };
+
+  const handleToastMouseEnter = () => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+  };
+  
+  const handleToastMouseLeave = () => {
+    const duration = toast?.type === 'error' ? 5000 : 3000;
+    toastTimerRef.current = setTimeout(() => setToast(null), toast?.action ? 6000 : duration);
   };
 
   const formatPoints = (value) => {
@@ -4299,9 +4324,12 @@ export default function App() {
   };
 
   const handleSubmitCommissionRate = async () => {
+    setCommissionRateError('');
     if (commissionSubmitting) return;
     if (!selectedStockistDetail || newCommissionRate === '' || newCommissionRate === null || newCommissionRate === undefined) return;
     if (commissionTypedConfirm !== 'CONFIRM') {
+      setCommissionRateError('Type CONFIRM to apply commission rate change');
+      if (commissionConfirmRef.current) commissionConfirmRef.current.focus();
       showToast('Type CONFIRM to apply commission rate change', 'error');
       return;
     }
@@ -4647,6 +4675,13 @@ export default function App() {
   // ----------------------------------------------------
 
   const handleRejectKyc = async (userId, reason) => {
+    setKycActionError('');
+    if (reason.length < 5) {
+      setKycActionError('Rejection reason must be at least 5 characters');
+      if (kycActionReasonRef.current) kycActionReasonRef.current.focus();
+      showToast('Rejection reason must be at least 5 characters', 'error');
+      return;
+    }
     if (!reason) { showToast('Reason is required for rejection', 'error'); return; }
     try {
       const res = await fetch(`${API_BASE}/admin/kyc/${userId}/reject`, {
@@ -4666,7 +4701,13 @@ export default function App() {
   };
 
   const handleBlacklistKycUser = async (userId, reason) => {
-    if (!reason) { showToast('Reason is required for blacklisting', 'error'); return; }
+    setKycActionError('');
+    if (!reason) { 
+      setKycActionError('Reason is required for blacklisting');
+      if (kycActionReasonRef.current) kycActionReasonRef.current.focus();
+      showToast('Reason is required for blacklisting', 'error'); 
+      return; 
+    }
     try {
       const res = await fetch(`${API_BASE}/admin/kyc/${userId}/blacklist`, {
         method: 'POST',
@@ -7353,7 +7394,7 @@ export default function App() {
         )}
 
         {showFirstTimeSetupFlow && (
-          <div className="modal-overlay" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.7)', zIndex: 1000 }}>
+          <div className="modal-overlay" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.7)', zIndex: 'var(--z-modal)' }}>
             <div className="modal-content FirstTimeSetupFlow" style={{ maxWidth: '450px', width: '90%', padding: '1.5rem', background: 'var(--card-bg, #1e1e2e)', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
               <PanelErrorBoundary t={t}>
               <h3 style={{ marginTop: 0, marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -10998,7 +11039,7 @@ export default function App() {
             {/* Carts Sheet (Zomato-style) */}
             {showCartsSheet && (
               <div 
-                style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', zIndex: 1000, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}
+                style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', zIndex: 'var(--z-modal)', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}
                 onClick={() => setShowCartsSheet(false)}
               >
                 <div 
@@ -12363,7 +12404,7 @@ export default function App() {
                         </div>
 
                         {showPersonalDetails && createPortal(
-                          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(2px)', zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }} onClick={() => setShowPersonalDetails(false)}>
+                          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(2px)', zIndex: 'var(--z-modal)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }} onClick={() => setShowPersonalDetails(false)}>
                             <div style={{ width: '100%', maxWidth: '360px', padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '0.85rem', background: '#161a24', border: '1px solid var(--border-color)', borderRadius: '12px', boxShadow: '0 12px 40px rgba(0,0,0,0.5)', maxHeight: '85vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
                               <h4 style={{ margin: 0, color: 'white', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem' }}>{t('Personal Details', 'व्यक्तिगत विवरण', 'ব্যক্তিগত বিবরণ')}</h4>
                               <div style={{ fontSize: '0.8rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
@@ -15952,7 +15993,13 @@ export default function App() {
       
       {/* Toast popup */}
       {toast && (
-        <div className="toast-msg" style={{ borderLeft: `4px solid ${toast.type === 'error' ? 'var(--danger)' : 'var(--accent)'}`, position: 'fixed', bottom: '20px', right: '20px', zIndex: 1000, width: 'auto', background: '#131722', backdropFilter: 'blur(10px)' }}>
+        <div 
+          className="toast-msg" 
+          role={toast.type === 'error' ? 'alert' : 'status'}
+          aria-live={toast.type === 'error' ? 'assertive' : 'polite'}
+          onMouseEnter={handleToastMouseEnter}
+          onMouseLeave={handleToastMouseLeave}
+          style={{ borderLeft: `4px solid ${toast.type === 'error' ? 'var(--danger)' : 'var(--accent)'}`, position: 'fixed', bottom: '20px', right: '20px', zIndex: 'var(--z-toast)', width: 'auto', background: '#131722', backdropFilter: 'blur(10px)' }}>
           <CheckCircle2 size={16} style={{ color: toast.type === 'error' ? 'var(--danger)' : 'var(--accent)' }} />
           <span>{toast.message}</span>
           {toast.action && (
@@ -15979,7 +16026,7 @@ export default function App() {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            zIndex: 9999,
+            zIndex: 'var(--z-modal)',
           }}
           onClick={() => setConfirmModal(null)}
         >
@@ -16044,7 +16091,7 @@ export default function App() {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            zIndex: 9999,
+            zIndex: 'var(--z-modal)',
           }}
           onClick={() => setDeliveredModalOrder(null)}
         >
@@ -17234,7 +17281,18 @@ export default function App() {
 
               <div className="input-group">
                 <label className="input-label" style={{ color: 'var(--warning)' }}>Type "CONFIRM" to authorize this change</label>
-                <input type="text" className="text-input" placeholder="CONFIRM" value={commissionTypedConfirm} onChange={e => setCommissionTypedConfirm(e.target.value)} />
+                <input 
+                  ref={commissionConfirmRef}
+                  type="text" 
+                  className={`text-input ${commissionRateError ? 'input-error' : ''}`} 
+                  placeholder="CONFIRM" 
+                  value={commissionTypedConfirm} 
+                  onChange={e => {
+                    setCommissionTypedConfirm(e.target.value);
+                    if (commissionRateError) setCommissionRateError('');
+                  }} 
+                />
+                <FieldError error={commissionRateError} />
               </div>
             </div>
 
@@ -18324,12 +18382,17 @@ export default function App() {
               <div className="input-group">
                 <label className="input-label">Reason *</label>
                 <textarea 
-                  className="text-input" 
+                  ref={kycActionReasonRef}
+                  className={`text-input ${kycActionError ? 'input-error' : ''}`} 
                   rows={3}
                   placeholder={kycActionType === 'BLACKLIST' ? 'Reason for blacklisting account...' : 'Reason for rejection...'}
                   value={kycActionReason}
-                  onChange={e => setKycActionReason(e.target.value)}
+                  onChange={e => {
+                    setKycActionReason(e.target.value);
+                    if (kycActionError) setKycActionError('');
+                  }}
                 />
+                <FieldError error={kycActionError} />
               </div>
 
 
@@ -18398,7 +18461,7 @@ export default function App() {
         </div>
       )}
       {stockistListModal && createPortal(
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 'var(--z-modal)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}
              onClick={() => setStockistListModal(null)}>
           <div style={{ background: '#161a24', border: '1px solid var(--border-color)', borderRadius: 12, padding: '1.5rem', width: '100%', maxWidth: 420, maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}
                onClick={e => e.stopPropagation()}>

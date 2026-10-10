@@ -11,6 +11,10 @@
   --bg-surface-elevated: #1C2130;
   --border-color: #262E42;
   
+  /* Z-Index System */
+  --z-modal: 1000;
+  --z-toast: 2000;
+
   --primary: #6366F1; /* Indigo */
   --primary-glow: rgba(99, 102, 241, 0.15);
   --secondary: #EC4899; /* Pink/Rose */
@@ -1059,7 +1063,7 @@ select option:disabled {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  z-index: var(--z-modal);
   padding: 1rem;
   overflow-y: auto;
   animation: modal-fade-in 0.15s ease-out;
@@ -1092,6 +1096,32 @@ select option:disabled {
 body:has(.modal-overlay) {
   overflow: hidden;
 }
+
+/* Toast position logic: move to top center when a modal is open in the admin view */
+body:has(.admin-container):has(.modal-overlay) .toast-msg {
+  bottom: auto !important;
+  top: 20px !important;
+  left: 50% !important;
+  transform: translateX(-50%) !important;
+  right: auto !important;
+}
+
+/* Field Error Component Styles */
+.input-error {
+  border-color: var(--danger) !important;
+}
+.input-error:focus {
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.2) !important;
+}
+.field-error-text {
+  color: var(--danger);
+  font-size: 0.75rem;
+  margin-top: 0.25rem;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
 
 
 
