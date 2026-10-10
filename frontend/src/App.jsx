@@ -7644,7 +7644,8 @@ export default function App() {
 
                   {partnerQueueSubTab === 'to_fulfill' ? (
                     <div>
-                      <table style={{ width: '100%', fontSize: '0.75rem', borderCollapse: 'collapse' }}>
+                      <div className="table-scroll">
+<table style={{ width: '100%', fontSize: '0.75rem', borderCollapse: 'collapse' }}>
                         <thead>
                           <tr style={{ borderBottom: '1px solid var(--border-color)', textAlign: 'left', color: 'var(--text-muted)' }}>
                             <th style={{ padding: '0.4rem' }}>{t('Customer', 'ग्राहक', 'গ্রাহক')}</th>
@@ -7687,13 +7688,15 @@ export default function App() {
                           )}
                         </tbody>
                       </table>
+</div>
                     </div>
                   ) : (
                     <div>
                       <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.5rem 0.75rem', borderRadius: '4px', fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '0.75rem' }}>
                         <em>{t('Waiting on admin to resolve dispute', 'विवाद समाधान के लिए एडमिन की प्रतीक्षा में', 'বিরোধ সমাধানের জন্য অ্যাডমিনের অপেক্ষায়')}</em>
                       </div>
-                      <table style={{ width: '100%', fontSize: '0.75rem', borderCollapse: 'collapse' }}>
+                      <div className="table-scroll">
+<table style={{ width: '100%', fontSize: '0.75rem', borderCollapse: 'collapse' }}>
                         <thead>
                           <tr style={{ borderBottom: '1px solid var(--border-color)', textAlign: 'left', color: 'var(--text-muted)' }}>
                             <th style={{ padding: '0.4rem' }}>{t('Customer', 'ग्राहक', 'গ্রাহক')}</th>
@@ -7718,6 +7721,7 @@ export default function App() {
                           )}
                         </tbody>
                       </table>
+</div>
                     </div>
                   )}
                 </div>
@@ -7732,7 +7736,8 @@ export default function App() {
                       + {t('Add Package', 'पैकेज जोड़ें', 'প্যাকেজ যোগ করুন')}
                     </button>
                   </div>
-                  <table style={{ width: '100%', fontSize: '0.75rem', borderCollapse: 'collapse' }}>
+                  <div className="table-scroll">
+<table style={{ width: '100%', fontSize: '0.75rem', borderCollapse: 'collapse' }}>
                     <thead>
                       <tr style={{ borderBottom: '1px solid var(--border-color)', textAlign: 'left', color: 'var(--text-muted)' }}>
                         <th style={{ padding: '0.4rem' }}>{t('Name', 'नाम', 'নাম')}</th>
@@ -7781,6 +7786,7 @@ export default function App() {
                       )}
                     </tbody>
                   </table>
+</div>
                 </div>
               )}
 
@@ -7876,7 +7882,8 @@ export default function App() {
                       + {t('New Feedback', 'नई प्रतिक्रिया', 'নতুন ফিডব্যাক')}
                     </button>
                   </div>
-                  <table style={{ width: '100%', fontSize: '0.75rem', borderCollapse: 'collapse' }}>
+                  <div className="table-scroll">
+<table style={{ width: '100%', fontSize: '0.75rem', borderCollapse: 'collapse' }}>
                     <thead>
                       <tr style={{ borderBottom: '1px solid var(--border-color)', textAlign: 'left', color: 'var(--text-muted)' }}>
                         <th style={{ padding: '0.4rem' }}>{t('Date', 'दिनांक', 'তারিখ')}</th>
@@ -7905,6 +7912,7 @@ export default function App() {
                       )}
                     </tbody>
                   </table>
+</div>
                 </div>
               )}
 
@@ -13110,7 +13118,8 @@ export default function App() {
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                         <div>
                           <h3 style={{ fontSize: '0.9rem', color: 'var(--primary)', marginBottom: '0.5rem' }}>Top 5 Stockists by GMV (This Month)</h3>
-                          <table style={{ width: '100%', fontSize: '0.75rem', borderCollapse: 'collapse' }}>
+                          <div className="table-scroll">
+<table style={{ width: '100%', fontSize: '0.75rem', borderCollapse: 'collapse' }}>
                             <thead>
                               <tr style={{ borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)', textAlign: 'left' }}>
                                 <th style={{ padding: '0.35rem' }}>Stockist</th>
@@ -13131,11 +13140,13 @@ export default function App() {
                               )}
                             </tbody>
                           </table>
+</div>
                         </div>
 
                         <div>
                           <h3 style={{ fontSize: '0.9rem', color: 'var(--primary)', marginBottom: '0.5rem' }}>Top 5 Partners by Redemptions</h3>
-                          <table style={{ width: '100%', fontSize: '0.75rem', borderCollapse: 'collapse' }}>
+                          <div className="table-scroll">
+<table style={{ width: '100%', fontSize: '0.75rem', borderCollapse: 'collapse' }}>
                             <thead>
                               <tr style={{ borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)', textAlign: 'left' }}>
                                 <th style={{ padding: '0.35rem' }}>Partner</th>
@@ -13154,6 +13165,7 @@ export default function App() {
                               )}
                             </tbody>
                           </table>
+</div>
                         </div>
                       </div>
                     </div>
@@ -13187,7 +13199,8 @@ export default function App() {
                     </div>
                   </div>
 
-                  <table className="admin-table">
+                  <div className="table-scroll">
+<table className="admin-table">
                     <thead>
                       <tr>
                         <th>Name</th>
@@ -13253,6 +13266,7 @@ export default function App() {
                         ))}
                     </tbody>
                   </table>
+</div>
                 </div>
               )}
 
@@ -13348,7 +13362,8 @@ export default function App() {
                       )}
                     </div>
                   ) : (
-                    <table className="admin-table">
+                    <div className="table-scroll">
+<table className="admin-table">
                       <thead>
                         <tr>
                           <th>Name / Shop</th>
@@ -13521,6 +13536,7 @@ export default function App() {
                         })()}
                       </tbody>
                     </table>
+</div>
                   )}
                 </div>
               )}
@@ -13600,7 +13616,8 @@ export default function App() {
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
                     <div className="glass-card" style={{ padding: '1rem' }}>
                       <h4 style={{ fontSize: '0.9rem', color: 'var(--primary)', marginBottom: '0.75rem' }}>4.2 Partner Fulfillment Speed (Slowest First, Top 10)</h4>
-                      <table className="admin-table" style={{ fontSize: '0.75rem' }}>
+                      <div className="table-scroll">
+<table className="admin-table" style={{ fontSize: '0.75rem' }}>
                         <thead>
                           <tr>
                             <th>Partner Name</th>
@@ -13619,11 +13636,13 @@ export default function App() {
                           )}
                         </tbody>
                       </table>
+</div>
                     </div>
 
                     <div className="glass-card" style={{ padding: '1rem' }}>
                       <h4 style={{ fontSize: '0.9rem', color: 'var(--primary)', marginBottom: '0.75rem' }}>4.3 Stockist Volume Leaderboard (30d GMV)</h4>
-                      <table className="admin-table" style={{ fontSize: '0.75rem' }}>
+                      <div className="table-scroll">
+<table className="admin-table" style={{ fontSize: '0.75rem' }}>
                         <thead>
                           <tr>
                             <th>Stockist Name</th>
@@ -13644,12 +13663,14 @@ export default function App() {
                           )}
                         </tbody>
                       </table>
+</div>
                     </div>
                   </div>
 
                   <div className="glass-card" style={{ padding: '1rem', marginTop: '1.5rem' }}>
                     <h4 style={{ fontSize: '0.9rem', color: 'var(--primary)', marginBottom: '0.75rem' }}>4.5 Active Fraud Signals (NEW / TRIAGING)</h4>
-                    <table className="admin-table" style={{ fontSize: '0.75rem' }}>
+                    <div className="table-scroll">
+<table className="admin-table" style={{ fontSize: '0.75rem' }}>
                       <thead>
                         <tr>
                           <th>Entity Type</th>
@@ -13670,6 +13691,7 @@ export default function App() {
                         )}
                       </tbody>
                     </table>
+</div>
                   </div>
                 </div>
               )}
@@ -13699,7 +13721,8 @@ export default function App() {
                           Show rejected
                         </label>
                       </div>
-                      <table className="admin-table">
+                      <div className="table-scroll">
+<table className="admin-table">
                         <thead>
                           <tr>
                             <th>Lead ID</th>
@@ -13763,6 +13786,7 @@ export default function App() {
                           )}
                         </tbody>
                       </table>
+</div>
                     </div>
                   )}
 
@@ -13799,7 +13823,8 @@ export default function App() {
                         </div>
                       </div>
 
-                      <table className="admin-table">
+                      <div className="table-scroll">
+<table className="admin-table">
                         <thead>
                           <tr>
                             <th>Partner Name</th>
@@ -13852,6 +13877,7 @@ export default function App() {
                           )}
                         </tbody>
                       </table>
+</div>
                     </div>
                   )}
                 </div>
@@ -13864,7 +13890,8 @@ export default function App() {
                     Verify local grocery stores applying to open shops on the FastNet Hyperlocal Marketplace. Approve to assign local wholesale suppliers, or reject/blacklist fraud applications.
                   </p>
 
-                  <table className="admin-table">
+                  <div className="table-scroll">
+<table className="admin-table">
                     <thead>
                       <tr>
                         <th>Name</th>
@@ -14019,6 +14046,7 @@ export default function App() {
                       )}
                     </tbody>
                   </table>
+</div>
                 </div>
               )}
 
@@ -14053,7 +14081,8 @@ export default function App() {
                       </select>
                     </div>
 
-                    <table className="admin-table">
+                    <div className="table-scroll">
+<table className="admin-table">
                       <thead>
                         <tr>
                           <th>Type</th>
@@ -14110,6 +14139,7 @@ export default function App() {
                         )}
                       </tbody>
                     </table>
+</div>
                   </div>
                 </PanelErrorBoundary>
               )}
@@ -14141,7 +14171,8 @@ export default function App() {
                   </div>
 
                   {redemptionApprovalSubTab === 'pending' && (
-                    <table className="admin-table">
+                    <div className="table-scroll">
+<table className="admin-table">
                       <thead>
                         <tr>
                           <th>Date</th>
@@ -14185,10 +14216,12 @@ export default function App() {
                         )}
                       </tbody>
                     </table>
+</div>
                   )}
 
                   {redemptionApprovalSubTab === 'approved' && (
-                    <table className="admin-table">
+                    <div className="table-scroll">
+<table className="admin-table">
                       <thead>
                         <tr>
                           <th>Approved Date</th>
@@ -14219,6 +14252,7 @@ export default function App() {
                         )}
                       </tbody>
                     </table>
+</div>
                   )}
 
                   {redemptionApprovalSubTab === 'fulfilled' && (
@@ -14226,7 +14260,8 @@ export default function App() {
                       <div style={{ marginBottom: '1rem' }}>
                         <input type="text" placeholder="Search by customer name or phone..." className="text-input" style={{ width: '250px', fontSize: '0.8rem', padding: '0.3rem 0.6rem' }} value={fulfilledSearchText} onChange={e => setFulfilledSearchText(e.target.value)} />
                       </div>
-                      <table className="admin-table">
+                      <div className="table-scroll">
+<table className="admin-table">
                         <thead>
                           <tr>
                             <th>Fulfilled Date</th>
@@ -14258,11 +14293,13 @@ export default function App() {
                           )}
                         </tbody>
                       </table>
+</div>
                     </div>
                   )}
 
                   {redemptionApprovalSubTab === 'rejected' && (
-                    <table className="admin-table">
+                    <div className="table-scroll">
+<table className="admin-table">
                       <thead>
                         <tr>
                           <th>Date</th>
@@ -14295,10 +14332,12 @@ export default function App() {
                         )}
                       </tbody>
                     </table>
+</div>
                   )}
 
                   {redemptionApprovalSubTab === 'disputed' && (
-                    <table className="admin-table">
+                    <div className="table-scroll">
+<table className="admin-table">
                       <thead>
                         <tr>
                           <th>Date</th>
@@ -14333,6 +14372,7 @@ export default function App() {
                         )}
                       </tbody>
                     </table>
+</div>
                   )}
                 </div>
               )}
@@ -14358,7 +14398,8 @@ export default function App() {
                     </div>
                   </div>
 
-                  <table className="admin-table">
+                  <div className="table-scroll">
+<table className="admin-table">
                     <thead>
                       <tr>
                         <th>Submitted</th>
@@ -14405,6 +14446,7 @@ export default function App() {
                       )}
                     </tbody>
                   </table>
+</div>
                 </div>
               )}
 
@@ -14463,7 +14505,8 @@ export default function App() {
                   </div>
 
                   {/* Table */}
-                  <table className="admin-table">
+                  <div className="table-scroll">
+<table className="admin-table">
                     <thead>
                       <tr>
                         <th>Uploaded Date</th>
@@ -14545,13 +14588,15 @@ export default function App() {
                       )}
                     </tbody>
                   </table>
+</div>
                 </div>
               )}
 
               {adminTab === 'payout_changes' && (
                 <div>
                   <h2 style={{ fontSize: '1.4rem', marginBottom: '1rem' }}>Payout changes</h2>
-                  <table className="admin-table">
+                  <div className="table-scroll">
+<table className="admin-table">
                     <thead>
                       <tr>
                         <th>Time</th>
@@ -14592,6 +14637,7 @@ export default function App() {
                       ))}
                     </tbody>
                   </table>
+</div>
                 </div>
               )}
 
@@ -14625,7 +14671,8 @@ export default function App() {
                     />
                   </div>
 
-                  <table className="admin-table">
+                  <div className="table-scroll">
+<table className="admin-table">
                     <thead>
                       <tr>
                         <th>Timestamp</th>
@@ -14664,6 +14711,7 @@ export default function App() {
                       )}
                     </tbody>
                   </table>
+</div>
                 </div>
               )}
 
@@ -14799,7 +14847,7 @@ export default function App() {
                           </button>
                         </div>
 
-                        <div style={{ overflowX: 'auto' }}>
+                        <div className="table-scroll" >
                           <table className="admin-table">
                             <thead>
                               <tr>
@@ -14906,7 +14954,8 @@ export default function App() {
                     View service ratings, wrong items, no-shows, or customer behavioral reports filed by user roles.
                   </p>
 
-                  <table className="admin-table">
+                  <div className="table-scroll">
+<table className="admin-table">
                     <thead>
                       <tr>
                         <th>Date</th>
@@ -14956,6 +15005,7 @@ export default function App() {
                       )}
                     </tbody>
                   </table>
+</div>
 
                     </>
                   )}
@@ -14965,7 +15015,8 @@ export default function App() {
                     {t('View feedback, issues, and requests from onboarded partners.', 'शामिल किए गए पार्टनर से प्रतिक्रिया, समस्याएं और अनुरोध देखें।', 'অনবোর্ড করা পার্টনারদের থেকে ফিডব্যাক, সমস্যা এবং অনুরোধগুলি দেখুন।')}
                   </p>
 
-                  <table className="admin-table">
+                  <div className="table-scroll">
+<table className="admin-table">
                     <thead>
                       <tr>
                         <th>{t('Date', 'तारीख', 'তারিখ')}</th>
@@ -15011,6 +15062,7 @@ export default function App() {
                       )}
                     </tbody>
                   </table>
+</div>
 
                   {showPartnerFeedbackModal && selectedPartnerFeedback && (
                     <div className="modal-overlay">
@@ -15132,7 +15184,8 @@ export default function App() {
                     Platform security engine automatically flags repeat order loops between unique customer-stockist pairs (helps prevent point farming collusion).
                   </p>
 
-                  <table className="admin-table">
+                  <div className="table-scroll">
+<table className="admin-table">
                     <thead>
                       <tr>
                         <th>Timestamp</th>
@@ -15201,6 +15254,7 @@ export default function App() {
                       )}
                     </tbody>
                   </table>
+</div>
                 </div>
               )}
 
@@ -15220,7 +15274,8 @@ export default function App() {
                     </div>
                   </div>
 
-                  <table className="admin-table">
+                  <div className="table-scroll">
+<table className="admin-table">
                     <thead>
                       <tr>
                         <th>Discount Reference ID</th>
@@ -15267,6 +15322,7 @@ export default function App() {
                       )}
                     </tbody>
                   </table>
+</div>
                 </div>
               )}
 
@@ -15295,7 +15351,7 @@ export default function App() {
                     </button>
                   </div>
 
-                  <div className="glass-card" style={{ padding: '1rem', overflowX: 'auto' }}>
+                  <div className="table-scroll glass-card" style={{ padding: '1rem' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.85rem' }}>
                       <thead>
                         <tr style={{ borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)' }}>
@@ -15435,7 +15491,8 @@ export default function App() {
                           Show inactive
                         </label>
                       </div>
-                      <table className="admin-table">
+                      <div className="table-scroll">
+<table className="admin-table">
                         <thead>
                           <tr>
                             <th>Wholesaler ID</th>
@@ -15496,6 +15553,7 @@ export default function App() {
                           ))}
                         </tbody>
                       </table>
+</div>
                       
                       {editingVendor && (
                         <div className="modal-overlay">
@@ -15546,7 +15604,8 @@ export default function App() {
                     }}>+ Add Reward</button>
                   </div>
                   <div className="glass-card" style={{ padding: '0.5rem' }}>
-                    <table className="admin-table">
+                    <div className="table-scroll">
+<table className="admin-table">
                       <thead>
                         <tr>
                           <th>Name</th>
@@ -15606,6 +15665,7 @@ export default function App() {
                         )}
                       </tbody>
                     </table>
+</div>
                   </div>
                 </div>
               )}
@@ -15658,7 +15718,7 @@ export default function App() {
                     Outstanding payouts owed to partners for fulfilled redemptions.
                   </p>
                   
-                  <div style={{ overflowX: 'auto' }}>
+                  <div className="table-scroll" >
                   <table className="admin-table" style={{ marginBottom: '3rem' }}>
                     <thead>
                       <tr>
@@ -15715,7 +15775,7 @@ export default function App() {
 
 
 
-                  <div style={{ overflowX: 'auto' }}>
+                  <div className="table-scroll" >
                   <table className="admin-table" style={{ minWidth: '1100px' }}>
                     <thead>
                       <tr>
@@ -17830,7 +17890,8 @@ export default function App() {
               <h3 style={{ fontSize: '1.1rem', margin: 0 }}>Bill Photo History: {billHistoryProduct?.name}</h3>
               <button className="btn btn-secondary" style={{ padding: '0.2rem 0.5rem' }} onClick={() => setShowBillHistoryModal(false)}><X size={14} /></button>
             </div>
-            <table className="admin-table">
+            <div className="table-scroll">
+<table className="admin-table">
               <thead>
                 <tr>
                   <th>Date</th>
@@ -17868,6 +17929,7 @@ export default function App() {
                 )}
               </tbody>
             </table>
+</div>
             </PanelErrorBoundary>
           </div>
         </div>
