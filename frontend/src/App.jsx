@@ -886,9 +886,30 @@ export default function App() {
     localStorage.setItem('fastnet_carts', JSON.stringify({ userId: currentUser?.id, carts: customerCarts }));
   }, [customerCarts, currentUser?.id]);
 
+  useEffect(() => {
+    if (trackingOrder && customerAppTab === "track") {
+      const isTrackingInOrders = (customerOrders || []).some(o => o.id === trackingOrder.id);
+      if (!isTrackingInOrders) {
+        const activeOrderList = [...(customerOrders || [])]
+          .filter(o => !['DELIVERED', 'CANCELLED', 'NO_SHOW'].includes(o.status))
+          .sort((a,b) => new Date(b.created_at) - new Date(a.created_at));
+        if (activeOrderList.length > 0) {
+          setTrackingOrder(activeOrderList[0]);
+        } else {
+          setCustomerAppTab('store');
+          setTrackingOrder(null);
+        }
+      }
+    }
+  }, [customerOrders, trackingOrder, customerAppTab]);
+
   const currentCart = selectedStockist ? (customerCarts[selectedStockist.id]?.items || []) : [];
   const [showCartsSheet, setShowCartsSheet] = useState(false);
   const [swipeStartY, setSwipeStartY] = useState(0);
+  const [swipeStartX, setSwipeStartX] = useState(0);
+  const [activeStripIndex, setActiveStripIndex] = useState(0);
+  const [hasSeenSwipeHint, setHasSeenSwipeHint] = useState(false);
+  const stripScrollRef = useRef(null);
   const [trackingOrder, setTrackingOrder] = useState(null);
 
   const enforceCartLimit = (carts, justAddedSid) => {
@@ -8663,8 +8684,9 @@ export default function App() {
       }
       return `${t('Arriving in', 'आने में', 'আসছে')} ${mins} ${t('mins', 'मिनट', 'মিনিট')}`;
     };
-    const activeOrderList = (customerOrders || []).filter(o => !['DELIVERED', 'CANCELLED', 'NO_SHOW'].includes(o.status));
-    const activeOrder = activeOrderList.length > 0 ? activeOrderList.sort((a,b) => new Date(b.created_at) - new Date(a.created_at))[0] : null;
+    const activeOrderList = [...(customerOrders || [])]
+      .filter(o => !['DELIVERED', 'CANCELLED', 'NO_SHOW'].includes(o.status))
+      .sort((a,b) => new Date(b.created_at) - new Date(a.created_at));
 
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.75rem', width: '100%' }}>
@@ -10255,6 +10277,15 @@ export default function App() {
                                 <span>{t('Paid', 'भुगतान', 'পরিশোধ')}: ₹{o.total_price.toFixed(2)}</span>
                                 
                                 <div style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
+                                  {!['DELIVERED', 'CANCELLED', 'NO_SHOW'].includes(o.status) && (
+                                    <button 
+                                      className="badge badge-primary" 
+                                      style={{ border: 'none', cursor: 'pointer', background: 'rgba(59,130,246,0.1)', color: 'var(--primary)', padding: '0.2rem 0.4rem', fontSize: '0.6rem', display: 'flex', alignItems: 'center', gap: '0.15rem' }}
+                                      onClick={() => { setTrackingOrder(o); setCustomerAppTab('track'); }}
+                                    >
+                                      <MapPin size={10} /> {t('Track', 'ट्रैक', 'ট্র্যাক')}
+                                    </button>
+                                  )}
                                   <button 
                                     className="badge badge-primary" 
                                     style={{ border: 'none', cursor: 'pointer', padding: '0.2rem 0.4rem', fontSize: '0.6rem', display: 'flex', alignItems: 'center', gap: '0.15rem' }}
@@ -10644,7 +10675,31 @@ export default function App() {
                     const total = liveOrder.total_price !== undefined ? parseFloat(liveOrder.total_price) : null;
 
                     return (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', paddingBottom: '2rem' }}>
+                      <div 
+                        style={{ display: 'flex', flexDirection: 'column', gap: '1rem', paddingBottom: '2rem' }}
+                        onTouchStart={e => {
+                          setSwipeStartY(e.touches[0].clientY);
+                          setSwipeStartX(e.touches[0].clientX);
+                        }}
+                        onTouchEnd={e => {
+                          const activeOrderList = [...(customerOrders || [])]
+                            .filter(o => !['DELIVERED', 'CANCELLED', 'NO_SHOW'].includes(o.status))
+                            .sort((a,b) => new Date(b.created_at) - new Date(a.created_at));
+                          if (activeOrderList.length > 1) {
+                            const dx = swipeStartX - e.changedTouches[0].clientX;
+                            const dy = Math.abs(swipeStartY - e.changedTouches[0].clientY);
+                            if (Math.abs(dx) > 40 && Math.abs(dx) > dy) {
+                              const currentIndex = activeOrderList.findIndex(o => o.id === trackingOrder.id);
+                              if (currentIndex !== -1) {
+                                let nextIndex = dx > 0 ? currentIndex + 1 : currentIndex - 1;
+                                if (nextIndex >= 0 && nextIndex < activeOrderList.length) {
+                                  setTrackingOrder(activeOrderList[nextIndex]);
+                                }
+                              }
+                            }
+                          }
+                        }}
+                      >
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', paddingBottom: '0.5rem', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
                           <button onClick={() => setCustomerAppTab('orders')} style={{ background: 'none', border: 'none', color: 'white', padding: '0.25rem', cursor: 'pointer' }}>
                             <ArrowLeft size={20} />
@@ -10654,6 +10709,32 @@ export default function App() {
                             <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{t('Order', 'ऑर्डर', 'অর্ডার')} #{liveOrder.id.substring(0,6).toUpperCase()}</div>
                           </div>
                         </div>
+
+                        {(() => {
+                          const activeOrderList = [...(customerOrders || [])]
+                            .filter(o => !['DELIVERED', 'CANCELLED', 'NO_SHOW'].includes(o.status))
+                            .sort((a,b) => new Date(b.created_at) - new Date(a.created_at));
+                          if (activeOrderList.length > 1) {
+                            return (
+                              <div style={{ display: 'flex', gap: '0.5rem', overflowX: 'auto', paddingBottom: '0.25rem' }}>
+                                {activeOrderList.map(o => (
+                                  <button
+                                    key={o.id}
+                                    style={{
+                                      background: trackingOrder.id === o.id ? 'var(--accent)' : 'rgba(255,255,255,0.1)',
+                                      color: 'white', border: 'none', borderRadius: '20px', padding: '0.3rem 0.6rem',
+                                      fontSize: '0.7rem', cursor: 'pointer', whiteSpace: 'nowrap'
+                                    }}
+                                    onClick={() => setTrackingOrder(o)}
+                                  >
+                                    {o.stockist_name}
+                                  </button>
+                                ))}
+                              </div>
+                            );
+                          }
+                          return null;
+                        })()}
 
                         {/* TODO: Google Maps here once API key is configured — pass stockist lat/long */}
                         <div style={{ height: '180px', borderRadius: '10px', background: 'rgba(255,255,255,0.03)', border: '1px dashed var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '0.25rem' }}>
@@ -10777,7 +10858,7 @@ export default function App() {
 
                 {/* Carts affordance & Cart bar */}
                 {(currentCart.length > 0 || Object.keys(customerCarts).length > 0) && customerAppTab === 'store' && (
-                  <div style={{ position: 'absolute', left: 0, right: 0, bottom: activeOrder ? '110px' : '60px', padding: '0 0.5rem', display: 'flex', flexDirection: 'column', gap: '0.35rem', zIndex: 60, transition: 'bottom 0.3s' }}>
+                  <div style={{ position: 'absolute', left: 0, right: 0, bottom: activeOrderList.length > 0 ? '110px' : '60px', padding: '0 0.5rem', display: 'flex', flexDirection: 'column', gap: '0.35rem', zIndex: 60, transition: 'bottom 0.3s' }}>
                     {Object.keys(customerCarts).length > 0 && (
                       <div style={{ alignSelf: 'center', background: 'var(--bg-surface-elevated)', color: 'var(--text)', padding: '0.35rem 0.75rem', borderRadius: '16px', fontSize: '0.75rem', fontWeight: 'bold', boxShadow: '0 2px 8px rgba(0,0,0,0.5)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.25rem', border: '1px solid rgba(255,255,255,0.1)' }} onClick={() => setShowCartsSheet(true)}>
                         <ShoppingBag size={12} />
@@ -10801,30 +10882,88 @@ export default function App() {
                 )}
 
                 {/* Active Order Strip */}
-                {activeOrder && (
-                  <div 
-                    style={{
-                      position: 'absolute', left: 0, right: 0, bottom: '60px',
-                      margin: '0 0.5rem',
-                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                      background: 'var(--bg-surface-elevated)', color: 'var(--text)', padding: '0.75rem 1rem',
-                      borderRadius: '10px', cursor: 'pointer', boxShadow: '0 -4px 12px rgba(0,0,0,0.4)', zIndex: 59,
-                      border: '1px solid rgba(255,255,255,0.1)'
-                    }} 
-                    onClick={() => { setTrackingOrder(activeOrder); setCustomerAppTab('track'); }}
-                    onTouchStart={e => setSwipeStartY(e.touches[0].clientY)}
-                    onTouchEnd={e => {
-                      const dy = swipeStartY - e.changedTouches[0].clientY;
-                      if (dy > 40) setShowCartsSheet(true);
-                    }}
-                  >
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
-                      <strong style={{ fontSize: '0.85rem' }}>{activeOrder.stockist_name}</strong>
-                      <span style={{ fontSize: '0.7rem', color: 'var(--accent)', fontWeight: 'bold' }}>{formatOrderStatusDisplay(activeOrder.status, activeOrder.fulfillment_type)} ›</span>
+                {activeOrderList.length > 0 && (
+                  <div style={{ position: 'absolute', left: 0, right: 0, bottom: '60px', zIndex: 59 }}>
+                    {activeOrderList.length > 1 && !hasSeenSwipeHint && (
+                      <div style={{ textAlign: 'center', fontSize: '0.6rem', color: 'var(--text-muted)', marginBottom: '0.2rem', animation: 'pulse 2s infinite' }}>
+                        {t('Swipe to see your other order', 'अपना दूसरा ऑर्डर देखने के लिए स्वाइप करें', 'আপনার অন্য অর্ডার দেখতে সোয়াইপ করুন')}
+                      </div>
+                    )}
+                    <div style={{ position: 'relative' }}>
+                      {activeOrderList.length > 1 && (
+                        <button
+                          style={{ position: 'absolute', left: '-5px', top: '50%', transform: 'translateY(-50%)', zIndex: 60, background: 'none', border: 'none', color: 'white', cursor: 'pointer', padding: '0.5rem' }}
+                          onClick={() => stripScrollRef.current?.scrollBy({ left: -300, behavior: 'smooth' })}
+                        >‹</button>
+                      )}
+                      <div 
+                        ref={stripScrollRef}
+                        style={{
+                          display: 'flex', overflowX: 'auto', scrollSnapType: 'x mandatory',
+                          scrollbarWidth: 'none', msOverflowStyle: 'none', padding: '0 0.5rem', gap: '0.5rem'
+                        }} 
+                        onScroll={(e) => {
+                          const idx = Math.round(e.currentTarget.scrollLeft / e.currentTarget.clientWidth);
+                          setActiveStripIndex(idx);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'ArrowRight') {
+                            e.currentTarget.scrollBy({ left: 300, behavior: 'smooth' });
+                          } else if (e.key === 'ArrowLeft') {
+                            e.currentTarget.scrollBy({ left: -300, behavior: 'smooth' });
+                          }
+                        }}
+                        tabIndex={0}
+                      >
+                        {activeOrderList.map((order, i) => (
+                          <div
+                            key={order.id}
+                            style={{
+                              flex: '0 0 100%', scrollSnapAlign: 'center', boxSizing: 'border-box',
+                              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                              background: 'var(--bg-surface-elevated)', color: 'var(--text)', padding: '0.75rem 1rem',
+                              borderRadius: '10px', cursor: 'pointer', boxShadow: '0 -4px 12px rgba(0,0,0,0.4)',
+                              border: '1px solid rgba(255,255,255,0.1)'
+                            }}
+                            onClick={() => { setTrackingOrder(order); setCustomerAppTab('track'); }}
+                            onTouchStart={e => {
+                               setSwipeStartY(e.touches[0].clientY);
+                               setSwipeStartX(e.touches[0].clientX);
+                            }}
+                            onTouchEnd={e => {
+                              const dy = swipeStartY - e.changedTouches[0].clientY;
+                              const dx = Math.abs(swipeStartX - e.changedTouches[0].clientX);
+                              if (dy > 40 && dy > dx) setShowCartsSheet(true);
+                              else if (dx > 40 && dx > dy && !hasSeenSwipeHint) setHasSeenSwipeHint(true);
+                            }}
+                          >
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
+                              <strong style={{ fontSize: '0.85rem' }}>{order.stockist_name}</strong>
+                              <span style={{ fontSize: '0.7rem', color: 'var(--accent)', fontWeight: 'bold' }}>{formatOrderStatusDisplay(order.status, order.fulfillment_type)} ›</span>
+                              {activeOrderList.length > 1 && (
+                                <span style={{ fontSize: '0.6rem', color: 'var(--text-muted)' }}>{i + 1} of {activeOrderList.length}</span>
+                              )}
+                            </div>
+                            {etaLabel(order) && (
+                              <div className="badge badge-success" style={{ fontSize: '0.75rem', padding: '0.3rem 0.5rem' }}>
+                                {etaLabel(order)}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                      {activeOrderList.length > 1 && (
+                        <button
+                          style={{ position: 'absolute', right: '-5px', top: '50%', transform: 'translateY(-50%)', zIndex: 60, background: 'none', border: 'none', color: 'white', cursor: 'pointer', padding: '0.5rem' }}
+                          onClick={() => stripScrollRef.current?.scrollBy({ left: 300, behavior: 'smooth' })}
+                        >›</button>
+                      )}
                     </div>
-                    {etaLabel(activeOrder) && (
-                      <div className="badge badge-success" style={{ fontSize: '0.75rem', padding: '0.3rem 0.5rem' }}>
-                        {etaLabel(activeOrder)}
+                    {activeOrderList.length > 1 && (
+                      <div style={{ display: 'flex', justifyContent: 'center', gap: '0.3rem', marginTop: '0.4rem' }}>
+                        {activeOrderList.map((_, i) => (
+                          <div key={i} style={{ width: '4px', height: '4px', borderRadius: '50%', background: i === activeStripIndex ? 'white' : 'rgba(255,255,255,0.3)' }} />
+                        ))}
                       </div>
                     )}
                   </div>
